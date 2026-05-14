@@ -1,4 +1,6 @@
 import { MapContainer } from './components/map/MapContainer';
+import { LayerSwitcher } from './components/ui/LayerSwitcher';
+import { SettingsPanel } from './components/ui/SettingsPanel';
 
 export function App() {
   return (
@@ -11,6 +13,9 @@ export function App() {
           open-crete
         </div>
       </div>
+
+      <LayerSwitcher />
+      <SettingsPanel />
     </div>
   );
 }
