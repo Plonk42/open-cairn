@@ -31,96 +31,110 @@ export const IGN_DEM_APIKEY = 'Geoportail_App';
  * the `{z}/{x}/{y}` placeholders, preventing MapLibre from substituting them.
  */
 export function ignWmtsUrl(opts: {
-  layer: string;
-  format: 'image/png' | 'image/jpeg';
-  style?: string;
-  tilematrixset?: string;
-  /** Use the private endpoint (requires `apikey`). */
-  private?: boolean;
-  apikey?: string;
+    layer: string;
+    format: 'image/png' | 'image/jpeg';
+    style?: string;
+    tilematrixset?: string;
+    /** Use the private endpoint (requires `apikey`). */
+    private?: boolean;
+    apikey?: string;
 }): string {
-  const style = opts.style ?? 'normal';
-  const tms = opts.tilematrixset ?? 'PM';
-  const base = opts.private ? IGN_WMTS_PRIVATE : IGN_WMTS_PUBLIC;
-  const params = [
-    opts.apikey ? `apikey=${encodeURIComponent(opts.apikey)}` : null,
-    'SERVICE=WMTS',
-    'REQUEST=GetTile',
-    'VERSION=1.0.0',
-    `LAYER=${encodeURIComponent(opts.layer)}`,
-    `STYLE=${encodeURIComponent(style)}`,
-    `TILEMATRIXSET=${encodeURIComponent(tms)}`,
-    'TILEMATRIX={z}',
-    'TILECOL={x}',
-    'TILEROW={y}',
-    `FORMAT=${encodeURIComponent(opts.format)}`,
-  ]
-    .filter(Boolean)
-    .join('&');
-  return `${base}?${params}`;
+    const style = opts.style ?? 'normal';
+    const tms = opts.tilematrixset ?? 'PM';
+    const base = opts.private ? IGN_WMTS_PRIVATE : IGN_WMTS_PUBLIC;
+    const params = [
+        opts.apikey ? `apikey=${encodeURIComponent(opts.apikey)}` : null,
+        'SERVICE=WMTS',
+        'REQUEST=GetTile',
+        'VERSION=1.0.0',
+        `LAYER=${encodeURIComponent(opts.layer)}`,
+        `STYLE=${encodeURIComponent(style)}`,
+        `TILEMATRIXSET=${encodeURIComponent(tms)}`,
+        'TILEMATRIX={z}',
+        'TILECOL={x}',
+        'TILEROW={y}',
+        `FORMAT=${encodeURIComponent(opts.format)}`,
+    ]
+        .filter(Boolean)
+        .join('&');
+    return `${base}?${params}`;
 }
 
 export const IGN_LAYERS = {
-  scan25Tour: {
-    id: 'GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN25TOUR',
-    format: 'image/jpeg' as const,
-    minZoom: 6,
-    maxZoom: 16,
-    label: 'SCAN 25 Tour',
-    private: true,
-    apikey: IGN_SCAN_APIKEY,
-  },
-  planIgn: {
-    id: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
-    format: 'image/png' as const,
-    minZoom: 0,
-    maxZoom: 19,
-    label: 'Plan IGN',
-    private: false,
-  },
-  ortho: {
-    id: 'ORTHOIMAGERY.ORTHOPHOTOS',
-    format: 'image/jpeg' as const,
-    minZoom: 0,
-    maxZoom: 19,
-    label: 'Orthophotos',
-    private: false,
-  },
-  lidarMnsShadow: {
-    id: 'IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
-    format: 'image/png' as const,
-    minZoom: 0,
-    maxZoom: 18,
-    label: 'Ombrage LiDAR HD (MNS)',
-    private: false,
-  },
-  lidarMntShadow: {
-    id: 'IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
-    format: 'image/png' as const,
-    minZoom: 0,
-    maxZoom: 18,
-    label: 'Ombrage LiDAR HD (MNT)',
-    private: false,
-  },
-  elevationShadow: {
-    id: 'IGNF_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
-    format: 'image/png' as const,
-    minZoom: 0,
-    maxZoom: 17,
-    label: 'Ombrage IGN (national)',
-    private: false,
-  },
+    scan25Tour: {
+        id: 'GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN25TOUR',
+        format: 'image/jpeg' as const,
+        minZoom: 6,
+        // IGN SCAN25TOUR PM TileMatrixSet officially serves up to z=17 in
+        // most metropolitan areas. The underlying source data is 1:25 000
+        // (~2.4 m/px) so anything beyond that will look soft regardless.
+        maxZoom: 17,
+        label: 'SCAN 25 Tour',
+        private: true,
+        apikey: IGN_SCAN_APIKEY,
+    },
+    planIgn: {
+        id: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
+        format: 'image/png' as const,
+        minZoom: 0,
+        maxZoom: 19,
+        label: 'Plan IGN',
+        private: false,
+    },
+    ortho: {
+        id: 'ORTHOIMAGERY.ORTHOPHOTOS',
+        format: 'image/jpeg' as const,
+        minZoom: 0,
+        maxZoom: 19,
+        label: 'Orthophotos',
+        private: false,
+    },
+    lidarMnsShadow: {
+        id: 'IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
+        format: 'image/png' as const,
+        minZoom: 0,
+        maxZoom: 18,
+        label: 'Ombrage LiDAR HD (MNS)',
+        private: false,
+    },
+    lidarMntShadow: {
+        id: 'IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
+        format: 'image/png' as const,
+        minZoom: 0,
+        maxZoom: 18,
+        label: 'Ombrage LiDAR HD (MNT)',
+        private: false,
+    },
+    lidarMnhShadow: {
+        // MNH = Modèle Numérique de Hauteur (canopy / above-ground height).
+        // Less commonly published than MNT/MNS; if IGN returns 404 the
+        // composite protocol falls back to no shadow gracefully.
+        id: 'IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
+        format: 'image/png' as const,
+        minZoom: 0,
+        maxZoom: 18,
+        label: 'Ombrage LiDAR HD (MNH)',
+        private: false,
+    },
+    elevationShadow: {
+        id: 'IGNF_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
+        format: 'image/png' as const,
+        minZoom: 0,
+        maxZoom: 17,
+        label: 'Ombrage IGN (national)',
+        private: false,
+    },
 } as const;
 
 /** Build a WMTS URL for one of the registered IGN layers. */
 export function ignLayerUrl(layer: keyof typeof IGN_LAYERS): string {
-  const def = IGN_LAYERS[layer];
-  return ignWmtsUrl({
-    layer: def.id,
-    format: def.format,
-    private: def.private,
-    apikey: 'apikey' in def ? def.apikey : undefined,
-  });
+    const def = IGN_LAYERS[layer];
+    return ignWmtsUrl({
+        layer: def.id,
+        format: def.format,
+        private: def.private,
+        apikey: 'apikey' in def ? def.apikey : undefined,
+    });
 }
 
 /**
@@ -129,25 +143,25 @@ export function ignLayerUrl(layer: keyof typeof IGN_LAYERS): string {
  * source supports `{bbox-epsg-3857}` placeholders for WMS sources.
  */
 export const IGN_TERRAIN_RGB_LAYER =
-  'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
+    'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
 
 export function ignTerrainRgbUrl(): string {
-  const params = [
-    `apikey=${encodeURIComponent(IGN_DEM_APIKEY)}`,
-    'bbox={bbox-epsg-3857}',
-    'format=image/png',
-    'service=WMS',
-    'version=1.3.0',
-    'request=GetMap',
-    'crs=EPSG:3857',
-    'width=256',
-    'height=256',
-    'styles=terrainrgb0',
-    `layers=${encodeURIComponent(IGN_TERRAIN_RGB_LAYER)}`,
-  ].join('&');
-  return `${IGN_WMS_R_PRIVATE}?${params}`;
+    const params = [
+        `apikey=${encodeURIComponent(IGN_DEM_APIKEY)}`,
+        'bbox={bbox-epsg-3857}',
+        'format=image/png',
+        'service=WMS',
+        'version=1.3.0',
+        'request=GetMap',
+        'crs=EPSG:3857',
+        'width=256',
+        'height=256',
+        'styles=terrainrgb0',
+        `layers=${encodeURIComponent(IGN_TERRAIN_RGB_LAYER)}`,
+    ].join('&');
+    return `${IGN_WMS_R_PRIVATE}?${params}`;
 }
 
 /** IGN attribution text required by the Geoplateforme terms of use. */
 export const IGN_ATTRIBUTION =
-  '© <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> — Géoplateforme';
+    '© <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> — Géoplateforme';
