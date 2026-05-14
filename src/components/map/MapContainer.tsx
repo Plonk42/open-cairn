@@ -83,33 +83,60 @@ export function MapContainer() {
             }
         });
 
-        // Auto-suspend terrain at near-zero pitch. At pitch ~0 the camera
-        // looks straight down so terrain elevation has no visible effect,
-        // BUT MapLibre still enforces an "altitude floor" that prevents
-        // the camera from descending below the local DEM elevation. That
-        // floor manifests as the wheel-zoom blocking at a certain zoom
-        // (e.g. z 12.7 over a hill) and then jumping by several levels
-        // when a deeper DEM tile finally arrives. Disabling terrain
-        // below ~3deg pitch removes the wall without any visual change.
+        // Auto-suspend terrain during a wheel-zoom gesture, and also
+        // permanently at near-zero pitch.
+        //
+        // MapLibre enforces a "camera-above-terrain" altitude floor: as
+        // you zoom in, the camera descends, and once it reaches the local
+        // DEM elevation the gesture is corrupted -- either by freezing
+        // and then jumping zoom levels (when the next DEM tile loads),
+        // or by collapsing pitch (the floor pushes the camera back). At
+        // pitch 0 terrain has no visible effect anyway, and during a
+        // wheel-zoom the user wants smoothness over geometric accuracy.
+        // On wheel-end we restore terrain so the 3D relief comes back.
         const PITCH_TERRAIN_THRESHOLD = 3;
+        const WHEEL_RESTORE_DELAY_MS = 250;
         let terrainSuspended = false;
+        let wheelTimeout: ReturnType<typeof setTimeout> | null = null;
+        const enableTerrain = () => {
+            map.setTerrain({
+                source: 'terrain',
+                exaggeration: useMapStore.getState().terrainExaggeration,
+            });
+            terrainSuspended = false;
+        };
+        const disableTerrain = () => {
+            map.setTerrain(null);
+            terrainSuspended = true;
+        };
         const updateTerrainForPitch = () => {
             const wantTerrain = useMapStore.getState().terrainEnabled;
             if (!wantTerrain) return;
             const lowPitch = map.getPitch() < PITCH_TERRAIN_THRESHOLD;
-            if (lowPitch && !terrainSuspended) {
-                map.setTerrain(null);
-                terrainSuspended = true;
-            } else if (!lowPitch && terrainSuspended) {
-                map.setTerrain({
-                    source: 'terrain',
-                    exaggeration: useMapStore.getState().terrainExaggeration,
-                });
-                terrainSuspended = false;
-            }
+            if (lowPitch && !terrainSuspended) disableTerrain();
+            else if (!lowPitch && terrainSuspended && wheelTimeout === null) enableTerrain();
         };
         map.on('pitch', updateTerrainForPitch);
         map.on('load', updateTerrainForPitch);
+
+        // Wheel listener: kick terrain off for the duration of the gesture.
+        // Registered on the canvas in capture phase so it fires before
+        // MapLibre's own scroll handler reads the elevation.
+        const onWheel = () => {
+            if (!useMapStore.getState().terrainEnabled) return;
+            if (!terrainSuspended) disableTerrain();
+            if (wheelTimeout !== null) clearTimeout(wheelTimeout);
+            wheelTimeout = setTimeout(() => {
+                wheelTimeout = null;
+                if (
+                    useMapStore.getState().terrainEnabled &&
+                    map.getPitch() >= PITCH_TERRAIN_THRESHOLD
+                ) {
+                    enableTerrain();
+                }
+            }, WHEEL_RESTORE_DELAY_MS);
+        };
+        map.getCanvas().addEventListener('wheel', onWheel, { capture: true, passive: true });
 
         return () => {
             map.remove();
