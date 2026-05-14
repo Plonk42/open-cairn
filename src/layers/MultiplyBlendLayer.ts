@@ -259,11 +259,25 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
 
   render(
     gl: WebGLRenderingContext | WebGL2RenderingContext,
-    matrixInput: unknown,
+    options: unknown,
   ): void {
-    const matrix = matrixInput as unknown as number[];
+    // MapLibre v5 passes an options object (not a raw matrix). v4 used to pass
+    // a raw matrix as the 2nd argument, so support both.
+    let matrix: Float32Array | number[] | null = null;
+    if (options instanceof Float32Array || Array.isArray(options)) {
+      matrix = options as Float32Array | number[];
+    } else if (options && typeof options === 'object') {
+      const o = options as {
+        defaultProjectionData?: { mainMatrix?: Float32Array | number[] };
+        modelViewProjectionMatrix?: Float32Array | number[];
+      };
+      matrix =
+        o.defaultProjectionData?.mainMatrix ??
+        o.modelViewProjectionMatrix ??
+        null;
+    }
     const map = this.map;
-    if (!map || !this.program || !this.quadBuffer) return;
+    if (!map || !this.program || !this.quadBuffer || !matrix) return;
 
     const visible = this.visibleTiles(map);
 
@@ -296,7 +310,7 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
     gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);
 
-    const m = matrix as unknown as Float32Array | number[];
+    const m = matrix;
 
     for (const v of visible) {
       const k = `${v.z}/${v.x}/${v.y}`;

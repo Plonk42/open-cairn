@@ -29,9 +29,13 @@ export function MapContainer() {
       pitch: view.pitch,
       bearing: view.bearing,
       maxPitch: 85,
+      // Keep the camera independent of terrain elevation so zooming/panning
+      // never silently reduces pitch to avoid going through the ground.
+      centerClampedToGround: false,
       hash: true,
     });
     mapRef.current = map;
+    if (import.meta.env.DEV) (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
 
     map.addControl(
       new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }),
