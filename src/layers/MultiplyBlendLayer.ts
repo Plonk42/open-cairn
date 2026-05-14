@@ -31,16 +31,19 @@ interface CachedTile {
   texture: WebGLTexture | null;
   loaded: boolean;
   failed: boolean;
+  /** Per-tile vertex buffer holding the subdivided mesh in mercator XYZ + UV. */
+  vbo: WebGLBuffer | null;
+  vertexData: Float32Array | null;
 }
 
 const VERTEX_SRC = `
-attribute vec2 a_pos;        // mercator coordinates in [0, 1]
+attribute vec3 a_pos;        // mercator coordinates (xyz, with z = altitude)
 attribute vec2 a_uv;          // tile UVs in [0, 1]
 uniform mat4 u_matrix;
 varying vec2 v_uv;
 void main() {
   v_uv = a_uv;
-  gl_Position = u_matrix * vec4(a_pos, 0.0, 1.0);
+  gl_Position = u_matrix * vec4(a_pos, 1.0);
 }
 `;
 
@@ -111,6 +114,10 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
   private uIntensity: WebGLUniformLocation | null = null;
 
   private quadBuffer: WebGLBuffer | null = null;
+  private indexBuffer: WebGLBuffer | null = null;
+  private indexCount = 0;
+  /** Subdivision count per tile edge. Total vertices = (SUBDIV+1)². */
+  private static readonly SUBDIV = 16;
 
   private intensity = 0.85;
   private maxTileZoom = 17;
@@ -137,19 +144,26 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
     this.uTexture = gl.getUniformLocation(this.program, 'u_texture');
     this.uIntensity = gl.getUniformLocation(this.program, 'u_intensity');
 
-    // A unit quad covering [0,1]² in mercator coordinates, with matching UVs.
-    // Each vertex: x, y, u, v.
-    const quad = new Float32Array([
-      0, 0, 0, 0,
-      1, 0, 1, 0,
-      0, 1, 0, 1,
-      0, 1, 0, 1,
-      1, 0, 1, 0,
-      1, 1, 1, 1,
-    ]);
-    this.quadBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+    // Build the shared index buffer for a SUBDIV×SUBDIV grid of quads.
+    const N = MultiplyBlendLayer.SUBDIV;
+    const indices = new Uint16Array(N * N * 6);
+    let i = 0;
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const a = y * (N + 1) + x;
+        const b = a + 1;
+        const c = a + (N + 1);
+        const d = c + 1;
+        indices[i++] = a; indices[i++] = b; indices[i++] = c;
+        indices[i++] = c; indices[i++] = b; indices[i++] = d;
+      }
+    }
+    this.indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    this.indexCount = indices.length;
+    // Keep a sentinel non-null buffer so existing null-checks still work.
+    this.quadBuffer = this.indexBuffer;
   }
 
   onRemove(): void {
@@ -157,13 +171,15 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
     if (gl) {
       this.tiles.forEach((t) => {
         if (t.texture) gl.deleteTexture(t.texture);
+        if (t.vbo) gl.deleteBuffer(t.vbo);
       });
-      if (this.quadBuffer) gl.deleteBuffer(this.quadBuffer);
+      if (this.indexBuffer) gl.deleteBuffer(this.indexBuffer);
       if (this.program) gl.deleteProgram(this.program);
     }
     this.tiles.clear();
     this.program = null;
     this.quadBuffer = null;
+    this.indexBuffer = null;
     this.gl = null;
     this.map = null;
   }
@@ -252,6 +268,7 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
     for (const [k, tile] of this.tiles) {
       if (keep.has(k)) continue;
       if (tile.texture) gl.deleteTexture(tile.texture);
+      if (tile.vbo) gl.deleteBuffer(tile.vbo);
       this.tiles.delete(k);
       if (this.tiles.size <= 200) break;
     }
@@ -286,7 +303,16 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
       const k = `${v.z}/${v.x}/${v.y}`;
       let t = this.tiles.get(k);
       if (!t) {
-        t = { z: v.z, x: v.x, y: v.y, texture: null, loaded: false, failed: false };
+        t = {
+          z: v.z,
+          x: v.x,
+          y: v.y,
+          texture: null,
+          loaded: false,
+          failed: false,
+          vbo: null,
+          vertexData: null,
+        };
         this.tiles.set(k, t);
         this.loadTile(t);
       }
@@ -294,70 +320,83 @@ export class MultiplyBlendLayer implements maplibregl.CustomLayerInterface {
     this.evictTiles(visible);
 
     gl.useProgram(this.program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.enableVertexAttribArray(this.aPos);
     gl.enableVertexAttribArray(this.aUv);
-    gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 16, 0);
-    gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 16, 8);
 
     gl.uniform1f(this.uIntensity, this.intensity);
+    gl.uniformMatrix4fv(this.uMatrix, false, matrix as Float32Array);
     gl.uniform1i(this.uTexture, 0);
     gl.activeTexture(gl.TEXTURE0);
 
     // Multiply blending: out = src * dst, no alpha.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.DST_COLOR, gl.ZERO);
-    gl.disable(gl.DEPTH_TEST);
+    // Depth-test against the terrain draped base so the shadow doesn't bleed
+    // through ridges, but don't write depth (it's a translucent overlay).
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
 
-    const m = matrix;
+    const N = MultiplyBlendLayer.SUBDIV;
+    const VERT_STRIDE_FLOATS = 5; // x, y, z, u, v
+    const VERT_STRIDE_BYTES = VERT_STRIDE_FLOATS * 4;
+    const queryElev = (lng: number, lat: number): number => {
+      // queryTerrainElevation returns the displayed elevation in meters
+      // (with terrain exaggeration already applied), or null/undefined when
+      // the terrain DEM hasn't loaded yet for this location.
+      const e = (
+        map as unknown as {
+          queryTerrainElevation?: (
+            l: maplibregl.LngLatLike,
+          ) => number | null | undefined;
+        }
+      ).queryTerrainElevation?.([lng, lat]);
+      return typeof e === 'number' && Number.isFinite(e) ? e : 0;
+    };
 
     for (const v of visible) {
       const k = `${v.z}/${v.x}/${v.y}`;
       const t = this.tiles.get(k);
       if (!t || !t.loaded || !t.texture) continue;
 
-      // Mercator-coordinate corners of this tile (origin top-left, [0,1] range).
       const [lng0, lat0] = tileToLngLat(v.z, v.x, v.y);
       const [lng1, lat1] = tileToLngLat(v.z, v.x + 1, v.y + 1);
-      const nw = maplibregl.MercatorCoordinate.fromLngLat([lng0, lat0]);
-      const se = maplibregl.MercatorCoordinate.fromLngLat([lng1, lat1]);
 
-      // Build a per-tile model matrix: translate by (nw.x, nw.y), scale by
-      // (se.x - nw.x, se.y - nw.y) → maps the unit quad to the tile extent.
-      const sx = se.x - nw.x;
-      const sy = se.y - nw.y;
-      const tx = nw.x;
-      const ty = nw.y;
+      // Build / refresh the per-tile subdivided mesh in absolute mercator
+      // XYZ coordinates so each vertex is anchored to the local terrain.
+      if (!t.vertexData) {
+        t.vertexData = new Float32Array((N + 1) * (N + 1) * VERT_STRIDE_FLOATS);
+      }
+      const data = t.vertexData;
+      let off = 0;
+      for (let iy = 0; iy <= N; iy++) {
+        const fy = iy / N;
+        const lat = lat0 + (lat1 - lat0) * fy;
+        for (let ix = 0; ix <= N; ix++) {
+          const fx = ix / N;
+          const lng = lng0 + (lng1 - lng0) * fx;
+          const altMeters = queryElev(lng, lat);
+          const mc = maplibregl.MercatorCoordinate.fromLngLat(
+            [lng, lat],
+            altMeters,
+          );
+          data[off++] = mc.x;
+          data[off++] = mc.y;
+          data[off++] = mc.z ?? 0;
+          data[off++] = fx;
+          data[off++] = fy;
+        }
+      }
 
-      // Compose: u_matrix = matrix * translate(tx,ty) * scale(sx,sy).
-      // We unroll a 4x4 column-major multiplication for speed.
-      const mvp = new Float32Array(16);
-      // Load matrix into columns m0..m3
-      // Column 0
-      mvp[0] = m[0] * sx;
-      mvp[1] = m[1] * sx;
-      mvp[2] = m[2] * sx;
-      mvp[3] = m[3] * sx;
-      // Column 1
-      mvp[4] = m[4] * sy;
-      mvp[5] = m[5] * sy;
-      mvp[6] = m[6] * sy;
-      mvp[7] = m[7] * sy;
-      // Column 2 (unchanged)
-      mvp[8] = m[8];
-      mvp[9] = m[9];
-      mvp[10] = m[10];
-      mvp[11] = m[11];
-      // Column 3: matrix * (tx, ty, 0, 1)
-      mvp[12] = m[0] * tx + m[4] * ty + m[12];
-      mvp[13] = m[1] * tx + m[5] * ty + m[13];
-      mvp[14] = m[2] * tx + m[6] * ty + m[14];
-      mvp[15] = m[3] * tx + m[7] * ty + m[15];
+      if (!t.vbo) t.vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, t.vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(this.aPos, 3, gl.FLOAT, false, VERT_STRIDE_BYTES, 0);
+      gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, VERT_STRIDE_BYTES, 12);
 
-      gl.uniformMatrix4fv(this.uMatrix, false, mvp);
       gl.bindTexture(gl.TEXTURE_2D, t.texture);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
     }
 
     gl.disable(gl.BLEND);
