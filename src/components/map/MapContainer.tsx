@@ -39,11 +39,16 @@ export function MapContainer() {
             pitch: view.pitch,
             bearing: view.bearing,
             maxPitch: 85,
-            // Keep the camera at its computed altitude regardless of terrain
-            // elevation under the screen center. With `true`, zooming in over
-            // a peak silently lifts the camera so the foreground terrain
-            // falls under the near plane and disappears.
-            centerClampedToGround: false,
+            // Allow overzoom past the source maxzoom so users can keep
+            // diving in past z19 (MapLibre will reuse parent tiles).
+            maxZoom: 22,
+            // Required when terrain is on: with `false`, the wheel-zoom
+            // anchor is computed against the flat z=0 plane and ends up
+            // behind the camera at high pitch, which inverts the gesture.
+            // The foreground "holes" we used to see at high pitch were
+            // caused by the composite protocol's transparent fallback,
+            // not by this flag.
+            centerClampedToGround: true,
             hash: true,
         });
         mapRef.current = map;
@@ -56,6 +61,15 @@ export function MapContainer() {
         );
         map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+        // At high pitch with terrain on, the cursor-anchored wheel-zoom maps
+        // the cursor to a ground point that may be very far in front of the
+        // camera (or even behind it), making the zoom math degenerate -- a
+        // single wheel tick can shrink zoom by 2 levels and collapse pitch.
+        // Anchoring on the screen centre instead keeps zoom monotonic and
+        // predictable in 3D.
+        map.scrollZoom.disable();
+        map.scrollZoom.enable({ around: 'center' });
 
         map.on('moveend', () => {
             const c = map.getCenter();
