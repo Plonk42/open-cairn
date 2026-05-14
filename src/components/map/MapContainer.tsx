@@ -37,9 +37,11 @@ export function MapContainer() {
             pitch: view.pitch,
             bearing: view.bearing,
             maxPitch: 85,
-            // Keep the camera independent of terrain elevation so zooming/panning
-            // never silently reduces pitch to avoid going through the ground.
-            centerClampedToGround: true,
+            // Keep the camera at its computed altitude regardless of terrain
+            // elevation under the screen center. With `true`, zooming in over
+            // a peak silently lifts the camera so the foreground terrain
+            // falls under the near plane and disappears.
+            centerClampedToGround: false,
             hash: true,
         });
         mapRef.current = map;
