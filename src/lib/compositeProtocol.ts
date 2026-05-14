@@ -1,13 +1,10 @@
 /**
  * `composite://` MapLibre protocol — fetches a base raster tile and a LiDAR
  * shadow tile in parallel, multiplies them in a 2D canvas, and returns the
- * resulting tile to MapLibre. The composited raster is then drapéd onto the
- * 3D terrain by MapLibre's normal raster pipeline (no custom layer needed),
- * which avoids the lag and z-fighting of a per-frame WebGL overlay.
+ * result to MapLibre as an ImageBitmap (no PNG re-encode).
  *
  * URL format:
  *   composite://<baseKey>/<intensityPercent>/{z}/{x}/{y}
- * e.g. composite://scan25Tour/85/12/2117/1469
  */
 
 import maplibregl from 'maplibre-gl';
@@ -32,37 +29,47 @@ function tileUrlFor(layerKey: LayerKey, z: number, x: number, y: number): string
     .replace('{y}', String(y));
 }
 
-async function fetchImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load ${url}`));
-    img.src = url;
-  });
+/** Fetch a tile as an ImageBitmap. Returns null on any failure (network,
+ *  decode, abort, …) so the caller can degrade gracefully. */
+async function fetchBitmap(
+  url: string,
+  signal?: AbortSignal,
+): Promise<ImageBitmap | null> {
+  try {
+    const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await createImageBitmap(blob);
+  } catch {
+    return null;
+  }
 }
 
-async function composite(
-  baseKey: LayerKey,
-  intensity: number,
-  z: number,
-  x: number,
-  y: number,
-): Promise<ArrayBuffer> {
+interface CompositeArgs {
+  baseKey: LayerKey;
+  intensity: number;
+  z: number;
+  x: number;
+  y: number;
+  signal?: AbortSignal;
+}
+
+async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
+  const { baseKey, intensity, z, x, y, signal } = args;
   const baseUrl = tileUrlFor(baseKey, z, x, y);
   const shadowDef = IGN_LAYERS[SHADOW_KEY];
-  const shadowAvailable = z >= shadowDef.minZoom && z <= shadowDef.maxZoom;
-  const shadowUrl = shadowAvailable ? tileUrlFor(SHADOW_KEY, z, x, y) : null;
+  const wantShadow =
+    intensity > 0 && z >= shadowDef.minZoom && z <= shadowDef.maxZoom;
+  const shadowUrl = wantShadow ? tileUrlFor(SHADOW_KEY, z, x, y) : null;
 
   const [base, shadow] = await Promise.all([
-    fetchImage(baseUrl),
-    shadowUrl
-      ? fetchImage(shadowUrl).catch(() => null)
-      : Promise.resolve(null),
+    fetchBitmap(baseUrl, signal),
+    shadowUrl ? fetchBitmap(shadowUrl, signal) : Promise.resolve(null),
   ]);
+  if (!base) return null;
 
-  const w = base.naturalWidth || 256;
-  const h = base.naturalHeight || 256;
+  const w = base.width || 256;
+  const h = base.height || 256;
   const useOffscreen = typeof OffscreenCanvas !== 'undefined';
   const canvas: OffscreenCanvas | HTMLCanvasElement = useOffscreen
     ? new OffscreenCanvas(w, h)
@@ -71,53 +78,59 @@ async function composite(
     | OffscreenCanvasRenderingContext2D
     | CanvasRenderingContext2D
     | null;
-  if (!ctx) throw new Error('2D context unavailable');
+  if (!ctx) {
+    base.close?.();
+    shadow?.close?.();
+    return null;
+  }
 
-  if (shadow && intensity > 0) {
-    // Step 1: build the per-pixel shadow factor = mix(white, shadow, intensity)
-    // Fill white, then draw the shadow at alpha=intensity over it.
+  if (shadow) {
+    // mix(white, shadow, intensity) → multiply against base.
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = intensity;
     ctx.drawImage(shadow, 0, 0, w, h);
     ctx.globalAlpha = 1;
-    // Step 2: multiply with the base layer.
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(base, 0, 0, w, h);
     ctx.globalCompositeOperation = 'source-over';
   } else {
     ctx.drawImage(base, 0, 0, w, h);
   }
+  base.close?.();
+  shadow?.close?.();
 
-  // Encode as PNG.
-  if (canvas instanceof OffscreenCanvas) {
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
-    return await blob.arrayBuffer();
-  }
-  const blob: Blob = await new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-      'image/png',
-    );
-  });
-  return await blob.arrayBuffer();
+  // Hand back an ImageBitmap directly — MapLibre v5 accepts it as-is and
+  // skips the PNG decode/upload roundtrip (the main perf bottleneck).
+  return await createImageBitmap(canvas);
 }
 
 export function registerCompositeProtocol(): void {
   if (registered) return;
   registered = true;
-  maplibregl.addProtocol('composite', async (req) => {
-    // req.url is "composite://<baseKey>/<intensity>/<z>/<x>/<y>"
+  maplibregl.addProtocol('composite', async (req, abortController) => {
     const url = req.url.replace(/^composite:\/\//, '');
     const parts = url.split('/');
     if (parts.length < 5) throw new Error(`Bad composite URL: ${req.url}`);
     const baseKey = parts[0] as LayerKey;
     const intensity = Math.max(0, Math.min(1, Number(parts[1]) / 100));
-    const z = Number(parts[2]);
-    const x = Number(parts[3]);
-    const y = Number(parts[4]);
-    const data = await composite(baseKey, intensity, z, x, y);
-    return { data };
+    const bitmap = await composite({
+      baseKey,
+      intensity,
+      z: Number(parts[2]),
+      x: Number(parts[3]),
+      y: Number(parts[4]),
+      signal: abortController?.signal,
+    });
+    if (!bitmap) {
+      // 1×1 transparent bitmap → MapLibre keeps showing the previous
+      // overzoomed tile instead of dropping a black square through to
+      // the background.
+      const blank = new OffscreenCanvas(1, 1);
+      blank.getContext('2d')?.clearRect(0, 0, 1, 1);
+      return { data: await createImageBitmap(blank) };
+    }
+    return { data: bitmap };
   });
 }
 
