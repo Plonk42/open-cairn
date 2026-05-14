@@ -89,26 +89,56 @@ export function MapContainer() {
         //
         // We integrate wheel events into a target zoom and lerp the
         // current zoom toward it on every animation frame using jumpTo.
-        const ZOOM_PER_NOTCH = 1 / 450; // ~0.27 zoom per 120 deltaY notch
-        const SMOOTHING = 0.18; // per-frame lerp factor (higher = snappier)
+        //
+        // Catch: with terrain enabled, MapLibre's jumpTo() re-reads the
+        // terrain elevation at the new tileZoom on every call (camera.ts
+        // line ~962, `tr.setElevation(this.terrain.getElevationForLngLatZoom(...))`).
+        // When tileZoom crosses an integer boundary a different DEM tile
+        // is sampled; if that tile hasn't loaded yet, MapLibre returns a
+        // stale parent value and the camera altitude lurches. This shows
+        // up as a "scale 1km -> 100m" snap on every wheel notch even
+        // though zoom is changing smoothly.
+        //
+        // We freeze elevation for the duration of the gesture: snapshot
+        // it on the first notch and force the transform back to that
+        // value after every jumpTo. Once the gesture settles we leave
+        // the freeze in place; the next user pan/zoom naturally re-reads
+        // elevation from whatever tile is then loaded.
+        const ZOOM_PER_NOTCH = 1 / 1000; // ~0.12 zoom per 120 deltaY notch
+        const SMOOTHING = 0.18;
         let targetZoom = map.getZoom();
+        let frozenElevation: number | null = null;
         let rafId = 0;
         const tick = () => {
             const cur = map.getZoom();
             const diff = targetZoom - cur;
-            if (Math.abs(diff) < 0.001) {
-                map.jumpTo({ zoom: targetZoom });
+            const finished = Math.abs(diff) < 0.0005;
+            const next = finished ? targetZoom : cur + diff * SMOOTHING;
+            map.jumpTo({ zoom: next });
+            if (frozenElevation !== null) {
+                // jumpTo just re-read terrain elevation at the new tileZoom
+                // and possibly clobbered it; restore the snapshot.
+                map.transform.setElevation(frozenElevation);
+            }
+            if (finished) {
                 rafId = 0;
                 return;
             }
-            map.jumpTo({ zoom: cur + diff * SMOOTHING });
             rafId = requestAnimationFrame(tick);
         };
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
-            // Re-sync target on idle so user pan/keyboard zoom is respected.
-            if (!rafId) targetZoom = map.getZoom();
-            const dz = -e.deltaY * ZOOM_PER_NOTCH;
+            // Re-sync target & freeze elevation on idle so user pan/keyboard
+            // zoom is respected and we always freeze against the elevation
+            // currently visible.
+            if (!rafId) {
+                targetZoom = map.getZoom();
+                frozenElevation = map.transform.elevation;
+            }
+            // Normalise deltaMode: line scrolls (Firefox) report ~3 lines,
+            // pixel scrolls (everyone else) report ~100 px per notch.
+            const dy = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+            const dz = -dy * ZOOM_PER_NOTCH;
             targetZoom = Math.max(
                 map.getMinZoom(),
                 Math.min(map.getMaxZoom(), targetZoom + dz),
@@ -116,6 +146,14 @@ export function MapContainer() {
             if (!rafId) rafId = requestAnimationFrame(tick);
         };
         map.getCanvas().addEventListener('wheel', onWheel, { passive: false });
+        // Release the frozen elevation snapshot on any non-wheel
+        // interaction so panning re-syncs to the latest DEM.
+        const releaseFreeze = () => {
+            if (!rafId) frozenElevation = null;
+        };
+        map.on('dragstart', releaseFreeze);
+        map.on('rotatestart', releaseFreeze);
+        map.on('pitchstart', releaseFreeze);
 
         map.on('moveend', () => {
             const c = map.getCenter();
