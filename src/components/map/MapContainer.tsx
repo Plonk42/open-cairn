@@ -42,11 +42,15 @@ export function MapContainer() {
             // Allow overzoom past the source maxzoom so users can keep
             // diving in past z19 (MapLibre will reuse parent tiles).
             maxZoom: 22,
-            // Default (true) is the right choice for terrain rendering;
-            // we drive zoom ourselves via easeTo() in the custom wheel
-            // handler below, which doesn't trigger the post-gesture
-            // recalculate-zoom-against-terrain code path.
-            centerClampedToGround: true,
+            // false: prevent the post-animation recalculateZoomAndCenter
+            // (terrain) pass that fires at the end of every camera move
+            // (right-click drag, NavigationControl click, easeTo). With
+            // `true` that pass re-derives zoom from camera altitude over
+            // a possibly-stale DEM tile and snaps zoom backwards after
+            // every gesture. We keep zoom authoritative; this only
+            // affects how MapLibre would clamp camera-vs-ground, which
+            // we don't need for our use case.
+            centerClampedToGround: false,
             hash: true,
             // Disable MapLibre's built-in scroll-zoom gesture handler.
             // Its terrain interaction is broken: at any pitch the
