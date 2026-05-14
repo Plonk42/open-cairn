@@ -42,8 +42,20 @@ export function MapContainer() {
             // Allow overzoom past the source maxzoom so users can keep
             // diving in past z19 (MapLibre will reuse parent tiles).
             maxZoom: 22,
+            // Default (true) is the right choice for terrain rendering;
+            // we drive zoom ourselves via easeTo() in the custom wheel
+            // handler below, which doesn't trigger the post-gesture
+            // recalculate-zoom-against-terrain code path.
             centerClampedToGround: true,
             hash: true,
+            // Disable MapLibre's built-in scroll-zoom gesture handler.
+            // Its terrain interaction is broken: at any pitch the
+            // setLocationAtPoint() call it issues to keep the cursor
+            // anchored over the same ground point with terrain on
+            // produces violent pitch collapses or zoom freezes that
+            // can't be worked around through public configuration.
+            // We replace it with a plain easeTo() based handler below.
+            scrollZoom: false,
         });
         mapRef.current = map;
         if (import.meta.env.DEV)
@@ -56,12 +68,50 @@ export function MapContainer() {
         map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-        // High-pitch wheel-zoom would otherwise be cursor-anchored, which
-        // unprojects to a far-away ground point and makes the gesture
-        // collapse pitch -- anchor on the screen centre instead so zoom
-        // stays monotonic and pitch is preserved.
-        map.scrollZoom.disable();
-        map.scrollZoom.enable({ around: 'center' });
+        // Custom wheel-zoom built on jumpTo() + requestAnimationFrame.
+        //
+        // Why we don't use MapLibre's built-in scrollZoom or easeTo:
+        //   - The built-in handler issues a setLocationAtPoint() to anchor
+        //     the cursor over a ground point each tick; with terrain on
+        //     this collapses pitch and freezes zoom at any pitch.
+        //   - easeTo() runs an animation that ends with `_finalizeElevation`
+        //     -> `recalculateZoomAndCenter(terrain)` (when
+        //     centerClampedToGround=true), and rapid easeTo() calls fight
+        //     each other through that recalculation, producing pitch
+        //     decay and zoom freezes.
+        //   - jumpTo() does NOT trigger `_finalizeElevation` and leaves
+        //     pitch/center untouched. Verified to be smooth and stable
+        //     when called repeatedly at high pitch with terrain.
+        //
+        // We integrate wheel events into a target zoom and lerp the
+        // current zoom toward it on every animation frame using jumpTo.
+        const ZOOM_PER_NOTCH = 1 / 450; // ~0.27 zoom per 120 deltaY notch
+        const SMOOTHING = 0.18; // per-frame lerp factor (higher = snappier)
+        let targetZoom = map.getZoom();
+        let rafId = 0;
+        const tick = () => {
+            const cur = map.getZoom();
+            const diff = targetZoom - cur;
+            if (Math.abs(diff) < 0.001) {
+                map.jumpTo({ zoom: targetZoom });
+                rafId = 0;
+                return;
+            }
+            map.jumpTo({ zoom: cur + diff * SMOOTHING });
+            rafId = requestAnimationFrame(tick);
+        };
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            // Re-sync target on idle so user pan/keyboard zoom is respected.
+            if (!rafId) targetZoom = map.getZoom();
+            const dz = -e.deltaY * ZOOM_PER_NOTCH;
+            targetZoom = Math.max(
+                map.getMinZoom(),
+                Math.min(map.getMaxZoom(), targetZoom + dz),
+            );
+            if (!rafId) rafId = requestAnimationFrame(tick);
+        };
+        map.getCanvas().addEventListener('wheel', onWheel, { passive: false });
 
         map.on('moveend', () => {
             const c = map.getCenter();
@@ -82,61 +132,6 @@ export function MapContainer() {
                 });
             }
         });
-
-        // Auto-suspend terrain during a wheel-zoom gesture, and also
-        // permanently at near-zero pitch.
-        //
-        // MapLibre enforces a "camera-above-terrain" altitude floor: as
-        // you zoom in, the camera descends, and once it reaches the local
-        // DEM elevation the gesture is corrupted -- either by freezing
-        // and then jumping zoom levels (when the next DEM tile loads),
-        // or by collapsing pitch (the floor pushes the camera back). At
-        // pitch 0 terrain has no visible effect anyway, and during a
-        // wheel-zoom the user wants smoothness over geometric accuracy.
-        // On wheel-end we restore terrain so the 3D relief comes back.
-        const PITCH_TERRAIN_THRESHOLD = 3;
-        const WHEEL_RESTORE_DELAY_MS = 250;
-        let terrainSuspended = false;
-        let wheelTimeout: ReturnType<typeof setTimeout> | null = null;
-        const enableTerrain = () => {
-            map.setTerrain({
-                source: 'terrain',
-                exaggeration: useMapStore.getState().terrainExaggeration,
-            });
-            terrainSuspended = false;
-        };
-        const disableTerrain = () => {
-            map.setTerrain(null);
-            terrainSuspended = true;
-        };
-        const updateTerrainForPitch = () => {
-            const wantTerrain = useMapStore.getState().terrainEnabled;
-            if (!wantTerrain) return;
-            const lowPitch = map.getPitch() < PITCH_TERRAIN_THRESHOLD;
-            if (lowPitch && !terrainSuspended) disableTerrain();
-            else if (!lowPitch && terrainSuspended && wheelTimeout === null) enableTerrain();
-        };
-        map.on('pitch', updateTerrainForPitch);
-        map.on('load', updateTerrainForPitch);
-
-        // Wheel listener: kick terrain off for the duration of the gesture.
-        // Registered on the canvas in capture phase so it fires before
-        // MapLibre's own scroll handler reads the elevation.
-        const onWheel = () => {
-            if (!useMapStore.getState().terrainEnabled) return;
-            if (!terrainSuspended) disableTerrain();
-            if (wheelTimeout !== null) clearTimeout(wheelTimeout);
-            wheelTimeout = setTimeout(() => {
-                wheelTimeout = null;
-                if (
-                    useMapStore.getState().terrainEnabled &&
-                    map.getPitch() >= PITCH_TERRAIN_THRESHOLD
-                ) {
-                    enableTerrain();
-                }
-            }, WHEEL_RESTORE_DELAY_MS);
-        };
-        map.getCanvas().addEventListener('wheel', onWheel, { capture: true, passive: true });
 
         return () => {
             map.remove();
