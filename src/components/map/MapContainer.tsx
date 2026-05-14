@@ -42,12 +42,6 @@ export function MapContainer() {
             // Allow overzoom past the source maxzoom so users can keep
             // diving in past z19 (MapLibre will reuse parent tiles).
             maxZoom: 22,
-            // Required when terrain is on: with `false`, the wheel-zoom
-            // anchor is computed against the flat z=0 plane and ends up
-            // behind the camera at high pitch, which inverts the gesture.
-            // The foreground "holes" we used to see at high pitch were
-            // caused by the composite protocol's transparent fallback,
-            // not by this flag.
             centerClampedToGround: true,
             hash: true,
         });
@@ -62,12 +56,10 @@ export function MapContainer() {
         map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-        // At high pitch with terrain on, the cursor-anchored wheel-zoom maps
-        // the cursor to a ground point that may be very far in front of the
-        // camera (or even behind it), making the zoom math degenerate -- a
-        // single wheel tick can shrink zoom by 2 levels and collapse pitch.
-        // Anchoring on the screen centre instead keeps zoom monotonic and
-        // predictable in 3D.
+        // High-pitch wheel-zoom would otherwise be cursor-anchored, which
+        // unprojects to a far-away ground point and makes the gesture
+        // collapse pitch -- anchor on the screen centre instead so zoom
+        // stays monotonic and pitch is preserved.
         map.scrollZoom.disable();
         map.scrollZoom.enable({ around: 'center' });
 
@@ -90,6 +82,34 @@ export function MapContainer() {
                 });
             }
         });
+
+        // Auto-suspend terrain at near-zero pitch. At pitch ~0 the camera
+        // looks straight down so terrain elevation has no visible effect,
+        // BUT MapLibre still enforces an "altitude floor" that prevents
+        // the camera from descending below the local DEM elevation. That
+        // floor manifests as the wheel-zoom blocking at a certain zoom
+        // (e.g. z 12.7 over a hill) and then jumping by several levels
+        // when a deeper DEM tile finally arrives. Disabling terrain
+        // below ~3deg pitch removes the wall without any visual change.
+        const PITCH_TERRAIN_THRESHOLD = 3;
+        let terrainSuspended = false;
+        const updateTerrainForPitch = () => {
+            const wantTerrain = useMapStore.getState().terrainEnabled;
+            if (!wantTerrain) return;
+            const lowPitch = map.getPitch() < PITCH_TERRAIN_THRESHOLD;
+            if (lowPitch && !terrainSuspended) {
+                map.setTerrain(null);
+                terrainSuspended = true;
+            } else if (!lowPitch && terrainSuspended) {
+                map.setTerrain({
+                    source: 'terrain',
+                    exaggeration: useMapStore.getState().terrainExaggeration,
+                });
+                terrainSuspended = false;
+            }
+        };
+        map.on('pitch', updateTerrainForPitch);
+        map.on('load', updateTerrainForPitch);
 
         return () => {
             map.remove();
