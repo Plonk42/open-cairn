@@ -7,6 +7,38 @@ import { useEffect, useRef } from 'react';
 
 registerCompositeProtocol();
 
+/**
+ * Pin camera elevation to sea level by replacing the terrain object's
+ * elevation sampling methods with no-ops that return 0.
+ *
+ * When terrain is active, map.jumpTo() calls
+ *   transform.setElevation(terrain.getElevationForLngLatZoom(...))
+ * on every call. getElevationForLngLatZoom samples the raster-dem tile for
+ * the current tileZoom. When tileZoom crosses an integer boundary the tile
+ * changes; if the new tile hasn't loaded yet, MapLibre falls back to a stale
+ * parent value that differs by hundreds of metres → camera altitude lurches
+ * → scale bar jumps, view snaps back after every gesture.
+ *
+ * We only need terrain for *visual* extrusion. The vertex shader reads
+ * getDEMElevation() directly via the raster-dem texture, completely
+ * independent of getElevationForLngLatZoom / getMinTileElevationForLngLatZoom.
+ * So intercepting only those two public methods is safe.
+ *
+ * Must be called after every map.setTerrain({...}) call because setTerrain()
+ * creates a new Terrain instance each time.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pinTerrainCamera(map: maplibregl.Map) {
+    if (!map.terrain) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = map.terrain as any;
+    t.getElevationForLngLatZoom = () => 0;
+    t.getMinTileElevationForLngLatZoom = () => 0;
+    // Reset whatever elevation setTerrain() just wrote synchronously.
+    map.transform.setElevation(0);
+    map.transform.setMinElevationForCurrentTile(0);
+}
+
 export function MapContainer() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -72,69 +104,30 @@ export function MapContainer() {
         map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-        // Custom wheel-zoom built on jumpTo() + requestAnimationFrame.
-        //
-        // Why we don't use MapLibre's built-in scrollZoom or easeTo:
-        //   - The built-in handler issues a setLocationAtPoint() to anchor
-        //     the cursor over a ground point each tick; with terrain on
-        //     this collapses pitch and freezes zoom at any pitch.
-        //   - easeTo() runs an animation that ends with `_finalizeElevation`
-        //     -> `recalculateZoomAndCenter(terrain)` (when
-        //     centerClampedToGround=true), and rapid easeTo() calls fight
-        //     each other through that recalculation, producing pitch
-        //     decay and zoom freezes.
-        //   - jumpTo() does NOT trigger `_finalizeElevation` and leaves
-        //     pitch/center untouched. Verified to be smooth and stable
-        //     when called repeatedly at high pitch with terrain.
-        //
-        // We integrate wheel events into a target zoom and lerp the
-        // current zoom toward it on every animation frame using jumpTo.
-        //
-        // Catch: with terrain enabled, MapLibre's jumpTo() re-reads the
-        // terrain elevation at the new tileZoom on every call (camera.ts
-        // line ~962, `tr.setElevation(this.terrain.getElevationForLngLatZoom(...))`).
-        // When tileZoom crosses an integer boundary a different DEM tile
-        // is sampled; if that tile hasn't loaded yet, MapLibre returns a
-        // stale parent value and the camera altitude lurches. This shows
-        // up as a "scale 1km -> 100m" snap on every wheel notch even
-        // though zoom is changing smoothly.
-        //
-        // We freeze elevation for the duration of the gesture: snapshot
-        // it on the first notch and force the transform back to that
-        // value after every jumpTo. Once the gesture settles we leave
-        // the freeze in place; the next user pan/zoom naturally re-reads
-        // elevation from whatever tile is then loaded.
+        // ── Custom wheel-zoom ──────────────────────────────────────────
+        // MapLibre's built-in scrollZoom corrupts pitch and freezes zoom
+        // when terrain is enabled (see commit message). We use jumpTo()
+        // + rAF instead. Elevation is stable because pinTerrainCamera()
+        // ensures getElevationForLngLatZoom always returns 0.
         const ZOOM_PER_NOTCH = 1 / 1000; // ~0.12 zoom per 120 deltaY notch
         const SMOOTHING = 0.18;
         let targetZoom = map.getZoom();
-        let frozenElevation: number | null = null;
         let rafId = 0;
         const tick = () => {
             const cur = map.getZoom();
             const diff = targetZoom - cur;
-            const finished = Math.abs(diff) < 0.0005;
-            const next = finished ? targetZoom : cur + diff * SMOOTHING;
-            map.jumpTo({ zoom: next });
-            if (frozenElevation !== null) {
-                // jumpTo just re-read terrain elevation at the new tileZoom
-                // and possibly clobbered it; restore the snapshot.
-                map.transform.setElevation(frozenElevation);
-            }
-            if (finished) {
+            if (Math.abs(diff) < 0.0005) {
+                map.jumpTo({ zoom: targetZoom });
                 rafId = 0;
                 return;
             }
+            map.jumpTo({ zoom: cur + diff * SMOOTHING });
             rafId = requestAnimationFrame(tick);
         };
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
-            // Re-sync target & freeze elevation on idle so user pan/keyboard
-            // zoom is respected and we always freeze against the elevation
-            // currently visible.
-            if (!rafId) {
-                targetZoom = map.getZoom();
-                frozenElevation = map.transform.elevation;
-            }
+            // Re-sync target on idle so user pan/keyboard zoom is respected.
+            if (!rafId) targetZoom = map.getZoom();
             // Normalise deltaMode: line scrolls (Firefox) report ~3 lines,
             // pixel scrolls (everyone else) report ~100 px per notch.
             const dy = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
@@ -146,14 +139,6 @@ export function MapContainer() {
             if (!rafId) rafId = requestAnimationFrame(tick);
         };
         map.getCanvas().addEventListener('wheel', onWheel, { passive: false });
-        // Release the frozen elevation snapshot on any non-wheel
-        // interaction so panning re-syncs to the latest DEM.
-        const releaseFreeze = () => {
-            if (!rafId) frozenElevation = null;
-        };
-        map.on('dragstart', releaseFreeze);
-        map.on('rotatestart', releaseFreeze);
-        map.on('pitchstart', releaseFreeze);
 
         map.on('moveend', () => {
             const c = map.getCenter();
@@ -172,6 +157,7 @@ export function MapContainer() {
                     source: 'terrain',
                     exaggeration: useMapStore.getState().terrainExaggeration,
                 });
+                pinTerrainCamera(map);
             }
         });
 
@@ -201,6 +187,7 @@ export function MapContainer() {
             map.once('styledata', () => {
                 if (terrainEnabled) {
                     map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
+                    pinTerrainCamera(map);
                 }
             });
         }, 120);
@@ -214,6 +201,7 @@ export function MapContainer() {
         if (!map?.isStyleLoaded()) return;
         if (terrainEnabled) {
             map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
+            pinTerrainCamera(map);
         } else {
             map.setTerrain(null);
         }
