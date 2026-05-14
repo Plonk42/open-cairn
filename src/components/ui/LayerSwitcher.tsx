@@ -1,10 +1,16 @@
 import type { BaseLayerId } from '@/lib/mapStyle';
 import { BASE_LAYER_LABELS } from '@/lib/mapStyle';
+import {
+    BLEND_MODES,
+    BLEND_MODE_LABELS,
+    type BlendMode,
+} from '@/lib/compositeProtocol';
 import { HILLSHADE_SOURCE_LABELS, useMapStore, type HillshadeSource } from '@/stores/mapStore';
 import { useState } from 'react';
 
 const BASES: BaseLayerId[] = ['scan25', 'plan', 'ortho'];
 const SHADOWS: HillshadeSource[] = ['mns', 'mnt', 'mnh'];
+const BLEND_OPTIONS: BlendMode[] = [...BLEND_MODES];
 
 export function LayerSwitcher() {
     const baseLayer = useMapStore((s) => s.baseLayer);
@@ -13,6 +19,8 @@ export function LayerSwitcher() {
     const setHillshadeEnabled = useMapStore((s) => s.setHillshadeEnabled);
     const hillshadeSource = useMapStore((s) => s.hillshadeSource);
     const setHillshadeSource = useMapStore((s) => s.setHillshadeSource);
+    const hillshadeBlend = useMapStore((s) => s.hillshadeBlend);
+    const setHillshadeBlend = useMapStore((s) => s.setHillshadeBlend);
     const [open, setOpen] = useState(false);
 
     return (
@@ -82,7 +90,26 @@ export function LayerSwitcher() {
                         ))}
                     </div>
                     <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                        Composé en <em>multiply</em> avec le fond — pas une simple opacité.
+                        Pré-composé tuile par tuile avec le fond — pas une simple opacité.
+                    </p>
+                    <label className="mt-3 block text-[11px] uppercase tracking-wide text-slate-400">
+                        Mode de fusion
+                    </label>
+                    <select
+                        value={hillshadeBlend}
+                        disabled={!hillshadeEnabled}
+                        onChange={(e) => setHillshadeBlend(e.target.value as BlendMode)}
+                        className="mt-1 w-full rounded-md bg-slate-800/60 px-2 py-1.5 text-xs text-slate-100 ring-1 ring-white/10 disabled:opacity-40"
+                    >
+                        {BLEND_OPTIONS.map((id) => (
+                            <option key={id} value={id} className="bg-slate-900">
+                                {BLEND_MODE_LABELS[id]}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                        <em>Soft light</em> / <em>Overlay</em> préservent les blancs ;
+                        <em> Multiply</em> assombrit tout.
                     </p>
                 </div>
             )}

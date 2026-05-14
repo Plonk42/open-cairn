@@ -1,10 +1,10 @@
 /**
  * `composite://` MapLibre protocol — fetches a base raster tile and a LiDAR
- * shadow tile in parallel, multiplies them in a 2D canvas, and returns the
+ * shadow tile in parallel, blends them in a 2D canvas, and returns the
  * result to MapLibre as an ImageBitmap (no PNG re-encode).
  *
  * URL format:
- *   composite://<baseKey>/<intensityPercent>/{z}/{x}/{y}
+ *   composite://<baseKey>/<shadowKind>/<blendMode>/<intensityPercent>/{z}/{x}/{y}
  */
 
 import maplibregl from 'maplibre-gl';
@@ -23,6 +23,27 @@ const SHADOW_KEYS = {
 
 export type ShadowKind = keyof typeof SHADOW_KEYS;
 
+/** Supported shadow blend modes. Each maps directly to a Canvas2D
+ *  globalCompositeOperation, except `multiply-classic` which uses a
+ *  white→shadow lerp before multiplying (preserves base tonality but
+ *  always darkens). */
+export const BLEND_MODES = [
+    'soft-light',
+    'overlay',
+    'hard-light',
+    'multiply',
+    'multiply-classic',
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
+    'soft-light': 'Soft light (recommandé)',
+    'overlay': 'Overlay',
+    'hard-light': 'Hard light',
+    'multiply': 'Multiply',
+    'multiply-classic': 'Multiply ×W (legacy)',
+};
+
 function tileUrlFor(layerKey: LayerKey, z: number, x: number, y: number): string {
     const def = IGN_LAYERS[layerKey];
     return ignWmtsUrl({
@@ -36,16 +57,16 @@ function tileUrlFor(layerKey: LayerKey, z: number, x: number, y: number): string
         .replace('{y}', String(y));
 }
 
-/** Fetch a tile as an ImageBitmap. Returns null on any failure (network,
- *  decode, abort, …) so the caller can degrade gracefully. */
+/** Fetch a tile as an ImageBitmap. Returns null on http error or decode
+ *  failure. AbortError propagates so MapLibre's cancellation bubbles up. */
 async function fetchBitmap(
     url: string,
     signal?: AbortSignal,
 ): Promise<ImageBitmap | null> {
+    const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
     try {
-        const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
-        if (!res.ok) return null;
-        const blob = await res.blob();
         return await createImageBitmap(blob);
     } catch {
         return null;
@@ -55,6 +76,7 @@ async function fetchBitmap(
 interface CompositeArgs {
     baseKey: LayerKey;
     shadow: ShadowKind;
+    mode: BlendMode;
     intensity: number;
     z: number;
     x: number;
@@ -63,7 +85,7 @@ interface CompositeArgs {
 }
 
 async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
-    const { baseKey, shadow: shadowKind, intensity, z, x, y, signal } = args;
+    const { baseKey, shadow: shadowKind, mode, intensity, z, x, y, signal } = args;
     const baseUrl = tileUrlFor(baseKey, z, x, y);
     const shadowKey = SHADOW_KEYS[shadowKind];
     const shadowDef = IGN_LAYERS[shadowKey];
@@ -73,7 +95,9 @@ async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
 
     const [base, shadow] = await Promise.all([
         fetchBitmap(baseUrl, signal),
-        shadowUrl ? fetchBitmap(shadowUrl, signal) : Promise.resolve(null),
+        shadowUrl
+            ? fetchBitmap(shadowUrl, signal).catch(() => null)
+            : Promise.resolve(null),
     ]);
     if (!base) return null;
 
@@ -94,14 +118,28 @@ async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
     }
 
     if (shadow) {
-        // mix(white, shadow, intensity) → multiply against base.
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, w, h);
-        ctx.globalAlpha = intensity;
-        ctx.drawImage(shadow, 0, 0, w, h);
+        if (mode === 'multiply-classic') {
+            // mix(white, shadow, intensity) → multiply against base.
+            // Always darkens but preserves base tonality at intensity<1.
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalAlpha = intensity;
+            ctx.drawImage(shadow, 0, 0, w, h);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.drawImage(base, 0, 0, w, h);
+        } else {
+            // Paint base, then blend shadow on top with the chosen op at the
+            // requested intensity. soft-light / overlay / hard-light all leave
+            // neutral 50% gray untouched, so flat-but-textured shadow tiles
+            // don't darken white roads or paper into gray the way straight
+            // multiply does.
+            ctx.drawImage(base, 0, 0, w, h);
+            ctx.globalAlpha = intensity;
+            ctx.globalCompositeOperation = mode;
+            ctx.drawImage(shadow, 0, 0, w, h);
+        }
         ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.drawImage(base, 0, 0, w, h);
         ctx.globalCompositeOperation = 'source-over';
     } else {
         ctx.drawImage(base, 0, 0, w, h);
@@ -120,26 +158,28 @@ export function registerCompositeProtocol(): void {
     maplibregl.addProtocol('composite', async (req, abortController) => {
         const url = req.url.replace(/^composite:\/\//, '');
         const parts = url.split('/');
-        if (parts.length < 6) throw new Error(`Bad composite URL: ${req.url}`);
+        if (parts.length < 7) throw new Error(`Bad composite URL: ${req.url}`);
         const baseKey = parts[0] as LayerKey;
         const shadow = parts[1] as ShadowKind;
-        const intensity = Math.max(0, Math.min(1, Number(parts[2]) / 100));
+        const mode = parts[2] as BlendMode;
+        const intensity = Math.max(0, Math.min(1, Number(parts[3]) / 100));
         const bitmap = await composite({
             baseKey,
             shadow,
+            mode,
             intensity,
-            z: Number(parts[3]),
-            x: Number(parts[4]),
-            y: Number(parts[5]),
+            z: Number(parts[4]),
+            x: Number(parts[5]),
+            y: Number(parts[6]),
             signal: abortController?.signal,
         });
         if (!bitmap) {
-            // 1×1 transparent bitmap → MapLibre keeps showing the previous
-            // overzoomed tile instead of dropping a black square through to
-            // the background.
-            const blank = new OffscreenCanvas(1, 1);
-            blank.getContext('2d')?.clearRect(0, 0, 1, 1);
-            return { data: await createImageBitmap(blank) };
+            // Throw → MapLibre marks the tile errored and keeps the parent
+            // (overzoomed) tile on screen. Returning a transparent bitmap
+            // here would override the terrain texture and reveal the
+            // background colour through the mesh, leaving holes in the
+            // foreground when the camera is pitched.
+            throw new Error('composite: base tile unavailable');
         }
         return { data: bitmap };
     });
@@ -149,8 +189,9 @@ export function registerCompositeProtocol(): void {
 export function compositeTileUrl(
     baseKey: LayerKey,
     shadow: ShadowKind,
+    mode: BlendMode,
     intensity: number,
 ): string {
     const pct = Math.round(Math.max(0, Math.min(1, intensity)) * 100);
-    return `composite://${baseKey}/${shadow}/${pct}/{z}/{x}/{y}`;
+    return `composite://${baseKey}/${shadow}/${mode}/${pct}/{z}/{x}/{y}`;
 }

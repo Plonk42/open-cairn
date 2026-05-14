@@ -1,4 +1,5 @@
 import type { BaseLayerId } from '@/lib/mapStyle';
+import type { BlendMode } from '@/lib/compositeProtocol';
 import { create } from 'zustand';
 
 /** IGN LiDAR HD shadow product used as hillshade source. */
@@ -32,6 +33,10 @@ interface MapState {
     /** Which IGN LiDAR HD product is used as the shadow source. */
     hillshadeSource: HillshadeSource;
     setHillshadeSource: (v: HillshadeSource) => void;
+
+    /** Blend mode used when compositing the shadow onto the base. */
+    hillshadeBlend: BlendMode;
+    setHillshadeBlend: (v: BlendMode) => void;
 
     /** Strength of the multiply blend (0 = no effect, 1 = full multiply). */
     hillshadeIntensity: number;
@@ -68,6 +73,9 @@ export const useMapStore = create<MapState>((set) => ({
 
     hillshadeSource: 'mns',
     setHillshadeSource: (hillshadeSource) => set({ hillshadeSource }),
+
+    hillshadeBlend: 'soft-light',
+    setHillshadeBlend: (hillshadeBlend) => set({ hillshadeBlend }),
 
     hillshadeIntensity: 0.85,
     setHillshadeIntensity: (hillshadeIntensity) => set({ hillshadeIntensity }),

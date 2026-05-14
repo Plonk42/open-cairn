@@ -16,6 +16,7 @@ export function MapContainer() {
     const setView = useMapStore((s) => s.setView);
     const hillshadeEnabled = useMapStore((s) => s.hillshadeEnabled);
     const hillshadeSource = useMapStore((s) => s.hillshadeSource);
+    const hillshadeBlend = useMapStore((s) => s.hillshadeBlend);
     const hillshadeIntensity = useMapStore((s) => s.hillshadeIntensity);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
@@ -30,6 +31,7 @@ export function MapContainer() {
                 base: initial.baseLayer,
                 hillshade: initial.hillshadeEnabled,
                 hillshadeSource: initial.hillshadeSource,
+                hillshadeBlend: initial.hillshadeBlend,
                 hillshadeIntensity: initial.hillshadeIntensity,
             }),
             center: [view.longitude, view.latitude],
@@ -93,6 +95,7 @@ export function MapContainer() {
                     base: baseLayer,
                     hillshade: hillshadeEnabled,
                     hillshadeSource,
+                    hillshadeBlend,
                     hillshadeIntensity,
                 }),
                 { diff: false },
@@ -105,7 +108,7 @@ export function MapContainer() {
         }, 120);
         return () => globalThis.clearTimeout(handle);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [baseLayer, hillshadeEnabled, hillshadeSource, hillshadeIntensity]);
+    }, [baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity]);
 
     // Terrain on/off + exaggeration (no style rebuild needed).
     useEffect(() => {

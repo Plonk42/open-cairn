@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { compositeTileUrl, type ShadowKind } from './compositeProtocol';
+import { compositeTileUrl, type BlendMode, type ShadowKind } from './compositeProtocol';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl } from './ign';
 
 export type BaseLayerId = 'scan25' | 'plan' | 'ortho';
@@ -21,10 +21,12 @@ const BASE_KEY: Record<BaseLayerId, keyof typeof IGN_LAYERS> = {
 export interface MapStyleOptions {
     base: BaseLayerId;
     /** When true, the base raster is replaced by `composite://` tiles that
-     *  pre-multiply SCAN25 (or selected base) with the LiDAR HD shadow. */
+     *  pre-blend the base with the LiDAR HD shadow. */
     hillshade: boolean;
     /** Which LiDAR HD product is used as the shadow source. */
     hillshadeSource: ShadowKind;
+    /** Blend mode used when compositing shadow onto base. */
+    hillshadeBlend: BlendMode;
     /** 0..1, only used when `hillshade` is true. */
     hillshadeIntensity: number;
 }
@@ -39,7 +41,12 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
     const baseKey = BASE_KEY[opts.base];
     const baseDef = IGN_LAYERS[baseKey];
     const baseTileUrl = opts.hillshade
-        ? compositeTileUrl(baseKey, opts.hillshadeSource, opts.hillshadeIntensity)
+        ? compositeTileUrl(
+            baseKey,
+            opts.hillshadeSource,
+            opts.hillshadeBlend,
+            opts.hillshadeIntensity,
+          )
         : ignLayerUrl(baseKey);
 
     return {
