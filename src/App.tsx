@@ -1,9 +1,15 @@
+import { MapContainer } from './components/map/MapContainer';
+
 export function App() {
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-slate-100">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold">open-crete</h1>
-        <p className="mt-2 text-sm text-slate-400">Bootstrapping…</p>
+    <div className="relative h-screen w-screen overflow-hidden bg-slate-900 text-slate-100">
+      <MapContainer />
+
+      {/* Top-left: app title */}
+      <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
+        <div className="rounded-lg bg-slate-900/70 px-3 py-1.5 text-sm font-semibold backdrop-blur-md ring-1 ring-white/10">
+          open-crete
+        </div>
       </div>
     </div>
   );
