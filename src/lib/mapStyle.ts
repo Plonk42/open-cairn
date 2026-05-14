@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { IGN_ATTRIBUTION, IGN_LAYERS, ignTerrainRgbUrl, ignWmtsUrl } from './ign';
+import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl } from './ign';
 
 export type BaseLayerId = 'scan25' | 'plan' | 'ortho';
 
@@ -15,7 +15,7 @@ function rasterSource(layer: keyof typeof IGN_LAYERS): maplibregl.RasterSourceSp
   const def = IGN_LAYERS[layer];
   return {
     type: 'raster',
-    tiles: [ignWmtsUrl({ layer: def.id, format: def.format })],
+    tiles: [ignLayerUrl(layer)],
     tileSize: TILE_SIZE,
     minzoom: def.minZoom,
     maxzoom: def.maxZoom,
@@ -23,13 +23,19 @@ function rasterSource(layer: keyof typeof IGN_LAYERS): maplibregl.RasterSourceSp
   };
 }
 
+const BASE_KEY: Record<BaseLayerId, keyof typeof IGN_LAYERS> = {
+  scan25: 'scan25Tour',
+  plan: 'planIgn',
+  ortho: 'ortho',
+};
+
 /**
  * Build a MapLibre style with a base raster, the LiDAR HD shadow as a regular
  * raster source (the `MultiplyBlendLayer` will sample it via WebGL), and a
  * raster-dem source for the 3D terrain.
  */
 export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification {
-  const baseDef = BASE_DEFS[base];
+  const baseDef = IGN_LAYERS[BASE_KEY[base]];
 
   return {
     version: 8,
@@ -37,7 +43,7 @@ export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification 
     sources: {
       base: {
         type: 'raster',
-        tiles: [ignWmtsUrl({ layer: baseDef.id, format: baseDef.format })],
+        tiles: [ignLayerUrl(BASE_KEY[base])],
         tileSize: TILE_SIZE,
         minzoom: baseDef.minZoom,
         maxzoom: baseDef.maxZoom,
@@ -48,7 +54,7 @@ export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification 
         type: 'raster-dem',
         tiles: [ignTerrainRgbUrl()],
         tileSize: TILE_SIZE,
-        minzoom: 0,
+        minzoom: 6,
         maxzoom: 14,
         encoding: 'mapbox',
         attribution: IGN_ATTRIBUTION,

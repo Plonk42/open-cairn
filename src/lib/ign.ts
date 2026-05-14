@@ -1,38 +1,63 @@
 /**
  * IGN Géoplateforme endpoints and layer identifiers.
- * All "discovery" layers are anonymous (no API key required).
+ *
+ * Two endpoints are used:
+ *  - public WMTS (`/wmts`) for layers in the "découverte" tier (Plan IGN,
+ *    Orthophotos, LiDAR HD shadow, …) — anonymous.
+ *  - private WMTS (`/private/wmts`) for SCAN 25 Tour, gated by an `apikey`
+ *    parameter. The `ign_scan_ws` key used here is the public web-services
+ *    key advertised on cartes.gouv.fr / geoportail.gouv.fr for SCAN access.
+ *  - private WMS-r (`/private/wms-r/wms`) for the high-resolution TerrainRGB
+ *    DEM (`Geoportail_App` key, used by the official `cartes-ign-app`).
  *
  * Docs:
  *   https://cartes.gouv.fr/aide/fr/guides-developpeur/
  *   https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/diffusion/wmts/
  */
 
-export const IGN_WMTS_BASE = 'https://data.geopf.fr/wmts';
+export const IGN_WMTS_PUBLIC = 'https://data.geopf.fr/wmts';
+export const IGN_WMTS_PRIVATE = 'https://data.geopf.fr/private/wmts';
+export const IGN_WMS_R_PRIVATE = 'https://data.geopf.fr/private/wms-r/wms';
+
+/** Public web-services apikey for the SCAN family of layers. */
+export const IGN_SCAN_APIKEY = 'ign_scan_ws';
+/** Public web-services apikey for the high-res TerrainRGB DEM (wms-r). */
+export const IGN_DEM_APIKEY = 'Geoportail_App';
 
 /**
  * Build a WMTS GetTile URL template (placeholders {z}/{x}/{y}) for a layer.
+ *
+ * NOTE: we cannot use `URLSearchParams` here because it would percent-encode
+ * the `{z}/{x}/{y}` placeholders, preventing MapLibre from substituting them.
  */
 export function ignWmtsUrl(opts: {
   layer: string;
   format: 'image/png' | 'image/jpeg';
   style?: string;
   tilematrixset?: string;
+  /** Use the private endpoint (requires `apikey`). */
+  private?: boolean;
+  apikey?: string;
 }): string {
   const style = opts.style ?? 'normal';
   const tms = opts.tilematrixset ?? 'PM';
-  const params = new URLSearchParams({
-    SERVICE: 'WMTS',
-    REQUEST: 'GetTile',
-    VERSION: '1.0.0',
-    LAYER: opts.layer,
-    STYLE: style,
-    TILEMATRIXSET: tms,
-    TILEMATRIX: '{z}',
-    TILECOL: '{x}',
-    TILEROW: '{y}',
-    FORMAT: opts.format,
-  });
-  return `${IGN_WMTS_BASE}?${params.toString()}`;
+  const base = opts.private ? IGN_WMTS_PRIVATE : IGN_WMTS_PUBLIC;
+  const params = [
+    opts.apikey ? `apikey=${encodeURIComponent(opts.apikey)}` : null,
+    'SERVICE=WMTS',
+    'REQUEST=GetTile',
+    'VERSION=1.0.0',
+    `LAYER=${encodeURIComponent(opts.layer)}`,
+    `STYLE=${encodeURIComponent(style)}`,
+    `TILEMATRIXSET=${encodeURIComponent(tms)}`,
+    'TILEMATRIX={z}',
+    'TILECOL={x}',
+    'TILEROW={y}',
+    `FORMAT=${encodeURIComponent(opts.format)}`,
+  ]
+    .filter(Boolean)
+    .join('&');
+  return `${base}?${params}`;
 }
 
 export const IGN_LAYERS = {
@@ -42,6 +67,8 @@ export const IGN_LAYERS = {
     minZoom: 6,
     maxZoom: 16,
     label: 'SCAN 25 Tour',
+    private: true,
+    apikey: IGN_SCAN_APIKEY,
   },
   planIgn: {
     id: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
@@ -49,6 +76,7 @@ export const IGN_LAYERS = {
     minZoom: 0,
     maxZoom: 19,
     label: 'Plan IGN',
+    private: false,
   },
   ortho: {
     id: 'ORTHOIMAGERY.ORTHOPHOTOS',
@@ -56,6 +84,7 @@ export const IGN_LAYERS = {
     minZoom: 0,
     maxZoom: 19,
     label: 'Orthophotos',
+    private: false,
   },
   lidarMnsShadow: {
     id: 'IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
@@ -63,6 +92,7 @@ export const IGN_LAYERS = {
     minZoom: 0,
     maxZoom: 18,
     label: 'Ombrage LiDAR HD (MNS)',
+    private: false,
   },
   lidarMntShadow: {
     id: 'IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
@@ -70,6 +100,7 @@ export const IGN_LAYERS = {
     minZoom: 0,
     maxZoom: 18,
     label: 'Ombrage LiDAR HD (MNT)',
+    private: false,
   },
   elevationShadow: {
     id: 'IGNF_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
@@ -77,22 +108,44 @@ export const IGN_LAYERS = {
     minZoom: 0,
     maxZoom: 17,
     label: 'Ombrage IGN (national)',
+    private: false,
   },
 } as const;
 
+/** Build a WMTS URL for one of the registered IGN layers. */
+export function ignLayerUrl(layer: keyof typeof IGN_LAYERS): string {
+  const def = IGN_LAYERS[layer];
+  return ignWmtsUrl({
+    layer: def.id,
+    format: def.format,
+    private: def.private,
+    apikey: 'apikey' in def ? def.apikey : undefined,
+  });
+}
+
 /**
- * IGN TerrainRGB DEM is exposed via the public WMTS endpoint as
- * `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` with style `normal` and PNG tiles.
- * MapLibre `raster-dem` source decodes Mapbox-style RGB DEM natively.
+ * IGN TerrainRGB DEM. Served as a WMS-r raster (private endpoint, requires the
+ * `Geoportail_App` apikey, same as cartes-ign-app). MapLibre's `raster-dem`
+ * source supports `{bbox-epsg-3857}` placeholders for WMS sources.
  */
 export const IGN_TERRAIN_RGB_LAYER =
-  'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES';
+  'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
 
 export function ignTerrainRgbUrl(): string {
-  return ignWmtsUrl({
-    layer: IGN_TERRAIN_RGB_LAYER,
-    format: 'image/png',
-  });
+  const params = [
+    `apikey=${encodeURIComponent(IGN_DEM_APIKEY)}`,
+    'bbox={bbox-epsg-3857}',
+    'format=image/png',
+    'service=WMS',
+    'version=1.3.0',
+    'request=GetMap',
+    'crs=EPSG:3857',
+    'width=256',
+    'height=256',
+    'styles=terrainrgb0',
+    `layers=${encodeURIComponent(IGN_TERRAIN_RGB_LAYER)}`,
+  ].join('&');
+  return `${IGN_WMS_R_PRIVATE}?${params}`;
 }
 
 /** IGN attribution text required by the Geoplateforme terms of use. */

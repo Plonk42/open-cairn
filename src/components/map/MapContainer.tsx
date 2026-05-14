@@ -125,5 +125,5 @@ export function MapContainer() {
     }
   }, [terrainEnabled, terrainExaggeration]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  return <div ref={containerRef} className="absolute inset-0 h-full w-full" />;
 }
