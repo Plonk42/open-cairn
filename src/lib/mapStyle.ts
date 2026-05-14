@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl } from './ign';
+import { compositeTileUrl } from './compositeProtocol';
 
 export type BaseLayerId = 'scan25' | 'plan' | 'ortho';
 
@@ -11,31 +12,33 @@ const BASE_DEFS = {
 
 const TILE_SIZE = 256;
 
-function rasterSource(layer: keyof typeof IGN_LAYERS): maplibregl.RasterSourceSpecification {
-  const def = IGN_LAYERS[layer];
-  return {
-    type: 'raster',
-    tiles: [ignLayerUrl(layer)],
-    tileSize: TILE_SIZE,
-    minzoom: def.minZoom,
-    maxzoom: def.maxZoom,
-    attribution: IGN_ATTRIBUTION,
-  };
-}
-
 const BASE_KEY: Record<BaseLayerId, keyof typeof IGN_LAYERS> = {
   scan25: 'scan25Tour',
   plan: 'planIgn',
   ortho: 'ortho',
 };
 
+export interface MapStyleOptions {
+  base: BaseLayerId;
+  /** When true, the base raster is replaced by `composite://` tiles that
+   *  pre-multiply SCAN25 (or selected base) with the LiDAR HD shadow. */
+  hillshade: boolean;
+  /** 0..1, only used when `hillshade` is true. */
+  hillshadeIntensity: number;
+}
+
 /**
- * Build a MapLibre style with a base raster, the LiDAR HD shadow as a regular
- * raster source (the `MultiplyBlendLayer` will sample it via WebGL), and a
- * raster-dem source for the 3D terrain.
+ * Build a MapLibre style. The base raster is either fetched directly from IGN
+ * or — when hillshade is enabled — composited with the LiDAR HD shadow via
+ * the custom `composite://` protocol so MapLibre can drape the result onto
+ * the 3D terrain natively.
  */
-export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification {
-  const baseDef = IGN_LAYERS[BASE_KEY[base]];
+export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecification {
+  const baseKey = BASE_KEY[opts.base];
+  const baseDef = IGN_LAYERS[baseKey];
+  const baseTileUrl = opts.hillshade
+    ? compositeTileUrl(baseKey, opts.hillshadeIntensity)
+    : ignLayerUrl(baseKey);
 
   return {
     version: 8,
@@ -43,13 +46,12 @@ export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification 
     sources: {
       base: {
         type: 'raster',
-        tiles: [ignLayerUrl(BASE_KEY[base])],
+        tiles: [baseTileUrl],
         tileSize: TILE_SIZE,
         minzoom: baseDef.minZoom,
         maxzoom: baseDef.maxZoom,
         attribution: IGN_ATTRIBUTION,
       },
-      'lidar-shadow': rasterSource('lidarMnsShadow'),
       terrain: {
         type: 'raster-dem',
         tiles: [ignTerrainRgbUrl()],
@@ -74,8 +76,6 @@ export function buildMapStyle(base: BaseLayerId): maplibregl.StyleSpecification 
           'raster-resampling': 'linear',
         },
       },
-      // The multiply-blended LiDAR shadow is added imperatively by
-      // `MultiplyBlendLayer.attach()` once the map style is loaded.
     ],
     sky: {
       'sky-color': '#1e293b',

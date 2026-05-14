@@ -3,12 +3,13 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useMapStore } from '@/stores/mapStore';
 import { buildMapStyle } from '@/lib/mapStyle';
-import { MultiplyBlendLayer } from '@/layers/MultiplyBlendLayer';
+import { registerCompositeProtocol } from '@/lib/compositeProtocol';
+
+registerCompositeProtocol();
 
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const blendLayerRef = useRef<MultiplyBlendLayer | null>(null);
 
   const baseLayer = useMapStore((s) => s.baseLayer);
   const view = useMapStore((s) => s.view);
@@ -21,9 +22,14 @@ export function MapContainer() {
   // Initial map creation (runs once)
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const initial = useMapStore.getState();
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: buildMapStyle(baseLayer),
+      style: buildMapStyle({
+        base: initial.baseLayer,
+        hillshade: initial.hillshadeEnabled,
+        hillshadeIntensity: initial.hillshadeIntensity,
+      }),
       center: [view.longitude, view.latitude],
       zoom: view.zoom,
       pitch: view.pitch,
@@ -35,7 +41,8 @@ export function MapContainer() {
       hash: true,
     });
     mapRef.current = map;
-    if (import.meta.env.DEV) (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
+    if (import.meta.env.DEV)
+      (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
 
     map.addControl(
       new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }),
@@ -56,14 +63,6 @@ export function MapContainer() {
     });
 
     map.on('load', () => {
-      // Attach the multiply-blended LiDAR shadow custom layer.
-      const blend = new MultiplyBlendLayer('lidar-blend', 'lidar-shadow');
-      blend.setIntensity(useMapStore.getState().hillshadeIntensity);
-      blendLayerRef.current = blend;
-      if (useMapStore.getState().hillshadeEnabled) {
-        map.addLayer(blend as unknown as maplibregl.LayerSpecification);
-      }
-
       if (useMapStore.getState().terrainEnabled) {
         map.setTerrain({
           source: 'terrain',
@@ -75,53 +74,38 @@ export function MapContainer() {
     return () => {
       map.remove();
       mapRef.current = null;
-      blendLayerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // React to baseLayer change → swap style and re-attach overlays.
+  // Rebuild style when base layer or hillshade settings change.
+  // Intensity changes are debounced so dragging the slider doesn't thrash.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    map.setStyle(buildMapStyle(baseLayer), { diff: false });
-    map.once('styledata', () => {
-      if (hillshadeEnabled && blendLayerRef.current) {
-        // The custom layer instance is detached when style changes; re-add it.
-        if (!map.getLayer(blendLayerRef.current.id)) {
-          map.addLayer(
-            blendLayerRef.current as unknown as maplibregl.LayerSpecification,
-          );
+    const handle = globalThis.setTimeout(() => {
+      map.setStyle(
+        buildMapStyle({
+          base: baseLayer,
+          hillshade: hillshadeEnabled,
+          hillshadeIntensity,
+        }),
+        { diff: false },
+      );
+      map.once('styledata', () => {
+        if (terrainEnabled) {
+          map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
         }
-      }
-      if (terrainEnabled) {
-        map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
-      }
-    });
+      });
+    }, 120);
+    return () => globalThis.clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseLayer]);
+  }, [baseLayer, hillshadeEnabled, hillshadeIntensity]);
 
-  // Toggle hillshade on/off
+  // Terrain on/off + exaggeration (no style rebuild needed).
   useEffect(() => {
     const map = mapRef.current;
-    const blend = blendLayerRef.current;
-    if (!map || !blend || !map.isStyleLoaded()) return;
-    const present = !!map.getLayer(blend.id);
-    if (hillshadeEnabled && !present)
-      map.addLayer(blend as unknown as maplibregl.LayerSpecification);
-    if (!hillshadeEnabled && present) map.removeLayer(blend.id);
-  }, [hillshadeEnabled]);
-
-  // Hillshade intensity
-  useEffect(() => {
-    blendLayerRef.current?.setIntensity(hillshadeIntensity);
-    mapRef.current?.triggerRepaint();
-  }, [hillshadeIntensity]);
-
-  // Terrain on/off + exaggeration
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map?.isStyleLoaded()) return;
     if (terrainEnabled) {
       map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
     } else {
