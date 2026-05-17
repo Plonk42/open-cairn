@@ -1,5 +1,5 @@
-import type { BaseLayerId } from '@/lib/mapStyle';
 import type { BlendMode } from '@/lib/compositeProtocol';
+import type { BaseLayerId } from '@/lib/mapStyle';
 import { create } from 'zustand';
 
 /** IGN LiDAR HD shadow product used as hillshade source. */
@@ -9,6 +9,13 @@ export const HILLSHADE_SOURCE_LABELS: Record<HillshadeSource, string> = {
     mns: 'MNS',
     mnt: 'MNT',
     mnh: 'MNH',
+};
+
+export type RenderQuality = 'balanced' | 'sharp';
+
+export const RENDER_QUALITY_LABELS: Record<RenderQuality, string> = {
+    balanced: 'Fluide',
+    sharp: 'Net',
 };
 
 export interface MapView {
@@ -49,6 +56,11 @@ interface MapState {
     /** Vertical exaggeration of the 3D terrain. */
     terrainExaggeration: number;
     setTerrainExaggeration: (v: number) => void;
+
+    /** Raster and canvas quality used for pitched 3D views. */
+    renderQuality: RenderQuality;
+    setRenderQuality: (v: RenderQuality) => void;
+
 }
 
 // Default view: French Alps, around the Vercors / Belledonne area, with a
@@ -74,7 +86,7 @@ export const useMapStore = create<MapState>((set) => ({
     hillshadeSource: 'mns',
     setHillshadeSource: (hillshadeSource) => set({ hillshadeSource }),
 
-    hillshadeBlend: 'soft-light',
+    hillshadeBlend: 'lidar-neutral',
     setHillshadeBlend: (hillshadeBlend) => set({ hillshadeBlend }),
 
     hillshadeIntensity: 0.85,
@@ -85,4 +97,8 @@ export const useMapStore = create<MapState>((set) => ({
 
     terrainExaggeration: 1.2,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
+
+    renderQuality: 'balanced',
+    setRenderQuality: (renderQuality) => set({ renderQuality }),
+
 }));

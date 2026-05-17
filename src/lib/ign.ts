@@ -65,10 +65,10 @@ export const IGN_LAYERS = {
         id: 'GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN25TOUR',
         format: 'image/jpeg' as const,
         minZoom: 6,
-        // IGN SCAN25TOUR PM TileMatrixSet officially serves up to z=17 in
-        // most metropolitan areas. The underlying source data is 1:25 000
-        // (~2.4 m/px) so anything beyond that will look soft regardless.
-        maxZoom: 17,
+        // Verified against the public SCAN25TOUR WMTS: z17/z18 can return 404
+        // in mountain areas, while z16 is available. Higher map zooms overzoom
+        // this parent tile through the composite protocol.
+        maxZoom: 18,
         label: 'SCAN 25 Tour',
         private: true,
         apikey: IGN_SCAN_APIKEY,
@@ -144,6 +144,10 @@ export function ignLayerUrl(layer: keyof typeof IGN_LAYERS): string {
  */
 export const IGN_TERRAIN_RGB_LAYER =
     'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
+
+export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const OSM_ATTRIBUTION =
+    '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
 export function ignTerrainRgbUrl(): string {
     const params = [

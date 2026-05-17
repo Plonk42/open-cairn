@@ -4,57 +4,96 @@
  * result to MapLibre as an ImageBitmap (no PNG re-encode).
  *
  * URL format:
- *   composite://<baseKey>/<shadowKind>/<blendMode>/<intensityPercent>/{z}/{x}/{y}
+ *   composite://<baseKey>/<shadowKind>/<blendMode>/<intensityPercent>/<detailScale>/{z}/{x}/{y}
  */
 
 import maplibregl from 'maplibre-gl';
-import { IGN_LAYERS, ignWmtsUrl } from './ign';
+import { IGN_ATTRIBUTION, IGN_LAYERS, ignWmtsUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
 
 let registered = false;
 
-type LayerKey = keyof typeof IGN_LAYERS;
+export type CompositeBaseKey = keyof typeof IGN_LAYERS | 'osm';
+
+interface RasterLayerDef {
+    minZoom: number;
+    maxZoom: number;
+    tileUrl: string;
+    attribution: string;
+}
 
 /** Short URL token → IGN LiDAR HD shadow layer key. */
 const SHADOW_KEYS = {
     mns: 'lidarMnsShadow',
     mnt: 'lidarMntShadow',
     mnh: 'lidarMnhShadow',
-} as const satisfies Record<string, LayerKey>;
+} as const satisfies Record<string, CompositeBaseKey>;
 
 export type ShadowKind = keyof typeof SHADOW_KEYS;
 
-/** Supported shadow blend modes. Each maps directly to a Canvas2D
- *  globalCompositeOperation, except `multiply-classic` which uses a
- *  white→shadow lerp before multiplying (preserves base tonality but
- *  always darkens). */
+/** Supported shadow blend modes. */
 export const BLEND_MODES = [
+    'lidar-neutral',
+    'multiply-lidar',
+    'multiply-preserve',
+    'multiply',
     'soft-light',
     'overlay',
     'hard-light',
-    'multiply',
     'multiply-classic',
 ] as const;
 export type BlendMode = (typeof BLEND_MODES)[number];
 
 export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
-    'soft-light': 'Soft light (recommandé)',
+    'lidar-neutral': 'Relief LiDAR neutre 180 (recommandé)',
+    'multiply-lidar': 'Multiply LiDAR équilibré (recommandé)',
+    'multiply-preserve': 'Multiply, blancs préservés',
+    'multiply': 'Multiply',
+    'soft-light': 'Soft light',
     'overlay': 'Overlay',
     'hard-light': 'Hard light',
-    'multiply': 'Multiply',
     'multiply-classic': 'Multiply ×W (legacy)',
 };
 
-function tileUrlFor(layerKey: LayerKey, z: number, x: number, y: number): string {
+function rasterLayerDef(layerKey: CompositeBaseKey): RasterLayerDef {
+    if (layerKey === 'osm') {
+        return { minZoom: 0, maxZoom: 19, tileUrl: OSM_TILE_URL, attribution: OSM_ATTRIBUTION };
+    }
+
     const def = IGN_LAYERS[layerKey];
-    return ignWmtsUrl({
-        layer: def.id,
-        format: def.format,
-        private: def.private,
-        apikey: 'apikey' in def ? def.apikey : undefined,
-    })
+    return {
+        minZoom: def.minZoom,
+        maxZoom: def.maxZoom,
+        attribution: IGN_ATTRIBUTION,
+        tileUrl: ignWmtsUrl({
+            layer: def.id,
+            format: def.format,
+            private: def.private,
+            apikey: 'apikey' in def ? def.apikey : undefined,
+        }),
+    };
+}
+
+function tileUrlFor(layerKey: CompositeBaseKey, z: number, x: number, y: number): string {
+    const def = rasterLayerDef(layerKey);
+    return def.tileUrl
         .replace('{z}', String(z))
         .replace('{x}', String(x))
         .replace('{y}', String(y));
+}
+
+function overzoomedTile(layerKey: CompositeBaseKey, z: number, x: number, y: number) {
+    const def = rasterLayerDef(layerKey);
+    const sourceZ = Math.max(def.minZoom, Math.min(def.maxZoom, z));
+    const overscale = 2 ** (z - sourceZ);
+    const sourceX = Math.floor(x / overscale);
+    const sourceY = Math.floor(y / overscale);
+
+    return {
+        url: tileUrlFor(layerKey, sourceZ, sourceX, sourceY),
+        overscale,
+        offsetX: x - sourceX * overscale,
+        offsetY: y - sourceY * overscale,
+    };
 }
 
 /** Fetch a tile as an ImageBitmap. Returns null on http error or decode
@@ -74,78 +113,372 @@ async function fetchBitmap(
 }
 
 interface CompositeArgs {
-    baseKey: LayerKey;
+    baseKey: CompositeBaseKey;
     shadow: ShadowKind;
     mode: BlendMode;
     intensity: number;
+    detailScale: number;
     z: number;
     x: number;
     y: number;
     signal?: AbortSignal;
 }
 
+type Canvas2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+type RenderCanvas = OffscreenCanvas | HTMLCanvasElement;
+type TileRequest = ReturnType<typeof overzoomedTile>;
+
+interface DetailedTileRequest extends TileRequest {
+    dx: number;
+    dy: number;
+    scale: number;
+}
+
+interface BlendRenderArgs {
+    ctx: Canvas2D;
+    base: ImageBitmap;
+    baseTile: TileRequest;
+    shadow: ImageBitmap;
+    shadowTile: TileRequest;
+    width: number;
+    height: number;
+}
+
+function createRenderCanvas(width: number, height: number): RenderCanvas {
+    if (typeof OffscreenCanvas === 'undefined') {
+        return Object.assign(document.createElement('canvas'), { width, height });
+    }
+    return new OffscreenCanvas(width, height);
+}
+
+function canvasContext(canvas: RenderCanvas): Canvas2D | null {
+    return canvas.getContext('2d');
+}
+
+function drawOverzoomedTile(
+    ctx: Canvas2D,
+    img: ImageBitmap,
+    tile: TileRequest,
+    width: number,
+    height: number,
+): void {
+    const sw = img.width / tile.overscale;
+    const sh = img.height / tile.overscale;
+    ctx.drawImage(img, tile.offsetX * sw, tile.offsetY * sh, sw, sh, 0, 0, width, height);
+}
+
+function detailedTiles(
+    layerKey: CompositeBaseKey,
+    z: number,
+    x: number,
+    y: number,
+    detailScale: number,
+): DetailedTileRequest[] {
+    const def = rasterLayerDef(layerKey);
+    const detailOffset = Math.max(0, Math.min(Math.log2(detailScale), def.maxZoom - z));
+    const targetZ = z + detailOffset;
+    const scale = 2 ** detailOffset;
+
+    return Array.from({ length: scale * scale }, (_, index) => {
+        const dx = index % scale;
+        const dy = Math.floor(index / scale);
+        return {
+            ...overzoomedTile(layerKey, targetZ, x * scale + dx, y * scale + dy),
+            dx,
+            dy,
+            scale,
+        };
+    });
+}
+
+function drawDetailedTiles(
+    ctx: Canvas2D,
+    tiles: Array<{ bitmap: ImageBitmap; tile: DetailedTileRequest }>,
+    width: number,
+    height: number,
+): void {
+    const scale = tiles[0]?.tile.scale ?? 1;
+    const tileWidth = width / scale;
+    const tileHeight = height / scale;
+
+    for (const { bitmap, tile } of tiles) {
+        const sw = bitmap.width / tile.overscale;
+        const sh = bitmap.height / tile.overscale;
+        ctx.drawImage(
+            bitmap,
+            tile.offsetX * sw,
+            tile.offsetY * sh,
+            sw,
+            sh,
+            tile.dx * tileWidth,
+            tile.dy * tileHeight,
+            tileWidth,
+            tileHeight,
+        );
+    }
+}
+
+interface DetailedShadowLoadArgs {
+    layerKey: CompositeBaseKey;
+    z: number;
+    x: number;
+    y: number;
+    detailScale: number;
+    width: number;
+    height: number;
+    signal?: AbortSignal;
+}
+
+async function loadDetailedShadow(
+    args: DetailedShadowLoadArgs,
+): Promise<{ bitmap: ImageBitmap; tiles: Array<{ bitmap: ImageBitmap; tile: DetailedTileRequest }> } | null> {
+    const { layerKey, z, x, y, detailScale, width, height, signal } = args;
+    const tileRequests = detailedTiles(layerKey, z, x, y, detailScale);
+    const tiles = await Promise.all(
+        tileRequests.map(async (tile) => ({
+            tile,
+            bitmap: await fetchBitmap(tile.url, signal).catch(() => null),
+        })),
+    );
+    const loadedTiles = tiles.filter(
+        (tile): tile is { tile: DetailedTileRequest; bitmap: ImageBitmap } => Boolean(tile.bitmap),
+    );
+    if (loadedTiles.length === 0) return null;
+
+    const shadowCanvas = createRenderCanvas(width, height);
+    const shadowCtx = canvasContext(shadowCanvas);
+    if (!shadowCtx) return null;
+
+    drawDetailedTiles(shadowCtx, loadedTiles, width, height);
+    return { bitmap: await createImageBitmap(shadowCanvas), tiles: loadedTiles };
+}
+
+function renderProtectedMultiply(args: BlendRenderArgs, intensity: number): boolean {
+    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
+    drawOverzoomedTile(ctx, base, baseTile, width, height);
+
+    const shadeCtx = canvasContext(createRenderCanvas(width, height));
+    if (!shadeCtx) return false;
+    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
+
+    const baseData = ctx.getImageData(0, 0, width, height);
+    const shadeData = shadeCtx.getImageData(0, 0, width, height);
+
+    for (let i = 0; i < baseData.data.length; i += 4) {
+        const shadeLum = (shadeData.data[i] + shadeData.data[i + 1] + shadeData.data[i + 2]) / (3 * 255);
+        const baseLum = (baseData.data[i] + baseData.data[i + 1] + baseData.data[i + 2]) / (3 * 255);
+        const preserveLight = Math.max(0, Math.min(1, (baseLum - 0.72) / 0.24));
+        const multiplyFactor = 1 - intensity + intensity * shadeLum;
+        const factor = multiplyFactor + (1 - multiplyFactor) * preserveLight * 0.72;
+
+        for (let channel = 0; channel < 3; channel++) {
+            baseData.data[i + channel] = Math.max(0, Math.min(255, baseData.data[i + channel] * factor));
+        }
+    }
+
+    ctx.putImageData(baseData, 0, 0);
+    return true;
+}
+
+function clamp01(value: number): number {
+    return Math.max(0, Math.min(1, value));
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+    const t = clamp01((value - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+}
+
+interface LocalStats {
+    mean: number;
+    range: number;
+}
+
+function localStats(
+    values: Float32Array,
+    width: number,
+    height: number,
+    column: number,
+    row: number,
+): LocalStats {
+    let sum = 0;
+    let count = 0;
+    let minimum = 1;
+    let maximum = 0;
+
+    for (let offsetRow = -2; offsetRow <= 2; offsetRow++) {
+        const sampleRow = Math.max(0, Math.min(height - 1, row + offsetRow));
+        for (let offsetColumn = -2; offsetColumn <= 2; offsetColumn++) {
+            const sampleColumn = Math.max(0, Math.min(width - 1, column + offsetColumn));
+            const value = values[sampleRow * width + sampleColumn];
+            sum += value;
+            count++;
+            minimum = Math.min(minimum, value);
+            maximum = Math.max(maximum, value);
+        }
+    }
+
+    return { mean: sum / count, range: maximum - minimum };
+}
+
+function balancedLidarShade(
+    shadeLum: number,
+    stats: LocalStats,
+): number {
+    const textureWeight = smoothstep(0.045, 0.18, stats.range);
+    const flatShade = 0.995;
+    const reliefShade = clamp01(0.95 + (shadeLum - stats.mean) * 2.15);
+    return flatShade + (reliefShade - flatShade) * textureWeight;
+}
+
+function renderLidarMultiply(args: BlendRenderArgs, intensity: number): boolean {
+    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
+    drawOverzoomedTile(ctx, base, baseTile, width, height);
+
+    const shadeCtx = canvasContext(createRenderCanvas(width, height));
+    if (!shadeCtx) return false;
+    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
+
+    const baseData = ctx.getImageData(0, 0, width, height);
+    const shadeData = shadeCtx.getImageData(0, 0, width, height);
+    const shadeLums = new Float32Array(width * height);
+
+    for (let pixelIndex = 0, pixelOffset = 0; pixelIndex < shadeLums.length; pixelIndex++, pixelOffset += 4) {
+        shadeLums[pixelIndex] = (shadeData.data[pixelOffset] + shadeData.data[pixelOffset + 1] + shadeData.data[pixelOffset + 2]) / (3 * 255);
+    }
+
+    for (let row = 0, pixelIndex = 0, pixelOffset = 0; row < height; row++) {
+        for (let column = 0; column < width; column++, pixelIndex++, pixelOffset += 4) {
+            const shadeLum = shadeLums[pixelIndex];
+            const stats = localStats(shadeLums, width, height, column, row);
+            const balancedShade = balancedLidarShade(shadeLum, stats);
+            const factor = 1 - intensity + intensity * balancedShade;
+
+            for (let channel = 0; channel < 3; channel++) {
+                baseData.data[pixelOffset + channel] = Math.max(0, Math.min(255, baseData.data[pixelOffset + channel] * factor));
+            }
+        }
+    }
+
+    ctx.putImageData(baseData, 0, 0);
+    return true;
+}
+
+function renderNeutralLidarRelief(args: BlendRenderArgs, intensity: number): boolean {
+    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
+    drawOverzoomedTile(ctx, base, baseTile, width, height);
+
+    const shadeCtx = canvasContext(createRenderCanvas(width, height));
+    if (!shadeCtx) return false;
+    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
+
+    const baseData = ctx.getImageData(0, 0, width, height);
+    const shadeData = shadeCtx.getImageData(0, 0, width, height);
+    const neutral = 180 / 255;
+    const shadowGain = 1.35;
+    const lightGain = 0.78;
+
+    for (let i = 0; i < baseData.data.length; i += 4) {
+        const shadeLum = (shadeData.data[i] + shadeData.data[i + 1] + shadeData.data[i + 2]) / (3 * 255);
+        const delta = shadeLum - neutral;
+        const rawFactor = delta < 0
+            ? 1 + delta * shadowGain
+            : 1 + delta * lightGain;
+        const factor = 1 + intensity * (rawFactor - 1);
+
+        for (let channel = 0; channel < 3; channel++) {
+            baseData.data[i + channel] = Math.max(0, Math.min(255, baseData.data[i + channel] * factor));
+        }
+    }
+
+    ctx.putImageData(baseData, 0, 0);
+    return true;
+}
+
+function renderShadowBlend(
+    args: BlendRenderArgs,
+    mode: Exclude<BlendMode, 'multiply-preserve' | 'multiply-lidar' | 'lidar-neutral'>,
+    intensity: number,
+): void {
+    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
+    if (mode === 'multiply-classic') {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.globalAlpha = intensity;
+        drawOverzoomedTile(ctx, shadow, shadowTile, width, height);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'multiply';
+        drawOverzoomedTile(ctx, base, baseTile, width, height);
+        return;
+    }
+
+    drawOverzoomedTile(ctx, base, baseTile, width, height);
+    ctx.globalAlpha = intensity;
+    ctx.globalCompositeOperation = mode;
+    drawOverzoomedTile(ctx, shadow, shadowTile, width, height);
+}
+
+function renderCompositeShadow(
+    renderArgs: BlendRenderArgs,
+    mode: BlendMode,
+    intensity: number,
+): boolean {
+    if (mode === 'lidar-neutral') return renderNeutralLidarRelief(renderArgs, intensity);
+    if (mode === 'multiply-lidar') return renderLidarMultiply(renderArgs, intensity);
+    if (mode === 'multiply-preserve') return renderProtectedMultiply(renderArgs, intensity);
+    renderShadowBlend(renderArgs, mode, intensity);
+    return true;
+}
+
 async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
-    const { baseKey, shadow: shadowKind, mode, intensity, z, x, y, signal } = args;
-    const baseUrl = tileUrlFor(baseKey, z, x, y);
+    const { baseKey, shadow: shadowKind, mode, intensity, detailScale, z, x, y, signal } = args;
+    const baseTile = overzoomedTile(baseKey, z, x, y);
     const shadowKey = SHADOW_KEYS[shadowKind];
     const shadowDef = IGN_LAYERS[shadowKey];
-    const wantShadow =
-        intensity > 0 && z >= shadowDef.minZoom && z <= shadowDef.maxZoom;
-    const shadowUrl = wantShadow ? tileUrlFor(shadowKey, z, x, y) : null;
+    const wantShadow = intensity > 0 && z >= shadowDef.minZoom;
+    const shadowTiles = wantShadow ? detailedTiles(shadowKey, z, x, y, detailScale) : [];
 
     const [base, shadow] = await Promise.all([
-        fetchBitmap(baseUrl, signal),
-        shadowUrl
-            ? fetchBitmap(shadowUrl, signal).catch(() => null)
+        fetchBitmap(baseTile.url, signal),
+        shadowTiles.length > 0
+            ? loadDetailedShadow({
+                layerKey: shadowKey,
+                z,
+                x,
+                y,
+                detailScale,
+                width: 256 * Math.max(1, detailScale),
+                height: 256 * Math.max(1, detailScale),
+                signal,
+            })
             : Promise.resolve(null),
     ]);
     if (!base) return null;
 
-    const w = base.width || 256;
-    const h = base.height || 256;
-    const useOffscreen = typeof OffscreenCanvas !== 'undefined';
-    const canvas: OffscreenCanvas | HTMLCanvasElement = useOffscreen
-        ? new OffscreenCanvas(w, h)
-        : Object.assign(document.createElement('canvas'), { width: w, height: h });
-    const ctx = canvas.getContext('2d') as
-        | OffscreenCanvasRenderingContext2D
-        | CanvasRenderingContext2D
-        | null;
+    const w = (base.width || 256) * Math.max(1, detailScale);
+    const h = (base.height || 256) * Math.max(1, detailScale);
+    const canvas = createRenderCanvas(w, h);
+    const ctx = canvasContext(canvas);
     if (!ctx) {
         base.close?.();
-        shadow?.close?.();
+        shadow?.bitmap.close?.();
+        for (const tile of shadow?.tiles ?? []) tile.bitmap.close?.();
         return null;
     }
 
     if (shadow) {
-        if (mode === 'multiply-classic') {
-            // mix(white, shadow, intensity) → multiply against base.
-            // Always darkens but preserves base tonality at intensity<1.
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, w, h);
-            ctx.globalAlpha = intensity;
-            ctx.drawImage(shadow, 0, 0, w, h);
-            ctx.globalAlpha = 1;
-            ctx.globalCompositeOperation = 'multiply';
-            ctx.drawImage(base, 0, 0, w, h);
-        } else {
-            // Paint base, then blend shadow on top with the chosen op at the
-            // requested intensity. soft-light / overlay / hard-light all leave
-            // neutral 50% gray untouched, so flat-but-textured shadow tiles
-            // don't darken white roads or paper into gray the way straight
-            // multiply does.
-            ctx.drawImage(base, 0, 0, w, h);
-            ctx.globalAlpha = intensity;
-            ctx.globalCompositeOperation = mode;
-            ctx.drawImage(shadow, 0, 0, w, h);
-        }
+        const shadowTile = overzoomedTile(shadowKey, z, x, y);
+        const renderArgs = { ctx, base, baseTile, shadow: shadow.bitmap, shadowTile, width: w, height: h };
+        const rendered = renderCompositeShadow(renderArgs, mode, intensity);
+        if (!rendered) return null;
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
+        shadow.bitmap.close?.();
     } else {
-        ctx.drawImage(base, 0, 0, w, h);
+        drawOverzoomedTile(ctx, base, baseTile, w, h);
     }
     base.close?.();
-    shadow?.close?.();
+    for (const tile of shadow?.tiles ?? []) tile.bitmap.close?.();
 
     // Hand back an ImageBitmap directly — MapLibre v5 accepts it as-is and
     // skips the PNG decode/upload roundtrip (the main perf bottleneck).
@@ -159,18 +492,22 @@ export function registerCompositeProtocol(): void {
         const url = req.url.replace(/^composite:\/\//, '');
         const parts = url.split('/');
         if (parts.length < 7) throw new Error(`Bad composite URL: ${req.url}`);
-        const baseKey = parts[0] as LayerKey;
+        const baseKey = parts[0] as CompositeBaseKey;
         const shadow = parts[1] as ShadowKind;
         const mode = parts[2] as BlendMode;
         const intensity = Math.max(0, Math.min(1, Number(parts[3]) / 100));
+        const hasDetailScale = parts.length >= 8;
+        const detailScale = hasDetailScale ? Math.max(1, Math.min(2, Number(parts[4]) || 1)) : 1;
+        const tileOffset = hasDetailScale ? 5 : 4;
         const bitmap = await composite({
             baseKey,
             shadow,
             mode,
             intensity,
-            z: Number(parts[4]),
-            x: Number(parts[5]),
-            y: Number(parts[6]),
+            detailScale,
+            z: Number(parts[tileOffset]),
+            x: Number(parts[tileOffset + 1]),
+            y: Number(parts[tileOffset + 2]),
             signal: abortController?.signal,
         });
         if (!bitmap) {
@@ -187,11 +524,13 @@ export function registerCompositeProtocol(): void {
 
 /** Build a MapLibre tile URL template that uses the composite:// protocol. */
 export function compositeTileUrl(
-    baseKey: LayerKey,
+    baseKey: CompositeBaseKey,
     shadow: ShadowKind,
     mode: BlendMode,
     intensity: number,
+    detailScale = 1,
 ): string {
     const pct = Math.round(Math.max(0, Math.min(1, intensity)) * 100);
-    return `composite://${baseKey}/${shadow}/${mode}/${pct}/{z}/{x}/{y}`;
+    const scale = Math.max(1, Math.min(2, Math.round(detailScale)));
+    return `composite://${baseKey}/${shadow}/${mode}/${pct}/${scale}/{z}/{x}/{y}`;
 }
