@@ -25,8 +25,9 @@ function syncCenterElevationToTerrain(map: maplibregl.Map): void {
 }
 
 function pixelRatioForQuality(quality: 'balanced' | 'sharp'): number {
-    if (quality === 'sharp') return 2;
-    return Math.min(globalThis.devicePixelRatio || 1, 1.5);
+    const dpr = globalThis.devicePixelRatio || 1;
+    if (quality === 'sharp') return Math.min(dpr, 3);
+    return Math.min(dpr, 2);
 }
 
 function syncTerrainControlState(map: maplibregl.Map): void {
@@ -39,8 +40,21 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
     if (!map.getSource(ROUTE_SNAP_SOURCE)) {
         map.addSource(ROUTE_SNAP_SOURCE, {
             type: 'geojson',
-            maxzoom: 21,
+            maxzoom: 22,
             data: { type: 'FeatureCollection', features: [] },
+        });
+    }
+    if (!map.getLayer('open-crete-route-snap-casing')) {
+        map.addLayer({
+            id: 'open-crete-route-snap-casing',
+            type: 'line',
+            source: ROUTE_SNAP_SOURCE,
+            layout: { 'line-cap': 'butt', 'line-join': 'round' },
+            paint: {
+                'line-color': '#f8fafc',
+                'line-opacity': 1,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 16, 5.5, 20, 7],
+            },
         });
     }
     if (!map.getLayer('open-crete-route-snap-line')) {
@@ -48,12 +62,12 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
             id: 'open-crete-route-snap-line',
             type: 'line',
             source: ROUTE_SNAP_SOURCE,
-            layout: { 'line-cap': 'butt', 'line-join': 'round' },
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-                'line-color': '#f8fafc',
-                'line-opacity': 0.65,
-                'line-width': 1.5,
-                'line-dasharray': [3, 3],
+                'line-color': '#1379d3',
+                'line-opacity': 1,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
+                'line-dasharray': [1, 2],
             },
         });
     }
@@ -64,28 +78,28 @@ function ensureRouteLayers(map: maplibregl.Map): void {
     if (!map.getSource(ROUTE_LINE_SOURCE)) {
         map.addSource(ROUTE_LINE_SOURCE, {
             type: 'geojson',
-            maxzoom: 21,
+            maxzoom: 22,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_POINTS_SOURCE)) {
         map.addSource(ROUTE_POINTS_SOURCE, {
             type: 'geojson',
-            maxzoom: 21,
+            maxzoom: 22,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_HOVER_SOURCE)) {
         map.addSource(ROUTE_HOVER_SOURCE, {
             type: 'geojson',
-            maxzoom: 21,
+            maxzoom: 22,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_SELECTION_SOURCE)) {
         map.addSource(ROUTE_SELECTION_SOURCE, {
             type: 'geojson',
-            maxzoom: 21,
+            maxzoom: 22,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
@@ -97,8 +111,8 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
                 'line-color': '#f8fafc',
-                'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 7, 20, 9],
+                'line-opacity': 1,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 16, 5.5, 20, 7],
             },
         });
     }
@@ -109,9 +123,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             source: ROUTE_LINE_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-                'line-color': '#0ea5e9',
-                'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 5, 20, 7],
+                'line-color': '#1379d3',
+                'line-opacity': 1,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
             },
             filter: ['!=', ['get', 'mode'], 'free'],
         });
@@ -124,9 +138,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
                 'line-color': '#f97316',
-                'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 5, 20, 7],
-                'line-dasharray': [0.8, 1.2],
+                'line-opacity': 1,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
+                'line-dasharray': [1, 2],
             },
             filter: ['==', ['get', 'mode'], 'free'],
         });
@@ -139,7 +153,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 18, 11],
                 'circle-color': '#fff7ed',
-                'circle-opacity': 0.9,
+                'circle-opacity': 1,
             },
         });
     }
@@ -293,6 +307,16 @@ function updateGeoJsonSource(map: maplibregl.Map, sourceId: string, data: GeoJSO
     if (source?.type === 'geojson') (source as maplibregl.GeoJSONSource).setData(data);
 }
 
+function syncRouteToMap(map: maplibregl.Map): void {
+    ensureRouteLayers(map);
+    const route = useRouteStore.getState();
+    updateGeoJsonSource(map, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
+    updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
+    updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
+    updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
+    updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
+}
+
 function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
     if (route.deleteMode) return 'cell';
     if (route.active) return 'crosshair';
@@ -387,17 +411,9 @@ export function MapContainer() {
         });
 
         map.once('idle', () => syncCenterElevationToTerrain(map));
-        map.once('load', () => ensureRouteLayers(map));
 
-        const refreshRouteLayers = () => {
-            ensureRouteLayers(map);
-            const route = useRouteStore.getState();
-            updateGeoJsonSource(map, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
-            updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
-            updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
-            updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
-            updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
-        };
+        const refreshRouteLayers = () => syncRouteToMap(map);
+        map.once('load', refreshRouteLayers);
         map.on('styledata', refreshRouteLayers);
 
         const waypointAt = (point: maplibregl.PointLike): string | null => {
@@ -510,7 +526,7 @@ export function MapContainer() {
             );
             map.once('idle', () => {
                 syncCenterElevationToTerrain(map);
-                ensureRouteLayers(map);
+                syncRouteToMap(map);
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
@@ -532,18 +548,21 @@ export function MapContainer() {
         }
     }, [terrainEnabled, terrainExaggeration]);
 
-    useEffect(() => useRouteStore.subscribe((route) => {
+    useEffect(() => {
         const map = mapRef.current;
-        if (!map?.getStyle()?.layers) return;
-        ensureRouteLayers(map);
-        if (route.hoverCoordinate) console.log('[HOVER 3] map update hover source', route.hoverCoordinate);
-        updateGeoJsonSource(map, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
-        updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
-        updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
-        updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
-        updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
-        map.getCanvas().style.cursor = routeCursor(route);
-    }), []);
+        if (map?.isStyleLoaded()) syncRouteToMap(map);
+        return useRouteStore.subscribe((route) => {
+            const m = mapRef.current;
+            if (!m?.getStyle()?.layers) return;
+            ensureRouteLayers(m);
+            updateGeoJsonSource(m, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
+            updateGeoJsonSource(m, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
+            updateGeoJsonSource(m, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
+            updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
+            updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
+            m.getCanvas().style.cursor = routeCursor(route);
+        });
+    }, []);
 
     return <div ref={containerRef} className="absolute inset-0 h-full w-full" />;
 }
