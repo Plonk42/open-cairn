@@ -379,7 +379,11 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
             canvas.removeEventListener('pointerup', handlePointerUp);
             canvas.removeEventListener('pointerleave', handlePointerLeave);
         };
-    }, [onHoverDistance, onSelectionChange]);
+        // `samples` is included so the effect re-runs once the canvas actually
+        // mounts (the component renders a placeholder when samples.length < 2,
+        // so canvasRef is null on first mount and listeners would otherwise
+        // never get attached when the route becomes non-empty).
+    }, [onHoverDistance, onSelectionChange, samples]);
 
     if (samples.length < 2) {
         return (
