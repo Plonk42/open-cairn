@@ -114,9 +114,6 @@ export function SettingsPanel() {
                         </button>
                     ))}
                 </div>
-                <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                    Net charge plus de tuiles pour les vues inclinées.
-                </p>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />

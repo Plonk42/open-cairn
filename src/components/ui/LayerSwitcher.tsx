@@ -79,21 +79,15 @@ export function LayerSwitcher() {
                         </button>
                     ))}
                 </div>
-                <p className="mt-2 text-[11px] leading-snug text-slate-400">
-                    {baseLayer === 'lidar'
-                        ? 'Fond LiDAR seul, sans fond cartographique.'
-                        : 'Pré-composé tuile par tuile avec le fond.'}
-                </p>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />
 
             <div>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Terrain 3D
-                </h3>
-                <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700 dark:text-slate-300">Activer</span>
+                <label className="flex items-center justify-between gap-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Terrain 3D
+                    </h3>
                     <input
                         aria-label="Activer terrain 3D"
                         type="checkbox"

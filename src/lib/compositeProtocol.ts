@@ -38,8 +38,8 @@ export const BLEND_MODES = [
 export type BlendMode = (typeof BLEND_MODES)[number];
 
 export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
-    'lidar-neutral': 'Relief LiDAR neutre (recommandé)',
-    'multiply': 'Multiply',
+    'lidar-neutral': 'Relief LiDAR (recommandé)',
+    'multiply': 'Multiplication (rapide)',
 };
 
 function rasterLayerDef(layerKey: CompositeBaseKey): RasterLayerDef {
