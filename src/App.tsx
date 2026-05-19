@@ -1,33 +1,99 @@
 import { useState } from 'react';
 import { MapContainer } from './components/map/MapContainer';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
+import { RoutePanel } from './components/ui/RoutePanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
 
-type OpenPanel = 'layers' | 'settings' | null;
+type RightTab = 'layers' | 'settings';
 
 export function App() {
-    const [openPanel, setOpenPanel] = useState(null as OpenPanel);
+    const [rightOpen, setRightOpen] = useState(true);
+    const [rightTab, setRightTab] = useState<RightTab>('layers');
+    const [bottomOpen, setBottomOpen] = useState(true);
 
     return (
-        <div className="relative h-screen w-screen overflow-hidden bg-slate-900 text-slate-100">
-            <MapContainer />
+        <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-900 text-slate-100">
+            {/* Main area: map + right sidebar */}
+            <div className="relative flex min-h-0 flex-1">
+                {/* Map fills remaining space */}
+                <div className="relative flex-1">
+                    <MapContainer />
+                    {/* App title badge */}
+                    <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
+                        <div className="rounded-lg bg-slate-900/70 px-3 py-1.5 text-sm font-semibold backdrop-blur-md ring-1 ring-white/10">
+                            open-crete
+                        </div>
+                    </div>
+                </div>
 
-            {/* Top-left: app title */}
-            <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
-                <div className="rounded-lg bg-slate-900/70 px-3 py-1.5 text-sm font-semibold backdrop-blur-md ring-1 ring-white/10">
-                    open-crete
+                {/* Right sidebar */}
+                <div className={`relative z-10 flex flex-shrink-0 transition-[width] duration-200 ${rightOpen ? 'w-72' : 'w-0'}`}>
+                    {/* Tab bar on the edge */}
+                    <div className="absolute -left-10 top-3 z-20 flex flex-col gap-1">
+                        <button
+                            type="button"
+                            onClick={() => { setRightOpen(true); setRightTab('layers'); }}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg transition ${rightOpen && rightTab === 'layers' ? 'bg-slate-800 text-emerald-400' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200'} ring-1 ring-white/10`}
+                            title="Couches"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setRightOpen(true); setRightTab('settings'); }}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg transition ${rightOpen && rightTab === 'settings' ? 'bg-slate-800 text-emerald-400' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200'} ring-1 ring-white/10`}
+                            title="Réglages"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                <path fillRule="evenodd" d="M8.34 1.804A1 1 0 019.32 1h1.36a1 1 0 01.98.804l.295 1.473c.497.179.971.41 1.416.69l1.38-.588a1 1 0 011.12.258l.962.962a1 1 0 01.258 1.12l-.588 1.38c.28.445.511.919.69 1.416l1.473.295A1 1 0 0119 9.32v1.36a1 1 0 01-.804.98l-1.473.295c-.179.497-.41.971-.69 1.416l.588 1.38a1 1 0 01-.258 1.12l-.962.962a1 1 0 01-1.12.258l-1.38-.588c-.445.28-.919.511-1.416.69l-.295 1.473A1 1 0 0110.68 19H9.32a1 1 0 01-.98-.804l-.295-1.473a7.957 7.957 0 01-1.416-.69l-1.38.588a1 1 0 01-1.12-.258l-.962-.962a1 1 0 01-.258-1.12l.588-1.38a7.957 7.957 0 01-.69-1.416l-1.473-.295A1 1 0 011 10.68V9.32a1 1 0 01.804-.98l1.473-.295c.179-.497.41-.971.69-1.416l-.588-1.38a1 1 0 01.258-1.12l.962-.962a1 1 0 011.12-.258l1.38.588c.445-.28.919-.511 1.416-.69l.295-1.473zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                            </svg>
+                        </button>
+                        {rightOpen && (
+                            <button
+                                type="button"
+                                onClick={() => setRightOpen(false)}
+                                className="flex h-9 w-9 items-center justify-center rounded-l-lg bg-slate-900/80 text-slate-400 ring-1 ring-white/10 transition hover:text-slate-200"
+                                title="Fermer le panneau"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
+                    {rightOpen && (
+                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-white/10 bg-slate-900/95 backdrop-blur-md">
+                            <div className="flex-1 p-3">
+                                {rightTab === 'layers' && <LayerSwitcher />}
+                                {rightTab === 'settings' && <SettingsPanel />}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="pointer-events-auto absolute right-3 top-3 z-10 flex w-72 flex-col items-end gap-2">
-                <LayerSwitcher
-                    open={openPanel === 'layers'}
-                    onToggle={() => setOpenPanel((panel) => panel === 'layers' ? null : 'layers')}
-                />
-                <SettingsPanel
-                    open={openPanel === 'settings'}
-                    onToggle={() => setOpenPanel((panel) => panel === 'settings' ? null : 'settings')}
-                />
+            {/* Bottom panel */}
+            <div className={`relative z-10 flex-shrink-0 border-t border-white/10 bg-slate-900/95 backdrop-blur-md transition-[max-height] duration-200 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
+                {/* Collapse toggle */}
+                <button
+                    type="button"
+                    onClick={() => setBottomOpen((v) => !v)}
+                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-slate-800/90 px-3 text-xs text-slate-300 ring-1 ring-white/10 transition hover:text-slate-100"
+                    title={bottomOpen ? 'Réduire' : 'Agrandir'}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3.5 w-3.5 transition-transform ${bottomOpen ? '' : 'rotate-180'}`}>
+                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                    </svg>
+                    <span>Itinéraire</span>
+                </button>
+                {bottomOpen && (
+                    <div className="h-full overflow-y-auto">
+                        <RoutePanel />
+                    </div>
+                )}
             </div>
         </div>
     );

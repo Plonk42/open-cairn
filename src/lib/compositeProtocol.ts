@@ -33,25 +33,13 @@ export type ShadowKind = keyof typeof SHADOW_KEYS;
 /** Supported shadow blend modes. */
 export const BLEND_MODES = [
     'lidar-neutral',
-    'multiply-lidar',
-    'multiply-preserve',
     'multiply',
-    'soft-light',
-    'overlay',
-    'hard-light',
-    'multiply-classic',
 ] as const;
 export type BlendMode = (typeof BLEND_MODES)[number];
 
 export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
-    'lidar-neutral': 'Relief LiDAR neutre 180 (recommandé)',
-    'multiply-lidar': 'Multiply LiDAR équilibré (recommandé)',
-    'multiply-preserve': 'Multiply, blancs préservés',
+    'lidar-neutral': 'Relief LiDAR neutre (recommandé)',
     'multiply': 'Multiply',
-    'soft-light': 'Soft light',
-    'overlay': 'Overlay',
-    'hard-light': 'Hard light',
-    'multiply-classic': 'Multiply ×W (legacy)',
 };
 
 function rasterLayerDef(layerKey: CompositeBaseKey): RasterLayerDef {
@@ -253,116 +241,7 @@ async function loadDetailedShadow(
     return { bitmap: await createImageBitmap(shadowCanvas), tiles: loadedTiles };
 }
 
-function renderProtectedMultiply(args: BlendRenderArgs, intensity: number): boolean {
-    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
-    drawOverzoomedTile(ctx, base, baseTile, width, height);
 
-    const shadeCtx = canvasContext(createRenderCanvas(width, height));
-    if (!shadeCtx) return false;
-    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
-
-    const baseData = ctx.getImageData(0, 0, width, height);
-    const shadeData = shadeCtx.getImageData(0, 0, width, height);
-
-    for (let i = 0; i < baseData.data.length; i += 4) {
-        const shadeLum = (shadeData.data[i] + shadeData.data[i + 1] + shadeData.data[i + 2]) / (3 * 255);
-        const baseLum = (baseData.data[i] + baseData.data[i + 1] + baseData.data[i + 2]) / (3 * 255);
-        const preserveLight = Math.max(0, Math.min(1, (baseLum - 0.72) / 0.24));
-        const multiplyFactor = 1 - intensity + intensity * shadeLum;
-        const factor = multiplyFactor + (1 - multiplyFactor) * preserveLight * 0.72;
-
-        for (let channel = 0; channel < 3; channel++) {
-            baseData.data[i + channel] = Math.max(0, Math.min(255, baseData.data[i + channel] * factor));
-        }
-    }
-
-    ctx.putImageData(baseData, 0, 0);
-    return true;
-}
-
-function clamp01(value: number): number {
-    return Math.max(0, Math.min(1, value));
-}
-
-function smoothstep(edge0: number, edge1: number, value: number): number {
-    const t = clamp01((value - edge0) / (edge1 - edge0));
-    return t * t * (3 - 2 * t);
-}
-
-interface LocalStats {
-    mean: number;
-    range: number;
-}
-
-function localStats(
-    values: Float32Array,
-    width: number,
-    height: number,
-    column: number,
-    row: number,
-): LocalStats {
-    let sum = 0;
-    let count = 0;
-    let minimum = 1;
-    let maximum = 0;
-
-    for (let offsetRow = -2; offsetRow <= 2; offsetRow++) {
-        const sampleRow = Math.max(0, Math.min(height - 1, row + offsetRow));
-        for (let offsetColumn = -2; offsetColumn <= 2; offsetColumn++) {
-            const sampleColumn = Math.max(0, Math.min(width - 1, column + offsetColumn));
-            const value = values[sampleRow * width + sampleColumn];
-            sum += value;
-            count++;
-            minimum = Math.min(minimum, value);
-            maximum = Math.max(maximum, value);
-        }
-    }
-
-    return { mean: sum / count, range: maximum - minimum };
-}
-
-function balancedLidarShade(
-    shadeLum: number,
-    stats: LocalStats,
-): number {
-    const textureWeight = smoothstep(0.045, 0.18, stats.range);
-    const flatShade = 0.995;
-    const reliefShade = clamp01(0.95 + (shadeLum - stats.mean) * 2.15);
-    return flatShade + (reliefShade - flatShade) * textureWeight;
-}
-
-function renderLidarMultiply(args: BlendRenderArgs, intensity: number): boolean {
-    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
-    drawOverzoomedTile(ctx, base, baseTile, width, height);
-
-    const shadeCtx = canvasContext(createRenderCanvas(width, height));
-    if (!shadeCtx) return false;
-    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
-
-    const baseData = ctx.getImageData(0, 0, width, height);
-    const shadeData = shadeCtx.getImageData(0, 0, width, height);
-    const shadeLums = new Float32Array(width * height);
-
-    for (let pixelIndex = 0, pixelOffset = 0; pixelIndex < shadeLums.length; pixelIndex++, pixelOffset += 4) {
-        shadeLums[pixelIndex] = (shadeData.data[pixelOffset] + shadeData.data[pixelOffset + 1] + shadeData.data[pixelOffset + 2]) / (3 * 255);
-    }
-
-    for (let row = 0, pixelIndex = 0, pixelOffset = 0; row < height; row++) {
-        for (let column = 0; column < width; column++, pixelIndex++, pixelOffset += 4) {
-            const shadeLum = shadeLums[pixelIndex];
-            const stats = localStats(shadeLums, width, height, column, row);
-            const balancedShade = balancedLidarShade(shadeLum, stats);
-            const factor = 1 - intensity + intensity * balancedShade;
-
-            for (let channel = 0; channel < 3; channel++) {
-                baseData.data[pixelOffset + channel] = Math.max(0, Math.min(255, baseData.data[pixelOffset + channel] * factor));
-            }
-        }
-    }
-
-    ctx.putImageData(baseData, 0, 0);
-    return true;
-}
 
 function renderNeutralLidarRelief(args: BlendRenderArgs, intensity: number): boolean {
     const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
@@ -395,26 +274,11 @@ function renderNeutralLidarRelief(args: BlendRenderArgs, intensity: number): boo
     return true;
 }
 
-function renderShadowBlend(
-    args: BlendRenderArgs,
-    mode: Exclude<BlendMode, 'multiply-preserve' | 'multiply-lidar' | 'lidar-neutral'>,
-    intensity: number,
-): void {
+function renderMultiply(args: BlendRenderArgs, intensity: number): void {
     const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
-    if (mode === 'multiply-classic') {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        ctx.globalAlpha = intensity;
-        drawOverzoomedTile(ctx, shadow, shadowTile, width, height);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = 'multiply';
-        drawOverzoomedTile(ctx, base, baseTile, width, height);
-        return;
-    }
-
     drawOverzoomedTile(ctx, base, baseTile, width, height);
     ctx.globalAlpha = intensity;
-    ctx.globalCompositeOperation = mode;
+    ctx.globalCompositeOperation = 'multiply';
     drawOverzoomedTile(ctx, shadow, shadowTile, width, height);
 }
 
@@ -424,9 +288,7 @@ function renderCompositeShadow(
     intensity: number,
 ): boolean {
     if (mode === 'lidar-neutral') return renderNeutralLidarRelief(renderArgs, intensity);
-    if (mode === 'multiply-lidar') return renderLidarMultiply(renderArgs, intensity);
-    if (mode === 'multiply-preserve') return renderProtectedMultiply(renderArgs, intensity);
-    renderShadowBlend(renderArgs, mode, intensity);
+    renderMultiply(renderArgs, intensity);
     return true;
 }
 
@@ -467,7 +329,10 @@ async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
     }
 
     if (shadow) {
-        const shadowTile = overzoomedTile(shadowKey, z, x, y);
+        // loadDetailedShadow already handles overzooming internally —
+        // the bitmap it returns covers exactly this tile's extent.
+        // Use identity overzoom so render functions draw it at full extent.
+        const shadowTile = { url: '', overscale: 1, offsetX: 0, offsetY: 0 };
         const renderArgs = { ctx, base, baseTile, shadow: shadow.bitmap, shadowTile, width: w, height: h };
         const rendered = renderCompositeShadow(renderArgs, mode, intensity);
         if (!rendered) return null;
