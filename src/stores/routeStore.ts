@@ -288,9 +288,11 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
     setHoverDistance: (distance) => {
         const routeCoordinates = get().routeCoordinates;
+        const coord = distance === null ? null : interpolateAlongLine(routeCoordinates, distance);
+        console.log('[HOVER 2] store setHoverDistance', { distance, coord, coordsLen: routeCoordinates.length });
         set({
             hoverDistance: distance,
-            hoverCoordinate: distance === null ? null : interpolateAlongLine(routeCoordinates, distance),
+            hoverCoordinate: coord,
         });
     },
 

@@ -60,17 +60,17 @@ export function RoutePanel() {
                 <button
                     type="button"
                     onClick={() => setActive(!active)}
-                    className={`rounded-md px-2 py-1 text-xs ring-1 transition ${active ? 'bg-emerald-500/20 text-emerald-200 ring-emerald-400/40' : 'bg-slate-800/40 text-slate-400 ring-white/5 hover:text-slate-200'}`}
+                    className={`rounded-md px-2 py-1 text-xs ring-1 transition ${active ? 'bg-green-50 text-green-700 ring-green-300' : 'bg-gray-100 text-slate-400 ring-gray-200 hover:text-slate-600'}`}
                 >
                     {active ? 'Tracé actif' : 'Tracé inactif'}
                 </button>
 
                 {/* Mode selector */}
-                <div className="flex gap-0.5 rounded-md bg-slate-950/50 p-0.5 ring-1 ring-white/10">
+                <div className="flex gap-0.5 rounded-md bg-gray-100 p-0.5 ring-1 ring-gray-200">
                     <button
                         type="button"
                         onClick={() => setMode('auto')}
-                        className={`rounded px-2 py-1 text-xs transition ${mode === 'auto' ? 'bg-slate-700/80 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+                        className={`rounded px-2 py-1 text-xs transition ${mode === 'auto' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         title="Les segments suivent les chemins existants (calcul IGN)"
                     >
                         Guidé
@@ -78,7 +78,7 @@ export function RoutePanel() {
                     <button
                         type="button"
                         onClick={() => setMode('free')}
-                        className={`rounded px-2 py-1 text-xs transition ${mode === 'free' ? 'bg-slate-700/80 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+                        className={`rounded px-2 py-1 text-xs transition ${mode === 'free' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         title="Les segments sont des lignes droites entre les points"
                     >
                         Libre
@@ -86,10 +86,10 @@ export function RoutePanel() {
                 </div>
 
                 {/* Stats */}
-                <div className="flex items-center gap-2.5 text-xs text-slate-300">
-                    <span className="font-semibold text-slate-100">{formatDistance(stats.distance)}</span>
-                    <span className="text-emerald-300">+{formatElevation(stats.ascent)}</span>
-                    <span className="text-sky-300">-{formatElevation(stats.descent)}</span>
+                <div className="flex items-center gap-2.5 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-800">{formatDistance(stats.distance)}</span>
+                    <span className="text-green-600">+{formatElevation(stats.ascent)}</span>
+                    <span className="text-blue-500">-{formatElevation(stats.descent)}</span>
                 </div>
 
                 {/* Clear */}
@@ -97,20 +97,20 @@ export function RoutePanel() {
                     type="button"
                     onClick={clearRoute}
                     disabled={waypoints.length === 0}
-                    className="ml-1 rounded-md px-2 py-1 text-xs text-slate-400 ring-1 ring-white/5 transition hover:bg-rose-500/15 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="ml-1 rounded-md px-2 py-1 text-xs text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
                     title="Effacer l'itinéraire"
                 >
                     Effacer
                 </button>
 
                 {/* Tabs */}
-                <div className="ml-auto flex gap-0.5 rounded-md bg-slate-950/50 p-0.5 ring-1 ring-white/10">
+                <div className="ml-auto flex gap-0.5 rounded-md bg-gray-100 p-0.5 ring-1 ring-gray-200">
                     {TABS.map((tab) => (
                         <button
                             key={tab.id}
                             type="button"
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition ${activeTab === tab.id ? 'bg-slate-700/80 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+                            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition ${activeTab === tab.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                             title={tab.label}
                         >
                             {tab.icon}
@@ -121,7 +121,7 @@ export function RoutePanel() {
 
                 {/* Status message */}
                 {statusMessage && (
-                    <div className={`text-xs ${status === 'error' ? 'text-amber-300' : 'text-slate-500'}`}>
+                    <div className={`text-xs ${status === 'error' ? 'text-rose-500' : 'text-slate-400'}`}>
                         {status === 'loading' ? 'Calcul...' : statusMessage}
                     </div>
                 )}
@@ -141,20 +141,20 @@ export function RoutePanel() {
                 )}
 
                 {activeTab === 'waypoints' && (
-                    <div className="max-h-48 overflow-auto rounded-md bg-slate-950/50 ring-1 ring-white/10">
+                    <div className="max-h-48 overflow-auto rounded-md bg-gray-50 ring-1 ring-gray-200">
                         {waypoints.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-sm text-slate-500">
+                            <div className="px-3 py-4 text-center text-sm text-slate-400">
                                 Cliquez sur la carte pour ajouter des points
                             </div>
                         ) : waypoints.map((waypoint, index) => (
-                            <div key={waypoint.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-300 odd:bg-white/[0.03]">
+                            <div key={waypoint.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-600 odd:bg-gray-100/50">
                                 {/* Reorder buttons */}
                                 <div className="flex flex-shrink-0 flex-col">
                                     <button
                                         type="button"
                                         disabled={index === 0}
                                         onClick={() => reorderWaypoint(waypoint.id, index - 1)}
-                                        className="text-slate-500 transition hover:text-slate-200 disabled:opacity-20"
+                                        className="text-slate-300 transition hover:text-slate-600 disabled:opacity-20"
                                         title="Monter"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
@@ -165,7 +165,7 @@ export function RoutePanel() {
                                         type="button"
                                         disabled={index === waypoints.length - 1}
                                         onClick={() => reorderWaypoint(waypoint.id, index + 1)}
-                                        className="text-slate-500 transition hover:text-slate-200 disabled:opacity-20"
+                                        className="text-slate-300 transition hover:text-slate-600 disabled:opacity-20"
                                         title="Descendre"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
@@ -173,7 +173,7 @@ export function RoutePanel() {
                                         </svg>
                                     </button>
                                 </div>
-                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-sky-500/20 text-[10px] font-bold text-sky-200 ring-1 ring-sky-400/40">
+                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-blue-600 ring-1 ring-blue-200">
                                     {index + 1}
                                 </span>
                                 <div className="min-w-0 flex-1">
@@ -181,18 +181,18 @@ export function RoutePanel() {
                                         {waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}
                                     </div>
                                     {index > 0 && (
-                                        <div className="mt-1 inline-grid grid-cols-2 overflow-hidden rounded ring-1 ring-white/10">
+                                        <div className="mt-1 inline-grid grid-cols-2 overflow-hidden rounded ring-1 ring-gray-200">
                                             <button
                                                 type="button"
                                                 onClick={() => setWaypointSegmentMode(waypoint.id, 'auto')}
-                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'bg-sky-500/25 text-sky-100' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/70 hover:text-slate-200'}`}
+                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-slate-400 hover:bg-gray-100 hover:text-slate-600'}`}
                                             >
                                                 Guidé
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setWaypointSegmentMode(waypoint.id, 'free')}
-                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'free' ? 'bg-sky-500/25 text-sky-100' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/70 hover:text-slate-200'}`}
+                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'free' ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-slate-400 hover:bg-gray-100 hover:text-slate-600'}`}
                                             >
                                                 Libre
                                             </button>
@@ -202,7 +202,7 @@ export function RoutePanel() {
                                 <button
                                     type="button"
                                     onClick={() => removeWaypoint(waypoint.id)}
-                                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-500 transition hover:bg-rose-500/15 hover:text-rose-300"
+                                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
                                     title="Retirer"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">

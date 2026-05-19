@@ -490,8 +490,9 @@ export function MapContainer() {
 
     useEffect(() => useRouteStore.subscribe((route) => {
         const map = mapRef.current;
-        if (!map?.isStyleLoaded()) return;
+        if (!map?.getStyle()?.layers) return;
         ensureRouteLayers(map);
+        if (route.hoverCoordinate) console.log('[HOVER 3] map update hover source', route.hoverCoordinate);
         updateGeoJsonSource(map, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
         updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
         updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));

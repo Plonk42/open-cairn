@@ -328,6 +328,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                 onHoverDistance(null);
                 return;
             }
+            console.log('[HOVER 1] chart → onHoverDistance', distance);
             onHoverDistance(distance);
             if (draggingRef.current && selectionRef.current) {
                 selectionRef.current = { ...selectionRef.current, end: distance };
@@ -387,14 +388,14 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
 
     if (samples.length < 2) {
         return (
-            <div className="flex h-full min-h-32 items-center justify-center rounded-md bg-slate-950/70 text-sm text-slate-300 ring-1 ring-white/10">
+            <div className="flex h-full min-h-32 items-center justify-center rounded-md bg-gray-100 text-sm text-slate-400 ring-1 ring-gray-200">
                 Profil disponible après deux points
             </div>
         );
     }
 
     return (
-        <div className="h-44 w-full rounded-md bg-slate-950/70 p-2 ring-1 ring-white/10">
+        <div className="h-44 w-full rounded-md bg-gray-50 p-2 ring-1 ring-gray-200">
             <canvas ref={canvasRef} className="h-full w-full" />
         </div>
     );

@@ -12,7 +12,7 @@ export function App() {
     const [bottomOpen, setBottomOpen] = useState(true);
 
     return (
-        <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-900 text-slate-100">
+        <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-50 text-slate-800">
             {/* Main area: map + right sidebar */}
             <div className="relative flex min-h-0 flex-1">
                 {/* Map fills remaining space */}
@@ -20,8 +20,11 @@ export function App() {
                     <MapContainer />
                     {/* App title badge */}
                     <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
-                        <div className="rounded-lg bg-slate-900/70 px-3 py-1.5 text-sm font-semibold backdrop-blur-md ring-1 ring-white/10">
-                            open-crete
+                        <div className="flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-4 text-green-600">
+                                <path d="M1 15l5-9 4 5 3-7 6 11H1z" />
+                            </svg>
+                            <span className="text-slate-700">open-crete</span>
                         </div>
                     </div>
                 </div>
@@ -33,7 +36,7 @@ export function App() {
                         <button
                             type="button"
                             onClick={() => { setRightOpen(true); setRightTab('layers'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg transition ${rightOpen && rightTab === 'layers' ? 'bg-slate-800 text-emerald-400' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200'} ring-1 ring-white/10`}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ${rightOpen && rightTab === 'layers' ? 'bg-white text-green-600' : 'bg-white/80 text-slate-400 hover:text-slate-600'} ring-1 ring-black/5`}
                             title="Couches"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -43,7 +46,7 @@ export function App() {
                         <button
                             type="button"
                             onClick={() => { setRightOpen(true); setRightTab('settings'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg transition ${rightOpen && rightTab === 'settings' ? 'bg-slate-800 text-emerald-400' : 'bg-slate-900/80 text-slate-400 hover:text-slate-200'} ring-1 ring-white/10`}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ${rightOpen && rightTab === 'settings' ? 'bg-white text-green-600' : 'bg-white/80 text-slate-400 hover:text-slate-600'} ring-1 ring-black/5`}
                             title="Réglages"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -54,7 +57,7 @@ export function App() {
                             <button
                                 type="button"
                                 onClick={() => setRightOpen(false)}
-                                className="flex h-9 w-9 items-center justify-center rounded-l-lg bg-slate-900/80 text-slate-400 ring-1 ring-white/10 transition hover:text-slate-200"
+                                className="flex h-9 w-9 items-center justify-center rounded-l-lg bg-white/80 text-slate-400 shadow-sm ring-1 ring-black/5 transition hover:text-slate-600"
                                 title="Fermer le panneau"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -65,7 +68,7 @@ export function App() {
                     </div>
 
                     {rightOpen && (
-                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-white/10 bg-slate-900/95 backdrop-blur-md">
+                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md">
                             <div className="flex-1 p-3">
                                 {rightTab === 'layers' && <LayerSwitcher />}
                                 {rightTab === 'settings' && <SettingsPanel />}
@@ -76,12 +79,12 @@ export function App() {
             </div>
 
             {/* Bottom panel */}
-            <div className={`relative z-10 flex-shrink-0 border-t border-white/10 bg-slate-900/95 backdrop-blur-md transition-[max-height] duration-200 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
+            <div className={`relative z-10 flex-shrink-0 border-t border-gray-200/60 bg-white/90 backdrop-blur-md transition-[max-height] duration-200 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
                 {/* Collapse toggle */}
                 <button
                     type="button"
                     onClick={() => setBottomOpen((v) => !v)}
-                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-slate-800/90 px-3 text-xs text-slate-300 ring-1 ring-white/10 transition hover:text-slate-100"
+                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-white/90 px-3 text-xs text-slate-600 shadow-sm ring-1 ring-black/5 transition hover:text-slate-900"
                     title={bottomOpen ? 'Réduire' : 'Agrandir'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3.5 w-3.5 transition-transform ${bottomOpen ? '' : 'rotate-180'}`}>

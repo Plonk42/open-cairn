@@ -26,7 +26,7 @@ export function LayerSwitcher() {
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                         <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
                     </svg>
@@ -39,8 +39,8 @@ export function LayerSwitcher() {
                             type="button"
                             onClick={() => setBaseLayer(id)}
                             className={`rounded-md px-2.5 py-1.5 text-xs ring-1 transition ${baseLayer === id
-                                ? 'bg-emerald-500/20 text-emerald-200 ring-emerald-400/40'
-                                : 'bg-slate-800/40 text-slate-300 ring-white/5 hover:bg-slate-700/60'
+                                ? 'bg-green-50 text-green-700 ring-green-300'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100'
                                 }`}
                         >
                             {BASE_LAYER_LABELS[id]}
@@ -49,17 +49,17 @@ export function LayerSwitcher() {
                 </div>
             </div>
 
-            <div className="h-px bg-white/10" />
+            <div className="h-px bg-gray-200" />
 
             <div>
                 <label className={`flex items-center justify-between gap-3 ${baseLayer === 'lidar' ? 'opacity-45' : ''}`}>
-                    <span className="text-sm text-slate-200">Ombrage LiDAR HD</span>
+                    <span className="text-sm text-slate-700">Ombrage LiDAR HD</span>
                     <input
                         type="checkbox"
                         checked={baseLayer === 'lidar' ? false : hillshadeEnabled}
                         disabled={baseLayer === 'lidar'}
                         onChange={(e) => setHillshadeEnabled(e.target.checked)}
-                        className="h-4 w-4 accent-emerald-500 disabled:cursor-not-allowed"
+                        className="h-4 w-4 accent-green-600 disabled:cursor-not-allowed"
                     />
                 </label>
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -70,8 +70,8 @@ export function LayerSwitcher() {
                             disabled={!hillshadeEnabled && baseLayer !== 'lidar'}
                             onClick={() => setHillshadeSource(id)}
                             className={`rounded-md px-2 py-1.5 text-xs ring-1 transition disabled:opacity-40 ${hillshadeSource === id
-                                ? 'bg-emerald-500/20 text-emerald-200 ring-emerald-400/40'
-                                : 'bg-slate-800/40 text-slate-300 ring-white/5 hover:bg-slate-700/60'
+                                ? 'bg-green-50 text-green-700 ring-green-300'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100'
                                 }`}
                             title={SHADOW_TITLES[id]}
                         >
@@ -79,31 +79,31 @@ export function LayerSwitcher() {
                         </button>
                     ))}
                 </div>
-                <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                <p className="mt-2 text-[11px] leading-snug text-slate-400">
                     {baseLayer === 'lidar'
                         ? 'Fond LiDAR seul, sans fond cartographique.'
                         : 'Pré-composé tuile par tuile avec le fond.'}
                 </p>
             </div>
 
-            <div className="h-px bg-white/10" />
+            <div className="h-px bg-gray-200" />
 
             <div>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Terrain 3D
                 </h3>
                 <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-200">Activer</span>
+                    <span className="text-sm text-slate-700">Activer</span>
                     <input
                         aria-label="Activer terrain 3D"
                         type="checkbox"
                         checked={terrainEnabled}
                         onChange={(e) => setTerrainEnabled(e.target.checked)}
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-green-600"
                     />
                 </label>
                 <label className="mt-2 block">
-                    <div className="flex items-center justify-between text-sm text-slate-200">
+                    <div className="flex items-center justify-between text-sm text-slate-700">
                         <span>Exagération</span>
                         <span className="font-mono text-xs text-slate-400">
                             ×{terrainExaggeration.toFixed(1)}
@@ -118,7 +118,7 @@ export function LayerSwitcher() {
                         value={terrainExaggeration}
                         onChange={(e) => setTerrainExaggeration(Number(e.target.value))}
                         disabled={!terrainEnabled}
-                        className="mt-1 w-full accent-emerald-500 disabled:opacity-40"
+                        className="mt-1 w-full accent-green-600 disabled:opacity-40"
                     />
                 </label>
             </div>
