@@ -3,10 +3,14 @@ import {
     BLEND_MODE_LABELS,
     type BlendMode,
 } from '@/lib/compositeProtocol';
-import { RENDER_QUALITY_LABELS, useMapStore, type RenderQuality } from '@/stores/mapStore';
+import { RENDER_QUALITY_LABELS, useMapStore, type RenderQuality, type UiTheme } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 
 const RENDER_QUALITIES: RenderQuality[] = ['balanced', 'sharp'];
+const UI_THEMES: Array<{ id: UiTheme; label: string }> = [
+    { id: 'light', label: 'Clair' },
+    { id: 'dark', label: 'Sombre' },
+];
 
 export function SettingsPanel() {
     const hillshadeEnabled = useMapStore((s) => s.hillshadeEnabled);
@@ -17,11 +21,36 @@ export function SettingsPanel() {
     const setHillshadeBlend = useMapStore((s) => s.setHillshadeBlend);
     const renderQuality = useMapStore((s) => s.renderQuality);
     const setRenderQuality = useMapStore((s) => s.setRenderQuality);
+    const uiTheme = useMapStore((s) => s.uiTheme);
+    const setUiTheme = useMapStore((s) => s.setUiTheme);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
 
     return (
         <div className="space-y-4">
+            <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Apparence
+                </h3>
+                <div className="grid grid-cols-2 gap-1.5">
+                    {UI_THEMES.map(({ id, label }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setUiTheme(id)}
+                            className={`rounded-md px-2 py-1.5 text-xs ring-1 transition ${uiTheme === id
+                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
+                                }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
+
             <div>
                 <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -30,7 +59,7 @@ export function SettingsPanel() {
                     Ombrage
                 </h3>
                 <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                         <span>Intensité</span>
                         <span className="font-mono text-xs text-slate-400">
                             {Math.round(hillshadeIntensity * 100)}%
@@ -53,7 +82,7 @@ export function SettingsPanel() {
                         value={hillshadeBlend}
                         disabled={!hillshadeEnabled || baseLayer === 'lidar'}
                         onChange={(e) => setHillshadeBlend(e.target.value as BlendMode)}
-                        className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 disabled:opacity-40"
+                        className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
                     >
                         {BLEND_MODES.map((id) => (
                             <option key={id} value={id}>
@@ -64,7 +93,7 @@ export function SettingsPanel() {
                 </div>
             </div>
 
-            <div className="h-px bg-gray-200" />
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
 
             <div>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -77,8 +106,8 @@ export function SettingsPanel() {
                             type="button"
                             onClick={() => setRenderQuality(id)}
                             className={`rounded-md px-2 py-1.5 text-xs ring-1 transition ${renderQuality === id
-                                ? 'bg-green-50 text-green-700 ring-green-300'
-                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100'
+                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
                                 }`}
                         >
                             {RENDER_QUALITY_LABELS[id]}
@@ -90,13 +119,13 @@ export function SettingsPanel() {
                 </p>
             </div>
 
-            <div className="h-px bg-gray-200" />
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
 
             <div>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Itinéraire
                 </h3>
-                <label className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                <label className="flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
                     <span>Pente colorée sur le profil</span>
                     <input
                         type="checkbox"

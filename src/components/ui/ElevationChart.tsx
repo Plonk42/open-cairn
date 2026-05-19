@@ -39,6 +39,7 @@ type ElevationChartProps = Readonly<{
     hoverDistance: number | null;
     onHoverDistance: (distance: number | null) => void;
     onSelectionChange: (range: [number, number] | null) => void;
+    theme: 'light' | 'dark';
 }>;
 
 function slopeColor(slope: number): string {
@@ -204,7 +205,7 @@ function buildOverlayPlugin(
     };
 }
 
-export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDistance, onHoverDistance, onSelectionChange }: ElevationChartProps) {
+export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDistance, onHoverDistance, onSelectionChange, theme }: ElevationChartProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const chartRef = useRef<Chart<'line', ChartPoint[]> | null>(null);
     const samplesRef = useRef(samples);
@@ -232,6 +233,14 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
         const maxElevation = Math.max(...elevations);
         const elevationPadding = Math.max(8, (maxElevation - minElevation) * 0.08);
         const maxDistance = samples.at(-1)?.distance ?? 0;
+
+        const isDark = theme === 'dark';
+        const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+        const tickColor = isDark ? '#94a3b8' : '#64748b';
+        const tooltipBg = isDark ? 'rgba(2,6,23,0.94)' : 'rgba(255,255,255,0.96)';
+        const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
+        const tooltipBodyColor = isDark ? '#f1f5f9' : '#1e293b';
+        const tooltipTitleColor = isDark ? '#94a3b8' : '#64748b';
 
         const config: ChartConfiguration<'line', ChartPoint[]> = {
             type: 'line',
@@ -261,9 +270,11 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                     legend: { display: false },
                     tooltip: {
                         displayColors: false,
-                        backgroundColor: 'rgba(2, 6, 23, 0.94)',
-                        borderColor: 'rgba(255, 255, 255, 0.14)',
+                        backgroundColor: tooltipBg,
+                        borderColor: tooltipBorder,
                         borderWidth: 1,
+                        bodyColor: tooltipBodyColor,
+                        titleColor: tooltipTitleColor,
                         callbacks: {
                             title: (items) => formatDistance(Number(items[0]?.parsed.x ?? 0)),
                             label: (item) => `Altitude ${formatElevation(Number(item.parsed.y ?? 0))}`,
@@ -275,10 +286,10 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                         type: 'linear',
                         min: 0,
                         max: maxDistance,
-                        grid: { color: 'rgba(255,255,255,0.08)' },
+                        grid: { color: gridColor },
                         border: { display: false },
                         ticks: {
-                            color: '#94a3b8',
+                            color: tickColor,
                             maxTicksLimit: 5,
                             callback: (value) => formatDistance(Number(value)),
                         },
@@ -287,10 +298,10 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                         type: 'linear',
                         min: minElevation - elevationPadding,
                         max: maxElevation + elevationPadding,
-                        grid: { color: 'rgba(255,255,255,0.08)' },
+                        grid: { color: gridColor },
                         border: { display: false },
                         ticks: {
-                            color: '#94a3b8',
+                            color: tickColor,
                             maxTicksLimit: 4,
                             callback: (value) => formatElevation(Number(value)),
                         },
@@ -307,7 +318,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
             chartRef.current?.destroy();
             chartRef.current = null;
         };
-    }, [colorBySlope, samples]);
+    }, [colorBySlope, samples, theme]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -388,14 +399,14 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
 
     if (samples.length < 2) {
         return (
-            <div className="flex h-full min-h-32 items-center justify-center rounded-md bg-gray-100 text-sm text-slate-400 ring-1 ring-gray-200">
+            <div className="flex h-full min-h-32 items-center justify-center rounded-md bg-gray-100 text-sm text-slate-400 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-500 dark:ring-slate-700">
                 Profil disponible après deux points
             </div>
         );
     }
 
     return (
-        <div className="h-44 w-full rounded-md bg-gray-50 p-2 ring-1 ring-gray-200">
+        <div className="h-44 w-full rounded-md bg-gray-50 p-2 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700">
             <canvas ref={canvasRef} className="h-full w-full" />
         </div>
     );

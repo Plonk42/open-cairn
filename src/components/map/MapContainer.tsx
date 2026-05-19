@@ -1,4 +1,5 @@
 import { registerCompositeProtocol } from '@/lib/compositeProtocol';
+import { distanceMeters } from '@/lib/geo';
 import { buildMapStyle } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -10,6 +11,7 @@ const ROUTE_LINE_SOURCE = 'open-crete-route-line';
 const ROUTE_POINTS_SOURCE = 'open-crete-route-points';
 const ROUTE_HOVER_SOURCE = 'open-crete-route-hover';
 const ROUTE_SELECTION_SOURCE = 'open-crete-route-selection';
+const ROUTE_SNAP_SOURCE = 'open-crete-route-snap';
 const ROUTE_POINT_LAYERS = ['open-crete-route-point-fill', 'open-crete-route-point-halo'];
 
 registerCompositeProtocol();
@@ -33,29 +35,57 @@ function syncTerrainControlState(map: maplibregl.Map): void {
     if (terrainEnabledNow) map.once('idle', () => syncCenterElevationToTerrain(map));
 }
 
+function ensureSnapOverlay(map: maplibregl.Map): void {
+    if (!map.getSource(ROUTE_SNAP_SOURCE)) {
+        map.addSource(ROUTE_SNAP_SOURCE, {
+            type: 'geojson',
+            maxzoom: 21,
+            data: { type: 'FeatureCollection', features: [] },
+        });
+    }
+    if (!map.getLayer('open-crete-route-snap-line')) {
+        map.addLayer({
+            id: 'open-crete-route-snap-line',
+            type: 'line',
+            source: ROUTE_SNAP_SOURCE,
+            layout: { 'line-cap': 'butt', 'line-join': 'round' },
+            paint: {
+                'line-color': '#f8fafc',
+                'line-opacity': 0.65,
+                'line-width': 1.5,
+                'line-dasharray': [3, 3],
+            },
+        });
+    }
+}
+
 function ensureRouteLayers(map: maplibregl.Map): void {
     if (!map.isStyleLoaded()) return;
     if (!map.getSource(ROUTE_LINE_SOURCE)) {
         map.addSource(ROUTE_LINE_SOURCE, {
             type: 'geojson',
+            maxzoom: 21,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_POINTS_SOURCE)) {
         map.addSource(ROUTE_POINTS_SOURCE, {
             type: 'geojson',
+            maxzoom: 21,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_HOVER_SOURCE)) {
         map.addSource(ROUTE_HOVER_SOURCE, {
             type: 'geojson',
+            maxzoom: 21,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
     if (!map.getSource(ROUTE_SELECTION_SOURCE)) {
         map.addSource(ROUTE_SELECTION_SOURCE, {
             type: 'geojson',
+            maxzoom: 21,
             data: { type: 'FeatureCollection', features: [] },
         });
     }
@@ -68,7 +98,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#f8fafc',
                 'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 9, 20, 16],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 7, 20, 9],
             },
         });
     }
@@ -81,7 +111,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#0ea5e9',
                 'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 6, 20, 12],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 5, 20, 7],
             },
             filter: ['!=', ['get', 'mode'], 'free'],
         });
@@ -95,7 +125,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#f97316',
                 'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 6, 20, 12],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 16, 5, 20, 7],
                 'line-dasharray': [0.8, 1.2],
             },
             filter: ['==', ['get', 'mode'], 'free'],
@@ -107,7 +137,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             type: 'circle',
             source: ROUTE_HOVER_SOURCE,
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 18, 15],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 18, 11],
                 'circle-color': '#fff7ed',
                 'circle-opacity': 0.9,
             },
@@ -119,22 +149,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             type: 'circle',
             source: ROUTE_HOVER_SOURCE,
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 18, 11],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 18, 8],
                 'circle-color': '#f97316',
                 'circle-opacity': 1,
-            },
-        });
-    }
-    if (!map.getLayer('open-crete-route-selection-glow')) {
-        map.addLayer({
-            id: 'open-crete-route-selection-glow',
-            type: 'line',
-            source: ROUTE_SELECTION_SOURCE,
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: {
-                'line-color': '#fbbf24',
-                'line-opacity': 0.4,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 12, 16, 26, 20, 36],
             },
         });
     }
@@ -151,13 +168,14 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
+    ensureSnapOverlay(map);
     if (!map.getLayer('open-crete-route-point-halo')) {
         map.addLayer({
             id: 'open-crete-route-point-halo',
             type: 'circle',
             source: ROUTE_POINTS_SOURCE,
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 7, 18, 15],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 7, 18, 11],
                 'circle-color': '#f8fafc',
                 'circle-opacity': 0.95,
                 'circle-stroke-color': '#0f172a',
@@ -171,7 +189,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             type: 'circle',
             source: ROUTE_POINTS_SOURCE,
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 18, 10],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 18, 8],
                 'circle-color': ['case', ['boolean', ['get', 'deleteMode'], false], '#f43f5e', ['==', ['get', 'role'], 'start'], '#10b981', ['==', ['get', 'role'], 'end'], '#f97316', '#0ea5e9'],
             },
         });
@@ -235,6 +253,30 @@ function hoverGeoJson(coordinate: [number, number] | null): GeoJSON.FeatureColle
         type: 'FeatureCollection',
         features: coordinate ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: coordinate } }] : [],
     };
+}
+
+function snapLinesGeoJson(
+    waypoints: ReturnType<typeof useRouteStore.getState>['waypoints'],
+    segments: ReturnType<typeof useRouteStore.getState>['routeSegments'],
+): GeoJSON.FeatureCollection {
+    const features: GeoJSON.Feature[] = [];
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (seg.mode !== 'auto') continue;
+        const coords = seg.coordinates;
+        if (coords.length < 2) continue;
+        const wpStart = waypoints[i]?.coordinate;
+        const wpEnd = waypoints[i + 1]?.coordinate;
+        const segStart = coords[0];
+        const segEnd = coords.at(-1);
+        if (wpStart && distanceMeters(wpStart, segStart) > 1) {
+            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [wpStart, segStart] } });
+        }
+        if (wpEnd && segEnd && distanceMeters(wpEnd, segEnd) > 1) {
+            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [wpEnd, segEnd] } });
+        }
+    }
+    return { type: 'FeatureCollection', features };
 }
 
 function selectionGeoJson(coordinates: [number, number][]): GeoJSON.FeatureCollection {
@@ -302,11 +344,12 @@ export function MapContainer() {
             pixelRatio: pixelRatioForQuality(initial.renderQuality),
             // Allow overzoom past the source maxzoom so users can keep
             // diving in past z19 (MapLibre will reuse parent tiles).
-            maxZoom: 22,
+            maxZoom: 21,
             // Keep the camera altitude under our control. MapLibre's automatic
             // terrain recalculate pass can snap zoom/center after wheel gestures
             // with the IGN WMS-r DEM; we sync elevation explicitly instead.
             centerClampedToGround: false,
+            attributionControl: false,
             hash: true,
         });
         mapRef.current = map;
@@ -353,6 +396,7 @@ export function MapContainer() {
             updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
             updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
             updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
+            updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
         };
         map.on('styledata', refreshRouteLayers);
 
@@ -497,6 +541,7 @@ export function MapContainer() {
         updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
         updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
         updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
+        updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
         map.getCanvas().style.cursor = routeCursor(route);
     }), []);
 

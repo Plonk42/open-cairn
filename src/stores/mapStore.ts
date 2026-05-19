@@ -18,6 +18,8 @@ export const RENDER_QUALITY_LABELS: Record<RenderQuality, string> = {
     sharp: 'Net',
 };
 
+export type UiTheme = 'light' | 'dark';
+
 export interface MapView {
     longitude: number;
     latitude: number;
@@ -61,6 +63,10 @@ interface MapState {
     renderQuality: RenderQuality;
     setRenderQuality: (v: RenderQuality) => void;
 
+    /** Light or dark UI theme. */
+    uiTheme: UiTheme;
+    setUiTheme: (v: UiTheme) => void;
+
 }
 
 // Default view: French Alps, around the Vercors / Belledonne area, with a
@@ -100,5 +106,8 @@ export const useMapStore = create<MapState>((set) => ({
 
     renderQuality: 'balanced',
     setRenderQuality: (renderQuality) => set({ renderQuality }),
+
+    uiTheme: 'light',
+    setUiTheme: (uiTheme) => set({ uiTheme }),
 
 }));

@@ -14,6 +14,12 @@ body,
         'Helvetica Neue', Arial, sans-serif;
 }
 
+html.dark body,
+html.dark #root {
+    background: #0b1220;
+    color: #f1f5f9;
+}
+
 .maplibregl-canvas {
     outline: none;
 }

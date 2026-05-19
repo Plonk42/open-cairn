@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MapContainer } from './components/map/MapContainer';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { RoutePanel } from './components/ui/RoutePanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
+import { useMapStore } from './stores/mapStore';
 
 type RightTab = 'layers' | 'settings';
 
@@ -10,9 +11,14 @@ export function App() {
     const [rightOpen, setRightOpen] = useState(true);
     const [rightTab, setRightTab] = useState<RightTab>('layers');
     const [bottomOpen, setBottomOpen] = useState(true);
+    const uiTheme = useMapStore((s) => s.uiTheme);
+
+    useEffect(() => {
+        document.documentElement.classList.toggle('dark', uiTheme === 'dark');
+    }, [uiTheme]);
 
     return (
-        <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-50 text-slate-800">
+        <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
             {/* Main area: map + right sidebar */}
             <div className="relative flex min-h-0 flex-1">
                 {/* Map fills remaining space */}
@@ -20,11 +26,11 @@ export function App() {
                     <MapContainer />
                     {/* App title badge */}
                     <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
-                        <div className="flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-4 text-green-600">
+                        <div className="flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5 dark:bg-slate-900/70 dark:ring-white/10">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-4 text-green-600 dark:text-emerald-400">
                                 <path d="M1 15l5-9 4 5 3-7 6 11H1z" />
                             </svg>
-                            <span className="text-slate-700">open-crete</span>
+                            <span className="text-slate-700 dark:text-slate-100">open-crete</span>
                         </div>
                     </div>
                 </div>
@@ -36,7 +42,7 @@ export function App() {
                         <button
                             type="button"
                             onClick={() => { setRightOpen(true); setRightTab('layers'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ${rightOpen && rightTab === 'layers' ? 'bg-white text-green-600' : 'bg-white/80 text-slate-400 hover:text-slate-600'} ring-1 ring-black/5`}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'layers' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
                             title="Couches"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -46,7 +52,7 @@ export function App() {
                         <button
                             type="button"
                             onClick={() => { setRightOpen(true); setRightTab('settings'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ${rightOpen && rightTab === 'settings' ? 'bg-white text-green-600' : 'bg-white/80 text-slate-400 hover:text-slate-600'} ring-1 ring-black/5`}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'settings' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
                             title="Réglages"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -57,7 +63,7 @@ export function App() {
                             <button
                                 type="button"
                                 onClick={() => setRightOpen(false)}
-                                className="flex h-9 w-9 items-center justify-center rounded-l-lg bg-white/80 text-slate-400 shadow-sm ring-1 ring-black/5 transition hover:text-slate-600"
+                                className="flex h-9 w-9 items-center justify-center rounded-l-lg bg-white/80 text-slate-400 shadow-sm ring-1 ring-black/5 transition hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200"
                                 title="Fermer le panneau"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -68,7 +74,7 @@ export function App() {
                     </div>
 
                     {rightOpen && (
-                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md">
+                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
                             <div className="flex-1 p-3">
                                 {rightTab === 'layers' && <LayerSwitcher />}
                                 {rightTab === 'settings' && <SettingsPanel />}
@@ -79,12 +85,12 @@ export function App() {
             </div>
 
             {/* Bottom panel */}
-            <div className={`relative z-10 flex-shrink-0 border-t border-gray-200/60 bg-white/90 backdrop-blur-md transition-[max-height] duration-200 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
+            <div className={`relative z-10 flex-shrink-0 border-t border-gray-200/60 bg-white/90 backdrop-blur-md transition-[max-height] duration-200 dark:border-white/10 dark:bg-slate-900/95 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
                 {/* Collapse toggle */}
                 <button
                     type="button"
                     onClick={() => setBottomOpen((v) => !v)}
-                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-white/90 px-3 text-xs text-slate-600 shadow-sm ring-1 ring-black/5 transition hover:text-slate-900"
+                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-white/90 px-3 text-xs text-slate-600 shadow-sm ring-1 ring-black/5 transition hover:text-slate-900 dark:bg-slate-800/90 dark:text-slate-300 dark:ring-white/10 dark:hover:text-slate-100"
                     title={bottomOpen ? 'Réduire' : 'Agrandir'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3.5 w-3.5 transition-transform ${bottomOpen ? '' : 'rotate-180'}`}>

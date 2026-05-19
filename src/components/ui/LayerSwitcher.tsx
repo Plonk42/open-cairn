@@ -39,8 +39,8 @@ export function LayerSwitcher() {
                             type="button"
                             onClick={() => setBaseLayer(id)}
                             className={`rounded-md px-2.5 py-1.5 text-xs ring-1 transition ${baseLayer === id
-                                ? 'bg-green-50 text-green-700 ring-green-300'
-                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100'
+                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
                                 }`}
                         >
                             {BASE_LAYER_LABELS[id]}
@@ -49,11 +49,11 @@ export function LayerSwitcher() {
                 </div>
             </div>
 
-            <div className="h-px bg-gray-200" />
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
 
             <div>
                 <label className={`flex items-center justify-between gap-3 ${baseLayer === 'lidar' ? 'opacity-45' : ''}`}>
-                    <span className="text-sm text-slate-700">Ombrage LiDAR HD</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Ombrage LiDAR HD</span>
                     <input
                         type="checkbox"
                         checked={baseLayer === 'lidar' ? false : hillshadeEnabled}
@@ -70,8 +70,8 @@ export function LayerSwitcher() {
                             disabled={!hillshadeEnabled && baseLayer !== 'lidar'}
                             onClick={() => setHillshadeSource(id)}
                             className={`rounded-md px-2 py-1.5 text-xs ring-1 transition disabled:opacity-40 ${hillshadeSource === id
-                                ? 'bg-green-50 text-green-700 ring-green-300'
-                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100'
+                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
                                 }`}
                             title={SHADOW_TITLES[id]}
                         >
@@ -86,14 +86,14 @@ export function LayerSwitcher() {
                 </p>
             </div>
 
-            <div className="h-px bg-gray-200" />
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
 
             <div>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Terrain 3D
                 </h3>
                 <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700">Activer</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Activer</span>
                     <input
                         aria-label="Activer terrain 3D"
                         type="checkbox"
@@ -103,7 +103,7 @@ export function LayerSwitcher() {
                     />
                 </label>
                 <label className="mt-2 block">
-                    <div className="flex items-center justify-between text-sm text-slate-700">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                         <span>Exagération</span>
                         <span className="font-mono text-xs text-slate-400">
                             ×{terrainExaggeration.toFixed(1)}
