@@ -7,12 +7,12 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef } from 'react';
 
-const ROUTE_LINE_SOURCE = 'open-crete-route-line';
-const ROUTE_POINTS_SOURCE = 'open-crete-route-points';
-const ROUTE_HOVER_SOURCE = 'open-crete-route-hover';
-const ROUTE_SELECTION_SOURCE = 'open-crete-route-selection';
-const ROUTE_SNAP_SOURCE = 'open-crete-route-snap';
-const ROUTE_POINT_LAYERS = ['open-crete-route-point-fill', 'open-crete-route-point-halo'];
+const ROUTE_LINE_SOURCE = 'open-cairn-route-line';
+const ROUTE_POINTS_SOURCE = 'open-cairn-route-points';
+const ROUTE_HOVER_SOURCE = 'open-cairn-route-hover';
+const ROUTE_SELECTION_SOURCE = 'open-cairn-route-selection';
+const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
+const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
 
 registerCompositeProtocol();
 
@@ -44,9 +44,9 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
             data: { type: 'FeatureCollection', features: [] },
         });
     }
-    if (!map.getLayer('open-crete-route-snap-casing')) {
+    if (!map.getLayer('open-cairn-route-snap-casing')) {
         map.addLayer({
-            id: 'open-crete-route-snap-casing',
+            id: 'open-cairn-route-snap-casing',
             type: 'line',
             source: ROUTE_SNAP_SOURCE,
             layout: { 'line-cap': 'butt', 'line-join': 'round' },
@@ -57,9 +57,9 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-snap-line')) {
+    if (!map.getLayer('open-cairn-route-snap-line')) {
         map.addLayer({
-            id: 'open-crete-route-snap-line',
+            id: 'open-cairn-route-snap-line',
             type: 'line',
             source: ROUTE_SNAP_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -103,9 +103,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             data: { type: 'FeatureCollection', features: [] },
         });
     }
-    if (!map.getLayer('open-crete-route-line-casing')) {
+    if (!map.getLayer('open-cairn-route-line-casing')) {
         map.addLayer({
-            id: 'open-crete-route-line-casing',
+            id: 'open-cairn-route-line-casing',
             type: 'line',
             source: ROUTE_LINE_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -116,9 +116,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-line')) {
+    if (!map.getLayer('open-cairn-route-line')) {
         map.addLayer({
-            id: 'open-crete-route-line',
+            id: 'open-cairn-route-line',
             type: 'line',
             source: ROUTE_LINE_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -130,9 +130,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             filter: ['!=', ['get', 'mode'], 'free'],
         });
     }
-    if (!map.getLayer('open-crete-route-line-free')) {
+    if (!map.getLayer('open-cairn-route-line-free')) {
         map.addLayer({
-            id: 'open-crete-route-line-free',
+            id: 'open-cairn-route-line-free',
             type: 'line',
             source: ROUTE_LINE_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -145,9 +145,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             filter: ['==', ['get', 'mode'], 'free'],
         });
     }
-    if (!map.getLayer('open-crete-route-hover-halo')) {
+    if (!map.getLayer('open-cairn-route-hover-halo')) {
         map.addLayer({
-            id: 'open-crete-route-hover-halo',
+            id: 'open-cairn-route-hover-halo',
             type: 'circle',
             source: ROUTE_HOVER_SOURCE,
             paint: {
@@ -157,9 +157,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-hover')) {
+    if (!map.getLayer('open-cairn-route-hover')) {
         map.addLayer({
-            id: 'open-crete-route-hover',
+            id: 'open-cairn-route-hover',
             type: 'circle',
             source: ROUTE_HOVER_SOURCE,
             paint: {
@@ -169,9 +169,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-selection-line')) {
+    if (!map.getLayer('open-cairn-route-selection-line')) {
         map.addLayer({
-            id: 'open-crete-route-selection-line',
+            id: 'open-cairn-route-selection-line',
             type: 'line',
             source: ROUTE_SELECTION_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -183,9 +183,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
         });
     }
     ensureSnapOverlay(map);
-    if (!map.getLayer('open-crete-route-point-halo')) {
+    if (!map.getLayer('open-cairn-route-point-halo')) {
         map.addLayer({
-            id: 'open-crete-route-point-halo',
+            id: 'open-cairn-route-point-halo',
             type: 'circle',
             source: ROUTE_POINTS_SOURCE,
             paint: {
@@ -197,9 +197,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-point-fill')) {
+    if (!map.getLayer('open-cairn-route-point-fill')) {
         map.addLayer({
-            id: 'open-crete-route-point-fill',
+            id: 'open-cairn-route-point-fill',
             type: 'circle',
             source: ROUTE_POINTS_SOURCE,
             paint: {
@@ -208,9 +208,9 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    if (!map.getLayer('open-crete-route-point-label')) {
+    if (!map.getLayer('open-cairn-route-point-label')) {
         map.addLayer({
-            id: 'open-crete-route-point-label',
+            id: 'open-cairn-route-point-label',
             type: 'symbol',
             source: ROUTE_POINTS_SOURCE,
             layout: {
@@ -417,7 +417,7 @@ export function MapContainer() {
         map.on('styledata', refreshRouteLayers);
 
         const waypointAt = (point: maplibregl.PointLike): string | null => {
-            if (!map.getLayer('open-crete-route-point-fill')) return null;
+            if (!map.getLayer('open-cairn-route-point-fill')) return null;
             const clickPoint = point as maplibregl.Point;
             const features = map.queryRenderedFeatures([
                 [clickPoint.x - 12, clickPoint.y - 12],

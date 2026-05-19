@@ -100,7 +100,7 @@ function buildOverlayPlugin(
     selectionRef: React.MutableRefObject<Selection | null>,
 ): Plugin<'line'> {
     return {
-        id: 'open-crete-elevation-overlays',
+        id: 'open-cairn-elevation-overlays',
         afterDatasetsDraw(chart) {
             const xScale = chart.scales.x;
             const yScale = chart.scales.y;

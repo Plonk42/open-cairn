@@ -1,4 +1,6 @@
-# open-crete
+# open-cairn
+
+> 🏔️ La montagne en relief comme si vous y étiez — carte 3D open-source avec LiDAR HD, itinéraires et profils altimétriques.
 
 Carte web 3D avec ombrage LiDAR HD en mode **multiply** sur les fonds IGN, calcul d'itinéraire et profil altimétrique.
 

@@ -27,10 +27,13 @@ export function App() {
                     {/* App title badge */}
                     <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
                         <div className="flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5 dark:bg-slate-900/70 dark:ring-white/10">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-4 text-green-600 dark:text-emerald-400">
-                                <path d="M1 15l5-9 4 5 3-7 6 11H1z" />
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 20" fill="currentColor" className="h-4 w-3.5 text-green-600 dark:text-emerald-400">
+                                <ellipse cx="8" cy="17" rx="5.5" ry="2" />
+                                <ellipse cx="8" cy="12.5" rx="4" ry="1.8" opacity="0.85" />
+                                <ellipse cx="8" cy="8.5" rx="2.8" ry="1.5" opacity="0.7" />
+                                <circle cx="8" cy="4.5" r="2" opacity="0.9" />
                             </svg>
-                            <span className="text-slate-700 dark:text-slate-100">open-crete</span>
+                            <span className="text-slate-700 dark:text-slate-100">open-cairn</span>
                         </div>
                     </div>
                 </div>

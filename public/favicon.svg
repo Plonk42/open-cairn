@@ -1,5 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#0b1220"/>
-  <path d="M6 50 L22 22 L34 38 L46 14 L58 50 Z" fill="none" stroke="#22c55e" stroke-width="3" stroke-linejoin="round"/>
-  <circle cx="46" cy="14" r="3" fill="#facc15"/>
+  <!-- cairn: irregular stacked stones -->
+  <path d="M18 56 Q22 50 26 51 L38 50 Q43 49 46 56 Z" fill="#64748b"/>
+  <path d="M21 44 Q24 40 28 41 L36 40 Q40 39 42 44 Z" fill="#94a3b8"/>
+  <path d="M24 34 Q26 30 29 31 L35 30 Q38 29 39 34 Z" fill="#cbd5e1"/>
+  <path d="M27 25 Q29 22 32 22 L34 22 Q36 22 37 25 Z" fill="#e2e8f0"/>
+  <path d="M29 18 Q31 15 32 15 Q33 15 35 18 Z" fill="#f1f5f9"/>
 </svg>
