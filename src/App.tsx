@@ -3,7 +3,9 @@ import { MapContainer } from './components/map/MapContainer';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { RoutePanel } from './components/ui/RoutePanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
+import { buildShareUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
+import { useRouteStore } from './stores/routeStore';
 
 type RightTab = 'layers' | 'settings';
 
@@ -12,8 +14,35 @@ export function App() {
     const [rightTab, setRightTab] = useState<RightTab>('layers');
     const [bottomOpen, setBottomOpen] = useState(true);
     const [bottomHeight, setBottomHeight] = useState(330);
+    const [shareTooltip, setShareTooltip] = useState(false);
     const resizingRef = useRef(false);
     const uiTheme = useMapStore((s) => s.uiTheme);
+
+    const handleShare = useCallback(() => {
+        const map = useMapStore.getState();
+        const route = useRouteStore.getState();
+        const url = buildShareUrl({
+            view: map.view,
+            baseLayer: map.baseLayer,
+            hillshadeEnabled: map.hillshadeEnabled,
+            hillshadeSource: map.hillshadeSource,
+            hillshadeBlend: map.hillshadeBlend,
+            hillshadeIntensity: map.hillshadeIntensity,
+            terrainEnabled: map.terrainEnabled,
+            terrainExaggeration: map.terrainExaggeration,
+            contourLinesEnabled: map.contourLinesEnabled,
+            contourLinesOpacity: map.contourLinesOpacity,
+            renderQuality: map.renderQuality,
+            uiTheme: map.uiTheme,
+            routeActive: route.active,
+            routeMode: route.mode,
+            colorElevationBySlope: route.colorElevationBySlope,
+            waypoints: route.waypoints,
+        });
+        navigator.clipboard.writeText(url);
+        setShareTooltip(true);
+        setTimeout(() => setShareTooltip(false), 2000);
+    }, []);
 
     const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault();
@@ -60,6 +89,23 @@ export function App() {
                                 <circle cx="8" cy="4.5" r="2" opacity="0.9" />
                             </svg>
                             <span className="text-slate-700 dark:text-slate-100">open-cairn</span>
+                            <button
+                                type="button"
+                                onClick={handleShare}
+                                className="pointer-events-auto relative ml-1.5 flex items-center gap-1 rounded-md bg-green-600/10 px-2 py-0.5 text-xs font-medium text-green-700 transition hover:bg-green-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:hover:bg-emerald-400/20"
+                                title="Partager la vue actuelle"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                    <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
+                                    <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                                </svg>
+                                Partager
+                                {shareTooltip && (
+                                    <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white shadow dark:bg-slate-700">
+                                        Lien copié !
+                                    </span>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>

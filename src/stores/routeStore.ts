@@ -60,6 +60,7 @@ interface RouteState {
     reorderWaypoint: (id: string, newIndex: number) => void;
     setWaypointSegmentMode: (id: string, mode: RouteMode) => void;
     removeWaypoint: (id: string) => void;
+    restoreWaypoints: (waypoints: RouteWaypoint[]) => void;
     clearRoute: () => void;
     setHoverDistance: (distance: number | null) => void;
     setSelectionRange: (range: [number, number] | null) => void;
@@ -355,6 +356,17 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const affected: number[] = [];
         if (waypointIndex > 0 && newWaypoints.length > 1) affected.push(waypointIndex - 1);
         recomputeRoute(get, set, affected.length > 0 ? affected : undefined);
+    },
+
+    restoreWaypoints: (waypoints) => {
+        // Update the internal ID counter to avoid collisions
+        const maxId = waypoints.reduce((max, wp) => {
+            const n = Number.parseInt(wp.id.replace('wp-', ''), 10);
+            return Number.isNaN(n) ? max : Math.max(max, n);
+        }, 0);
+        nextWaypointId = maxId + 1;
+        set({ waypoints: normalizeWaypoints(waypoints) });
+        recomputeRoute(get, set);
     },
 
     clearRoute: () => {
