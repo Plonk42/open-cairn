@@ -44,6 +44,7 @@ type ElevationChartProps = Readonly<{
     dashedRanges: DashedRange[];
     colorBySlope: boolean;
     hoverDistance: number | null;
+    selectionRange: [number, number] | null;
     onHoverDistance: (distance: number | null) => void;
     onSelectionChange: (range: [number, number] | null) => void;
     theme: 'light' | 'dark';
@@ -223,19 +224,27 @@ function buildOverlayPlugin(
     };
 }
 
-export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBySlope, hoverDistance, onHoverDistance, onSelectionChange, theme }: ElevationChartProps) {
+export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBySlope, hoverDistance, selectionRange, onHoverDistance, onSelectionChange, theme }: ElevationChartProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const chartRef = useRef<Chart<'line', ChartPoint[]> | null>(null);
     const samplesRef = useRef(samples);
     const markersRef = useRef(waypointMarkers);
     const hoverRef = useRef(hoverDistance);
-    const selectionRef = useRef<Selection | null>(null);
+    const selectionRef = useRef<Selection | null>(selectionRange ? { start: selectionRange[0], end: selectionRange[1] } : null);
     const draggingRef = useRef(false);
     const forceOverlayRender = useReducer((value: number) => value + 1, 0)[1];
 
     samplesRef.current = samples;
     markersRef.current = waypointMarkers;
     hoverRef.current = hoverDistance;
+
+    // Sync external selection range into internal ref
+    useEffect(() => {
+        if (!draggingRef.current) {
+            selectionRef.current = selectionRange ? { start: selectionRange[0], end: selectionRange[1] } : null;
+            chartRef.current?.draw();
+        }
+    }, [selectionRange]);
 
     useEffect(() => {
         chartRef.current?.draw();

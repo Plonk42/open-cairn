@@ -230,6 +230,7 @@ function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState
             }
             if (revision !== currentRevision) return;
             const hoverDistance = get().hoverDistance;
+            const selectionRange = get().selectionRange;
             set({
                 routeSegments: segments,
                 routeCoordinates: result.coordinates,
@@ -243,6 +244,7 @@ function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState
                 status: degraded ? 'error' : 'idle',
                 statusMessage: degraded ? 'Certaines portions sont tracées en ligne droite' : null,
                 hoverCoordinate: hoverDistance === null ? null : interpolateAlongLine(result.coordinates, hoverDistance),
+                selectionCoordinates: selectionRange ? sliceLineByDistance(result.coordinates, Math.min(selectionRange[0], selectionRange[1]), Math.max(selectionRange[0], selectionRange[1])) : get().selectionCoordinates,
             });
         } catch (error) {
             if (abortController.signal.aborted || revision !== currentRevision) return;

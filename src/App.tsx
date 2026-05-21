@@ -38,6 +38,7 @@ export function App() {
             routeMode: route.mode,
             colorElevationBySlope: route.colorElevationBySlope,
             waypoints: route.waypoints,
+            selectionRange: route.selectionRange,
         });
         navigator.clipboard.writeText(url);
         setShareTooltip(true);

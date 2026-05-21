@@ -30,6 +30,10 @@ if (shared) {
     if (shared.waypoints.length > 0) {
         route.restoreWaypoints(shared.waypoints);
     }
+    if (shared.selectionRange) {
+        // Store only the range; coordinates will be computed once route finishes
+        useRouteStore.setState({ selectionRange: shared.selectionRange });
+    }
     // Clear the hash so MapLibre's hash:true doesn't choke on it
     history.replaceState(null, '', globalThis.location.pathname);
 }

@@ -30,6 +30,7 @@ interface SharePayload {
     rm: RouteMode;
     ces: 0 | 1;
     wps: SerializedWaypoint[];
+    sel?: [number, number];
 }
 
 interface SerializedWaypoint {
@@ -54,6 +55,7 @@ export interface SharedState {
     routeMode: RouteMode;
     colorElevationBySlope: boolean;
     waypoints: RouteWaypoint[];
+    selectionRange: [number, number] | null;
 }
 
 function round(n: number, decimals: number): number {
@@ -88,6 +90,7 @@ export function encodeShareState(state: SharedState): string {
             if (wp.modeFromPrevious) s.m = wp.modeFromPrevious;
             return s;
         }),
+        sel: state.selectionRange ? [round(state.selectionRange[0], 1), round(state.selectionRange[1], 1)] : undefined,
     };
 
     const json = JSON.stringify(payload);
@@ -135,6 +138,7 @@ export function decodeShareState(hash: string): SharedState | null {
             routeMode: p.rm,
             colorElevationBySlope: p.ces === 1,
             waypoints,
+            selectionRange: p.sel ?? null,
         };
     } catch {
         return null;

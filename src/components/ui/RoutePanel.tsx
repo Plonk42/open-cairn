@@ -9,7 +9,7 @@ function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
 }
 
 export function RoutePanel() {
-    const [waypointsOpen, setWaypointsOpen] = useState(false);
+    const [waypointsOpen, setWaypointsOpen] = useState(true);
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const dragNodeRef = useRef<HTMLDivElement | null>(null);
@@ -26,6 +26,7 @@ export function RoutePanel() {
     const status = useRouteStore((s) => s.status);
     const statusMessage = useRouteStore((s) => s.statusMessage);
     const hoverDistance = useRouteStore((s) => s.hoverDistance);
+    const selectionRange = useRouteStore((s) => s.selectionRange);
     const setHoverDistance = useRouteStore((s) => s.setHoverDistance);
     const setSelectionRange = useRouteStore((s) => s.setSelectionRange);
     const clearRoute = useRouteStore((s) => s.clearRoute);
@@ -165,6 +166,7 @@ export function RoutePanel() {
                         dashedRanges={dashedRanges}
                         colorBySlope={colorElevationBySlope}
                         hoverDistance={hoverDistance}
+                        selectionRange={selectionRange}
                         onHoverDistance={setHoverDistance}
                         onSelectionChange={setSelectionRange}
                         theme={uiTheme}
@@ -192,8 +194,17 @@ export function RoutePanel() {
 
                         {/* Expanded list */}
                         {waypointsOpen && (
-                            <div className="w-56 divide-y divide-gray-200 overflow-auto rounded-r-md bg-white ring-1 ring-gray-200 dark:divide-slate-600 dark:bg-slate-800 dark:ring-slate-700">
-                                {waypoints.map((waypoint, index) => (
+                            <div className="w-56 overflow-auto rounded-r-md bg-white ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700">
+                                {waypoints.map((waypoint, index) => {
+                                    const isDropTarget = dragOverIndex === index && draggedIndex !== index;
+                                    let borderClass = '';
+                                    if (isDropTarget) {
+                                        borderClass = 'bg-blue-50 shadow-[inset_0_-2px_0_0_#3b82f6] dark:bg-blue-900/20 dark:shadow-[inset_0_-2px_0_0_#60a5fa]';
+                                    } else if (index > 0) {
+                                        borderClass = 'border-t border-gray-200 dark:border-slate-600';
+                                    }
+                                    const dragClass = draggedIndex === index ? 'scale-95 opacity-40' : '';
+                                    return (
                                     <div
                                         key={waypoint.id}
                                         draggable
@@ -202,7 +213,7 @@ export function RoutePanel() {
                                         onDragEnd={handleDragEnd}
                                         onDrop={(e) => handleDrop(e, index)}
                                         ref={draggedIndex === index ? dragNodeRef : undefined}
-                                        className={`flex items-center gap-2 px-2.5 py-2 ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''} ${draggedIndex === index ? 'opacity-50' : ''}`}
+                                        className={`flex items-center gap-2 px-2.5 py-2 transition-all ${borderClass} ${dragClass}`}
                                     >
                                         {/* Drag handle */}
                                         <div className="flex flex-shrink-0 cursor-grab items-center text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-500 dark:hover:text-slate-300">
@@ -241,7 +252,8 @@ export function RoutePanel() {
                                             </svg>
                                         </button>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
