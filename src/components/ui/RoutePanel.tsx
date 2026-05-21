@@ -1,34 +1,18 @@
-import { ElevationChart, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
-import { formatDistance, formatElevation } from '@/lib/geo';
+import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
+import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
-import { useState } from 'react';
-
-type RoutePanelTab = 'profile' | 'waypoints';
-
-const TABS: Array<{ id: RoutePanelTab; label: string; icon: JSX.Element }> = [
-    {
-        id: 'profile', label: 'Profil', icon: (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2 15l3-4 3 2 4-6 3 3 3-2" />
-            </svg>
-        ),
-    },
-    {
-        id: 'waypoints', label: 'Points', icon: (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" />
-            </svg>
-        ),
-    },
-];
+import { useRef, useState } from 'react';
 
 function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
     return waypointMode ?? 'auto';
 }
 
 export function RoutePanel() {
-    const [activeTab, setActiveTab] = useState<RoutePanelTab>('profile');
+    const [waypointsOpen, setWaypointsOpen] = useState(false);
+    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+    const dragNodeRef = useRef<HTMLDivElement | null>(null);
     const active = useRouteStore((s) => s.active);
     const uiTheme = useMapStore((s) => s.uiTheme);
     const setActive = useRouteStore((s) => s.setActive);
@@ -48,23 +32,77 @@ export function RoutePanel() {
     const removeWaypoint = useRouteStore((s) => s.removeWaypoint);
     const reorderWaypoint = useRouteStore((s) => s.reorderWaypoint);
     const setWaypointSegmentMode = useRouteStore((s) => s.setWaypointSegmentMode);
-    const waypointMarkers: WaypointGraphMarker[] = waypoints.map((waypoint, index) => ({
-        id: waypoint.id,
-        label: `${index + 1}`,
-        distance: routeSegments.slice(0, index).reduce((total, segment) => total + segment.distance, 0),
-    }));
+    const waypointMarkers: WaypointGraphMarker[] = (() => {
+        const markers: WaypointGraphMarker[] = [];
+        let cumulativeDistance = 0;
+        for (let i = 0; i < waypoints.length; i++) {
+            markers.push({ id: waypoints[i].id, label: `${i + 1}`, distance: cumulativeDistance });
+            if (i < routeSegments.length) cumulativeDistance += routeSegments[i].distance;
+        }
+        return markers;
+    })();
+
+    const dashedRanges: DashedRange[] = (() => {
+        const ranges: DashedRange[] = [];
+        let cumDist = 0;
+        for (const seg of routeSegments) {
+            const segStart = cumDist;
+            const segEnd = cumDist + seg.distance;
+            if (seg.mode === 'free') {
+                ranges.push({ start: segStart, end: segEnd, dash: [6, 4] });
+            } else {
+                if (seg.hasSnapStart && seg.coordinates.length >= 2) {
+                    const snapDist = distanceMeters(seg.coordinates[0], seg.coordinates[1]);
+                    ranges.push({ start: segStart, end: segStart + snapDist, dash: [3, 3] });
+                }
+                if (seg.hasSnapEnd && seg.coordinates.length >= 2) {
+                    const snapDist = distanceMeters(seg.coordinates.at(-2)!, seg.coordinates.at(-1)!);
+                    ranges.push({ start: segEnd - snapDist, end: segEnd, dash: [3, 3] });
+                }
+            }
+            cumDist = segEnd;
+        }
+        return ranges;
+    })();
+
+    const handleDragStart = (e: React.DragEvent, index: number) => {
+        setDraggedIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(index));
+        if (dragNodeRef.current) {
+            dragNodeRef.current.style.opacity = '0.5';
+        }
+    };
+    const handleDragOver = (e: React.DragEvent, index: number) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverIndex(index);
+    };
+    const handleDragEnd = () => {
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+    };
+    const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+        e.preventDefault();
+        if (draggedIndex !== null && draggedIndex !== targetIndex) {
+            reorderWaypoint(waypoints[draggedIndex].id, targetIndex);
+        }
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+    };
 
     return (
         <div className="flex h-full flex-col px-3 py-2">
-            {/* Header bar: mode toggle + stats + tabs */}
+            {/* Header bar: mode toggle + stats */}
             <div className="flex items-center gap-2">
                 {/* Tracé on/off */}
                 <button
                     type="button"
                     onClick={() => setActive(!active)}
                     className={`rounded-md px-2 py-1 text-xs ring-1 transition ${active ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700' : 'bg-gray-100 text-slate-400 ring-gray-200 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600'}`}
+                    title={active ? 'Le clic sur la carte ajoute des points' : 'Le clic sur la carte ne fait rien'}
                 >
-                    {active ? 'Tracé actif' : 'Tracé inactif'}
+                    {active ? 'Édition' : 'Lecture'}
                 </button>
 
                 {/* Mode selector */}
@@ -94,31 +132,19 @@ export function RoutePanel() {
                     <span className="text-blue-500">-{formatElevation(stats.descent)}</span>
                 </div>
 
-                {/* Clear */}
-                <button
-                    type="button"
-                    onClick={clearRoute}
-                    disabled={waypoints.length === 0}
-                    className="ml-1 rounded-md px-2 py-1 text-xs text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30"
-                    title="Effacer l'itinéraire"
-                >
-                    Effacer
-                </button>
-
-                {/* Tabs */}
-                <div className="ml-auto flex gap-0.5 rounded-md bg-gray-100 p-0.5 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-600">
-                    {TABS.map((tab) => (
-                        <button
-                            key={tab.id}
-                            type="button"
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition ${activeTab === tab.id ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                            title={tab.label}
-                        >
-                            {tab.icon}
-                            <span className="hidden sm:inline">{tab.label}</span>
-                        </button>
-                    ))}
+                <div className="ml-auto flex items-center gap-1.5">
+                    {/* Clear */}
+                    <button
+                        type="button"
+                        onClick={clearRoute}
+                        disabled={waypoints.length === 0}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30"
+                        title="Effacer l'itinéraire"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                        </svg>
+                    </button>
                 </div>
 
                 {/* Status message */}
@@ -129,95 +155,97 @@ export function RoutePanel() {
                 )}
             </div>
 
-            {/* Tab content */}
-            <div className="mt-2 min-h-0 min-w-0 flex-1">
-                {activeTab === 'profile' && (
+            {/* Content: chart + collapsible waypoints */}
+            <div className="mt-2 flex min-h-0 flex-1">
+                {/* Elevation chart (fills remaining space) */}
+                <div className="min-w-0 flex-1">
                     <ElevationChart
                         samples={profile}
                         waypointMarkers={waypointMarkers}
+                        dashedRanges={dashedRanges}
                         colorBySlope={colorElevationBySlope}
                         hoverDistance={hoverDistance}
                         onHoverDistance={setHoverDistance}
                         onSelectionChange={setSelectionRange}
                         theme={uiTheme}
                     />
-                )}
+                </div>
 
-                {activeTab === 'waypoints' && (
-                    <div className="max-h-48 overflow-auto rounded-md bg-gray-50 ring-1 ring-gray-200 dark:bg-slate-800/50 dark:ring-slate-600">
-                        {waypoints.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-sm text-slate-400">
-                                Cliquez sur la carte pour ajouter des points
-                            </div>
-                        ) : waypoints.map((waypoint, index) => (
-                            <div key={waypoint.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-600 odd:bg-gray-100/50 dark:text-slate-300 dark:odd:bg-slate-700/30">
-                                {/* Reorder buttons */}
-                                <div className="flex flex-shrink-0 flex-col">
-                                    <button
-                                        type="button"
-                                        disabled={index === 0}
-                                        onClick={() => reorderWaypoint(waypoint.id, index - 1)}
-                                        className="text-slate-300 transition hover:text-slate-600 disabled:opacity-20"
-                                        title="Monter"
+                {/* Collapsible waypoints panel */}
+                {waypoints.length > 0 && (
+                    <div className="flex flex-shrink-0">
+                        {/* Toggle strip — always visible */}
+                        <button
+                            type="button"
+                            onClick={() => setWaypointsOpen((v) => !v)}
+                            className={`flex h-full w-6 flex-col items-center justify-center gap-1 bg-gray-50 text-slate-500 ring-1 ring-gray-200 transition hover:bg-gray-100 hover:text-slate-700 dark:bg-slate-800/50 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200 ${waypointsOpen ? 'rounded-l-md' : 'rounded-md'}`}
+                            title={waypointsOpen ? 'Masquer les points' : `Afficher les ${waypoints.length} points`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-[9px] font-bold">{waypoints.length}</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3 w-3 transition-transform ${waypointsOpen ? '' : 'rotate-180'}`}>
+                                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                            </svg>
+                        </button>
+
+                        {/* Expanded list */}
+                        {waypointsOpen && (
+                            <div className="w-56 divide-y divide-gray-200 overflow-auto rounded-r-md bg-white ring-1 ring-gray-200 dark:divide-slate-600 dark:bg-slate-800 dark:ring-slate-700">
+                                {waypoints.map((waypoint, index) => (
+                                    <div
+                                        key={waypoint.id}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, index)}
+                                        onDragOver={(e) => handleDragOver(e, index)}
+                                        onDragEnd={handleDragEnd}
+                                        onDrop={(e) => handleDrop(e, index)}
+                                        ref={draggedIndex === index ? dragNodeRef : undefined}
+                                        className={`flex items-center gap-2 px-2.5 py-2 ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''} ${draggedIndex === index ? 'opacity-50' : ''}`}
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                                            <path fillRule="evenodd" d="M8 3.5a.5.5 0 01.354.146l4 4a.5.5 0 01-.708.708L8 4.707 4.354 8.354a.5.5 0 01-.708-.708l4-4A.5.5 0 018 3.5z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={index === waypoints.length - 1}
-                                        onClick={() => reorderWaypoint(waypoint.id, index + 1)}
-                                        className="text-slate-300 transition hover:text-slate-600 disabled:opacity-20"
-                                        title="Descendre"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                                            <path fillRule="evenodd" d="M8 12.5a.5.5 0 01-.354-.146l-4-4a.5.5 0 01.708-.708L8 11.293l3.646-3.647a.5.5 0 01.708.708l-4 4A.5.5 0 018 12.5z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                </div>
-                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-blue-600 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:ring-blue-700">
-                                    {index + 1}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                    <div className="truncate font-mono text-[11px] text-slate-400">
-                                        {waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}
-                                    </div>
-                                    {index > 0 && (
-                                        <div className="mt-1 inline-grid grid-cols-2 overflow-hidden rounded ring-1 ring-gray-200 dark:ring-slate-600">
-                                            <button
-                                                type="button"
-                                                onClick={() => setWaypointSegmentMode(waypoint.id, 'auto')}
-                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-50 text-slate-400 hover:bg-gray-100 hover:text-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:bg-slate-700'}`}
-                                            >
-                                                Guidé
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setWaypointSegmentMode(waypoint.id, 'free')}
-                                                className={`px-1.5 py-0.5 text-[10px] transition ${segmentMode(waypoint.modeFromPrevious) === 'free' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-50 text-slate-400 hover:bg-gray-100 hover:text-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:bg-slate-700'}`}
-                                            >
-                                                Libre
-                                            </button>
+                                        {/* Drag handle */}
+                                        <div className="flex flex-shrink-0 cursor-grab items-center text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-500 dark:hover:text-slate-300">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                                                <path fillRule="evenodd" d="M5 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
+                                            </svg>
                                         </div>
-                                    )}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => removeWaypoint(waypoint.id)}
-                                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-900/30"
-                                    title="Retirer"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                    </svg>
-                                </button>
+                                        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow-sm ring-2 ring-white dark:bg-sky-500 dark:ring-slate-800">
+                                            {index + 1}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="truncate font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                                                    {waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}
+                                                </span>
+                                                {index > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
+                                                        className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-sm transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3] hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'text-[#f97316] hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
+                                                        title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Segment guidé (cliquer pour passer en libre)' : 'Segment libre (cliquer pour passer en guidé)'}
+                                                    >
+                                                        {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeWaypoint(waypoint.id)}
+                                            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-500 dark:hover:bg-rose-900/30"
+                                            title="Retirer"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        )}
                     </div>
                 )}
-
-
             </div>
         </div>
     );

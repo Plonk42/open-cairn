@@ -1,5 +1,5 @@
 import { computeElevationProfile, type ElevationSample } from '@/lib/elevation';
-import { interpolateAlongLine, sliceLineByDistance, type LngLatTuple } from '@/lib/geo';
+import { distanceMeters, interpolateAlongLine, sliceLineByDistance, type LngLatTuple } from '@/lib/geo';
 import { buildStraightSegment, computeIgnWalkingSegment, mergeSegments, type RouteSegmentResult } from '@/lib/routing';
 import { create } from 'zustand';
 
@@ -15,6 +15,12 @@ export interface RouteWaypoint {
 export interface RouteSegment extends RouteSegmentResult {
     id: string;
     mode: RouteMode;
+    /** Whether the first coordinate is a snap (waypoint → route start) */
+    hasSnapStart: boolean;
+    /** Whether the last coordinate is a snap (route end → waypoint) */
+    hasSnapEnd: boolean;
+    /** Whether this segment has been fully computed (false = draft/straight line) */
+    computed: boolean;
 }
 
 export interface RouteStats {
@@ -82,6 +88,9 @@ function buildDraftSegments(waypoints: RouteWaypoint[]): RouteSegment[] {
             ...buildStraightSegment(waypoints[i - 1].coordinate, waypoints[i].coordinate),
             id: `${waypoints[i - 1].id}-${waypoints[i].id}`,
             mode,
+            hasSnapStart: false,
+            hasSnapEnd: false,
+            computed: false,
         });
     }
     return segments;
@@ -98,13 +107,45 @@ async function computeSegment(waypoints: RouteWaypoint[], segmentIndex: number, 
     const id = `${waypoints[segmentIndex].id}-${waypoints[segmentIndex + 1].id}`;
 
     if (mode === 'free') {
-        return { segment: { ...buildStraightSegment(start, end), id, mode }, degraded: false };
+        return { segment: { ...buildStraightSegment(start, end), id, mode, hasSnapStart: false, hasSnapEnd: false, computed: true }, degraded: false };
     }
     try {
-        return { segment: { ...await computeIgnWalkingSegment(start, end, signal), id, mode }, degraded: false };
+        const result = await computeIgnWalkingSegment(start, end, signal);
+        // Include snap portions (waypoint → route start, route end → waypoint)
+        // so elevation profile and distance account for the full path.
+        const coords = result.coordinates;
+        const segStart = coords[0];
+        const segEnd = coords.at(-1)!;
+        let fullCoords = coords;
+        let extraDist = 0;
+        let hasSnapStart = false;
+        let hasSnapEnd = false;
+        if (distanceMeters(start, segStart) > 1) {
+            fullCoords = [start, ...fullCoords];
+            extraDist += distanceMeters(start, segStart);
+            hasSnapStart = true;
+        }
+        if (distanceMeters(end, segEnd) > 1) {
+            fullCoords = [...fullCoords, end];
+            extraDist += distanceMeters(segEnd, end);
+            hasSnapEnd = true;
+        }
+        return {
+            segment: {
+                coordinates: fullCoords,
+                distance: result.distance + extraDist,
+                duration: result.duration + extraDist / (4 / 3.6),
+                id,
+                mode,
+                hasSnapStart,
+                hasSnapEnd,
+                computed: true,
+            },
+            degraded: false,
+        };
     } catch (error) {
         if (signal.aborted) throw error;
-        return { segment: { ...buildStraightSegment(start, end), id, mode }, degraded: true };
+        return { segment: { ...buildStraightSegment(start, end), id, mode, hasSnapStart: false, hasSnapEnd: false, computed: true }, degraded: true };
     }
 }
 
@@ -131,9 +172,16 @@ function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState
     }
 
     const totalSegments = waypoints.length - 1;
-    const indicesToCompute = affectedIndices
+    const requestedIndices = affectedIndices
         ? affectedIndices.filter((i) => i >= 0 && i < totalSegments)
         : Array.from({ length: totalSegments }, (_, i) => i);
+    // Also include any segments that were never fully computed (aborted previous run)
+    const indicesToCompute = [...new Set([
+        ...requestedIndices,
+        ...existingSegments
+            .map((seg, i) => (!seg.computed && i < totalSegments) ? i : -1)
+            .filter((i) => i >= 0),
+    ])];
     const indicesToComputeSet = new Set(indicesToCompute);
 
     const draftSegments = buildDraftSegments(waypoints);
@@ -245,7 +293,21 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const waypointIndex = get().waypoints.findIndex((w) => w.id === id);
         set((state) => {
             const waypoints = state.waypoints.map((waypoint) => waypoint.id === id ? { ...waypoint, coordinate } : waypoint);
-            const routeSegments = buildDraftSegments(waypoints);
+            // Only rebuild adjacent segments as straight lines; keep existing computed segments for the rest
+            const affectedIndices = new Set<number>();
+            if (waypointIndex > 0) affectedIndices.add(waypointIndex - 1);
+            if (waypointIndex < waypoints.length - 1) affectedIndices.add(waypointIndex);
+            const routeSegments = state.routeSegments.map((seg, i) => {
+                if (!affectedIndices.has(i)) return seg;
+                return {
+                    ...buildStraightSegment(waypoints[i].coordinate, waypoints[i + 1].coordinate),
+                    id: `${waypoints[i].id}-${waypoints[i + 1].id}`,
+                    mode: segmentModeForWaypoint(waypoints[i + 1]),
+                    hasSnapStart: false,
+                    hasSnapEnd: false,
+                    computed: false,
+                };
+            });
             const draft = waypoints.length > 1 ? mergeSegments(routeSegments) : { coordinates: [], distance: 0, duration: 0 };
             return {
                 waypoints,
@@ -316,11 +378,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
     setHoverDistance: (distance) => {
         const routeCoordinates = get().routeCoordinates;
-        const coord = distance === null ? null : interpolateAlongLine(routeCoordinates, distance);
-        console.log('[HOVER 2] store setHoverDistance', { distance, coord, coordsLen: routeCoordinates.length });
         set({
             hoverDistance: distance,
-            hoverCoordinate: coord,
+            hoverCoordinate: distance === null ? null : interpolateAlongLine(routeCoordinates, distance),
         });
     },
 

@@ -1,5 +1,4 @@
 import { registerCompositeProtocol } from '@/lib/compositeProtocol';
-import { distanceMeters } from '@/lib/geo';
 import { buildMapStyle } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -232,11 +231,17 @@ function ensureRouteLayers(map: maplibregl.Map): void {
 function routeLineGeoJson(segments: ReturnType<typeof useRouteStore.getState>['routeSegments']): GeoJSON.FeatureCollection {
     return {
         type: 'FeatureCollection',
-        features: segments.filter((segment) => segment.coordinates.length >= 2).map((segment) => ({
-            type: 'Feature',
-            properties: { mode: segment.mode },
-            geometry: { type: 'LineString', coordinates: segment.coordinates },
-        })),
+        features: segments.filter((segment) => segment.coordinates.length >= 2).map((segment) => {
+            // Exclude snap portions from the rendered route line
+            const start = segment.hasSnapStart ? 1 : 0;
+            const end = segment.coordinates.length - (segment.hasSnapEnd ? 1 : 0);
+            const coords = segment.coordinates.slice(start, end);
+            return {
+                type: 'Feature' as const,
+                properties: { mode: segment.mode },
+                geometry: { type: 'LineString' as const, coordinates: coords.length >= 2 ? coords : segment.coordinates },
+            };
+        }),
     };
 }
 
@@ -269,25 +274,17 @@ function hoverGeoJson(coordinate: [number, number] | null): GeoJSON.FeatureColle
     };
 }
 
-function snapLinesGeoJson(
-    waypoints: ReturnType<typeof useRouteStore.getState>['waypoints'],
-    segments: ReturnType<typeof useRouteStore.getState>['routeSegments'],
-): GeoJSON.FeatureCollection {
+function snapLinesGeoJson(segments: ReturnType<typeof useRouteStore.getState>['routeSegments']): GeoJSON.FeatureCollection {
     const features: GeoJSON.Feature[] = [];
-    for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
+    for (const seg of segments) {
         if (seg.mode !== 'auto') continue;
         const coords = seg.coordinates;
         if (coords.length < 2) continue;
-        const wpStart = waypoints[i]?.coordinate;
-        const wpEnd = waypoints[i + 1]?.coordinate;
-        const segStart = coords[0];
-        const segEnd = coords.at(-1);
-        if (wpStart && distanceMeters(wpStart, segStart) > 1) {
-            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [wpStart, segStart] } });
+        if (seg.hasSnapStart) {
+            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [coords[0], coords[1]] } });
         }
-        if (wpEnd && segEnd && distanceMeters(wpEnd, segEnd) > 1) {
-            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [wpEnd, segEnd] } });
+        if (seg.hasSnapEnd) {
+            features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [coords.at(-2)!, coords.at(-1)!] } });
         }
     }
     return { type: 'FeatureCollection', features };
@@ -314,7 +311,7 @@ function syncRouteToMap(map: maplibregl.Map): void {
     updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
     updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
     updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
-    updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
+    updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
 }
 
 function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
@@ -327,6 +324,7 @@ export function MapContainer() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const draggedWaypointIdRef = useRef<string | null>(null);
+    const dragMovedRef = useRef(false);
 
     const baseLayer = useMapStore((s) => s.baseLayer);
     const view = useMapStore((s) => s.view);
@@ -454,6 +452,11 @@ export function MapContainer() {
             const waypointId = waypointAt(event.point);
             if (!waypointId) return;
             event.preventDefault();
+            // If double-clicking on the start point with 2+ waypoints, close the loop
+            if (route.waypoints.length >= 2 && waypointId === route.waypoints[0].id) {
+                route.addWaypoint(route.waypoints[0].coordinate);
+                return;
+            }
             route.removeWaypoint(waypointId);
         });
 
@@ -473,12 +476,14 @@ export function MapContainer() {
             if (!waypointId) return;
             event.preventDefault();
             draggedWaypointIdRef.current = waypointId;
+            dragMovedRef.current = false;
             map.dragPan.disable();
             map.getCanvas().style.cursor = 'grabbing';
         };
         const moveDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
             const waypointId = draggedWaypointIdRef.current;
             if (!waypointId) return;
+            dragMovedRef.current = true;
             useRouteStore.getState().moveWaypoint(waypointId, [event.lngLat.lng, event.lngLat.lat], false);
         };
         const endDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
@@ -487,7 +492,9 @@ export function MapContainer() {
             draggedWaypointIdRef.current = null;
             map.dragPan.enable();
             map.getCanvas().style.cursor = '';
-            useRouteStore.getState().moveWaypoint(waypointId, [event.lngLat.lng, event.lngLat.lat], true);
+            if (dragMovedRef.current) {
+                useRouteStore.getState().moveWaypoint(waypointId, [event.lngLat.lng, event.lngLat.lat], true);
+            }
         };
 
         map.on('mousedown', startDrag);
@@ -559,7 +566,7 @@ export function MapContainer() {
             updateGeoJsonSource(m, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
             updateGeoJsonSource(m, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
             updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
-            updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.waypoints, route.routeSegments));
+            updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
             m.getCanvas().style.cursor = routeCursor(route);
         });
     }, []);

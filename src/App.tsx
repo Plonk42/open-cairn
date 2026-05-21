@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapContainer } from './components/map/MapContainer';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { RoutePanel } from './components/ui/RoutePanel';
@@ -11,7 +11,33 @@ export function App() {
     const [rightOpen, setRightOpen] = useState(true);
     const [rightTab, setRightTab] = useState<RightTab>('layers');
     const [bottomOpen, setBottomOpen] = useState(true);
+    const [bottomHeight, setBottomHeight] = useState(330);
+    const resizingRef = useRef(false);
     const uiTheme = useMapStore((s) => s.uiTheme);
+
+    const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+        e.preventDefault();
+        resizingRef.current = true;
+        const startY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+        const startHeight = bottomHeight;
+
+        const onMove = (ev: MouseEvent | TouchEvent) => {
+            const clientY = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
+            const delta = startY - clientY;
+            setBottomHeight(Math.max(120, Math.min(window.innerHeight * 0.7, startHeight + delta)));
+        };
+        const onEnd = () => {
+            resizingRef.current = false;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchmove', onMove);
+        document.addEventListener('touchend', onEnd);
+    }, [bottomHeight]);
 
     useEffect(() => {
         document.documentElement.classList.toggle('dark', uiTheme === 'dark');
@@ -88,7 +114,20 @@ export function App() {
             </div>
 
             {/* Bottom panel */}
-            <div className={`relative z-10 flex-shrink-0 border-t border-gray-200/60 bg-white/90 backdrop-blur-md transition-[max-height] duration-200 dark:border-white/10 dark:bg-slate-900/95 ${bottomOpen ? 'max-h-[45vh]' : 'max-h-10'}`}>
+            <div
+                className={`relative z-10 flex-shrink-0 border-t border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95 ${bottomOpen ? '' : 'max-h-10'}`}
+                style={bottomOpen ? { height: `${bottomHeight}px` } : undefined}
+            >
+                {/* Resize handle */}
+                {bottomOpen && (
+                    <div
+                        onMouseDown={handleResizeStart}
+                        onTouchStart={handleResizeStart}
+                        className="absolute inset-x-0 -top-1 z-30 flex h-2 cursor-ns-resize items-center justify-center"
+                    >
+                        <div className="h-0.5 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
+                    </div>
+                )}
                 {/* Collapse toggle */}
                 <button
                     type="button"
@@ -102,7 +141,7 @@ export function App() {
                     <span>Itinéraire</span>
                 </button>
                 {bottomOpen && (
-                    <div className="h-full overflow-y-auto">
+                    <div className="h-full overflow-hidden">
                         <RoutePanel />
                     </div>
                 )}

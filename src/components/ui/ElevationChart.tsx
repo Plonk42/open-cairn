@@ -21,6 +21,12 @@ export type WaypointGraphMarker = Readonly<{
     distance: number;
 }>;
 
+export type DashedRange = Readonly<{
+    start: number;
+    end: number;
+    dash: number[];
+}>;
+
 type ChartPoint = {
     x: number;
     y: number;
@@ -35,6 +41,7 @@ type Selection = {
 type ElevationChartProps = Readonly<{
     samples: ElevationSample[];
     waypointMarkers: WaypointGraphMarker[];
+    dashedRanges: DashedRange[];
     colorBySlope: boolean;
     hoverDistance: number | null;
     onHoverDistance: (distance: number | null) => void;
@@ -163,17 +170,28 @@ function buildOverlayPlugin(
                 ctx.lineTo(x, chart.chartArea.bottom);
                 ctx.stroke();
                 ctx.setLineDash([]);
+                // Larger bullet with number inside
+                const radius = 8;
                 ctx.fillStyle = '#0ea5e9';
-                ctx.strokeStyle = '#e0f2fe';
+                ctx.strokeStyle = '#f8fafc';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.stroke();
-                ctx.fillStyle = '#bfdbfe';
-                ctx.font = '700 10px ui-sans-serif, system-ui';
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '700 9px ui-sans-serif, system-ui';
                 ctx.textAlign = 'center';
-                ctx.fillText(marker.label, x, chart.chartArea.bottom + 14);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(marker.label, x, y);
+                ctx.textBaseline = 'alphabetic';
+                // Elevation label above the marker point
+                ctx.font = '600 10px ui-sans-serif, system-ui';
+                ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+                ctx.lineWidth = 3;
+                ctx.strokeText(formatElevation(sample.elevation), x, y - radius - 4);
+                ctx.fillStyle = '#1e40af';
+                ctx.fillText(formatElevation(sample.elevation), x, y - radius - 4);
                 ctx.textAlign = 'start';
             }
 
@@ -205,7 +223,7 @@ function buildOverlayPlugin(
     };
 }
 
-export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDistance, onHoverDistance, onSelectionChange, theme }: ElevationChartProps) {
+export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBySlope, hoverDistance, onHoverDistance, onSelectionChange, theme }: ElevationChartProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const chartRef = useRef<Chart<'line', ChartPoint[]> | null>(null);
     const samplesRef = useRef(samples);
@@ -233,6 +251,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
         const maxElevation = Math.max(...elevations);
         const elevationPadding = Math.max(8, (maxElevation - minElevation) * 0.08);
         const maxDistance = samples.at(-1)?.distance ?? 0;
+        const startElevation = samples[0].elevation;
 
         const isDark = theme === 'dark';
         const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
@@ -257,6 +276,13 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                     tension: 0.18,
                     segment: {
                         borderColor: (context) => colorBySlope ? slopeColor(data[context.p1DataIndex]?.slope ?? 0) : '#34d399',
+                        borderDash: (context) => {
+                            const x = data[context.p0DataIndex]?.x ?? 0;
+                            for (const range of dashedRanges) {
+                                if (x >= range.start && x < range.end) return range.dash;
+                            }
+                            return undefined;
+                        },
                     },
                 }],
             },
@@ -296,6 +322,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                     },
                     y: {
                         type: 'linear',
+                        position: 'left',
                         min: minElevation - elevationPadding,
                         max: maxElevation + elevationPadding,
                         grid: { color: gridColor },
@@ -304,6 +331,22 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                             color: tickColor,
                             maxTicksLimit: 4,
                             callback: (value) => formatElevation(Number(value)),
+                        },
+                    },
+                    yRelative: {
+                        type: 'linear',
+                        position: 'right',
+                        min: (minElevation - elevationPadding) - startElevation,
+                        max: (maxElevation + elevationPadding) - startElevation,
+                        grid: { drawOnChartArea: false },
+                        border: { display: false },
+                        ticks: {
+                            color: tickColor,
+                            maxTicksLimit: 4,
+                            callback: (value) => {
+                                const v = Number(value);
+                                return `${v >= 0 ? '+' : ''}${formatElevation(v)}`;
+                            },
                         },
                     },
                 },
@@ -318,7 +361,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
             chartRef.current?.destroy();
             chartRef.current = null;
         };
-    }, [colorBySlope, samples, theme]);
+    }, [colorBySlope, dashedRanges, samples, theme]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -339,7 +382,6 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
                 onHoverDistance(null);
                 return;
             }
-            console.log('[HOVER 1] chart → onHoverDistance', distance);
             onHoverDistance(distance);
             if (draggingRef.current && selectionRef.current) {
                 selectionRef.current = { ...selectionRef.current, end: distance };
@@ -406,7 +448,7 @@ export function ElevationChart({ samples, waypointMarkers, colorBySlope, hoverDi
     }
 
     return (
-        <div className="h-44 w-full rounded-md bg-gray-50 p-2 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700">
+        <div className="h-full w-full rounded-md bg-gray-50 p-2 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700">
             <canvas ref={canvasRef} className="h-full w-full" />
         </div>
     );
