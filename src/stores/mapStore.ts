@@ -1,5 +1,6 @@
 import type { BlendMode } from '@/lib/compositeProtocol';
 import type { BaseLayerId } from '@/lib/mapStyle';
+import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
 
 /** IGN LiDAR HD shadow product used as hillshade source. */
@@ -75,6 +76,11 @@ interface MapState {
     uiTheme: UiTheme;
     setUiTheme: (v: UiTheme) => void;
 
+    /** Map instance reference for imperative operations. */
+    mapInstance: maplibregl.Map | null;
+    setMapInstance: (map: maplibregl.Map | null) => void;
+    /** Fly the map to fit a bounding box [minLng, minLat, maxLng, maxLat]. */
+    fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 }
 
 // Default view: French Alps, around the Vercors / Belledonne area, with a
@@ -87,7 +93,7 @@ const DEFAULT_VIEW: MapView = {
     bearing: -20,
 };
 
-export const useMapStore = create<MapState>((set) => ({
+export const useMapStore = create<MapState>((set, get) => ({
     view: DEFAULT_VIEW,
     setView: (view) => set((s) => ({ view: { ...s.view, ...view } })),
 
@@ -123,5 +129,16 @@ export const useMapStore = create<MapState>((set) => ({
 
     uiTheme: 'light',
     setUiTheme: (uiTheme) => set({ uiTheme }),
+
+    mapInstance: null,
+    setMapInstance: (mapInstance) => set({ mapInstance }),
+    fitBounds: (bounds, options) => {
+        const map = get().mapInstance;
+        if (!map) return;
+        map.fitBounds(
+            [[bounds[0], bounds[1]], [bounds[2], bounds[3]]],
+            { padding: options?.padding ?? 50, duration: 1000 },
+        );
+    },
 
 }));

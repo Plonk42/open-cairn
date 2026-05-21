@@ -2,6 +2,7 @@ import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/co
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
+import { exportGpx, importGpxFile } from '@/lib/gpx';
 import { useRef, useState } from 'react';
 
 function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
@@ -33,6 +34,11 @@ export function RoutePanel() {
     const removeWaypoint = useRouteStore((s) => s.removeWaypoint);
     const reorderWaypoint = useRouteStore((s) => s.reorderWaypoint);
     const setWaypointSegmentMode = useRouteStore((s) => s.setWaypointSegmentMode);
+    const renameWaypoint = useRouteStore((s) => s.renameWaypoint);
+    const restoreWaypoints = useRouteStore((s) => s.restoreWaypoints);
+    const routeCoordinates = useRouteStore((s) => s.routeCoordinates);
+    const [editingNameId, setEditingNameId] = useState<string | null>(null);
+    const [editingNameValue, setEditingNameValue] = useState('');
     const waypointMarkers: WaypointGraphMarker[] = (() => {
         const markers: WaypointGraphMarker[] = [];
         let cumulativeDistance = 0;
@@ -134,6 +140,52 @@ export function RoutePanel() {
                 </div>
 
                 <div className="ml-auto flex items-center gap-1.5">
+                    {/* Import GPX */}
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            if (waypoints.length > 0) {
+                                if (!globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
+                            }
+                            const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
+                            const result = await importGpxFile(maxWp);
+                            if (result && result.waypoints.length > 0) {
+                                if (result.segments) {
+                                    useRouteStore.getState().importRoute(result.waypoints, result.segments);
+                                } else {
+                                    restoreWaypoints(result.waypoints);
+                                }
+                                // Center map on imported waypoints
+                                const coords = result.waypoints.map((wp) => wp.coordinate);
+                                const lngs = coords.map((c) => c[0]);
+                                const lats = coords.map((c) => c[1]);
+                                useMapStore.getState().fitBounds([
+                                    Math.min(...lngs), Math.min(...lats),
+                                    Math.max(...lngs), Math.max(...lats),
+                                ]);
+                            }
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        title="Importer un GPX"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path d="M9.25 13.25a.75.75 0 001.5 0V4.636l2.955 3.129a.75.75 0 001.09-1.03l-4.25-4.5a.75.75 0 00-1.09 0l-4.25 4.5a.75.75 0 101.09 1.03L9.25 4.636v8.614z" />
+                            <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                        </svg>
+                    </button>
+                    {/* Export GPX */}
+                    <button
+                        type="button"
+                        onClick={() => exportGpx(waypoints, routeCoordinates)}
+                        disabled={routeCoordinates.length < 2}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        title="Exporter en GPX"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+                            <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                        </svg>
+                    </button>
                     {/* Clear */}
                     <button
                         type="button"
@@ -225,22 +277,51 @@ export function RoutePanel() {
                                             {index + 1}
                                         </span>
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex items-baseline gap-2">
-                                                <span className="truncate font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                                                    {waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}
-                                                </span>
-                                                {index > 0 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
-                                                        className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-sm transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3] hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'text-[#f97316] hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
-                                                        title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Segment guidé (cliquer pour passer en libre)' : 'Segment libre (cliquer pour passer en guidé)'}
-                                                    >
-                                                        {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
-                                                    </button>
-                                                )}
-                                            </div>
+                                            {editingNameId === waypoint.id ? (
+                                                <input
+                                                    type="text"
+                                                    autoFocus
+                                                    value={editingNameValue}
+                                                    onChange={(e) => setEditingNameValue(e.target.value)}
+                                                    onBlur={() => {
+                                                        renameWaypoint(waypoint.id, editingNameValue.trim());
+                                                        setEditingNameId(null);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            renameWaypoint(waypoint.id, editingNameValue.trim());
+                                                            setEditingNameId(null);
+                                                        } else if (e.key === 'Escape') {
+                                                            setEditingNameId(null);
+                                                        }
+                                                    }}
+                                                    className="w-full rounded border border-sky-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 outline-none focus:ring-1 focus:ring-sky-400 dark:border-sky-600 dark:bg-slate-700 dark:text-slate-200"
+                                                    placeholder={`Point ${index + 1}`}
+                                                />
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingNameId(waypoint.id);
+                                                        setEditingNameValue(waypoint.name ?? '');
+                                                    }}
+                                                    className="w-full truncate text-left text-[11px] text-slate-600 hover:text-sky-600 dark:text-slate-300 dark:hover:text-sky-400"
+                                                    title="Renommer ce point"
+                                                >
+                                                    {waypoint.name || <span className="font-mono text-slate-400 dark:text-slate-500">{waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}</span>}
+                                                </button>
+                                            )}
                                         </div>
+                                        {index > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
+                                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-sm transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3] hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'text-[#f97316] hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
+                                                title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Segment guidé (cliquer pour passer en libre)' : 'Segment libre (cliquer pour passer en guidé)'}
+                                            >
+                                                {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
+                                            </button>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={() => removeWaypoint(waypoint.id)}

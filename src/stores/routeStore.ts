@@ -10,6 +10,7 @@ export interface RouteWaypoint {
     id: string;
     coordinate: LngLatTuple;
     modeFromPrevious?: RouteMode;
+    name?: string;
 }
 
 export interface RouteSegment extends RouteSegmentResult {
@@ -43,6 +44,9 @@ interface RouteState {
     colorElevationBySlope: boolean;
     setColorElevationBySlope: (colorElevationBySlope: boolean) => void;
 
+    gpxImportWaypoints: number;
+    setGpxImportWaypoints: (count: number) => void;
+
     waypoints: RouteWaypoint[];
     routeSegments: RouteSegment[];
     routeCoordinates: LngLatTuple[];
@@ -59,8 +63,11 @@ interface RouteState {
     moveWaypoint: (id: string, coordinate: LngLatTuple, recalculate?: boolean) => void;
     reorderWaypoint: (id: string, newIndex: number) => void;
     setWaypointSegmentMode: (id: string, mode: RouteMode) => void;
+    renameWaypoint: (id: string, name: string) => void;
     removeWaypoint: (id: string) => void;
     restoreWaypoints: (waypoints: RouteWaypoint[]) => void;
+    /** Import a route with pre-computed segments (e.g. from GPX track data). */
+    importRoute: (waypoints: RouteWaypoint[], segments: RouteSegment[]) => void;
     clearRoute: () => void;
     setHoverDistance: (distance: number | null) => void;
     setSelectionRange: (range: [number, number] | null) => void;
@@ -267,6 +274,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     colorElevationBySlope: false,
     setColorElevationBySlope: (colorElevationBySlope) => set({ colorElevationBySlope }),
 
+    gpxImportWaypoints: 8,
+    setGpxImportWaypoints: (gpxImportWaypoints) => set({ gpxImportWaypoints }),
+
     waypoints: [],
     routeSegments: [],
     routeCoordinates: [],
@@ -350,6 +360,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         recomputeRoute(get, set, waypointIndex > 0 ? [waypointIndex - 1] : undefined);
     },
 
+    renameWaypoint: (id, name) => {
+        set((state) => ({
+            waypoints: state.waypoints.map((wp) => wp.id === id ? { ...wp, name: name || undefined } : wp),
+        }));
+    },
+
     removeWaypoint: (id) => {
         const waypointIndex = get().waypoints.findIndex((w) => w.id === id);
         set((state) => ({ waypoints: normalizeWaypoints(state.waypoints.filter((waypoint) => waypoint.id !== id)) }));
@@ -369,6 +385,48 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         nextWaypointId = maxId + 1;
         set({ waypoints: normalizeWaypoints(waypoints) });
         recomputeRoute(get, set);
+    },
+
+    importRoute: (waypoints, segments) => {
+        currentAbortController?.abort();
+        currentRevision += 1;
+        const maxId = waypoints.reduce((max, wp) => {
+            const n = Number.parseInt(wp.id.replace('wp-', ''), 10);
+            return Number.isNaN(n) ? max : Math.max(max, n);
+        }, 0);
+        nextWaypointId = maxId + 1;
+        const merged = mergeSegments(segments);
+        set({
+            waypoints: normalizeWaypoints(waypoints),
+            routeSegments: segments,
+            routeCoordinates: merged.coordinates,
+            stats: { distance: merged.distance, duration: merged.duration, ascent: 0, descent: 0 },
+            status: 'loading',
+            statusMessage: 'Profil en cours',
+            hoverDistance: null,
+            hoverCoordinate: null,
+            selectionRange: null,
+            selectionCoordinates: [],
+        });
+        // Compute elevation profile asynchronously
+        const abortController = new AbortController();
+        currentAbortController = abortController;
+        const revision = currentRevision;
+        void (async () => {
+            try {
+                const elevation = await computeElevationProfile(merged.coordinates, abortController.signal);
+                if (revision !== currentRevision) return;
+                set({
+                    profile: elevation.samples,
+                    stats: { distance: merged.distance, duration: merged.duration, ascent: elevation.ascent, descent: elevation.descent },
+                    status: 'idle',
+                    statusMessage: null,
+                });
+            } catch {
+                if (revision !== currentRevision) return;
+                set({ status: 'idle', statusMessage: null, profile: [] });
+            }
+        })();
     },
 
     clearRoute: () => {

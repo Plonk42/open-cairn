@@ -379,6 +379,7 @@ export function MapContainer() {
             hash: true,
         });
         mapRef.current = map;
+        useMapStore.getState().setMapInstance(map);
         if (import.meta.env.DEV)
             (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
 
