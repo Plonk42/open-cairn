@@ -350,11 +350,64 @@ async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
     return await createImageBitmap(canvas);
 }
 
+// ---------------------------------------------------------------------------
+// LRU cache for composite tile results
+// ---------------------------------------------------------------------------
+let tileCacheMax = 512;
+
+class TileLruCache {
+    private readonly map = new Map<string, ImageBitmap>();
+
+    get(key: string): ImageBitmap | undefined {
+        const bitmap = this.map.get(key);
+        if (bitmap) {
+            // Move to end (most recently used)
+            this.map.delete(key);
+            this.map.set(key, bitmap);
+        }
+        return bitmap;
+    }
+
+    set(key: string, bitmap: ImageBitmap): void {
+        if (this.map.has(key)) {
+            this.map.delete(key);
+        } else while (this.map.size >= tileCacheMax) {
+            // Evict oldest entries
+            const oldest = this.map.keys().next().value!;
+            const evicted = this.map.get(oldest);
+            this.map.delete(oldest);
+            evicted?.close?.();
+        }
+        this.map.set(key, bitmap);
+    }
+
+    resize(newMax: number): void {
+        while (this.map.size > newMax) {
+            const oldest = this.map.keys().next().value!;
+            const evicted = this.map.get(oldest);
+            this.map.delete(oldest);
+            evicted?.close?.();
+        }
+    }
+}
+
+const tileCache = new TileLruCache();
+
+export function setTileCacheMaxSize(size: number): void {
+    tileCacheMax = Math.max(0, Math.round(size));
+    tileCache.resize(tileCacheMax);
+}
+
 export function registerCompositeProtocol(): void {
     if (registered) return;
     registered = true;
     maplibregl.addProtocol('composite', async (req, abortController) => {
         const url = req.url.replace(/^composite:\/\//, '');
+
+        // Check LRU cache first
+        const cached = tileCache.get(url);
+        if (cached) return { data: cached };
+
         const parts = url.split('/');
         if (parts.length < 7) throw new Error(`Bad composite URL: ${req.url}`);
         const baseKey = parts[0] as CompositeBaseKey;
@@ -383,6 +436,7 @@ export function registerCompositeProtocol(): void {
             // foreground when the camera is pitched.
             throw new Error('composite: base tile unavailable');
         }
+        tileCache.set(url, bitmap);
         return { data: bitmap };
     });
 }

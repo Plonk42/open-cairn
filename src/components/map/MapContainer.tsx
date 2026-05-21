@@ -1,4 +1,5 @@
-import { registerCompositeProtocol } from '@/lib/compositeProtocol';
+import { compositeTileUrl, registerCompositeProtocol } from '@/lib/compositeProtocol';
+import { ignLayerUrl } from '@/lib/ign';
 import { buildMapStyle } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -516,8 +517,8 @@ export function MapContainer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Rebuild style when base layer or hillshade settings change.
-    // Intensity changes are debounced so dragging the slider doesn't thrash.
+    // Rebuild style when structural settings change (base layer, hillshade on/off,
+    // render quality, contour lines). Uses diff mode to preserve terrain mesh.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
@@ -536,7 +537,7 @@ export function MapContainer() {
                     contourLines: current.contourLinesEnabled,
                     contourLinesOpacity: current.contourLinesOpacity,
                 }),
-                { diff: false },
+                { diff: true },
             );
             map.once('idle', () => {
                 syncCenterElevationToTerrain(map);
@@ -544,7 +545,49 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity, renderQuality, contourLinesEnabled, contourLinesOpacity]);
+    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity]);
+
+    // When only hillshade compositing params change (source, blend, intensity),
+    // swap the tile URL on the existing source to avoid any style diff overhead.
+    // This preserves the terrain mesh and avoids white flashes.
+    const hillshadeParamsInitial = useRef(true);
+    useEffect(() => {
+        // Skip the first run — the initial style already has the correct URL.
+        if (hillshadeParamsInitial.current) {
+            hillshadeParamsInitial.current = false;
+            return;
+        }
+        const map = mapRef.current;
+        if (!map) return;
+        const handle = globalThis.setTimeout(() => {
+            const current = useMapStore.getState();
+            const baseSource = map.getSource('base') as maplibregl.RasterTileSource | undefined;
+            if (!baseSource) return;
+
+            if (baseLayer === 'lidar') {
+                // In LiDAR mode the base is a direct shadow layer URL
+                const shadowKeyMap = { mns: 'lidarMnsShadow', mnt: 'lidarMntShadow', mnh: 'lidarMnhShadow' } as const;
+                const newUrl = ignLayerUrl(shadowKeyMap[hillshadeSource]);
+                baseSource.setTiles([newUrl]);
+            } else if (hillshadeEnabled) {
+                // Composite mode: rebuild the composite URL
+                const detailScale = current.renderQuality === 'sharp' ? 2 : 1;
+                const keyMap: Record<string, 'scan25Tour' | 'planIgn' | 'ortho' | 'osm'> = { scan25: 'scan25Tour', plan: 'planIgn', ortho: 'ortho', osm: 'osm' };
+                const compositeBase = keyMap[baseLayer];
+                if (!compositeBase) return;
+                const newUrl = compositeTileUrl(
+                    compositeBase,
+                    hillshadeSource,
+                    hillshadeBlend,
+                    hillshadeIntensity,
+                    detailScale,
+                );
+                baseSource.setTiles([newUrl]);
+            }
+        }, 120);
+        return () => globalThis.clearTimeout(handle);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hillshadeSource, hillshadeBlend, hillshadeIntensity]);
 
     useEffect(() => {
         mapRef.current?.setPixelRatio(pixelRatioForQuality(renderQuality));

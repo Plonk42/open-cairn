@@ -21,6 +21,8 @@ export function SettingsPanel() {
     const setHillshadeBlend = useMapStore((s) => s.setHillshadeBlend);
     const renderQuality = useMapStore((s) => s.renderQuality);
     const setRenderQuality = useMapStore((s) => s.setRenderQuality);
+    const tileCacheSize = useMapStore((s) => s.tileCacheSize);
+    const setTileCacheSize = useMapStore((s) => s.setTileCacheSize);
     const uiTheme = useMapStore((s) => s.uiTheme);
     const setUiTheme = useMapStore((s) => s.setUiTheme);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
@@ -122,6 +124,22 @@ export function SettingsPanel() {
                         </button>
                     ))}
                 </div>
+                <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
+                    <span>Cache tuiles</span>
+                    <input
+                        aria-label="Taille du cache de tuiles composites"
+                        type="number"
+                        min={0}
+                        max={1024}
+                        step={32}
+                        value={tileCacheSize}
+                        onChange={(e) => {
+                            const v = Math.max(0, Math.min(1024, Number(e.target.value) || 0));
+                            setTileCacheSize(v);
+                        }}
+                        className="w-16 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
+                    />
+                </label>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />

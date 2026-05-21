@@ -1,4 +1,4 @@
-import type { BlendMode } from '@/lib/compositeProtocol';
+import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
@@ -72,6 +72,10 @@ interface MapState {
     renderQuality: RenderQuality;
     setRenderQuality: (v: RenderQuality) => void;
 
+    /** Maximum number of composite tiles kept in memory cache. */
+    tileCacheSize: number;
+    setTileCacheSize: (v: number) => void;
+
     /** Light or dark UI theme. */
     uiTheme: UiTheme;
     setUiTheme: (v: UiTheme) => void;
@@ -126,6 +130,12 @@ export const useMapStore = create<MapState>((set, get) => ({
 
     renderQuality: 'balanced',
     setRenderQuality: (renderQuality) => set({ renderQuality }),
+
+    tileCacheSize: 256,
+    setTileCacheSize: (tileCacheSize) => {
+        setTileCacheMaxSize(tileCacheSize);
+        set({ tileCacheSize });
+    },
 
     uiTheme: 'light',
     setUiTheme: (uiTheme) => set({ uiTheme }),
