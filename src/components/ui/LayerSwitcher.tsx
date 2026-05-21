@@ -22,6 +22,10 @@ export function LayerSwitcher() {
     const setTerrainEnabled = useMapStore((s) => s.setTerrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
     const setTerrainExaggeration = useMapStore((s) => s.setTerrainExaggeration);
+    const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
+    const setContourLinesEnabled = useMapStore((s) => s.setContourLinesEnabled);
+    const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
+    const setContourLinesOpacity = useMapStore((s) => s.setContourLinesOpacity);
 
     return (
         <div className="space-y-4">
@@ -79,6 +83,39 @@ export function LayerSwitcher() {
                         </button>
                     ))}
                 </div>
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
+
+            <div>
+                <label className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Courbes de niveau</span>
+                    <input
+                        type="checkbox"
+                        checked={contourLinesEnabled}
+                        onChange={(e) => setContourLinesEnabled(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+                <label className="mt-2 block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Opacité</span>
+                        <span className="font-mono text-xs text-slate-400">
+                            {Math.round(contourLinesOpacity * 100)}%
+                        </span>
+                    </div>
+                    <input
+                        aria-label="Opacité courbes de niveau"
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={contourLinesOpacity}
+                        onChange={(e) => setContourLinesOpacity(Number(e.target.value))}
+                        disabled={!contourLinesEnabled}
+                        className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                    />
+                </label>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />

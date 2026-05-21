@@ -336,6 +336,8 @@ export function MapContainer() {
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
     const renderQuality = useMapStore((s) => s.renderQuality);
+    const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
+    const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
 
     // Initial map creation (runs once)
     useEffect(() => {
@@ -352,6 +354,8 @@ export function MapContainer() {
                 terrain: initial.terrainEnabled,
                 terrainExaggeration: initial.terrainExaggeration,
                 renderQuality: initial.renderQuality,
+                contourLines: initial.contourLinesEnabled,
+                contourLinesOpacity: initial.contourLinesOpacity,
             }),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
@@ -528,6 +532,8 @@ export function MapContainer() {
                     terrain: current.terrainEnabled,
                     terrainExaggeration: current.terrainExaggeration,
                     renderQuality: current.renderQuality,
+                    contourLines: current.contourLinesEnabled,
+                    contourLinesOpacity: current.contourLinesOpacity,
                 }),
                 { diff: false },
             );
@@ -537,7 +543,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity, renderQuality]);
+    }, [baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity, renderQuality, contourLinesEnabled, contourLinesOpacity]);
 
     useEffect(() => {
         mapRef.current?.setPixelRatio(pixelRatioForQuality(renderQuality));

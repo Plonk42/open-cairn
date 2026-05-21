@@ -55,6 +55,14 @@ interface MapState {
     terrainEnabled: boolean;
     setTerrainEnabled: (v: boolean) => void;
 
+    /** Contour lines overlay. */
+    contourLinesEnabled: boolean;
+    setContourLinesEnabled: (v: boolean) => void;
+
+    /** Opacity of the contour lines overlay (0..1). */
+    contourLinesOpacity: number;
+    setContourLinesOpacity: (v: number) => void;
+
     /** Vertical exaggeration of the 3D terrain. */
     terrainExaggeration: number;
     setTerrainExaggeration: (v: number) => void;
@@ -100,6 +108,12 @@ export const useMapStore = create<MapState>((set) => ({
 
     terrainEnabled: true,
     setTerrainEnabled: (terrainEnabled) => set({ terrainEnabled }),
+
+    contourLinesEnabled: false,
+    setContourLinesEnabled: (contourLinesEnabled) => set({ contourLinesEnabled }),
+
+    contourLinesOpacity: 0.4,
+    setContourLinesOpacity: (contourLinesOpacity) => set({ contourLinesOpacity }),
 
     terrainExaggeration: 1.2,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),

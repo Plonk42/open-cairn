@@ -74,6 +74,10 @@ export interface MapStyleOptions {
     terrainExaggeration: number;
     /** Raster detail/performance profile for pitched 3D views. */
     renderQuality: RenderQuality;
+    /** Enable transparent contour lines overlay. */
+    contourLines: boolean;
+    /** Opacity of the contour lines overlay (0..1). */
+    contourLinesOpacity: number;
 }
 
 /**
@@ -149,6 +153,27 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
             'atmosphere-blend': 0.6,
         },
     };
+
+    if (opts.contourLines) {
+        const contourDef = IGN_LAYERS.contourLines;
+        style.sources['contour-lines'] = {
+            type: 'raster',
+            tiles: [ignLayerUrl('contourLines')],
+            tileSize: 128,
+            minzoom: contourDef.minZoom,
+            maxzoom: contourDef.maxZoom,
+            attribution: IGN_ATTRIBUTION,
+        };
+        style.layers.push({
+            id: 'contour-lines',
+            type: 'raster',
+            source: 'contour-lines',
+            paint: {
+                'raster-resampling': 'linear',
+                'raster-opacity': opts.contourLinesOpacity,
+            },
+        });
+    }
 
     if (opts.terrain) {
         style.terrain = {
