@@ -589,6 +589,20 @@ export function MapContainer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hillshadeSource, hillshadeBlend, hillshadeIntensity]);
 
+    // Re-fetch base tiles when tile cache is cleared (fixes permanent holes from errored tiles).
+    useEffect(() => {
+        const handler = () => {
+            const map = mapRef.current;
+            if (!map) return;
+            const baseSource = map.getSource('base') as maplibregl.RasterTileSource | undefined;
+            if (!baseSource) return;
+            const tiles = (baseSource as unknown as { tiles?: string[] }).tiles;
+            if (tiles?.length) baseSource.setTiles([...tiles]);
+        };
+        globalThis.addEventListener('composite-tile-reload', handler);
+        return () => globalThis.removeEventListener('composite-tile-reload', handler);
+    }, []);
+
     useEffect(() => {
         mapRef.current?.setPixelRatio(pixelRatioForQuality(renderQuality));
     }, [renderQuality]);

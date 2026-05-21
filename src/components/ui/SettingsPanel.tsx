@@ -1,6 +1,7 @@
 import {
     BLEND_MODES,
     BLEND_MODE_LABELS,
+    clearTileCache,
     type BlendMode,
 } from '@/lib/compositeProtocol';
 import { RENDER_QUALITY_LABELS, useMapStore, type RenderQuality, type UiTheme } from '@/stores/mapStore';
@@ -126,19 +127,29 @@ export function SettingsPanel() {
                 </div>
                 <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
                     <span>Cache tuiles</span>
-                    <input
-                        aria-label="Taille du cache de tuiles composites"
-                        type="number"
-                        min={0}
-                        max={1024}
-                        step={32}
-                        value={tileCacheSize}
-                        onChange={(e) => {
-                            const v = Math.max(0, Math.min(1024, Number(e.target.value) || 0));
-                            setTileCacheSize(v);
-                        }}
-                        className="w-16 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
-                    />
+                    <div className="flex items-center gap-1.5">
+                        <input
+                            aria-label="Taille du cache de tuiles composites"
+                            type="number"
+                            min={0}
+                            max={1024}
+                            step={32}
+                            value={tileCacheSize}
+                            onChange={(e) => {
+                                const v = Math.max(0, Math.min(1024, Number(e.target.value) || 0));
+                                setTileCacheSize(v);
+                            }}
+                            className="w-16 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
+                        />
+                        <button
+                            type="button"
+                            onClick={clearTileCache}
+                            className="rounded-md bg-gray-50 px-2 py-1 text-xs text-slate-500 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-600 dark:hover:bg-rose-900/30"
+                            title="Vider le cache et recharger les tuiles"
+                        >
+                            Vider
+                        </button>
+                    </div>
                 </label>
             </div>
 

@@ -398,6 +398,13 @@ export function setTileCacheMaxSize(size: number): void {
     tileCache.resize(tileCacheMax);
 }
 
+/** Clear all cached composite tiles and notify the map to re-fetch. */
+export function clearTileCache(): void {
+    tileCache.resize(0);
+    tileCache.resize(tileCacheMax);
+    globalThis.dispatchEvent(new CustomEvent('composite-tile-reload'));
+}
+
 export function registerCompositeProtocol(): void {
     if (registered) return;
     registered = true;
@@ -429,11 +436,6 @@ export function registerCompositeProtocol(): void {
             signal: abortController?.signal,
         });
         if (!bitmap) {
-            // Throw → MapLibre marks the tile errored and keeps the parent
-            // (overzoomed) tile on screen. Returning a transparent bitmap
-            // here would override the terrain texture and reveal the
-            // background colour through the mesh, leaving holes in the
-            // foreground when the camera is pitched.
             throw new Error('composite: base tile unavailable');
         }
         tileCache.set(url, bitmap);
