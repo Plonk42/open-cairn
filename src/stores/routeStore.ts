@@ -70,11 +70,6 @@ function waypointId(): string {
     return id;
 }
 
-function buildDraftStraightRoute(waypoints: RouteWaypoint[]): RouteSegmentResult {
-    const segments = buildDraftSegments(waypoints);
-    return mergeSegments(segments);
-}
-
 function segmentModeForWaypoint(waypoint: RouteWaypoint): RouteMode {
     return waypoint.modeFromPrevious ?? 'auto';
 }
@@ -92,43 +87,35 @@ function buildDraftSegments(waypoints: RouteWaypoint[]): RouteSegment[] {
     return segments;
 }
 
-async function buildRoute(waypoints: RouteWaypoint[], signal: AbortSignal): Promise<{ segments: RouteSegment[]; result: RouteSegmentResult; degraded: boolean }> {
-    if (waypoints.length < 2) return { segments: [], result: { coordinates: [], distance: 0, duration: 0 }, degraded: false };
-
-    const segments: RouteSegment[] = [];
-    let degraded = false;
-    for (let i = 1; i < waypoints.length; i += 1) {
-        const start = waypoints[i - 1].coordinate;
-        const end = waypoints[i].coordinate;
-        const mode = segmentModeForWaypoint(waypoints[i]);
-        const id = `${waypoints[i - 1].id}-${waypoints[i].id}`;
-        if (mode === 'free') {
-            segments.push({ ...buildStraightSegment(start, end), id, mode });
-            continue;
-        }
-        try {
-            segments.push({ ...await computeIgnWalkingSegment(start, end, signal), id, mode });
-        } catch (error) {
-            if (signal.aborted) throw error;
-            degraded = true;
-            segments.push({ ...buildStraightSegment(start, end), id, mode });
-        }
-    }
-    return { segments, result: mergeSegments(segments), degraded };
-}
-
 function normalizeWaypoints(waypoints: RouteWaypoint[]): RouteWaypoint[] {
     return waypoints.map((waypoint, index) => index === 0 ? { ...waypoint, modeFromPrevious: undefined } : waypoint);
 }
 
-function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState>) => void): void {
+async function computeSegment(waypoints: RouteWaypoint[], segmentIndex: number, signal: AbortSignal): Promise<{ segment: RouteSegment; degraded: boolean }> {
+    const start = waypoints[segmentIndex].coordinate;
+    const end = waypoints[segmentIndex + 1].coordinate;
+    const mode = segmentModeForWaypoint(waypoints[segmentIndex + 1]);
+    const id = `${waypoints[segmentIndex].id}-${waypoints[segmentIndex + 1].id}`;
+
+    if (mode === 'free') {
+        return { segment: { ...buildStraightSegment(start, end), id, mode }, degraded: false };
+    }
+    try {
+        return { segment: { ...await computeIgnWalkingSegment(start, end, signal), id, mode }, degraded: false };
+    } catch (error) {
+        if (signal.aborted) throw error;
+        return { segment: { ...buildStraightSegment(start, end), id, mode }, degraded: true };
+    }
+}
+
+function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState>) => void, affectedIndices?: number[]): void {
     currentAbortController?.abort();
     const revision = currentRevision + 1;
     currentRevision = revision;
     const abortController = new AbortController();
     currentAbortController = abortController;
 
-    const { waypoints, mode } = get();
+    const { waypoints, mode, routeSegments: existingSegments } = get();
     if (waypoints.length < 2) {
         set({
             routeSegments: [],
@@ -143,19 +130,44 @@ function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState
         return;
     }
 
-    const draft = buildDraftStraightRoute(waypoints);
+    const totalSegments = waypoints.length - 1;
+    const indicesToCompute = affectedIndices
+        ? affectedIndices.filter((i) => i >= 0 && i < totalSegments)
+        : Array.from({ length: totalSegments }, (_, i) => i);
+    const indicesToComputeSet = new Set(indicesToCompute);
+
     const draftSegments = buildDraftSegments(waypoints);
+    // For unchanged segments, keep previously computed segments; for affected ones, show draft
+    const initialSegments: RouteSegment[] = draftSegments.map((draft, i) =>
+        !indicesToComputeSet.has(i) && existingSegments[i] ? existingSegments[i] : draft
+    );
+    const initialMerged = mergeSegments(initialSegments);
     set({
-        routeSegments: draftSegments,
-        routeCoordinates: draft.coordinates,
-        stats: { ...EMPTY_STATS, distance: draft.distance, duration: draft.duration },
+        routeSegments: initialSegments,
+        routeCoordinates: initialMerged.coordinates,
+        stats: { ...EMPTY_STATS, distance: initialMerged.distance, duration: initialMerged.duration },
         status: 'loading',
         statusMessage: mode === 'auto' ? 'Calcul IGN en cours' : 'Profil en cours',
     });
 
     void (async () => {
         try {
-            const { segments, result, degraded } = await buildRoute(waypoints, abortController.signal);
+            // Start from existing computed segments for unchanged indices
+            const segments: RouteSegment[] = new Array(totalSegments);
+            let degraded = false;
+            for (let i = 0; i < totalSegments; i++) {
+                if (!indicesToComputeSet.has(i) && existingSegments[i]) {
+                    segments[i] = existingSegments[i];
+                }
+            }
+            // Compute only the affected segments
+            for (const i of indicesToCompute) {
+                const res = await computeSegment(waypoints, i, abortController.signal);
+                segments[i] = res.segment;
+                if (res.degraded) degraded = true;
+            }
+
+            const result = mergeSegments(segments);
             let profile: ElevationSample[] = [];
             let ascent = 0;
             let descent = 0;
@@ -217,6 +229,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     selectionCoordinates: [],
 
     addWaypoint: (coordinate) => {
+        const prevLength = get().waypoints.length;
         set((state) => ({
             waypoints: [...state.waypoints, {
                 id: waypointId(),
@@ -224,10 +237,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 modeFromPrevious: state.waypoints.length === 0 ? undefined : state.mode,
             }],
         }));
-        recomputeRoute(get, set);
+        // Only compute the new last segment
+        recomputeRoute(get, set, prevLength >= 1 ? [prevLength - 1] : undefined);
     },
 
     moveWaypoint: (id, coordinate, recalculate = true) => {
+        const waypointIndex = get().waypoints.findIndex((w) => w.id === id);
         set((state) => {
             const waypoints = state.waypoints.map((waypoint) => waypoint.id === id ? { ...waypoint, coordinate } : waypoint);
             const routeSegments = buildDraftSegments(waypoints);
@@ -240,7 +255,13 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 hoverCoordinate: state.hoverDistance === null ? null : interpolateAlongLine(draft.coordinates, state.hoverDistance),
             };
         });
-        if (recalculate) recomputeRoute(get, set);
+        if (recalculate) {
+            // Only recompute segments adjacent to the moved waypoint
+            const affected: number[] = [];
+            if (waypointIndex > 0) affected.push(waypointIndex - 1);
+            if (waypointIndex >= 0 && waypointIndex < get().waypoints.length - 1) affected.push(waypointIndex);
+            recomputeRoute(get, set, affected.length > 0 ? affected : undefined);
+        }
     },
 
     reorderWaypoint: (id, newIndex) => {
@@ -256,15 +277,22 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     },
 
     setWaypointSegmentMode: (id, mode) => {
+        const waypointIndex = get().waypoints.findIndex((w) => w.id === id);
         set((state) => ({
             waypoints: normalizeWaypoints(state.waypoints.map((waypoint) => waypoint.id === id ? { ...waypoint, modeFromPrevious: mode } : waypoint)),
         }));
-        recomputeRoute(get, set);
+        // Only recompute the segment ending at this waypoint
+        recomputeRoute(get, set, waypointIndex > 0 ? [waypointIndex - 1] : undefined);
     },
 
     removeWaypoint: (id) => {
+        const waypointIndex = get().waypoints.findIndex((w) => w.id === id);
         set((state) => ({ waypoints: normalizeWaypoints(state.waypoints.filter((waypoint) => waypoint.id !== id)) }));
-        recomputeRoute(get, set);
+        // After removal, the segment at (waypointIndex - 1) now bridges the neighbors
+        const newWaypoints = get().waypoints;
+        const affected: number[] = [];
+        if (waypointIndex > 0 && newWaypoints.length > 1) affected.push(waypointIndex - 1);
+        recomputeRoute(get, set, affected.length > 0 ? affected : undefined);
     },
 
     clearRoute: () => {

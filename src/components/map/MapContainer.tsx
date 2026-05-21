@@ -66,7 +66,7 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#1379d3',
                 'line-opacity': 1,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4, 20, 5],
                 'line-dasharray': [1, 2],
             },
         });
@@ -125,7 +125,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#1379d3',
                 'line-opacity': 1,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4, 20, 5],
             },
             filter: ['!=', ['get', 'mode'], 'free'],
         });
@@ -139,7 +139,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#f97316',
                 'line-opacity': 1,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 3.5, 20, 5],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4, 20, 5],
                 'line-dasharray': [1, 2],
             },
             filter: ['==', ['get', 'mode'], 'free'],
@@ -178,7 +178,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             paint: {
                 'line-color': '#fbbf24',
                 'line-opacity': 1,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 8, 20, 12],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4, 20, 5],
             },
         });
     }
