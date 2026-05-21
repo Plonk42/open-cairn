@@ -68,6 +68,7 @@ interface RouteState {
     restoreWaypoints: (waypoints: RouteWaypoint[]) => void;
     /** Import a route with pre-computed segments (e.g. from GPX track data). */
     importRoute: (waypoints: RouteWaypoint[], segments: RouteSegment[]) => void;
+    reverseRoute: () => void;
     clearRoute: () => void;
     setHoverDistance: (distance: number | null) => void;
     setSelectionRange: (range: [number, number] | null) => void;
@@ -384,6 +385,31 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         }, 0);
         nextWaypointId = maxId + 1;
         set({ waypoints: normalizeWaypoints(waypoints) });
+        recomputeRoute(get, set);
+    },
+
+    reverseRoute: () => {
+        const { waypoints } = get();
+        if (waypoints.length < 2) return;
+        const n = waypoints.length - 1;
+        // Collect original indices that have modeFromPrevious === 'free'
+        const freeIndices = new Set<number>();
+        for (let i = 1; i <= n; i++) {
+            if (waypoints[i].modeFromPrevious === 'free') freeIndices.add(i);
+        }
+        // Reverse the array and recompute modeFromPrevious:
+        // If original index j was free, then reversed index (n - j + 1) should be free.
+        const reversed = [...waypoints].reverse();
+        const newFreeIndices = new Set<number>();
+        for (const j of freeIndices) {
+            newFreeIndices.add(n - j + 1);
+        }
+        const result: RouteWaypoint[] = reversed.map((wp, i) => {
+            if (i === 0) return { ...wp, modeFromPrevious: undefined };
+            const mode: RouteMode = newFreeIndices.has(i) ? 'free' : 'auto';
+            return { ...wp, modeFromPrevious: mode };
+        });
+        set({ waypoints: result });
         recomputeRoute(get, set);
     },
 

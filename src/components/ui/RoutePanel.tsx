@@ -1,8 +1,8 @@
 import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
+import { exportGpx, importGpxFile } from '@/lib/gpx';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
-import { exportGpx, importGpxFile } from '@/lib/gpx';
 import { useRef, useState } from 'react';
 
 function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
@@ -36,6 +36,7 @@ export function RoutePanel() {
     const setWaypointSegmentMode = useRouteStore((s) => s.setWaypointSegmentMode);
     const renameWaypoint = useRouteStore((s) => s.renameWaypoint);
     const restoreWaypoints = useRouteStore((s) => s.restoreWaypoints);
+    const reverseRoute = useRouteStore((s) => s.reverseRoute);
     const routeCoordinates = useRouteStore((s) => s.routeCoordinates);
     const [editingNameId, setEditingNameId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
@@ -186,6 +187,18 @@ export function RoutePanel() {
                             <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
                         </svg>
                     </button>
+                    {/* Reverse */}
+                    <button
+                        type="button"
+                        onClick={reverseRoute}
+                        disabled={waypoints.length < 2}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        title="Inverser l'itinéraire"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 00.04 1.06l2.1 1.95H6.75a.75.75 0 000 1.5h8.59l-2.1 1.95a.75.75 0 101.02 1.1l3.5-3.25a.75.75 0 000-1.1l-3.5-3.25a.75.75 0 00-1.06.04zm-6.4 8a.75.75 0 00-1.06-.04l-3.5 3.25a.75.75 0 000 1.1l3.5 3.25a.75.75 0 101.02-1.1l-2.1-1.95h8.59a.75.75 0 000-1.5H4.66l2.1-1.95a.75.75 0 00.04-1.06z" clipRule="evenodd" />
+                        </svg>
+                    </button>
                     {/* Clear */}
                     <button
                         type="button"
@@ -257,82 +270,82 @@ export function RoutePanel() {
                                     }
                                     const dragClass = draggedIndex === index ? 'scale-95 opacity-40' : '';
                                     return (
-                                    <div
-                                        key={waypoint.id}
-                                        draggable
-                                        onDragStart={(e) => handleDragStart(e, index)}
-                                        onDragOver={(e) => handleDragOver(e, index)}
-                                        onDragEnd={handleDragEnd}
-                                        onDrop={(e) => handleDrop(e, index)}
-                                        ref={draggedIndex === index ? dragNodeRef : undefined}
-                                        className={`flex items-center gap-2 px-2.5 py-2 transition-all ${borderClass} ${dragClass}`}
-                                    >
-                                        {/* Drag handle */}
-                                        <div className="flex flex-shrink-0 cursor-grab items-center text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-500 dark:hover:text-slate-300">
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                                                <path fillRule="evenodd" d="M5 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
-                                            </svg>
-                                        </div>
-                                        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow-sm ring-2 ring-white dark:bg-sky-500 dark:ring-slate-800">
-                                            {index + 1}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            {editingNameId === waypoint.id ? (
-                                                <input
-                                                    type="text"
-                                                    autoFocus
-                                                    value={editingNameValue}
-                                                    onChange={(e) => setEditingNameValue(e.target.value)}
-                                                    onBlur={() => {
-                                                        renameWaypoint(waypoint.id, editingNameValue.trim());
-                                                        setEditingNameId(null);
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') {
+                                        <div
+                                            key={waypoint.id}
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, index)}
+                                            onDragOver={(e) => handleDragOver(e, index)}
+                                            onDragEnd={handleDragEnd}
+                                            onDrop={(e) => handleDrop(e, index)}
+                                            ref={draggedIndex === index ? dragNodeRef : undefined}
+                                            className={`flex items-center gap-2 px-2.5 py-2 transition-all ${borderClass} ${dragClass}`}
+                                        >
+                                            {/* Drag handle */}
+                                            <div className="flex flex-shrink-0 cursor-grab items-center text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-500 dark:hover:text-slate-300">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                                                    <path fillRule="evenodd" d="M5 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM5 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 3.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9 12.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
+                                                </svg>
+                                            </div>
+                                            <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow-sm ring-2 ring-white dark:bg-sky-500 dark:ring-slate-800">
+                                                {index + 1}
+                                            </span>
+                                            <div className="min-w-0 flex-1">
+                                                {editingNameId === waypoint.id ? (
+                                                    <input
+                                                        type="text"
+                                                        autoFocus
+                                                        value={editingNameValue}
+                                                        onChange={(e) => setEditingNameValue(e.target.value)}
+                                                        onBlur={() => {
                                                             renameWaypoint(waypoint.id, editingNameValue.trim());
                                                             setEditingNameId(null);
-                                                        } else if (e.key === 'Escape') {
-                                                            setEditingNameId(null);
-                                                        }
-                                                    }}
-                                                    className="w-full rounded border border-sky-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 outline-none focus:ring-1 focus:ring-sky-400 dark:border-sky-600 dark:bg-slate-700 dark:text-slate-200"
-                                                    placeholder={`Point ${index + 1}`}
-                                                />
-                                            ) : (
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                renameWaypoint(waypoint.id, editingNameValue.trim());
+                                                                setEditingNameId(null);
+                                                            } else if (e.key === 'Escape') {
+                                                                setEditingNameId(null);
+                                                            }
+                                                        }}
+                                                        className="w-full rounded border border-sky-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 outline-none focus:ring-1 focus:ring-sky-400 dark:border-sky-600 dark:bg-slate-700 dark:text-slate-200"
+                                                        placeholder={`Point ${index + 1}`}
+                                                    />
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setEditingNameId(waypoint.id);
+                                                            setEditingNameValue(waypoint.name ?? '');
+                                                        }}
+                                                        className="w-full truncate text-left text-[11px] text-slate-600 hover:text-sky-600 dark:text-slate-300 dark:hover:text-sky-400"
+                                                        title="Renommer ce point"
+                                                    >
+                                                        {waypoint.name || <span className="font-mono text-slate-400 dark:text-slate-500">{waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}</span>}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {index > 0 && (
                                                 <button
                                                     type="button"
-                                                    onClick={() => {
-                                                        setEditingNameId(waypoint.id);
-                                                        setEditingNameValue(waypoint.name ?? '');
-                                                    }}
-                                                    className="w-full truncate text-left text-[11px] text-slate-600 hover:text-sky-600 dark:text-slate-300 dark:hover:text-sky-400"
-                                                    title="Renommer ce point"
+                                                    onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
+                                                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-sm transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3] hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'text-[#f97316] hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
+                                                    title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Segment guidé (cliquer pour passer en libre)' : 'Segment libre (cliquer pour passer en guidé)'}
                                                 >
-                                                    {waypoint.name || <span className="font-mono text-slate-400 dark:text-slate-500">{waypoint.coordinate[1].toFixed(5)}, {waypoint.coordinate[0].toFixed(5)}</span>}
+                                                    {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
                                                 </button>
                                             )}
-                                        </div>
-                                        {index > 0 && (
                                             <button
                                                 type="button"
-                                                onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
-                                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-sm transition ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3] hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'text-[#f97316] hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
-                                                title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Segment guidé (cliquer pour passer en libre)' : 'Segment libre (cliquer pour passer en guidé)'}
+                                                onClick={() => removeWaypoint(waypoint.id)}
+                                                className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-500 dark:hover:bg-rose-900/30"
+                                                title="Retirer"
                                             >
-                                                {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                                </svg>
                                             </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={() => removeWaypoint(waypoint.id)}
-                                            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-500 dark:hover:bg-rose-900/30"
-                                            title="Retirer"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                            </svg>
-                                        </button>
-                                    </div>
+                                        </div>
                                     );
                                 })}
                             </div>
