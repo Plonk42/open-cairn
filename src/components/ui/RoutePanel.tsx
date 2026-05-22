@@ -417,46 +417,43 @@ export function RoutePanel() {
                                             </button>
                                         )}
                                     </div>
-                                    {index > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
-                                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm ring-1 ring-gray-200 dark:ring-slate-600 ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3]' : 'text-[#f97316]'}`}
-                                            title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Guidé → Libre' : 'Libre → Guidé'}
-                                        >
-                                            {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
-                                        </button>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
+                                        className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm ring-1 ring-gray-200 dark:ring-slate-600 ${index === 0 ? 'opacity-30 pointer-events-none' : ''} ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3]' : 'text-[#f97316]'}`}
+                                        title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Guidé → Libre' : 'Libre → Guidé'}
+                                        disabled={index === 0}
+                                    >
+                                        {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
+                                    </button>
                                     {/* Move up */}
-                                    {index > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => reorderWaypoint(waypoint.id, index - 1)}
-                                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-gray-100 dark:ring-slate-600"
-                                            title="Monter"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                                <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
-                                            </svg>
-                                        </button>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => reorderWaypoint(waypoint.id, index - 1)}
+                                        className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md ring-1 ring-gray-200 dark:ring-slate-600 ${index === 0 ? 'opacity-30 pointer-events-none text-slate-300 dark:text-slate-600' : 'text-sky-500 active:bg-sky-50 dark:text-sky-400'}`}
+                                        title="Monter"
+                                        disabled={index === 0}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                            <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
                                     {/* Move down */}
-                                    {index < waypoints.length - 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => reorderWaypoint(waypoint.id, index + 1)}
-                                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-gray-100 dark:ring-slate-600"
-                                            title="Descendre"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                                <path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" />
-                                            </svg>
-                                        </button>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => reorderWaypoint(waypoint.id, index + 1)}
+                                        className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md ring-1 ring-gray-200 dark:ring-slate-600 ${index === waypoints.length - 1 ? 'opacity-30 pointer-events-none text-slate-300 dark:text-slate-600' : 'text-sky-500 active:bg-sky-50 dark:text-sky-400'}`}
+                                        title="Descendre"
+                                        disabled={index === waypoints.length - 1}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                            <path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => removeWaypoint(waypoint.id)}
-                                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-rose-50 active:text-rose-500 dark:ring-slate-600"
+                                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-rose-400 ring-1 ring-gray-200 active:bg-rose-50 active:text-rose-600 dark:text-rose-400 dark:ring-slate-600"
                                         title="Supprimer"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
