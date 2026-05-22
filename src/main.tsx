@@ -1,9 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { App } from './App';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
 import { useRouteStore } from './stores/routeStore';
-import { App } from './App';
 import './styles/index.css';
 
 // Restore shared state BEFORE React renders so that stores are populated
@@ -24,7 +24,7 @@ if (shared) {
     map.setRenderQuality(shared.renderQuality);
     map.setUiTheme(shared.uiTheme);
     const route = useRouteStore.getState();
-    route.setActive(shared.routeActive);
+    route.setActive(false); // Always start in read mode when opening a shared link
     route.setMode(shared.routeMode);
     route.setColorElevationBySlope(shared.colorElevationBySlope);
     if (shared.waypoints.length > 0) {

@@ -376,7 +376,7 @@ export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBy
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        const distanceFromEvent = (event: PointerEvent): number | null => {
+        const distanceFromEvent = (event: PointerEvent | { clientX: number }): number | null => {
             const chart = chartRef.current;
             if (!chart) return null;
             const rect = canvas.getBoundingClientRect();
@@ -385,7 +385,35 @@ export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBy
             return chart.scales.x.getValueForPixel(x) ?? null;
         };
 
+        // Track active touch count for two-finger selection
+        const activeTouchesRef = { current: 0 };
+        const twoFingerRef = { current: false };
+
         const handlePointerMove = (event: PointerEvent) => {
+            // On touch, if two-finger selection is active, update selection
+            if (event.pointerType === 'touch' && twoFingerRef.current && draggingRef.current && selectionRef.current) {
+                const distance = distanceFromEvent(event);
+                if (distance !== null) {
+                    selectionRef.current = { ...selectionRef.current, end: distance };
+                    onSelectionChange([selectionRef.current.start, selectionRef.current.end]);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+                return;
+            }
+            // On touch with single finger, only hover (no selection)
+            if (event.pointerType === 'touch' && !twoFingerRef.current) {
+                const distance = distanceFromEvent(event);
+                if (distance === null) {
+                    onHoverDistance(null);
+                } else {
+                    onHoverDistance(distance);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+                return;
+            }
+            // Mouse/pen: original behavior
             const distance = distanceFromEvent(event);
             if (distance === null) {
                 onHoverDistance(null);
@@ -401,6 +429,18 @@ export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBy
         };
 
         const handlePointerDown = (event: PointerEvent) => {
+            // Touch: only hover on single finger, don't start selection
+            if (event.pointerType === 'touch') {
+                activeTouchesRef.current++;
+                const distance = distanceFromEvent(event);
+                if (distance !== null) {
+                    onHoverDistance(distance);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+                return;
+            }
+            // Mouse/pen: start selection
             const distance = distanceFromEvent(event);
             if (distance === null) return;
             canvas.setPointerCapture(event.pointerId);
@@ -412,6 +452,29 @@ export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBy
         };
 
         const handlePointerUp = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') {
+                activeTouchesRef.current = Math.max(0, activeTouchesRef.current - 1);
+                if (activeTouchesRef.current === 0 && twoFingerRef.current) {
+                    // End two-finger selection
+                    twoFingerRef.current = false;
+                    draggingRef.current = false;
+                    if (selectionRef.current && Math.abs(selectionRef.current.end - selectionRef.current.start) > 1) {
+                        onSelectionChange([selectionRef.current.start, selectionRef.current.end]);
+                    } else {
+                        selectionRef.current = null;
+                        onSelectionChange(null);
+                    }
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+                if (activeTouchesRef.current === 0) {
+                    onHoverDistance(null);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+                return;
+            }
+            // Mouse/pen
             const distance = distanceFromEvent(event);
             if (distance !== null && selectionRef.current) {
                 selectionRef.current = { ...selectionRef.current, end: distance };
@@ -428,19 +491,90 @@ export function ElevationChart({ samples, waypointMarkers, dashedRanges, colorBy
             chartRef.current?.draw();
         };
 
-        const handlePointerLeave = () => {
+        const handlePointerLeave = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') return;
             if (!draggingRef.current) onHoverDistance(null);
+        };
+
+        // Two-finger touch detection for selection
+        const handleTouchStart = (event: TouchEvent) => {
+            if (event.touches.length === 2) {
+                event.preventDefault();
+                twoFingerRef.current = true;
+                // Start selection at the midpoint of the two touches
+                const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+                const distance = distanceFromEvent({ clientX: midX });
+                if (distance !== null) {
+                    draggingRef.current = true;
+                    selectionRef.current = { start: distance, end: distance };
+                    onSelectionChange(null);
+                    chartRef.current?.draw();
+                }
+            }
+        };
+
+        const handleTouchMove = (event: TouchEvent) => {
+            if (twoFingerRef.current && event.touches.length === 2) {
+                event.preventDefault();
+                // Use spread of two fingers as selection range
+                const x1 = event.touches[0].clientX;
+                const x2 = event.touches[1].clientX;
+                const d1 = distanceFromEvent({ clientX: Math.min(x1, x2) });
+                const d2 = distanceFromEvent({ clientX: Math.max(x1, x2) });
+                if (d1 !== null && d2 !== null) {
+                    selectionRef.current = { start: d1, end: d2 };
+                    onSelectionChange([d1, d2]);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+            } else if (event.touches.length === 1 && !twoFingerRef.current) {
+                // Single finger: just hover
+                const distance = distanceFromEvent({ clientX: event.touches[0].clientX });
+                if (distance !== null) {
+                    onHoverDistance(distance);
+                    forceOverlayRender();
+                    chartRef.current?.draw();
+                }
+            }
+        };
+
+        const handleTouchEnd = (event: TouchEvent) => {
+            if (twoFingerRef.current && event.touches.length < 2) {
+                twoFingerRef.current = false;
+                draggingRef.current = false;
+                activeTouchesRef.current = event.touches.length;
+                if (selectionRef.current && Math.abs(selectionRef.current.end - selectionRef.current.start) > 1) {
+                    onSelectionChange([selectionRef.current.start, selectionRef.current.end]);
+                } else {
+                    selectionRef.current = null;
+                    onSelectionChange(null);
+                }
+                forceOverlayRender();
+                chartRef.current?.draw();
+            }
+            if (event.touches.length === 0) {
+                activeTouchesRef.current = 0;
+                onHoverDistance(null);
+                forceOverlayRender();
+                chartRef.current?.draw();
+            }
         };
 
         canvas.addEventListener('pointermove', handlePointerMove);
         canvas.addEventListener('pointerdown', handlePointerDown);
         canvas.addEventListener('pointerup', handlePointerUp);
         canvas.addEventListener('pointerleave', handlePointerLeave);
+        canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+        canvas.addEventListener('touchend', handleTouchEnd);
         return () => {
             canvas.removeEventListener('pointermove', handlePointerMove);
             canvas.removeEventListener('pointerdown', handlePointerDown);
             canvas.removeEventListener('pointerup', handlePointerUp);
             canvas.removeEventListener('pointerleave', handlePointerLeave);
+            canvas.removeEventListener('touchstart', handleTouchStart);
+            canvas.removeEventListener('touchmove', handleTouchMove);
+            canvas.removeEventListener('touchend', handleTouchEnd);
         };
         // `samples` is included so the effect re-runs once the canvas actually
         // mounts (the component renders a placeholder when samples.length < 2,

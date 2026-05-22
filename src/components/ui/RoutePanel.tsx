@@ -1,6 +1,7 @@
 import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
 import { exportGpx, importGpxFile } from '@/lib/gpx';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
 import { useRef, useState } from 'react';
@@ -14,6 +15,7 @@ export function RoutePanel() {
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const dragNodeRef = useRef<HTMLDivElement | null>(null);
+    const isMobile = useIsMobile();
     const active = useRouteStore((s) => s.active);
     const uiTheme = useMapStore((s) => s.uiTheme);
     const setActive = useRouteStore((s) => s.setActive);
@@ -100,9 +102,9 @@ export function RoutePanel() {
     };
 
     return (
-        <div className="flex h-full flex-col px-3 py-2">
+        <div className={isMobile ? 'flex flex-col gap-3 px-1 py-1' : 'flex h-full flex-col px-3 py-2'}>
             {/* Header bar: mode toggle + stats */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 {/* Tracé on/off */}
                 <button
                     type="button"
@@ -140,7 +142,7 @@ export function RoutePanel() {
                     <span className="text-blue-500">-{formatElevation(stats.descent)}</span>
                 </div>
 
-                <div className="ml-auto flex items-center gap-1.5">
+                <div className={`ml-auto flex items-center ${isMobile ? 'gap-2' : 'gap-1.5'}`}>
                     {/* Import GPX */}
                     <button
                         type="button"
@@ -166,7 +168,7 @@ export function RoutePanel() {
                                 ]);
                             }
                         }}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
                         title="Importer un GPX"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -179,7 +181,7 @@ export function RoutePanel() {
                         type="button"
                         onClick={() => exportGpx(waypoints, routeCoordinates)}
                         disabled={routeCoordinates.length < 2}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
                         title="Exporter en GPX"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -192,7 +194,7 @@ export function RoutePanel() {
                         type="button"
                         onClick={reverseRoute}
                         disabled={waypoints.length < 2}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30"
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
                         title="Inverser l'itinéraire"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -204,7 +206,7 @@ export function RoutePanel() {
                         type="button"
                         onClick={clearRoute}
                         disabled={waypoints.length === 0}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30"
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
                         title="Effacer l'itinéraire"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -222,9 +224,9 @@ export function RoutePanel() {
             </div>
 
             {/* Content: chart + collapsible waypoints */}
-            <div className="mt-2 flex min-h-0 flex-1">
+            <div className={isMobile ? 'flex flex-col gap-2' : 'mt-2 flex min-h-0 flex-1'}>
                 {/* Elevation chart (fills remaining space) */}
-                <div className="min-w-0 flex-1">
+                <div className={isMobile ? 'h-40 w-full' : 'min-w-0 flex-1'}>
                     <ElevationChart
                         samples={profile}
                         waypointMarkers={waypointMarkers}
@@ -238,8 +240,8 @@ export function RoutePanel() {
                     />
                 </div>
 
-                {/* Collapsible waypoints panel */}
-                {waypoints.length > 0 && (
+                {/* Collapsible waypoints panel (hidden on mobile - use map markers instead) */}
+                {!isMobile && waypoints.length > 0 && (
                     <div className="flex flex-shrink-0">
                         {/* Toggle strip — always visible */}
                         <button
@@ -353,6 +355,120 @@ export function RoutePanel() {
                     </div>
                 )}
             </div>
+
+            {/* Mobile waypoints list */}
+            {isMobile && waypoints.length > 0 && (
+                <div className="mt-1">
+                    <button
+                        type="button"
+                        onClick={() => setWaypointsOpen((v) => !v)}
+                        className="flex w-full items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-gray-200 active:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-sky-500">
+                            <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" />
+                        </svg>
+                        <span>{waypoints.length} point{waypoints.length > 1 ? 's' : ''}</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`ml-auto h-4 w-4 transition-transform ${waypointsOpen ? 'rotate-180' : ''}`}>
+                            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                    {waypointsOpen && (
+                        <div className="mt-1 max-h-52 overflow-y-auto rounded-md bg-white ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700">
+                            {waypoints.map((waypoint, index) => (
+                                <div
+                                    key={waypoint.id}
+                                    className={`flex items-center gap-2 px-3 py-2.5 ${index > 0 ? 'border-t border-gray-100 dark:border-slate-700' : ''}`}
+                                >
+                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-sky-500 text-[11px] font-bold text-white">
+                                        {index + 1}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        {editingNameId === waypoint.id ? (
+                                            <input
+                                                type="text"
+                                                autoFocus
+                                                value={editingNameValue}
+                                                onChange={(e) => setEditingNameValue(e.target.value)}
+                                                onBlur={() => {
+                                                    renameWaypoint(waypoint.id, editingNameValue.trim());
+                                                    setEditingNameId(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        renameWaypoint(waypoint.id, editingNameValue.trim());
+                                                        setEditingNameId(null);
+                                                    } else if (e.key === 'Escape') {
+                                                        setEditingNameId(null);
+                                                    }
+                                                }}
+                                                className="w-full rounded border border-sky-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-sky-400 dark:border-sky-600 dark:bg-slate-700 dark:text-slate-200"
+                                                placeholder={`Point ${index + 1}`}
+                                            />
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditingNameId(waypoint.id);
+                                                    setEditingNameValue(waypoint.name ?? '');
+                                                }}
+                                                className="w-full truncate text-left text-xs text-slate-600 active:text-sky-600 dark:text-slate-300"
+                                            >
+                                                {waypoint.name || <span className="font-mono text-slate-400 dark:text-slate-500">{waypoint.coordinate[1].toFixed(4)}, {waypoint.coordinate[0].toFixed(4)}</span>}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {index > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setWaypointSegmentMode(waypoint.id, segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'free' : 'auto')}
+                                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm ring-1 ring-gray-200 dark:ring-slate-600 ${segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'text-[#1379d3]' : 'text-[#f97316]'}`}
+                                            title={segmentMode(waypoint.modeFromPrevious) === 'auto' ? 'Guidé → Libre' : 'Libre → Guidé'}
+                                        >
+                                            {segmentMode(waypoint.modeFromPrevious) === 'auto' ? '⤳' : '⟋'}
+                                        </button>
+                                    )}
+                                    {/* Move up */}
+                                    {index > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => reorderWaypoint(waypoint.id, index - 1)}
+                                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-gray-100 dark:ring-slate-600"
+                                            title="Monter"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                                <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                    {/* Move down */}
+                                    {index < waypoints.length - 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => reorderWaypoint(waypoint.id, index + 1)}
+                                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-gray-100 dark:ring-slate-600"
+                                            title="Descendre"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                                <path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => removeWaypoint(waypoint.id)}
+                                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 active:bg-rose-50 active:text-rose-500 dark:ring-slate-600"
+                                        title="Supprimer"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

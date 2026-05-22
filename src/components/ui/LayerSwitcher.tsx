@@ -18,6 +18,8 @@ export function LayerSwitcher() {
     const setHillshadeEnabled = useMapStore((s) => s.setHillshadeEnabled);
     const hillshadeSource = useMapStore((s) => s.hillshadeSource);
     const setHillshadeSource = useMapStore((s) => s.setHillshadeSource);
+    const hillshadeIntensity = useMapStore((s) => s.hillshadeIntensity);
+    const setHillshadeIntensity = useMapStore((s) => s.setHillshadeIntensity);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const setTerrainEnabled = useMapStore((s) => s.setTerrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
@@ -83,6 +85,25 @@ export function LayerSwitcher() {
                         </button>
                     ))}
                 </div>
+                <label className="mt-2 block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Intensité</span>
+                        <span className="font-mono text-xs text-slate-400">
+                            {Math.round(hillshadeIntensity * 100)}%
+                        </span>
+                    </div>
+                    <input
+                        aria-label="Intensité ombrage"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={hillshadeIntensity}
+                        onChange={(e) => setHillshadeIntensity(Number(e.target.value))}
+                        disabled={!hillshadeEnabled && baseLayer !== 'lidar'}
+                        className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                    />
+                </label>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />

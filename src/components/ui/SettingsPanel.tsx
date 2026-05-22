@@ -16,8 +16,6 @@ const UI_THEMES: Array<{ id: UiTheme; label: string }> = [
 export function SettingsPanel() {
     const hillshadeEnabled = useMapStore((s) => s.hillshadeEnabled);
     const baseLayer = useMapStore((s) => s.baseLayer);
-    const hillshadeIntensity = useMapStore((s) => s.hillshadeIntensity);
-    const setHillshadeIntensity = useMapStore((s) => s.setHillshadeIntensity);
     const hillshadeBlend = useMapStore((s) => s.hillshadeBlend);
     const setHillshadeBlend = useMapStore((s) => s.setHillshadeBlend);
     const renderQuality = useMapStore((s) => s.renderQuality);
@@ -66,25 +64,7 @@ export function SettingsPanel() {
                     </svg>
                     Ombrage
                 </h3>
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Intensité</span>
-                        <span className="font-mono text-xs text-slate-400">
-                            {Math.round(hillshadeIntensity * 100)}%
-                        </span>
-                    </div>
-                    <input
-                        aria-label="Intensité ombrage"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={hillshadeIntensity}
-                        onChange={(e) => setHillshadeIntensity(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-                <div className="mt-3">
+                <div>
                     <div className="mb-1 text-xs text-slate-500">Mode de fusion</div>
                     <select
                         value={hillshadeBlend}
