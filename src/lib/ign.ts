@@ -1,14 +1,13 @@
 /**
  * IGN Géoplateforme endpoints and layer identifiers.
  *
- * Two endpoints are used:
+ * Three endpoints are used:
  *  - public WMTS (`/wmts`) for layers in the "découverte" tier (Plan IGN,
- *    Orthophotos, LiDAR HD shadow, …) — anonymous.
+ *    Orthophotos, LiDAR HD shadow, …).
  *  - private WMTS (`/private/wmts`) for SCAN 25 Tour, gated by an `apikey`
- *    parameter. The `ign_scan_ws` key used here is the public web-services
- *    key advertised on cartes.gouv.fr / geoportail.gouv.fr for SCAN access.
- *  - private WMS-r (`/private/wms-r/wms`) for the high-resolution TerrainRGB
- *    DEM (`Geoportail_App` key, used by the official `cartes-ign-app`).
+ *    parameter. Users must supply their own key (e.g. `ign_scan_ws` from
+ *    cartes.gouv.fr / geoportail.gouv.fr for SCAN access).
+ *  - public WMS-r (`/wms-r`) for the high-resolution TerrainRGB DEM.
  *
  * Docs:
  *   https://cartes.gouv.fr/aide/fr/guides-developpeur/
@@ -17,12 +16,7 @@
 
 export const IGN_WMTS_PUBLIC = 'https://data.geopf.fr/wmts';
 export const IGN_WMTS_PRIVATE = 'https://data.geopf.fr/private/wmts';
-export const IGN_WMS_R_PRIVATE = 'https://data.geopf.fr/private/wms-r/wms';
-
-/** Public web-services apikey for the SCAN family of layers. */
-export const IGN_SCAN_APIKEY = 'ign_scan_ws';
-/** Public web-services apikey for the high-res TerrainRGB DEM (wms-r). */
-export const IGN_DEM_APIKEY = 'Geoportail_App';
+export const IGN_WMS_R_PUBLIC = 'https://data.geopf.fr/wms-r';
 
 /**
  * Build a WMTS GetTile URL template (placeholders {z}/{x}/{y}) for a layer.
@@ -71,7 +65,6 @@ export const IGN_LAYERS = {
         maxZoom: 18,
         label: 'SCAN 25 Tour',
         private: true,
-        apikey: IGN_SCAN_APIKEY,
     },
     planIgn: {
         id: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
@@ -135,23 +128,22 @@ export const IGN_LAYERS = {
 } as const;
 
 /** Build a WMTS URL for one of the registered IGN layers. */
-export function ignLayerUrl(layer: keyof typeof IGN_LAYERS): string {
+export function ignLayerUrl(layer: keyof typeof IGN_LAYERS, apikey?: string): string {
     const def = IGN_LAYERS[layer];
     return ignWmtsUrl({
         layer: def.id,
         format: def.format,
         private: def.private,
-        apikey: 'apikey' in def ? def.apikey : undefined,
+        apikey: def.private ? apikey : undefined,
     });
 }
 
 /**
- * IGN TerrainRGB DEM. Served as a WMS-r raster (private endpoint, requires the
- * `Geoportail_App` apikey, same as cartes-ign-app). MapLibre's `raster-dem`
- * source supports `{bbox-epsg-3857}` placeholders for WMS sources.
+ * IGN TerrainRGB DEM (public WMS-r).
+ * MapLibre's `raster-dem` source supports `{bbox-epsg-3857}` placeholders.
  */
 export const IGN_TERRAIN_RGB_LAYER =
-    'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
+    'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES';
 
 export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const OSM_ATTRIBUTION =
@@ -159,7 +151,6 @@ export const OSM_ATTRIBUTION =
 
 export function ignTerrainRgbUrl(): string {
     const params = [
-        `apikey=${encodeURIComponent(IGN_DEM_APIKEY)}`,
         'bbox={bbox-epsg-3857}',
         'format=image/png',
         'service=WMS',
@@ -168,10 +159,10 @@ export function ignTerrainRgbUrl(): string {
         'crs=EPSG:3857',
         'width=256',
         'height=256',
-        'styles=terrainrgb0',
+        'styles=terrainrgb',
         `layers=${encodeURIComponent(IGN_TERRAIN_RGB_LAYER)}`,
     ].join('&');
-    return `${IGN_WMS_R_PRIVATE}?${params}`;
+    return `${IGN_WMS_R_PUBLIC}?${params}`;
 }
 
 /** IGN attribution text required by the Geoplateforme terms of use. */

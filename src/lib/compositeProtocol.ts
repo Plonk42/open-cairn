@@ -12,6 +12,10 @@ import { IGN_ATTRIBUTION, IGN_LAYERS, ignWmtsUrl, OSM_ATTRIBUTION, OSM_TILE_URL 
 
 let registered = false;
 
+/** Module-level getter for the SCAN apikey — set externally to avoid circular imports. */
+let _scanApiKey = '';
+export function setScanApiKey(key: string): void { _scanApiKey = key; }
+
 export type CompositeBaseKey = keyof typeof IGN_LAYERS | 'osm';
 
 interface RasterLayerDef {
@@ -56,7 +60,7 @@ function rasterLayerDef(layerKey: CompositeBaseKey): RasterLayerDef {
             layer: def.id,
             format: def.format,
             private: def.private,
-            apikey: 'apikey' in def ? def.apikey : undefined,
+            apikey: def.private ? _scanApiKey : undefined,
         }),
     };
 }

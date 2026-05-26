@@ -36,9 +36,9 @@ interface ResolvedBaseLayer {
     attribution: string;
 }
 
-function directBaseUrl(key: CompositeBaseKey): string {
+function directBaseUrl(key: CompositeBaseKey, scanApiKey?: string): string {
     if (key === 'osm') return OSM_TILE_URL;
-    return ignLayerUrl(key);
+    return ignLayerUrl(key, IGN_LAYERS[key].private ? scanApiKey : undefined);
 }
 
 function resolveBaseLayer(opts: MapStyleOptions): ResolvedBaseLayer {
@@ -52,7 +52,7 @@ function resolveBaseLayer(opts: MapStyleOptions): ResolvedBaseLayer {
         key,
         minZoom: def.minZoom,
         maxZoom: def.maxZoom,
-        tileUrl: directBaseUrl(key),
+        tileUrl: directBaseUrl(key, opts.ignScanApiKey),
         attribution: isOsm ? OSM_ATTRIBUTION : IGN_ATTRIBUTION,
     };
 }
@@ -78,6 +78,8 @@ export interface MapStyleOptions {
     contourLines: boolean;
     /** Opacity of the contour lines overlay (0..1). */
     contourLinesOpacity: number;
+    /** IGN API key for SCAN 25 (private WMTS). */
+    ignScanApiKey?: string;
 }
 
 /**
@@ -120,11 +122,7 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
                 tileSize: TERRAIN_TILE_SIZE,
                 minzoom: 6,
                 maxzoom: 14,
-                encoding: 'custom',
-                redFactor: 6553.6,
-                greenFactor: 25.6,
-                blueFactor: 0.1,
-                baseShift: 0,
+                encoding: 'mapbox',
                 attribution: IGN_ATTRIBUTION,
             },
         },

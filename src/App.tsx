@@ -36,8 +36,6 @@ export function App() {
             terrainExaggeration: map.terrainExaggeration,
             contourLinesEnabled: map.contourLinesEnabled,
             contourLinesOpacity: map.contourLinesOpacity,
-            renderQuality: map.renderQuality,
-            uiTheme: map.uiTheme,
             routeActive: route.active,
             routeMode: route.mode,
             colorElevationBySlope: route.colorElevationBySlope,
@@ -337,16 +335,16 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                         icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M8.157 2.176a1.5 1.5 0 00-1.147 0l-4.084 1.69A1.5 1.5 0 002 5.25v10.877a1.5 1.5 0 002.074 1.386l3.51-1.452 4.26 1.762a1.5 1.5 0 001.147 0l4.084-1.69A1.5 1.5 0 0018 14.75V3.873a1.5 1.5 0 00-2.074-1.386l-3.51 1.452-4.26-1.763zM7.58 5a.75.75 0 01.75.75v6.5a.75.75 0 01-1.5 0v-6.5A.75.75 0 017.58 5zm5.59 2a.75.75 0 01.75.75v6.5a.75.75 0 01-1.5 0v-6.5a.75.75 0 01.75-.75z" clipRule="evenodd" /></svg>}
                     />
                     <MobileTabButton
-                        active={mobileTab === 'route'}
-                        label="Tracé"
-                        onClick={() => setMobileTab('route')}
-                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M3 3.5A1.5 1.5 0 014.5 2h6.879a1.5 1.5 0 011.06.44l4.122 4.12A1.5 1.5 0 0117 7.622V16.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 16.5v-13zm10.857 5.691a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 00-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>}
-                    />
-                    <MobileTabButton
                         active={mobileTab === 'layers'}
                         label="Couches"
                         onClick={() => setMobileTab('layers')}
                         icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" /></svg>}
+                    />
+                    <MobileTabButton
+                        active={mobileTab === 'route'}
+                        label="Tracé"
+                        onClick={() => setMobileTab('route')}
+                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M3 3.5A1.5 1.5 0 014.5 2h6.879a1.5 1.5 0 011.06.44l4.122 4.12A1.5 1.5 0 0117 7.622V16.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 16.5v-13zm10.857 5.691a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 00-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>}
                     />
                     <MobileTabButton
                         active={mobileTab === 'settings'}

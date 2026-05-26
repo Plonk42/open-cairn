@@ -1,4 +1,4 @@
-import { compositeTileUrl, registerCompositeProtocol } from '@/lib/compositeProtocol';
+import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { ignLayerUrl } from '@/lib/ign';
 import { buildMapStyle } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
@@ -339,11 +339,16 @@ export function MapContainer() {
     const renderQuality = useMapStore((s) => s.renderQuality);
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
+    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
+
+    // Keep composite protocol in sync with the current SCAN API key.
+    useEffect(() => { setScanApiKey(ignScanApiKey); }, [ignScanApiKey]);
 
     // Initial map creation (runs once)
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return;
         const initial = useMapStore.getState();
+        setScanApiKey(initial.ignScanApiKey);
         const map = new maplibregl.Map({
             container: containerRef.current,
             style: buildMapStyle({
@@ -357,6 +362,7 @@ export function MapContainer() {
                 renderQuality: initial.renderQuality,
                 contourLines: initial.contourLinesEnabled,
                 contourLinesOpacity: initial.contourLinesOpacity,
+                ignScanApiKey: initial.ignScanApiKey,
             }),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
@@ -389,6 +395,14 @@ export function MapContainer() {
                 visualizePitch: true,
                 showZoom: true,
                 showCompass: true,
+            }),
+            'bottom-left',
+        );
+        map.addControl(
+            new maplibregl.GeolocateControl({
+                positionOptions: { enableHighAccuracy: true },
+                trackUserLocation: false,
+                showUserLocation: true,
             }),
             'bottom-left',
         );
@@ -536,6 +550,7 @@ export function MapContainer() {
                     renderQuality: current.renderQuality,
                     contourLines: current.contourLinesEnabled,
                     contourLinesOpacity: current.contourLinesOpacity,
+                    ignScanApiKey: current.ignScanApiKey,
                 }),
                 { diff: true },
             );
@@ -545,7 +560,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity]);
+    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.

@@ -24,6 +24,8 @@ export function SettingsPanel() {
     const setTileCacheSize = useMapStore((s) => s.setTileCacheSize);
     const uiTheme = useMapStore((s) => s.uiTheme);
     const setUiTheme = useMapStore((s) => s.setUiTheme);
+    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
+    const setIgnScanApiKey = useMapStore((s) => s.setIgnScanApiKey);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
     const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
@@ -176,6 +178,27 @@ export function SettingsPanel() {
                             setGpxImportWaypoints(v);
                         }}
                         className="w-14 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
+                    />
+                </label>
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
+
+            <div>
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+                    </svg>
+                    Clés API IGN
+                </h3>
+                <label className="mb-2 block text-sm text-slate-700 dark:text-slate-300">
+                    <span className="mb-1 block text-xs text-slate-500">SCAN 25 (WMTS privé)</span>
+                    <input
+                        type="text"
+                        value={ignScanApiKey}
+                        onChange={(e) => setIgnScanApiKey(e.target.value.trim())}
+                        placeholder="Votre clé API IGN"
+                        className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
                     />
                 </label>
             </div>

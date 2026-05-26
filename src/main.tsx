@@ -21,8 +21,6 @@ if (shared) {
     map.setTerrainExaggeration(shared.terrainExaggeration);
     map.setContourLinesEnabled(shared.contourLinesEnabled);
     map.setContourLinesOpacity(shared.contourLinesOpacity);
-    map.setRenderQuality(shared.renderQuality);
-    map.setUiTheme(shared.uiTheme);
     const route = useRouteStore.getState();
     route.setActive(false); // Always start in read mode when opening a shared link
     route.setMode(shared.routeMode);

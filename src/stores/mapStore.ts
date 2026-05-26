@@ -3,6 +3,8 @@ import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
 
+const STORAGE_KEY = 'open-cairn-settings';
+
 /** IGN LiDAR HD shadow product used as hillshade source. */
 export type HillshadeSource = 'mns' | 'mnt' | 'mnh';
 
@@ -80,6 +82,10 @@ interface MapState {
     uiTheme: UiTheme;
     setUiTheme: (v: UiTheme) => void;
 
+    /** IGN API key for SCAN 25 (private WMTS). */
+    ignScanApiKey: string;
+    setIgnScanApiKey: (v: string) => void;
+
     /** Map instance reference for imperative operations. */
     mapInstance: maplibregl.Map | null;
     setMapInstance: (map: maplibregl.Map | null) => void;
@@ -96,6 +102,31 @@ const DEFAULT_VIEW: MapView = {
     pitch: 55,
     bearing: -20,
 };
+
+/** Keys persisted in localStorage. */
+type PersistedSettings = {
+    uiTheme?: UiTheme;
+    renderQuality?: RenderQuality;
+    tileCacheSize?: number;
+    ignScanApiKey?: string;
+};
+
+function loadPersistedSettings(): PersistedSettings {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return JSON.parse(raw) as PersistedSettings;
+    } catch { /* ignore */ }
+    return {};
+}
+
+function savePersistedSettings(patch: Partial<PersistedSettings>): void {
+    try {
+        const current = loadPersistedSettings();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
+    } catch { /* ignore */ }
+}
+
+const persisted = loadPersistedSettings();
 
 export const useMapStore = create<MapState>((set, get) => ({
     view: DEFAULT_VIEW,
@@ -128,17 +159,30 @@ export const useMapStore = create<MapState>((set, get) => ({
     terrainExaggeration: 1.2,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
 
-    renderQuality: 'balanced',
-    setRenderQuality: (renderQuality) => set({ renderQuality }),
+    renderQuality: persisted.renderQuality ?? 'balanced',
+    setRenderQuality: (renderQuality) => {
+        savePersistedSettings({ renderQuality });
+        set({ renderQuality });
+    },
 
-    tileCacheSize: 256,
+    tileCacheSize: persisted.tileCacheSize ?? 256,
     setTileCacheSize: (tileCacheSize) => {
         setTileCacheMaxSize(tileCacheSize);
+        savePersistedSettings({ tileCacheSize });
         set({ tileCacheSize });
     },
 
-    uiTheme: 'light',
-    setUiTheme: (uiTheme) => set({ uiTheme }),
+    uiTheme: persisted.uiTheme ?? 'light',
+    setUiTheme: (uiTheme) => {
+        savePersistedSettings({ uiTheme });
+        set({ uiTheme });
+    },
+
+    ignScanApiKey: persisted.ignScanApiKey ?? '',
+    setIgnScanApiKey: (ignScanApiKey) => {
+        savePersistedSettings({ ignScanApiKey });
+        set({ ignScanApiKey });
+    },
 
     mapInstance: null,
     setMapInstance: (mapInstance) => set({ mapInstance }),

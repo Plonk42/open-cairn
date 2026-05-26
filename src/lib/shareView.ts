@@ -1,8 +1,8 @@
+import type { HillshadeSource, MapView } from '@/stores/mapStore';
+import type { RouteMode, RouteWaypoint } from '@/stores/routeStore';
 import type { BlendMode } from './compositeProtocol';
 import type { LngLatTuple } from './geo';
 import type { BaseLayerId } from './mapStyle';
-import type { HillshadeSource, MapView, RenderQuality, UiTheme } from '@/stores/mapStore';
-import type { RouteMode, RouteWaypoint } from '@/stores/routeStore';
 
 /** Compact serialisable representation of the full app state. */
 interface SharePayload {
@@ -23,8 +23,6 @@ interface SharePayload {
     tex: number;
     cl: 0 | 1;
     clo: number;
-    rq: RenderQuality;
-    th: UiTheme;
     // Route
     ra: 0 | 1;
     rm: RouteMode;
@@ -49,8 +47,6 @@ export interface SharedState {
     terrainExaggeration: number;
     contourLinesEnabled: boolean;
     contourLinesOpacity: number;
-    renderQuality: RenderQuality;
-    uiTheme: UiTheme;
     routeActive: boolean;
     routeMode: RouteMode;
     colorElevationBySlope: boolean;
@@ -80,8 +76,6 @@ export function encodeShareState(state: SharedState): string {
         tex: round(state.terrainExaggeration, 2),
         cl: state.contourLinesEnabled ? 1 : 0,
         clo: round(state.contourLinesOpacity, 2),
-        rq: state.renderQuality,
-        th: state.uiTheme,
         ra: state.routeActive ? 1 : 0,
         rm: state.routeMode,
         ces: state.colorElevationBySlope ? 1 : 0,
@@ -132,8 +126,6 @@ export function decodeShareState(hash: string): SharedState | null {
             terrainExaggeration: p.tex,
             contourLinesEnabled: p.cl === 1,
             contourLinesOpacity: p.clo,
-            renderQuality: p.rq,
-            uiTheme: p.th,
             routeActive: p.ra === 1,
             routeMode: p.rm,
             colorElevationBySlope: p.ces === 1,
