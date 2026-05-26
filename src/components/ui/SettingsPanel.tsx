@@ -26,6 +26,8 @@ export function SettingsPanel() {
     const setUiTheme = useMapStore((s) => s.setUiTheme);
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const setIgnScanApiKey = useMapStore((s) => s.setIgnScanApiKey);
+    const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
+    const setIgnDemApiKey = useMapStore((s) => s.setIgnDemApiKey);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
     const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
@@ -198,6 +200,16 @@ export function SettingsPanel() {
                         value={ignScanApiKey}
                         onChange={(e) => setIgnScanApiKey(e.target.value.trim())}
                         placeholder="Votre clé API IGN"
+                        className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
+                    />
+                </label>
+                <label className="mb-2 block text-sm text-slate-700 dark:text-slate-300">
+                    <span className="mb-1 block text-xs text-slate-500">Terrain 3D (WMS-r privé)</span>
+                    <input
+                        type="text"
+                        value={ignDemApiKey}
+                        onChange={(e) => setIgnDemApiKey(e.target.value.trim())}
+                        placeholder="Clé pour terrain lisse (optionnel)"
                         className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
                     />
                 </label>

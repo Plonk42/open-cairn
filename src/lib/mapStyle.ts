@@ -80,6 +80,8 @@ export interface MapStyleOptions {
     contourLinesOpacity: number;
     /** IGN API key for SCAN 25 (private WMTS). */
     ignScanApiKey?: string;
+    /** IGN API key for terrain DEM (private WMS-r, enables HIGHRES.LINEAR). */
+    ignDemApiKey?: string;
 }
 
 /**
@@ -118,11 +120,15 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
             },
             terrain: {
                 type: 'raster-dem',
-                tiles: [ignTerrainRgbUrl()],
+                tiles: [ignTerrainRgbUrl(opts.ignDemApiKey)],
                 tileSize: TERRAIN_TILE_SIZE,
                 minzoom: 6,
                 maxzoom: 14,
-                encoding: 'mapbox',
+                encoding: 'custom',
+                redFactor: 6553.6,
+                greenFactor: 25.6,
+                blueFactor: 0.1,
+                baseShift: 10000,
                 attribution: IGN_ATTRIBUTION,
             },
         },

@@ -101,7 +101,7 @@ Le système de tracé fonctionne par segments entre waypoints :
 | Service | Endpoint | Usage |
 |---------|----------|-------|
 | WMTS public | `data.geopf.fr/wmts` | Plan IGN, Ortho, LiDAR HD ombrage (MNS/MNT/MNH) |
-| WMTS privé | `data.geopf.fr/private/wmts` | SCAN 25 Tour (clé `ign_scan_ws`) |
+| WMTS privé | `data.geopf.fr/private/wmts` | SCAN 25 Tour |
 | WMS-r privé | `data.geopf.fr/private/wms-r` | DEM TerrainRGB haute résolution |
 | Navigation | `data.geopf.fr/navigation/itineraire` | Calcul d'itinéraire piéton (bdtopo-osrm) |
 | Altimétrie | `data.geopf.fr/altimetrie` | Profil altimétrique le long d'une ligne |

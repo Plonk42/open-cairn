@@ -17,6 +17,7 @@
 export const IGN_WMTS_PUBLIC = 'https://data.geopf.fr/wmts';
 export const IGN_WMTS_PRIVATE = 'https://data.geopf.fr/private/wmts';
 export const IGN_WMS_R_PUBLIC = 'https://data.geopf.fr/wms-r';
+export const IGN_WMS_R_PRIVATE = 'https://data.geopf.fr/private/wms-r/wms';
 
 /**
  * Build a WMTS GetTile URL template (placeholders {z}/{x}/{y}) for a layer.
@@ -139,18 +140,26 @@ export function ignLayerUrl(layer: keyof typeof IGN_LAYERS, apikey?: string): st
 }
 
 /**
- * IGN TerrainRGB DEM (public WMS-r).
- * MapLibre's `raster-dem` source supports `{bbox-epsg-3857}` placeholders.
+ * IGN TerrainRGB DEM.
+ * When an API key is provided, use the private WMS-r endpoint with
+ * HIGHRES.LINEAR (bilinear interpolation → smooth terrain).
+ * Without a key, fall back to the public endpoint (nearest-neighbor).
  */
 export const IGN_TERRAIN_RGB_LAYER =
     'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES';
+export const IGN_TERRAIN_RGB_LAYER_LINEAR =
+    'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR';
 
 export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const OSM_ATTRIBUTION =
     '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
-export function ignTerrainRgbUrl(): string {
+export function ignTerrainRgbUrl(apikey?: string): string {
+    const usePrivate = !!apikey;
+    const layer = usePrivate ? IGN_TERRAIN_RGB_LAYER_LINEAR : IGN_TERRAIN_RGB_LAYER;
+    const base = usePrivate ? IGN_WMS_R_PRIVATE : IGN_WMS_R_PUBLIC;
     const params = [
+        apikey ? `apikey=${encodeURIComponent(apikey)}` : null,
         'bbox={bbox-epsg-3857}',
         'format=image/png',
         'service=WMS',
@@ -160,9 +169,9 @@ export function ignTerrainRgbUrl(): string {
         'width=256',
         'height=256',
         'styles=terrainrgb',
-        `layers=${encodeURIComponent(IGN_TERRAIN_RGB_LAYER)}`,
-    ].join('&');
-    return `${IGN_WMS_R_PUBLIC}?${params}`;
+        `layers=${encodeURIComponent(layer)}`,
+    ].filter(Boolean).join('&');
+    return `${base}?${params}`;
 }
 
 /** IGN attribution text required by the Geoplateforme terms of use. */

@@ -86,6 +86,10 @@ interface MapState {
     ignScanApiKey: string;
     setIgnScanApiKey: (v: string) => void;
 
+    /** IGN API key for terrain DEM (private WMS-r, HIGHRES.LINEAR). */
+    ignDemApiKey: string;
+    setIgnDemApiKey: (v: string) => void;
+
     /** Map instance reference for imperative operations. */
     mapInstance: maplibregl.Map | null;
     setMapInstance: (map: maplibregl.Map | null) => void;
@@ -109,6 +113,7 @@ type PersistedSettings = {
     renderQuality?: RenderQuality;
     tileCacheSize?: number;
     ignScanApiKey?: string;
+    ignDemApiKey?: string;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -182,6 +187,12 @@ export const useMapStore = create<MapState>((set, get) => ({
     setIgnScanApiKey: (ignScanApiKey) => {
         savePersistedSettings({ ignScanApiKey });
         set({ ignScanApiKey });
+    },
+
+    ignDemApiKey: persisted.ignDemApiKey ?? '',
+    setIgnDemApiKey: (ignDemApiKey) => {
+        savePersistedSettings({ ignDemApiKey });
+        set({ ignDemApiKey });
     },
 
     mapInstance: null,

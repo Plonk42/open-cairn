@@ -340,6 +340,7 @@ export function MapContainer() {
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
+    const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
 
     // Keep composite protocol in sync with the current SCAN API key.
     useEffect(() => { setScanApiKey(ignScanApiKey); }, [ignScanApiKey]);
@@ -363,6 +364,7 @@ export function MapContainer() {
                 contourLines: initial.contourLinesEnabled,
                 contourLinesOpacity: initial.contourLinesOpacity,
                 ignScanApiKey: initial.ignScanApiKey,
+                ignDemApiKey: initial.ignDemApiKey,
             }),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
@@ -551,6 +553,7 @@ export function MapContainer() {
                     contourLines: current.contourLinesEnabled,
                     contourLinesOpacity: current.contourLinesOpacity,
                     ignScanApiKey: current.ignScanApiKey,
+                    ignDemApiKey: current.ignDemApiKey,
                 }),
                 { diff: true },
             );
@@ -560,7 +563,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey]);
+    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.
@@ -604,15 +607,31 @@ export function MapContainer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hillshadeSource, hillshadeBlend, hillshadeIntensity]);
 
-    // Re-fetch base tiles when tile cache is cleared (fixes permanent holes from errored tiles).
+    // Re-fetch all tiles when tile cache is cleared.
     useEffect(() => {
         const handler = () => {
             const map = mapRef.current;
             if (!map) return;
-            const baseSource = map.getSource('base') as maplibregl.RasterTileSource | undefined;
-            if (!baseSource) return;
-            const tiles = (baseSource as unknown as { tiles?: string[] }).tiles;
-            if (tiles?.length) baseSource.setTiles([...tiles]);
+            // Force MapLibre to drop all cached tiles and re-request them
+            // by triggering a full style reload with diff mode.
+            const current = useMapStore.getState();
+            map.setStyle(
+                buildMapStyle({
+                    base: current.baseLayer,
+                    hillshade: current.hillshadeEnabled,
+                    hillshadeSource: current.hillshadeSource,
+                    hillshadeBlend: current.hillshadeBlend,
+                    hillshadeIntensity: current.hillshadeIntensity,
+                    terrain: current.terrainEnabled,
+                    terrainExaggeration: current.terrainExaggeration,
+                    renderQuality: current.renderQuality,
+                    contourLines: current.contourLinesEnabled,
+                    contourLinesOpacity: current.contourLinesOpacity,
+                    ignScanApiKey: current.ignScanApiKey,
+                    ignDemApiKey: current.ignDemApiKey,
+                }),
+                { diff: false },
+            );
         };
         globalThis.addEventListener('composite-tile-reload', handler);
         return () => globalThis.removeEventListener('composite-tile-reload', handler);
