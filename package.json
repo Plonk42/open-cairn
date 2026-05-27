@@ -21,6 +21,7 @@
         "copc": "^0.0.8",
         "delaunator": "^5.1.0",
         "idb-keyval": "^6.2.4",
+        "laz-perf": "^0.0.7",
         "maplibre-gl": "^5.11.0",
         "proj4": "^2.20.8",
         "react": "^18.3.1",

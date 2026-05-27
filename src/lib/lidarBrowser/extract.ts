@@ -9,6 +9,7 @@
  * stubs out the Node `fs` fallback).
  */
 import { Copc, Getter, Key } from 'copc';
+import { getLazPerf } from './lazPerf';
 
 export interface ExtractParams {
     /** Full URL of the .copc.laz tile (HTTP/HTTPS, CORS must be enabled). */
@@ -113,6 +114,8 @@ async function collectIntersectingNodes(
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter } = params;
     const get = Getter.create(tileUrl);
+    // Init once per worker; ensures Vite-bundled WASM URL is used.
+    const lazPerf = await getLazPerf();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const copc = (await Copc.create(get)) as any as CopcHandle;
     const bbox = {
@@ -129,7 +132,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         classifications: Uint8Array;
     }> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const view = await Copc.loadPointDataView(get, copc as any, node as any);
+        const view = await Copc.loadPointDataView(get, copc as any, node as any, { lazPerf });
         const getX = view.getter('X');
         const getY = view.getter('Y');
         const getZ = view.getter('Z');
