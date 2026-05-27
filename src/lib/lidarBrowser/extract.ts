@@ -9,7 +9,7 @@
  * stubs out the Node `fs` fallback).
  */
 import { Copc, Getter, Key } from 'copc';
-import { getLazPerf } from './lazPerf';
+import { getLazPerf, runOnLazPerf } from './lazPerf';
 
 export interface ExtractParams {
     /** Full URL of the .copc.laz tile (HTTP/HTTPS, CORS must be enabled). */
@@ -131,8 +131,10 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         positions: Float32Array;
         classifications: Uint8Array;
     }> {
+        // The WASM heap isn't re-entrant; runOnLazPerf serializes the
+        // decompress step (everything after is pure JS and parallel-safe).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const view = await Copc.loadPointDataView(get, copc as any, node as any, { lazPerf });
+        const view = await runOnLazPerf(() => Copc.loadPointDataView(get, copc as any, node as any, { lazPerf }));
         const getX = view.getter('X');
         const getY = view.getter('Y');
         const getZ = view.getter('Z');
