@@ -1,10 +1,10 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
-import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import {
     fetchLidarCloud as fetchLidarCloudBrowser,
     fetchLidarMesh as fetchLidarMeshBrowser,
     fetchLidarShaded as fetchLidarShadedBrowser,
 } from '@/lib/lidarBrowser';
+import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
