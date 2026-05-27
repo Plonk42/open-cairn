@@ -113,7 +113,25 @@ async function collectIntersectingNodes(
  */
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter } = params;
-    const get = Getter.create(tileUrl);
+    const rawGet = Getter.create(tileUrl);
+    // Diagnostic wrapper: every byte-range fetch is logged with the size
+    // returned. If the IGN server ever responds with 200 (no Range support)
+    // instead of 206, `compressed.byteLength` would jump to ~200 MB and the
+    // wasm heap would OOM after a few nodes.
+    let totalBytesFetched = 0;
+    let fetchCount = 0;
+    const get: typeof rawGet = async (begin: number, end: number) => {
+        const buf = await rawGet(begin, end);
+        const expected = end - begin;
+        if (buf.byteLength !== expected) {
+            // eslint-disable-next-line no-console
+            console.warn('[lidarBrowser] range mismatch', tileUrl.split('/').pop(),
+                'asked', expected, 'got', buf.byteLength);
+        }
+        totalBytesFetched += buf.byteLength;
+        fetchCount++;
+        return buf;
+    };
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,6 +143,14 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         maxY: y0 + radius,
     };
     const nodes = await collectIntersectingNodes(get, copc, bbox);
+    // eslint-disable-next-line no-console
+    console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
+        'intersecting nodes:', nodes.length,
+        'sample:', nodes.slice(0, 3).map(({ node }) => ({
+            pc: node.pointCount,
+            off: node.pointDataOffset,
+            len: node.pointDataLength,
+        })));
     const safeStride = Math.max(1, Math.floor(stride));
 
     async function processNode(node: CopcNode): Promise<{
@@ -167,6 +193,9 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
 
     // Process all nodes in parallel (HTTP Range requests interleave nicely).
     const results = await Promise.all(nodes.map(({ node }) => processNode(node)));
+    // eslint-disable-next-line no-console
+    console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
+        'fetched', fetchCount, 'ranges', '(', (totalBytesFetched / 1024 / 1024).toFixed(1), 'MB total)');
 
     let total = 0;
     for (const r of results) total += r.classifications.length;
