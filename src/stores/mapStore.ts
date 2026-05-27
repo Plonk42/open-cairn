@@ -1,4 +1,5 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
+import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
@@ -95,6 +96,67 @@ interface MapState {
     setMapInstance: (map: maplibregl.Map | null) => void;
     /** Fly the map to fit a bounding box [minLng, minLat, maxLng, maxLat]. */
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
+
+    // ---- LiDAR HD point cloud (Option 1: backend cropping service) ----
+    /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, or shaded point splatting. */
+    lidarMode: 'cloud' | 'mesh' | 'shaded';
+    setLidarMode: (v: 'cloud' | 'mesh' | 'shaded') => void;
+    /** Loaded point cloud (null = none). */
+    lidarCloud: LidarCloudData | null;
+    /** Loaded mesh (null = none). */
+    lidarMesh: LidarMeshData | null;
+    /** Loaded shaded point cloud (positions + normals + slope colors). */
+    lidarShaded: LidarShadedCloudData | null;
+    /** True while a `/api/lidar-cloud` request is in flight. */
+    lidarCloudLoading: boolean;
+    /** Last error message (null if no error). */
+    lidarCloudError: string | null;
+    /** Half-side of the bbox to load, in meters. */
+    lidarCloudRadius: number;
+    setLidarCloudRadius: (v: number) => void;
+    /** Decimation factor (1 = full density, N = keep 1/N points). */
+    lidarCloudStride: number;
+    setLidarCloudStride: (v: number) => void;
+    /** Point size in screen pixels (deck.gl PointCloudLayer). */
+    lidarCloudPointSize: number;
+    setLidarCloudPointSize: (v: number) => void;
+    /** Automatically scale point size based on stride to fill gaps. */
+    lidarCloudSizeCompensation: boolean;
+    setLidarCloudSizeCompensation: (v: boolean) => void;
+    /** Enable Eye-Dome Lighting for better depth perception. */
+    lidarCloudEdl: boolean;
+    setLidarCloudEdl: (v: boolean) => void;
+    /** EDL strength (QGIS-equivalent; expects ~hundreds to low thousands). */
+    lidarCloudEdlStrength: number;
+    setLidarCloudEdlStrength: (v: number) => void;
+    /** EDL neighbor sampling distance in 2-pixel units (QGIS-equivalent). */
+    lidarCloudEdlRadius: number;
+    setLidarCloudEdlRadius: (v: number) => void;
+    /** EDL depth normalization (farPlane in v_depth units). */
+    lidarCloudEdlFarPlane: number;
+    setLidarCloudEdlFarPlane: (v: number) => void;
+    /** Ambient-occlusion intensity (0 disables the AO term). */
+    lidarCloudAoStrength: number;
+    setLidarCloudAoStrength: (v: number) => void;
+    /** AO sampling radius in 2-pixel units. */
+    lidarCloudAoRadius: number;
+    setLidarCloudAoRadius: (v: number) => void;
+    /** Coloring mode: 'slope' (normals-based), 'class' (LAS classification), or 'mixed' (sol=slope, others=class). */
+    lidarCloudColoring: 'slope' | 'class' | 'mixed';
+    setLidarCloudColoring: (v: 'slope' | 'class' | 'mixed') => void;
+    /** Whether to dim the underlying basemap when the cloud is visible. */
+    lidarCloudHideBasemap: boolean;
+    setLidarCloudHideBasemap: (v: boolean) => void;
+    /** LAS classification filter (empty = all classes). */
+    lidarCloudClasses: number[];
+    setLidarCloudClasses: (v: number[]) => void;
+    /** Show a preview rectangle on the map indicating the zone that will be loaded. */
+    lidarPreviewVisible: boolean;
+    setLidarPreviewVisible: (v: boolean) => void;
+    /** Load the point cloud centered on the current map view. */
+    loadLidarCloud: () => Promise<void>;
+    /** Clear the currently displayed point cloud. */
+    clearLidarCloud: () => void;
 }
 
 // Default view: French Alps, around the Vercors / Belledonne area, with a
@@ -109,11 +171,35 @@ const DEFAULT_VIEW: MapView = {
 
 /** Keys persisted in localStorage. */
 type PersistedSettings = {
+    view?: MapView;
+    baseLayer?: BaseLayerId;
+    hillshadeEnabled?: boolean;
+    hillshadeSource?: HillshadeSource;
+    hillshadeBlend?: BlendMode;
+    hillshadeIntensity?: number;
+    terrainEnabled?: boolean;
+    terrainExaggeration?: number;
+    contourLinesEnabled?: boolean;
+    contourLinesOpacity?: number;
     uiTheme?: UiTheme;
     renderQuality?: RenderQuality;
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
+    lidarMode?: 'cloud' | 'mesh' | 'shaded';
+    lidarCloudRadius?: number;
+    lidarCloudStride?: number;
+    lidarCloudPointSize?: number;
+    lidarCloudSizeCompensation?: boolean;
+    lidarCloudEdl?: boolean;
+    lidarCloudEdlStrength?: number;
+    lidarCloudEdlRadius?: number;
+    lidarCloudEdlFarPlane?: number;
+    lidarCloudAoStrength?: number;
+    lidarCloudAoRadius?: number;
+    lidarCloudColoring?: 'slope' | 'class' | 'mixed';
+    lidarCloudHideBasemap?: boolean;
+    lidarCloudClasses?: number[];
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -124,76 +210,62 @@ function loadPersistedSettings(): PersistedSettings {
     return {};
 }
 
-function savePersistedSettings(patch: Partial<PersistedSettings>): void {
+function savePersistedSettings(settings: PersistedSettings): void {
     try {
-        const current = loadPersistedSettings();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     } catch { /* ignore */ }
 }
 
 const persisted = loadPersistedSettings();
 
 export const useMapStore = create<MapState>((set, get) => ({
-    view: DEFAULT_VIEW,
+    view: persisted.view ?? DEFAULT_VIEW,
     setView: (view) => set((s) => ({ view: { ...s.view, ...view } })),
 
-    baseLayer: 'scan25',
+    baseLayer: persisted.baseLayer ?? 'scan25',
     setBaseLayer: (baseLayer) => set({ baseLayer }),
 
-    hillshadeEnabled: true,
+    hillshadeEnabled: persisted.hillshadeEnabled ?? true,
     setHillshadeEnabled: (hillshadeEnabled) => set({ hillshadeEnabled }),
 
-    hillshadeSource: 'mns',
+    hillshadeSource: persisted.hillshadeSource ?? 'mns',
     setHillshadeSource: (hillshadeSource) => set({ hillshadeSource }),
 
-    hillshadeBlend: 'lidar-neutral',
+    hillshadeBlend: persisted.hillshadeBlend ?? 'lidar-neutral',
     setHillshadeBlend: (hillshadeBlend) => set({ hillshadeBlend }),
 
-    hillshadeIntensity: 0.85,
+    hillshadeIntensity: persisted.hillshadeIntensity ?? 0.85,
     setHillshadeIntensity: (hillshadeIntensity) => set({ hillshadeIntensity }),
 
-    terrainEnabled: true,
+    terrainEnabled: persisted.terrainEnabled ?? true,
     setTerrainEnabled: (terrainEnabled) => set({ terrainEnabled }),
 
-    contourLinesEnabled: false,
+    contourLinesEnabled: persisted.contourLinesEnabled ?? false,
     setContourLinesEnabled: (contourLinesEnabled) => set({ contourLinesEnabled }),
 
-    contourLinesOpacity: 0.4,
+    contourLinesOpacity: persisted.contourLinesOpacity ?? 0.4,
     setContourLinesOpacity: (contourLinesOpacity) => set({ contourLinesOpacity }),
 
-    terrainExaggeration: 1.2,
+    terrainExaggeration: persisted.terrainExaggeration ?? 1.2,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
 
     renderQuality: persisted.renderQuality ?? 'balanced',
-    setRenderQuality: (renderQuality) => {
-        savePersistedSettings({ renderQuality });
-        set({ renderQuality });
-    },
+    setRenderQuality: (renderQuality) => set({ renderQuality }),
 
     tileCacheSize: persisted.tileCacheSize ?? 256,
     setTileCacheSize: (tileCacheSize) => {
         setTileCacheMaxSize(tileCacheSize);
-        savePersistedSettings({ tileCacheSize });
         set({ tileCacheSize });
     },
 
     uiTheme: persisted.uiTheme ?? 'light',
-    setUiTheme: (uiTheme) => {
-        savePersistedSettings({ uiTheme });
-        set({ uiTheme });
-    },
+    setUiTheme: (uiTheme) => set({ uiTheme }),
 
     ignScanApiKey: persisted.ignScanApiKey ?? '',
-    setIgnScanApiKey: (ignScanApiKey) => {
-        savePersistedSettings({ ignScanApiKey });
-        set({ ignScanApiKey });
-    },
+    setIgnScanApiKey: (ignScanApiKey) => set({ ignScanApiKey }),
 
     ignDemApiKey: persisted.ignDemApiKey ?? '',
-    setIgnDemApiKey: (ignDemApiKey) => {
-        savePersistedSettings({ ignDemApiKey });
-        set({ ignDemApiKey });
-    },
+    setIgnDemApiKey: (ignDemApiKey) => set({ ignDemApiKey }),
 
     mapInstance: null,
     setMapInstance: (mapInstance) => set({ mapInstance }),
@@ -206,4 +278,133 @@ export const useMapStore = create<MapState>((set, get) => ({
         );
     },
 
+    // LiDAR HD point cloud state
+    lidarMode: persisted.lidarMode ?? 'shaded',
+    setLidarMode: (lidarMode) => set({ lidarMode }),
+    lidarCloud: null,
+    lidarMesh: null,
+    lidarShaded: null,
+    lidarCloudLoading: false,
+    lidarCloudError: null,
+    lidarCloudRadius: persisted.lidarCloudRadius ?? 250,
+    setLidarCloudRadius: (lidarCloudRadius) => set({ lidarCloudRadius }),
+    lidarCloudStride: persisted.lidarCloudStride ?? 10,
+    setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
+    lidarCloudPointSize: persisted.lidarCloudPointSize ?? 2,
+    setLidarCloudPointSize: (lidarCloudPointSize) => set({ lidarCloudPointSize }),
+    lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? true,
+    setLidarCloudSizeCompensation: (lidarCloudSizeCompensation) => set({ lidarCloudSizeCompensation }),
+    lidarCloudEdl: persisted.lidarCloudEdl ?? true,
+    setLidarCloudEdl: (lidarCloudEdl) => set({ lidarCloudEdl }),
+    lidarCloudEdlStrength: persisted.lidarCloudEdlStrength ?? 8,
+    setLidarCloudEdlStrength: (lidarCloudEdlStrength) => set({ lidarCloudEdlStrength }),
+    lidarCloudEdlRadius: persisted.lidarCloudEdlRadius ?? 1,
+    setLidarCloudEdlRadius: (lidarCloudEdlRadius) => set({ lidarCloudEdlRadius }),
+    lidarCloudEdlFarPlane: persisted.lidarCloudEdlFarPlane ?? 1500,
+    setLidarCloudEdlFarPlane: (lidarCloudEdlFarPlane) => set({ lidarCloudEdlFarPlane }),
+    lidarCloudAoStrength: persisted.lidarCloudAoStrength ?? 0,
+    setLidarCloudAoStrength: (lidarCloudAoStrength) => set({ lidarCloudAoStrength }),
+    lidarCloudAoRadius: persisted.lidarCloudAoRadius ?? 3,
+    setLidarCloudAoRadius: (lidarCloudAoRadius) => set({ lidarCloudAoRadius }),
+    lidarCloudColoring: persisted.lidarCloudColoring ?? 'class',
+    setLidarCloudColoring: (lidarCloudColoring) => set({ lidarCloudColoring }),
+    lidarCloudHideBasemap: persisted.lidarCloudHideBasemap ?? false,
+    setLidarCloudHideBasemap: (lidarCloudHideBasemap) => set({ lidarCloudHideBasemap }),
+    lidarCloudClasses: persisted.lidarCloudClasses ?? [2],
+    setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
+    lidarPreviewVisible: false,
+    setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
+    loadLidarCloud: async () => {
+        const state = get();
+        const map = state.mapInstance;
+        // Use screen center (not map.getCenter) so the loaded area matches the
+        // preview rectangle when the camera is pitched.
+        let center: { lng: number; lat: number };
+        if (map) {
+            const canvas = map.getCanvas();
+            const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
+            center = { lng: screenCenter.lng, lat: screenCenter.lat };
+        } else {
+            center = { lng: state.view.longitude, lat: state.view.latitude };
+        }
+        set({ lidarCloudLoading: true, lidarCloudError: null });
+        try {
+            const classes = state.lidarCloudClasses.length > 0 ? state.lidarCloudClasses : undefined;
+            if (state.lidarMode === 'shaded') {
+                // No `classes` param: the shaded cloud always fetches every class
+                // and filters on the GPU via LidarWebGLLayer.setClassMask(), so
+                // toggling LAS classes in the UI is instant (no re-fetch).
+                const shaded = await fetchLidarShaded({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: state.lidarCloudRadius,
+                    stride: state.lidarCloudStride,
+                });
+                set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false });
+            } else if (state.lidarMode === 'mesh') {
+                const mesh = await fetchLidarMesh({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: state.lidarCloudRadius,
+                    stride: state.lidarCloudStride,
+                    classes: classes ?? [2],
+                });
+                set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false });
+            } else {
+                const data = await fetchLidarCloud({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: state.lidarCloudRadius,
+                    stride: state.lidarCloudStride,
+                    classes,
+                });
+                set({ lidarCloud: data, lidarMesh: null, lidarShaded: null, lidarCloudLoading: false });
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue';
+            set({ lidarCloudLoading: false, lidarCloudError: message });
+        }
+    },
+    clearLidarCloud: () => set({ lidarCloud: null, lidarMesh: null, lidarShaded: null, lidarCloudError: null }),
+
 }));
+
+// Auto-save all persistent settings to localStorage whenever they change.
+// Debounced to avoid excessive writes during continuous interactions (panning, etc.).
+let _mapSaveTimer: ReturnType<typeof setTimeout> | null = null;
+useMapStore.subscribe((state) => {
+    if (_mapSaveTimer) clearTimeout(_mapSaveTimer);
+    _mapSaveTimer = setTimeout(() => {
+        savePersistedSettings({
+            view: state.view,
+            baseLayer: state.baseLayer,
+            hillshadeEnabled: state.hillshadeEnabled,
+            hillshadeSource: state.hillshadeSource,
+            hillshadeBlend: state.hillshadeBlend,
+            hillshadeIntensity: state.hillshadeIntensity,
+            terrainEnabled: state.terrainEnabled,
+            terrainExaggeration: state.terrainExaggeration,
+            contourLinesEnabled: state.contourLinesEnabled,
+            contourLinesOpacity: state.contourLinesOpacity,
+            uiTheme: state.uiTheme,
+            renderQuality: state.renderQuality,
+            tileCacheSize: state.tileCacheSize,
+            ignScanApiKey: state.ignScanApiKey,
+            ignDemApiKey: state.ignDemApiKey,
+            lidarMode: state.lidarMode,
+            lidarCloudRadius: state.lidarCloudRadius,
+            lidarCloudStride: state.lidarCloudStride,
+            lidarCloudPointSize: state.lidarCloudPointSize,
+            lidarCloudSizeCompensation: state.lidarCloudSizeCompensation,
+            lidarCloudEdl: state.lidarCloudEdl,
+            lidarCloudEdlStrength: state.lidarCloudEdlStrength,
+            lidarCloudEdlRadius: state.lidarCloudEdlRadius,
+            lidarCloudEdlFarPlane: state.lidarCloudEdlFarPlane,
+            lidarCloudAoStrength: state.lidarCloudAoStrength,
+            lidarCloudAoRadius: state.lidarCloudAoRadius,
+            lidarCloudColoring: state.lidarCloudColoring,
+            lidarCloudHideBasemap: state.lidarCloudHideBasemap,
+            lidarCloudClasses: state.lidarCloudClasses,
+        });
+    }, 500);
+});

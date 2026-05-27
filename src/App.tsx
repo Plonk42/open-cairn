@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapContainer } from './components/map/MapContainer';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
+import { LidarCloudPanel } from './components/ui/LidarCloudPanel';
 import { RoutePanel } from './components/ui/RoutePanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
 import { buildShareUrl } from './lib/shareView';
@@ -8,8 +9,18 @@ import { useIsMobile } from './lib/useIsMobile';
 import { useMapStore } from './stores/mapStore';
 import { useRouteStore } from './stores/routeStore';
 
-type RightTab = 'layers' | 'settings';
-type MobileTab = 'map' | 'route' | 'layers' | 'settings';
+type RightTab = 'layers' | 'lidar' | 'settings';
+type MobileTab = 'map' | 'route' | 'layers' | 'lidar' | 'settings';
+
+/** Hook to sync the LiDAR preview visibility with the current tab state. */
+function useLidarPreviewSync(tabIsLidar: boolean) {
+    const hasData = useMapStore((s) => s.lidarCloud !== null || s.lidarMesh !== null || s.lidarShaded !== null);
+    const setPreviewVisible = useMapStore((s) => s.setLidarPreviewVisible);
+    useEffect(() => {
+        // Show preview when LiDAR tab is active and no data is loaded
+        setPreviewVisible(tabIsLidar && !hasData);
+    }, [tabIsLidar, hasData, setPreviewVisible]);
+}
 
 export function App() {
     const isMobile = useIsMobile();
@@ -75,6 +86,11 @@ export function App() {
         document.documentElement.classList.toggle('dark', uiTheme === 'dark');
     }, [uiTheme]);
 
+    // Sync LiDAR preview visibility with current tab state (desktop vs mobile)
+    const lidarTabActiveDesktop = !isMobile && rightOpen && rightTab === 'lidar';
+    const lidarTabActiveMobile = isMobile && mobileTab === 'lidar';
+    useLidarPreviewSync(lidarTabActiveDesktop || lidarTabActiveMobile);
+
     if (isMobile) {
         return <MobileLayout
             mobileTab={mobileTab}
@@ -138,6 +154,23 @@ export function App() {
                         </button>
                         <button
                             type="button"
+                            onClick={() => { setRightOpen(true); setRightTab('lidar'); }}
+                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'lidar' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
+                            title="Nuage LiDAR"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                <circle cx="4" cy="6" r="1.2" />
+                                <circle cx="10" cy="4" r="1.2" />
+                                <circle cx="16" cy="7" r="1.2" />
+                                <circle cx="6" cy="11" r="1.2" />
+                                <circle cx="13" cy="12" r="1.2" />
+                                <circle cx="4" cy="16" r="1.2" />
+                                <circle cx="11" cy="17" r="1.2" />
+                                <circle cx="17" cy="14" r="1.2" />
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => { setRightOpen(true); setRightTab('settings'); }}
                             className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'settings' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
                             title="Réglages"
@@ -164,6 +197,7 @@ export function App() {
                         <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
                             <div className="flex-1 p-3">
                                 {rightTab === 'layers' && <LayerSwitcher />}
+                                {rightTab === 'lidar' && <LidarCloudPanel />}
                                 {rightTab === 'settings' && <SettingsPanel />}
                             </div>
                         </div>
@@ -320,6 +354,7 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                     <div className="h-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain px-3 pb-2">
                         {mobileTab === 'route' && <RoutePanel />}
                         {mobileTab === 'layers' && <LayerSwitcher />}
+                        {mobileTab === 'lidar' && <LidarCloudPanel />}
                         {mobileTab === 'settings' && <SettingsPanel />}
                     </div>
                 </div>
@@ -339,6 +374,12 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                         label="Couches"
                         onClick={() => setMobileTab('layers')}
                         icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" /></svg>}
+                    />
+                    <MobileTabButton
+                        active={mobileTab === 'lidar'}
+                        label="LiDAR"
+                        onClick={() => setMobileTab('lidar')}
+                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><circle cx="4" cy="6" r="1.2" /><circle cx="10" cy="4" r="1.2" /><circle cx="16" cy="7" r="1.2" /><circle cx="6" cy="11" r="1.2" /><circle cx="13" cy="12" r="1.2" /><circle cx="4" cy="16" r="1.2" /><circle cx="11" cy="17" r="1.2" /><circle cx="17" cy="14" r="1.2" /></svg>}
                     />
                     <MobileTabButton
                         active={mobileTab === 'route'}

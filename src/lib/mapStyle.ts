@@ -36,7 +36,7 @@ interface ResolvedBaseLayer {
     attribution: string;
 }
 
-function directBaseUrl(key: CompositeBaseKey, scanApiKey?: string): string {
+export function directBaseUrl(key: CompositeBaseKey, scanApiKey?: string): string {
     if (key === 'osm') return OSM_TILE_URL;
     return ignLayerUrl(key, IGN_LAYERS[key].private ? scanApiKey : undefined);
 }

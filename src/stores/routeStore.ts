@@ -6,6 +6,33 @@ import { create } from 'zustand';
 export type RouteMode = 'auto' | 'free';
 export type RouteStatus = 'idle' | 'loading' | 'error';
 
+const ROUTE_STORAGE_KEY = 'open-cairn-route';
+
+type PersistedRoute = {
+    waypoints?: RouteWaypoint[];
+    active?: boolean;
+    mode?: RouteMode;
+    colorElevationBySlope?: boolean;
+    gpxImportWaypoints?: number;
+    selectionRange?: [number, number] | null;
+};
+
+function loadPersistedRoute(): PersistedRoute {
+    try {
+        const raw = localStorage.getItem(ROUTE_STORAGE_KEY);
+        if (raw) return JSON.parse(raw) as PersistedRoute;
+    } catch { /* ignore */ }
+    return {};
+}
+
+function savePersistedRoute(route: PersistedRoute): void {
+    try {
+        localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(route));
+    } catch { /* ignore */ }
+}
+
+export { loadPersistedRoute };
+
 export interface RouteWaypoint {
     id: string;
     coordinate: LngLatTuple;
@@ -78,6 +105,17 @@ const EMPTY_STATS: RouteStats = { distance: 0, duration: 0, ascent: 0, descent: 
 let nextWaypointId = 1;
 let currentAbortController: AbortController | null = null;
 let currentRevision = 0;
+
+const persistedRoute = loadPersistedRoute();
+
+// Initialise le compteur d'ID waypoints pour éviter les collisions après restauration
+if (persistedRoute.waypoints && persistedRoute.waypoints.length > 0) {
+    const maxId = persistedRoute.waypoints.reduce((max, wp) => {
+        const n = Number.parseInt(wp.id.replace('wp-', ''), 10);
+        return Number.isNaN(n) ? max : Math.max(max, n);
+    }, 0);
+    nextWaypointId = maxId + 1;
+}
 
 function waypointId(): string {
     const id = `wp-${nextWaypointId}`;
@@ -263,19 +301,19 @@ function recomputeRoute(get: () => RouteState, set: (partial: Partial<RouteState
 }
 
 export const useRouteStore = create<RouteState>((set, get) => ({
-    active: true,
+    active: persistedRoute.active ?? true,
     setActive: (active) => set({ active, deleteMode: active ? get().deleteMode : false }),
 
     deleteMode: false,
     setDeleteMode: (deleteMode) => set({ deleteMode, active: deleteMode ? true : get().active }),
 
-    mode: 'auto',
+    mode: persistedRoute.mode ?? 'auto',
     setMode: (mode) => set({ mode }),
 
-    colorElevationBySlope: false,
+    colorElevationBySlope: persistedRoute.colorElevationBySlope ?? false,
     setColorElevationBySlope: (colorElevationBySlope) => set({ colorElevationBySlope }),
 
-    gpxImportWaypoints: 8,
+    gpxImportWaypoints: persistedRoute.gpxImportWaypoints ?? 8,
     setGpxImportWaypoints: (gpxImportWaypoints) => set({ gpxImportWaypoints }),
 
     waypoints: [],
@@ -496,3 +534,20 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         });
     },
 }));
+
+// Auto-save persistent route state to localStorage whenever it changes.
+// Debounced to avoid excessive writes during route computation.
+let _routeSaveTimer: ReturnType<typeof setTimeout> | null = null;
+useRouteStore.subscribe((state) => {
+    if (_routeSaveTimer) clearTimeout(_routeSaveTimer);
+    _routeSaveTimer = setTimeout(() => {
+        savePersistedRoute({
+            waypoints: state.waypoints,
+            active: state.active,
+            mode: state.mode,
+            colorElevationBySlope: state.colorElevationBySlope,
+            gpxImportWaypoints: state.gpxImportWaypoints,
+            selectionRange: state.selectionRange,
+        });
+    }, 500);
+});

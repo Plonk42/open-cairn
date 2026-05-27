@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
-import { useRouteStore } from './stores/routeStore';
+import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
 import './styles/index.css';
 
 // Restore shared state BEFORE React renders so that stores are populated
@@ -34,6 +34,15 @@ if (shared) {
     }
     // Clear the hash so MapLibre's hash:true doesn't choke on it
     history.replaceState(null, '', globalThis.location.pathname);
+} else {
+    // Restore route waypoints from localStorage (map state is restored via store defaults).
+    const savedRoute = loadPersistedRoute();
+    if (savedRoute.waypoints && savedRoute.waypoints.length > 0) {
+        useRouteStore.getState().restoreWaypoints(savedRoute.waypoints);
+        if (savedRoute.selectionRange) {
+            useRouteStore.setState({ selectionRange: savedRoute.selectionRange });
+        }
+    }
 }
 
 const root = document.getElementById('root');

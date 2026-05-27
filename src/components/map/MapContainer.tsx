@@ -1,11 +1,34 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { ignLayerUrl } from '@/lib/ign';
-import { buildMapStyle } from '@/lib/mapStyle';
+import { buildMapStyle, directBaseUrl } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
+
+// Lazy-loaded so deck.gl + loaders.gl (~1.4 MB) only ship to clients who
+// actually use the LiDAR HD point cloud overlay.
+const LidarCloudOverlay = lazy(() =>
+    import('./LidarCloudOverlay').then((m) => ({ default: m.LidarCloudOverlay })),
+);
+
+/**
+ * Wrapper that only mounts the (lazy) deck.gl overlay once the user has
+ * interacted with the LiDAR feature at least once, keeping the initial page
+ * load lean.
+ */
+function LidarCloudOverlayGate() {
+    const active = useMapStore(
+        (s) => s.lidarCloud !== null || s.lidarMesh !== null || s.lidarShaded !== null || s.lidarCloudLoading || s.lidarCloudError !== null,
+    );
+    if (!active) return null;
+    return (
+        <Suspense fallback={null}>
+            <LidarCloudOverlay />
+        </Suspense>
+    );
+}
 
 const ROUTE_LINE_SOURCE = 'open-cairn-route-line';
 const ROUTE_POINTS_SOURCE = 'open-cairn-route-points';
@@ -13,15 +36,83 @@ const ROUTE_HOVER_SOURCE = 'open-cairn-route-hover';
 const ROUTE_SELECTION_SOURCE = 'open-cairn-route-selection';
 const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
 const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
+const LIDAR_PREVIEW_SOURCE = 'open-cairn-lidar-preview';
 
 registerCompositeProtocol();
+
+/**
+ * Create a square GeoJSON polygon centered at (lng, lat) with side = 2 * radiusMeters.
+ * Uses approximate degree offsets (good enough for France latitudes).
+ */
+function lidarPreviewGeoJson(lng: number, lat: number, radiusMeters: number): GeoJSON.FeatureCollection {
+    // Approximate conversion: 1 degree latitude ≈ 111 km, longitude depends on latitude
+    const latOffset = radiusMeters / 111_000;
+    const lngOffset = radiusMeters / (111_000 * Math.cos(lat * Math.PI / 180));
+    const coordinates: GeoJSON.Position[] = [
+        [lng - lngOffset, lat - latOffset],
+        [lng + lngOffset, lat - latOffset],
+        [lng + lngOffset, lat + latOffset],
+        [lng - lngOffset, lat + latOffset],
+        [lng - lngOffset, lat - latOffset],
+    ];
+    return {
+        type: 'FeatureCollection',
+        features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Polygon', coordinates: [coordinates] },
+        }],
+    };
+}
+
+function ensureLidarPreviewLayer(map: maplibregl.Map): void {
+    if (!map.getSource(LIDAR_PREVIEW_SOURCE)) {
+        map.addSource(LIDAR_PREVIEW_SOURCE, {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+        });
+    }
+    if (!map.getLayer('open-cairn-lidar-preview-fill')) {
+        map.addLayer({
+            id: 'open-cairn-lidar-preview-fill',
+            type: 'fill',
+            source: LIDAR_PREVIEW_SOURCE,
+            paint: {
+                'fill-color': '#ef4444',
+                'fill-opacity': 0.15,
+            },
+        });
+    }
+    if (!map.getLayer('open-cairn-lidar-preview-line')) {
+        map.addLayer({
+            id: 'open-cairn-lidar-preview-line',
+            type: 'line',
+            source: LIDAR_PREVIEW_SOURCE,
+            paint: {
+                'line-color': '#ef4444',
+                'line-width': 2,
+                'line-dasharray': [4, 2],
+            },
+        });
+    }
+}
 
 function syncCenterElevationToTerrain(map: maplibregl.Map): void {
     if (!map.getTerrain()) return;
     const elevation = map.queryTerrainElevation(map.getCenter());
     if (typeof elevation !== 'number' || !Number.isFinite(elevation)) return;
     if (Math.abs(map.getCenterElevation() - elevation) < 0.5) return;
+
+    // Preserve camera state to prevent zoom/pitch changes when setting elevation
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const pitch = map.getPitch();
+    const bearing = map.getBearing();
+
     map.setCenterElevation(elevation);
+
+    // Restore camera state immediately to prevent visible jump
+    map.jumpTo({ center, zoom, pitch, bearing });
 }
 
 function pixelRatioForQuality(quality: 'balanced' | 'sharp'): number {
@@ -380,10 +471,9 @@ export function MapContainer() {
             // Allow overzoom past the source maxzoom so users can keep
             // diving in past z19 (MapLibre will reuse parent tiles).
             maxZoom: 21,
-            // Keep the camera altitude under our control. MapLibre's automatic
-            // terrain recalculate pass can snap zoom/center after wheel gestures
-            // with the IGN WMS-r DEM; we sync elevation explicitly instead.
-            centerClampedToGround: false,
+            // Keep camera center clamped to terrain surface so rotation/panning
+            // pivots naturally around the visible terrain center.
+            centerClampedToGround: true,
             attributionControl: false,
             hash: true,
         });
@@ -563,7 +653,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, hillshadeEnabled, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey]);
+    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.
@@ -601,11 +691,17 @@ export function MapContainer() {
                     detailScale,
                 );
                 baseSource.setTiles([newUrl]);
+            } else {
+                // Hillshade disabled: restore the direct tile URL
+                const keyMap: Record<string, 'scan25Tour' | 'planIgn' | 'ortho' | 'osm'> = { scan25: 'scan25Tour', plan: 'planIgn', ortho: 'ortho', osm: 'osm' };
+                const compositeBase = keyMap[baseLayer];
+                if (!compositeBase) return;
+                baseSource.setTiles([directBaseUrl(compositeBase, current.ignScanApiKey)]);
             }
         }, 120);
         return () => globalThis.clearTimeout(handle);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hillshadeSource, hillshadeBlend, hillshadeIntensity]);
+    }, [hillshadeSource, hillshadeBlend, hillshadeIntensity, hillshadeEnabled]);
 
     // Re-fetch all tiles when tile cache is cleared.
     useEffect(() => {
@@ -669,5 +765,48 @@ export function MapContainer() {
         });
     }, []);
 
-    return <div ref={containerRef} className="absolute inset-0 h-full w-full" />;
+    // LiDAR preview zone — shows a square on the map indicating what area will be loaded.
+    const lidarPreviewVisible = useMapStore((s) => s.lidarPreviewVisible);
+    const lidarCloudRadius = useMapStore((s) => s.lidarCloudRadius);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        const updatePreview = () => {
+            if (!map.isStyleLoaded()) return;
+            ensureLidarPreviewLayer(map);
+            const source = map.getSource(LIDAR_PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined;
+            if (!source) return;
+            if (!lidarPreviewVisible) {
+                source.setData({ type: 'FeatureCollection', features: [] });
+                return;
+            }
+            // Use screen center (not map.getCenter) so the preview stays centered
+            // even when the camera is pitched.
+            const canvas = map.getCanvas();
+            const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
+            source.setData(lidarPreviewGeoJson(screenCenter.lng, screenCenter.lat, lidarCloudRadius));
+        };
+
+        // Initial update
+        if (map.isStyleLoaded()) {
+            updatePreview();
+        } else {
+            map.once('load', updatePreview);
+        }
+
+        // Update on map move when preview is visible
+        if (lidarPreviewVisible) {
+            map.on('move', updatePreview);
+            return () => { map.off('move', updatePreview); };
+        }
+        return undefined;
+    }, [lidarPreviewVisible, lidarCloudRadius]);
+
+    return (
+        <>
+            <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+            <LidarCloudOverlayGate />
+        </>
+    );
 }
