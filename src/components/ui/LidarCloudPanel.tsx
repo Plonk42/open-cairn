@@ -13,6 +13,8 @@ const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
 export function LidarCloudPanel() {
     const mode = useMapStore((s) => s.lidarMode);
     const setMode = useMapStore((s) => s.setLidarMode);
+    const backend = useMapStore((s) => s.lidarBackend);
+    const setBackend = useMapStore((s) => s.setLidarBackend);
     const cloud = useMapStore((s) => s.lidarCloud);
     const mesh = useMapStore((s) => s.lidarMesh);
     const shaded = useMapStore((s) => s.lidarShaded);
@@ -88,6 +90,31 @@ export function LidarCloudPanel() {
                 de la carte. Nécessite le service local lancé avec{' '}
                 <span className="font-mono text-[10px]">npm run lidar</span>.
             </p>
+
+            <fieldset className="mb-2 inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
+                <button
+                    type="button"
+                    onClick={() => setBackend('service')}
+                    className={`rounded-l-md px-3 py-1 text-xs ${backend === 'service'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                    title="Crop côté serveur (npm run lidar)"
+                >
+                    Service local
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setBackend('browser')}
+                    className={`rounded-r-md px-3 py-1 text-xs ${backend === 'browser'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                    title="Crop dans le navigateur via copc.js (pas de serveur — déployable sur GitHub Pages)"
+                >
+                    Navigateur
+                </button>
+            </fieldset>
 
             <fieldset className="mb-2 inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
                 <button

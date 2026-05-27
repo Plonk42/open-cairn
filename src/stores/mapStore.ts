@@ -1,5 +1,10 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
+import {
+    fetchLidarCloud as fetchLidarCloudBrowser,
+    fetchLidarMesh as fetchLidarMeshBrowser,
+    fetchLidarShaded as fetchLidarShadedBrowser,
+} from '@/lib/lidarBrowser';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
@@ -98,6 +103,9 @@ interface MapState {
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 
     // ---- LiDAR HD point cloud (Option 1: backend cropping service) ----
+    /** Backend used to crop COPC tiles: 'service' = Node service at /api/lidar-cloud, 'browser' = in-page copc.js pipeline. */
+    lidarBackend: 'service' | 'browser';
+    setLidarBackend: (v: 'service' | 'browser') => void;
     /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, or shaded point splatting. */
     lidarMode: 'cloud' | 'mesh' | 'shaded';
     setLidarMode: (v: 'cloud' | 'mesh' | 'shaded') => void;
@@ -187,6 +195,7 @@ type PersistedSettings = {
     ignScanApiKey?: string;
     ignDemApiKey?: string;
     lidarMode?: 'cloud' | 'mesh' | 'shaded';
+    lidarBackend?: 'service' | 'browser';
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
     lidarCloudPointSize?: number;
@@ -281,6 +290,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     // LiDAR HD point cloud state
     lidarMode: persisted.lidarMode ?? 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
+    lidarBackend: persisted.lidarBackend ?? 'service',
+    setLidarBackend: (lidarBackend) => set({ lidarBackend }),
     lidarCloud: null,
     lidarMesh: null,
     lidarShaded: null,
@@ -330,11 +341,14 @@ export const useMapStore = create<MapState>((set, get) => ({
         set({ lidarCloudLoading: true, lidarCloudError: null });
         try {
             const classes = state.lidarCloudClasses.length > 0 ? state.lidarCloudClasses : undefined;
+            const fetchCloud = state.lidarBackend === 'browser' ? fetchLidarCloudBrowser : fetchLidarCloud;
+            const fetchMesh = state.lidarBackend === 'browser' ? fetchLidarMeshBrowser : fetchLidarMesh;
+            const fetchShaded = state.lidarBackend === 'browser' ? fetchLidarShadedBrowser : fetchLidarShaded;
             if (state.lidarMode === 'shaded') {
                 // No `classes` param: the shaded cloud always fetches every class
                 // and filters on the GPU via LidarWebGLLayer.setClassMask(), so
                 // toggling LAS classes in the UI is instant (no re-fetch).
-                const shaded = await fetchLidarShaded({
+                const shaded = await fetchShaded({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
@@ -342,7 +356,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 });
                 set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false });
             } else if (state.lidarMode === 'mesh') {
-                const mesh = await fetchLidarMesh({
+                const mesh = await fetchMesh({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
@@ -351,7 +365,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 });
                 set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false });
             } else {
-                const data = await fetchLidarCloud({
+                const data = await fetchCloud({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
@@ -392,6 +406,7 @@ useMapStore.subscribe((state) => {
             ignScanApiKey: state.ignScanApiKey,
             ignDemApiKey: state.ignDemApiKey,
             lidarMode: state.lidarMode,
+            lidarBackend: state.lidarBackend,
             lidarCloudRadius: state.lidarCloudRadius,
             lidarCloudStride: state.lidarCloudStride,
             lidarCloudPointSize: state.lidarCloudPointSize,

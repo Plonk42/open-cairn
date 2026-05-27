@@ -1,0 +1,172 @@
+/**
+ * Browser-side LiDAR HD pipeline. Orchestrates:
+ *   1. WFS query   → tile URLs
+ *   2. COPC walk   → cropped points (parallel across tiles)
+ *   3. mode-specific finalization (raw cloud / mesh / shaded)
+ *
+ * Returns the same data shapes as the existing `src/lib/lidarCloud.ts`
+ * service client so it can be swapped in without touching the store or
+ * the overlay.
+ *
+ * Currently runs on the main thread. Phase 2 will move it into a Web
+ * Worker to keep the UI fluid during long extractions.
+ */
+import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
+import { extractPoints } from './extract';
+import { buildMesh } from './mesh';
+import { computeNormalsKNN } from './normals';
+import { lngLatToL93 } from './proj';
+import { colorsFromNormals } from './slope';
+import { findTiles } from './wfs';
+
+export interface BrowserFetchParams {
+    lng: number;
+    lat: number;
+    radius: number;
+    stride: number;
+    classes?: number[];
+    signal?: AbortSignal;
+}
+
+const MAX_RADIUS_M = 1000;
+
+function concatPositions(parts: Float32Array[], totalPts: number): Float32Array {
+    const out = new Float32Array(totalPts * 3);
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
+}
+
+function concatClasses(parts: Uint8Array[], totalPts: number): Uint8Array {
+    const out = new Uint8Array(totalPts);
+    let off = 0;
+    for (const c of parts) { out.set(c, off); off += c.length; }
+    return out;
+}
+
+/**
+ * Run steps 1+2 (WFS query → COPC extract on every covering tile, in
+ * parallel) and return the merged point set. Used by all three modes.
+ */
+async function fetchCommon(params: BrowserFetchParams): Promise<{
+    positions: Float32Array;
+    classifications: Uint8Array;
+    pointCount: number;
+    radius: number;
+    centerLng: number;
+    centerLat: number;
+}> {
+    const radius = Math.min(MAX_RADIUS_M, Math.max(20, params.radius));
+    const stride = Math.max(1, Math.min(200, Math.floor(params.stride)));
+    const classFilter = params.classes && params.classes.length > 0
+        ? new Set(params.classes)
+        : null;
+
+    // Lambert-93 center of the request.
+    const [x0, y0] = lngLatToL93(params.lng, params.lat);
+
+    // WGS84 bbox big enough to bracket the L93 query box after reprojection
+    // (20 % padding to compensate for the grid rotation at extreme latitudes).
+    const dLat = (radius * 1.2) / 111_320;
+    const dLng = (radius * 1.2) / (111_320 * Math.cos((params.lat * Math.PI) / 180));
+    const tiles = await findTiles(
+        params.lng - dLng, params.lat - dLat,
+        params.lng + dLng, params.lat + dLat,
+        params.signal,
+    );
+    if (tiles.length === 0) {
+        const err = new Error(
+            'Aucune dalle LiDAR HD IGN ne couvre cette zone (acquisition non encore disponible).',
+        );
+        (err as Error & { code?: string }).code = 'no_lidar_tile';
+        throw err;
+    }
+
+    // Decode every covering tile in parallel — HTTP Range requests interleave.
+    const results = await Promise.all(tiles.map((tile) => extractPoints({
+        tileUrl: tile.url,
+        x0, y0, radius, stride,
+        classFilter,
+        signal: params.signal,
+    })));
+
+    let totalPts = 0;
+    const posParts: Float32Array[] = [];
+    const clsParts: Uint8Array[] = [];
+    for (const r of results) {
+        if (r.classifications.length === 0) continue;
+        posParts.push(r.positions);
+        clsParts.push(r.classifications);
+        totalPts += r.classifications.length;
+    }
+    const positions = concatPositions(posParts, totalPts);
+    const classifications = concatClasses(clsParts, totalPts);
+
+    return {
+        positions,
+        classifications,
+        pointCount: totalPts,
+        radius,
+        centerLng: params.lng,
+        centerLat: params.lat,
+    };
+}
+
+/** Raw point cloud — same shape as `fetchLidarCloud()` from the service client. */
+export async function fetchLidarCloudBrowser(
+    params: BrowserFetchParams,
+): Promise<LidarCloudData> {
+    const c = await fetchCommon(params);
+    return {
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: c.positions,
+        classifications: c.classifications,
+        pointCount: c.pointCount,
+        radius: c.radius,
+    };
+}
+
+/** Shaded point cloud (per-point normals + slope coloring). */
+export async function fetchLidarShadedBrowser(
+    params: BrowserFetchParams,
+): Promise<LidarShadedCloudData> {
+    const c = await fetchCommon(params);
+    const normals = computeNormalsKNN(c.positions, 12, 2);
+    const colors = colorsFromNormals(normals);
+    return {
+        kind: 'shaded',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: c.positions,
+        normals,
+        colors,
+        classifications: c.classifications,
+        pointCount: c.pointCount,
+        radius: c.radius,
+    };
+}
+
+/** Slope-shaded triangulated mesh (2.5D Delaunay + edge pruning). */
+export async function fetchLidarMeshBrowser(
+    params: BrowserFetchParams,
+): Promise<LidarMeshData> {
+    const c = await fetchCommon(params);
+    // Edge-length threshold: ~10× median spacing for 10 pt/m² IGN data ≈ 3 m;
+    // scales up with stride. Clamp to [1.5 m, 8 m].
+    const expectedSpacing = Math.sqrt(params.stride / 10);
+    const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
+    const mesh = buildMesh(c.positions, maxEdge);
+    return {
+        kind: 'mesh',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: mesh.positions,
+        normals: mesh.normals,
+        colors: mesh.colors,
+        indices: mesh.indices,
+        vertexCount: c.pointCount,
+        triangleCount: mesh.indices.length / 3,
+        radius: c.radius,
+    };
+}
