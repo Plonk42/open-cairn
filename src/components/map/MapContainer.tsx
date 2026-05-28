@@ -318,6 +318,10 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
+    // Move LiDAR layer under route layers so the itinerary is visible on top.
+    if (map.getLayer('lidar-shaded-cloud') && map.getLayer('open-cairn-route-line-casing')) {
+        try { map.moveLayer('lidar-shaded-cloud', 'open-cairn-route-line-casing'); } catch { /* ignore */ }
+    }
 }
 
 function routeLineGeoJson(segments: ReturnType<typeof useRouteStore.getState>['routeSegments']): GeoJSON.FeatureCollection {

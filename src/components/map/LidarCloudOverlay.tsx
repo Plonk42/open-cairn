@@ -90,7 +90,9 @@ export function LidarCloudOverlay() {
     useEffect(() => {
         if (!mapInstance) return undefined;
         const layer = new LidarWebGLLayer('lidar-shaded-cloud');
-        mapInstance.addLayer(layer);
+        // Add BEFORE the route layers so the itinerary renders on top.
+        const beforeId = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
+        mapInstance.addLayer(layer, beforeId);
         webglRef.current = layer;
 
         // MapLibre setStyle (called on base-layer / hillshade / quality changes)
@@ -99,7 +101,8 @@ export function LidarCloudOverlay() {
         const onStyleLoad = () => {
             if (mapInstance.getLayer('lidar-shaded-cloud')) return;
             const fresh = new LidarWebGLLayer('lidar-shaded-cloud');
-            mapInstance.addLayer(fresh);
+            const bid = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
+            mapInstance.addLayer(fresh, bid);
             webglRef.current = fresh;
             setStyleEpoch((e) => e + 1);
         };
