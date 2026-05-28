@@ -93,9 +93,9 @@ export const LAS_CLASS_COLORS: Record<number, [number, number, number]> = {
 export const LAS_CLASS_LABELS: Record<number, string> = {
     1: 'Non classé',
     2: 'Sol',
-    3: 'Végétation basse',
-    4: 'Végétation moyenne',
-    5: 'Végétation haute',
+    3: 'Végét. basse',
+    4: 'Végét. moyenne',
+    5: 'Végét. haute',
     6: 'Bâtiment',
     9: 'Eau',
     17: 'Tablier de pont',

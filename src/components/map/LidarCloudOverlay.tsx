@@ -16,13 +16,10 @@ export function LidarCloudOverlay() {
     const lidarMesh = useMapStore((s) => s.lidarMesh);
     const basePointSize = useMapStore((s) => s.lidarCloudPointSize);
     const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
-    const coloring = useMapStore((s) => s.lidarCloudColoring);
     const edl = useMapStore((s) => s.lidarCloudEdl);
     const edlStrength = useMapStore((s) => s.lidarCloudEdlStrength);
     const edlRadius = useMapStore((s) => s.lidarCloudEdlRadius);
     const edlFarPlane = useMapStore((s) => s.lidarCloudEdlFarPlane);
-    const aoStrength = useMapStore((s) => s.lidarCloudAoStrength);
-    const aoRadius = useMapStore((s) => s.lidarCloudAoRadius);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -64,6 +61,8 @@ export function LidarCloudOverlay() {
     }, [mapInstance]);
 
     // ── Compute final colour buffer for the WebGL shaded cloud ────────────────
+    // Always use 'mixed' coloring: ground (class 2) uses slope palette,
+    // other classes use classification colors.
     const shadedColors = useMemo(() => {
         if (!lidarShaded) return null;
         const { pointCount, colors, classifications } = lidarShaded;
@@ -71,7 +70,8 @@ export function LidarCloudOverlay() {
         for (let i = 0; i < pointCount; i++) {
             const cls = classifications[i] ?? 0;
             let r: number, g: number, b: number;
-            if (coloring === 'slope' || (coloring === 'mixed' && cls === 2)) {
+            // Mixed mode: ground (class 2) uses slope colors, others use classification
+            if (cls === 2) {
                 // Slope palette from the server
                 r = colors[i * 4];
                 g = colors[i * 4 + 1];
@@ -86,7 +86,7 @@ export function LidarCloudOverlay() {
             out[i * 4 + 3] = 255;
         }
         return out;
-    }, [lidarShaded, coloring]);
+    }, [lidarShaded]);
 
     // ── Push shaded data + mesh + config to WebGL layer ─────────────────────
     useEffect(() => {
@@ -132,11 +132,11 @@ export function LidarCloudOverlay() {
             edlStrength,
             edlRadius,
             edlFarPlane,
-            aoStrength,
-            aoRadius,
+            aoStrength: 0, // AO disabled
+            aoRadius: 0,
             opacity,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, aoStrength, aoRadius, opacity, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, styleEpoch]);
 
     // ── Basemap dimming ───────────────────────────────────────────────────────
     useEffect(() => {

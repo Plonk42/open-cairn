@@ -149,7 +149,7 @@ export function App() {
                 </div>
 
                 {/* Right sidebar */}
-                <div className={`relative z-10 flex flex-shrink-0 transition-[width] duration-200 ${rightOpen ? 'w-72' : 'w-0'}`}>
+                <div className={`relative z-10 flex flex-shrink-0 transition-[width] duration-200 ${rightOpen ? 'w-80' : 'w-0'}`}>
                     {/* Tab bar on the edge */}
                     <div className="absolute -left-10 top-3 z-20 flex flex-col gap-1">
                         <button
@@ -204,7 +204,7 @@ export function App() {
                     </div>
 
                     {rightOpen && (
-                        <div className="flex h-full w-72 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
+                        <div className="flex h-full w-80 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
                             <div className="flex-1 p-3">
                                 {rightTab === 'layers' && <LayerSwitcher />}
                                 {rightTab === 'lidar' && <LidarCloudPanel />}
