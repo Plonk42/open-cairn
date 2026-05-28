@@ -16,6 +16,7 @@ import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN } from './normals';
+import { buildPoissonMesh } from './poissonMesh';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals } from './slope';
@@ -23,7 +24,7 @@ import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
 
 /** Available mesh reconstruction methods. */
-export type MeshMethod = 'delaunay' | 'grid' | 'voxel';
+export type MeshMethod = 'delaunay' | 'grid' | 'voxel' | 'poisson';
 
 export interface BrowserFetchParams {
     lng: number;
@@ -208,6 +209,15 @@ export async function fetchLidarMeshBrowser(
             smoothPasses: 0,
             iso: 0.5,
             fullHits: 2,
+            maxVoxels: 32_000_000,
+        });
+        vertexCount = mesh.positions.length / 3;
+    } else if (method === 'poisson') {
+        mesh = buildPoissonMesh(c.positions, {
+            cellSize: 0.4,
+            bandCells: 2,
+            normalsK: 12,
+            normalsCellSize: 2,
             maxVoxels: 32_000_000,
         });
         vertexCount = mesh.positions.length / 3;

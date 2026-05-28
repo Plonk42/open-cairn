@@ -45,6 +45,8 @@ export function LidarCloudPanel() {
     const setAoStrength = useMapStore((s) => s.setLidarCloudAoStrength);
     const aoRadius = useMapStore((s) => s.lidarCloudAoRadius);
     const setAoRadius = useMapStore((s) => s.setLidarCloudAoRadius);
+    const opacity = useMapStore((s) => s.lidarCloudOpacity);
+    const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const setHideBasemap = useMapStore((s) => s.setLidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -202,7 +204,7 @@ export function LidarCloudPanel() {
                         <button
                             type="button"
                             onClick={() => setMeshMethod('voxel')}
-                            className={`rounded-r-md px-3 py-1 text-xs ${meshMethod === 'voxel'
+                            className={`px-3 py-1 text-xs ${meshMethod === 'voxel'
                                 ? 'bg-amber-600 text-white'
                                 : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                                 }`}
@@ -210,6 +212,18 @@ export function LidarCloudPanel() {
                             disabled={backend !== 'browser'}
                         >
                             Voxels (3D)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMeshMethod('poisson')}
+                            className={`rounded-r-md px-3 py-1 text-xs ${meshMethod === 'poisson'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="SDF plan-tangent (Hoppe) — Poisson simplifié, surface lisse posée sur les points"
+                            disabled={backend !== 'browser'}
+                        >
+                            Poisson
                         </button>
                     </fieldset>
                 </div>
@@ -482,6 +496,23 @@ export function LidarCloudPanel() {
                     checked={hideBasemap}
                     onChange={(e) => setHideBasemap(e.target.checked)}
                     className="h-4 w-4 accent-green-600"
+                />
+            </label>
+
+            <label className="mt-3 block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Opacité LiDAR</span>
+                    <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
+                </div>
+                <input
+                    aria-label="Opacité du calque LiDAR"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={opacity}
+                    onChange={(e) => setOpacity(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
                 />
             </label>
 

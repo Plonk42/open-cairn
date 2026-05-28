@@ -125,6 +125,7 @@ uniform float u_radius;     // QGIS-equivalent edlDistance (in 2-pixel units)
 uniform float u_farPlane;   // depth normalization, in same units as v_depth
 uniform float u_aoStrength; // additional ambient-occlusion darkening (0 = off)
 uniform float u_aoRadius;   // AO sampling radius, in 2-pixel units
+uniform float u_opacity;    // overall layer opacity (0..1)
 out vec4 fragColor;
 
 // Port of QGIS 3D postprocess.frag::edlFactor (https://github.com/qgis/QGIS).
@@ -258,7 +259,7 @@ void main() {
     vec4 color = texture(u_color, v_uv);
     if (color.a == 0.0) discard;
     float shade = exp(-edlFactor() * u_strength) * exp(-aoFactor() * u_aoStrength);
-    fragColor = vec4(color.rgb * shade, color.a);
+    fragColor = vec4(color.rgb * shade, color.a * u_opacity);
 }
 `;
 
@@ -310,6 +311,8 @@ export interface LidarWebGLLayerConfig {
     aoStrength: number;
     /** Screen-space radius of the AO sampling kernel, in 2-pixel units. */
     aoRadius: number;
+    /** Overall layer opacity 0..1 (default 1 = fully opaque). */
+    opacity: number;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -371,7 +374,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         farPlane: WebGLUniformLocation | null;
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
-    } = { color: null, depth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null };
+        opacity: WebGLUniformLocation | null;
+    } = { color: null, depth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
     private _ox = 0;
     private _oy = 0;
@@ -388,6 +392,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         edlFarPlane: 1500,
         aoStrength: 0,
         aoRadius: 3,
+        opacity: 1,
     };
 
     constructor(id: string) {
@@ -492,6 +497,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
             gl2.uniform1f(this._locEdl.aoStrength, this.config.aoStrength);
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
+            gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
 
             gl2.disable(gl2.DEPTH_TEST);
             gl2.enable(gl2.BLEND);
@@ -549,6 +555,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
             gl2.uniform1f(this._locEdl.aoStrength, this.config.aoStrength);
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
+            gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
 
             gl2.disable(gl2.DEPTH_TEST);
             gl2.enable(gl2.BLEND);
@@ -814,6 +821,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             farPlane: gl.getUniformLocation(this._progEdl, 'u_farPlane'),
             aoStrength: gl.getUniformLocation(this._progEdl, 'u_aoStrength'),
             aoRadius: gl.getUniformLocation(this._progEdl, 'u_aoRadius'),
+            opacity: gl.getUniformLocation(this._progEdl, 'u_opacity'),
         };
 
         // ─── Fullscreen quad VAO ───

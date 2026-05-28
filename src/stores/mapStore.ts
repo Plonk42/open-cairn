@@ -157,6 +157,9 @@ interface MapState {
     /** AO sampling radius in 2-pixel units. */
     lidarCloudAoRadius: number;
     setLidarCloudAoRadius: (v: number) => void;
+    /** Overall layer opacity 0..1 (default 1 = fully opaque). */
+    lidarCloudOpacity: number;
+    setLidarCloudOpacity: (v: number) => void;
     /** Coloring mode: 'slope' (normals-based), 'class' (LAS classification), or 'mixed' (sol=slope, others=class). */
     lidarCloudColoring: 'slope' | 'class' | 'mixed';
     setLidarCloudColoring: (v: 'slope' | 'class' | 'mixed') => void;
@@ -215,6 +218,7 @@ type PersistedSettings = {
     lidarCloudEdlFarPlane?: number;
     lidarCloudAoStrength?: number;
     lidarCloudAoRadius?: number;
+    lidarCloudOpacity?: number;
     lidarCloudColoring?: 'slope' | 'class' | 'mixed';
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
@@ -329,6 +333,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudAoStrength: (lidarCloudAoStrength) => set({ lidarCloudAoStrength }),
     lidarCloudAoRadius: persisted.lidarCloudAoRadius ?? 3,
     setLidarCloudAoRadius: (lidarCloudAoRadius) => set({ lidarCloudAoRadius }),
+    lidarCloudOpacity: persisted.lidarCloudOpacity ?? 1,
+    setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
     lidarCloudColoring: persisted.lidarCloudColoring ?? 'class',
     setLidarCloudColoring: (lidarCloudColoring) => set({ lidarCloudColoring }),
     lidarCloudHideBasemap: persisted.lidarCloudHideBasemap ?? false,
@@ -460,6 +466,7 @@ useMapStore.subscribe((state) => {
             lidarCloudEdlFarPlane: state.lidarCloudEdlFarPlane,
             lidarCloudAoStrength: state.lidarCloudAoStrength,
             lidarCloudAoRadius: state.lidarCloudAoRadius,
+            lidarCloudOpacity: state.lidarCloudOpacity,
             lidarCloudColoring: state.lidarCloudColoring,
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,

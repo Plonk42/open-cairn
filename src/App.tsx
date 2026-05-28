@@ -26,8 +26,18 @@ export function App() {
     const isMobile = useIsMobile();
     const [rightOpen, setRightOpen] = useState(() => globalThis.innerWidth >= 768);
     const [rightTab, setRightTab] = useState<RightTab>('layers');
-    const [bottomOpen, setBottomOpen] = useState(() => globalThis.innerWidth >= 768);
+    const [bottomOpen, setBottomOpen] = useState(false);
     const [bottomHeight, setBottomHeight] = useState(330);
+
+    // Auto-expand the Itinéraire panel when the first waypoint is added.
+    const waypoints = useRouteStore((s) => s.waypoints);
+    const prevWaypointCount = useRef(0);
+    useEffect(() => {
+        if (waypoints.length > 0 && prevWaypointCount.current === 0) {
+            setBottomOpen(true);
+        }
+        prevWaypointCount.current = waypoints.length;
+    }, [waypoints.length]);
     const [shareTooltip, setShareTooltip] = useState(false);
     const [mobileTab, setMobileTab] = useState<MobileTab>('map');
     const resizingRef = useRef(false);

@@ -10,7 +10,7 @@ import {
 import { PointCloudLayer } from '@deck.gl/layers';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
 
 /**
@@ -36,6 +36,7 @@ export function LidarCloudOverlay() {
     const edlFarPlane = useMapStore((s) => s.lidarCloudEdlFarPlane);
     const aoStrength = useMapStore((s) => s.lidarCloudAoStrength);
     const aoRadius = useMapStore((s) => s.lidarCloudAoRadius);
+    const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
 
@@ -46,6 +47,11 @@ export function LidarCloudOverlay() {
 
     const overlayRef = useRef<MapboxOverlay | null>(null);
     const webglRef = useRef<LidarWebGLLayer | null>(null);
+    // Incremented every time MapLibre rebuilds its style (base-layer switch,
+    // hillshade toggle, …). setStyle({diff:true}) drops custom MapLibre layers,
+    // so we re-add ours on 'style.load' and bump this counter to force the
+    // data-push effects below to re-upload their buffers to the fresh layer.
+    const [styleEpoch, setStyleEpoch] = useState(0);
 
     // ── Lighting for deck.gl mesh mode ────────────────────────────────────────
     const lightingEffect = useMemo(() => {
@@ -86,7 +92,21 @@ export function LidarCloudOverlay() {
         const layer = new LidarWebGLLayer('lidar-shaded-cloud');
         mapInstance.addLayer(layer);
         webglRef.current = layer;
+
+        // MapLibre setStyle (called on base-layer / hillshade / quality changes)
+        // wipes custom layers. Re-add ours on every style.load and bump the
+        // epoch so dependent push-effects re-run with the fresh layer.
+        const onStyleLoad = () => {
+            if (mapInstance.getLayer('lidar-shaded-cloud')) return;
+            const fresh = new LidarWebGLLayer('lidar-shaded-cloud');
+            mapInstance.addLayer(fresh);
+            webglRef.current = fresh;
+            setStyleEpoch((e) => e + 1);
+        };
+        mapInstance.on('style.load', onStyleLoad);
+
         return () => {
+            mapInstance.off('style.load', onStyleLoad);
             try { mapInstance.removeLayer('lidar-shaded-cloud'); } catch { /* map may be gone */ }
             webglRef.current = null;
         };
@@ -134,7 +154,7 @@ export function LidarCloudOverlay() {
         } else {
             layer.clear();
         }
-    }, [lidarShaded, shadedColors]);
+    }, [lidarShaded, shadedColors, styleEpoch]);
 
     // Mixed mode: push the ground mesh into the SAME WebGL layer so it shares
     // the FBO + depth buffer with the points. The EDL composite then blits
@@ -150,13 +170,13 @@ export function LidarCloudOverlay() {
         } else {
             layer.clearMesh();
         }
-    }, [lidarMesh, lidarShaded]);
+    }, [lidarMesh, lidarShaded, styleEpoch]);
 
     // Live LAS-class filter: applied GPU-side via the WebGL layer's class mask,
     // so toggling classes does NOT require re-fetching the cloud.
     useEffect(() => {
         webglRef.current?.setClassMask(classes);
-    }, [classes]);
+    }, [classes, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({
@@ -168,8 +188,9 @@ export function LidarCloudOverlay() {
             edlFarPlane,
             aoStrength,
             aoRadius,
+            opacity,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, aoStrength, aoRadius]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, aoStrength, aoRadius, opacity, styleEpoch]);
 
     // ── Update deck.gl layers (mesh + raw cloud) ──────────────────────────────
     useEffect(() => {
