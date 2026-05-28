@@ -59,9 +59,14 @@ export function LidarCloudOverlay() {
         return new LightingEffect({ ambient, sun });
     }, []);
 
-    // ── deck.gl overlay (mesh + raw cloud only) ───────────────────────────────
+    // ── deck.gl overlay (mesh + raw cloud + mixed-mode vegetation) ───────────
     useEffect(() => {
         if (!mapInstance) return undefined;
+        // Non-interleaved: deck.gl renders AFTER all MapLibre layers using its
+        // own depth buffer. This keeps the LiDAR mesh visible regardless of
+        // the MapLibre terrain DEM (which often disagrees with the LiDAR
+        // ground by several meters). In mixed mode, vegetation is pushed as a
+        // second deck.gl layer so it depth-tests against the mesh correctly.
         const overlay = new MapboxOverlay({
             interleaved: false,
             layers: [],
@@ -112,7 +117,7 @@ export function LidarCloudOverlay() {
         return out;
     }, [lidarShaded, coloring]);
 
-    // ── Push shaded data + config to WebGL layer ──────────────────────────────
+    // ── Push shaded data + mesh + config to WebGL layer ─────────────────────
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return;
@@ -130,6 +135,22 @@ export function LidarCloudOverlay() {
             layer.clear();
         }
     }, [lidarShaded, shadedColors]);
+
+    // Mixed mode: push the ground mesh into the SAME WebGL layer so it shares
+    // the FBO + depth buffer with the points. The EDL composite then blits
+    // the whole thing on top of MapLibre in one go — perfect depth ordering,
+    // no render-pass coordination needed.
+    useEffect(() => {
+        const layer = webglRef.current;
+        if (!layer) return;
+        // Only inject when shaded points are also present (= mixed mode). If
+        // mesh is shown standalone ("Mesh sol"), deck.gl still renders it.
+        if (lidarMesh && lidarShaded) {
+            layer.setMesh(lidarMesh.positions, lidarMesh.normals, lidarMesh.colors, lidarMesh.indices);
+        } else {
+            layer.clearMesh();
+        }
+    }, [lidarMesh, lidarShaded]);
 
     // Live LAS-class filter: applied GPU-side via the WebGL layer's class mask,
     // so toggling classes does NOT require re-fetching the cloud.
@@ -155,10 +176,13 @@ export function LidarCloudOverlay() {
         const overlay = overlayRef.current;
         if (!overlay) return;
         const layers: Layer[] = [];
-        if (lidarMesh) layers.push(buildMeshLayer(lidarMesh));
+        // In mixed mode the mesh is rendered by the WebGL layer (alongside the
+        // shaded points, sharing depth via the same FBO), so deck.gl skips it.
+        const meshHandledByWebGL = lidarMesh && lidarShaded;
+        if (lidarMesh && !meshHandledByWebGL) layers.push(buildMeshLayer(lidarMesh));
         if (lidarCloud) layers.push(buildPointCloudLayer(lidarCloud, pointSize));
         overlay.setProps({ layers });
-    }, [lidarCloud, lidarMesh, pointSize]);
+    }, [lidarCloud, lidarMesh, lidarShaded, pointSize]);
 
     // ── Basemap dimming ───────────────────────────────────────────────────────
     useEffect(() => {

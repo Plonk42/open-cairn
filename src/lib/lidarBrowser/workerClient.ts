@@ -2,7 +2,7 @@
  * Main-thread client for the LiDAR Web Worker. Lazily spawns a single
  * persistent worker; multiplexes concurrent requests by id.
  */
-import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarCloudData, LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import type { BrowserFetchParams } from './pipeline';
 import type { LidarProgress, ProgressCallback } from './progress';
 
@@ -69,7 +69,7 @@ function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal' |
     return rest;
 }
 
-function dispatch<T>(kind: 'cloud' | 'mesh' | 'shaded', params: BrowserFetchParams): Promise<T> {
+function dispatch<T>(kind: 'cloud' | 'mesh' | 'shaded' | 'mixed', params: BrowserFetchParams): Promise<T> {
     const w = ensureWorker();
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
@@ -88,4 +88,8 @@ export function fetchLidarMesh(params: BrowserFetchParams): Promise<LidarMeshDat
 
 export function fetchLidarShaded(params: BrowserFetchParams): Promise<LidarShadedCloudData> {
     return dispatch<LidarShadedCloudData>('shaded', params);
+}
+
+export function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedData> {
+    return dispatch<LidarMixedData>('mixed', params);
 }

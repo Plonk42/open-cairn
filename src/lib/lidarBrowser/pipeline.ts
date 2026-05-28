@@ -11,7 +11,7 @@
  * Currently runs on the main thread. Phase 2 will move it into a Web
  * Worker to keep the UI fluid during long extractions.
  */
-import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarCloudData, LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
 import { buildMesh } from './mesh';
@@ -231,5 +231,95 @@ export async function fetchLidarMeshBrowser(
         vertexCount,
         triangleCount: mesh.indices.length / 3,
         radius: c.radius,
+    };
+}
+
+/**
+ * Mixed mode: build a Delaunay ground mesh AND keep a shaded point cloud
+ * of every non-ground point. One fetch, two outputs — lets the user
+ * toggle vegetation/buildings classes client-side without re-fetching.
+ */
+export async function fetchLidarMixedBrowser(
+    params: BrowserFetchParams,
+): Promise<LidarMixedData> {
+    const onProgress = params.onProgress ?? noopProgress;
+    // Mixed mode ignores any incoming `classes` filter (we need ground for
+    // the mesh AND non-ground for the cloud). The runtime mask in the
+    // overlay decides which classes the user actually sees.
+    const c = await fetchCommon({ ...params, classes: undefined });
+
+    // Split into ground (class 2) and the rest. We keep `nonGround` in a
+    // single pass to avoid double-iterating the cloud.
+    let groundCount = 0;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
+    const nonGroundCount = c.pointCount - groundCount;
+    const groundPos = new Float32Array(groundCount * 3);
+    const ngPos = new Float32Array(nonGroundCount * 3);
+    const ngCls = new Uint8Array(nonGroundCount);
+    let gi = 0; let ni = 0;
+    for (let i = 0; i < c.pointCount; i++) {
+        const cls = c.classifications[i];
+        const x = c.positions[i * 3];
+        const y = c.positions[i * 3 + 1];
+        const z = c.positions[i * 3 + 2];
+        if (cls === 2) {
+            groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
+            gi++;
+        } else {
+            ngPos[ni * 3] = x; ngPos[ni * 3 + 1] = y; ngPos[ni * 3 + 2] = z;
+            ngCls[ni] = cls;
+            ni++;
+        }
+    }
+
+    // 1. Ground mesh — Delaunay (cheapest, best with 2.5D ground class).
+    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol` });
+    const expectedSpacing = Math.sqrt(params.stride / 10);
+    const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
+    const groundMesh = buildMesh(groundPos, maxEdge);
+    const meshData: LidarMeshData = {
+        kind: 'mesh',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: groundMesh.positions,
+        normals: groundMesh.normals,
+        colors: groundMesh.colors,
+        indices: groundMesh.indices,
+        vertexCount: groundCount,
+        triangleCount: groundMesh.indices.length / 3,
+        radius: c.radius,
+    };
+
+    // 2. Non-ground shaded cloud — normals + slope colors. Even though
+    //    vegetation normals are noisy, they're what the WebGL layer wants.
+    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
+    const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
+    const ngColors = colorsFromNormals(ngNormals);
+    const shadedData: LidarShadedCloudData = {
+        kind: 'shaded',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: ngPos,
+        normals: ngNormals,
+        colors: ngColors,
+        classifications: ngCls,
+        pointCount: nonGroundCount,
+        radius: c.radius,
+    };
+
+    onProgress({
+        stage: 'done',
+        message: STAGE_LABELS.done,
+        detail: `${meshData.triangleCount} tri + ${nonGroundCount.toLocaleString()} pts`,
+    });
+
+    return {
+        kind: 'mixed',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        radius: c.radius,
+        mesh: meshData,
+        shaded: shadedData,
     };
 }

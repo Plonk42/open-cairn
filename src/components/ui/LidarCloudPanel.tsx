@@ -144,6 +144,18 @@ export function LidarCloudPanel() {
                 </button>
                 <button
                     type="button"
+                    onClick={() => setMode('mixed')}
+                    disabled={backend !== 'browser'}
+                    className={`px-3 py-1 text-xs ${mode === 'mixed'
+                        ? 'bg-green-600 text-white'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                    title="Sol en mesh Delaunay + végétation/bâti en nuage ombré (filtrable à la volée)"
+                >
+                    Mixte
+                </button>
+                <button
+                    type="button"
                     onClick={() => setMode('cloud')}
                     className={`rounded-r-md px-3 py-1 text-xs ${mode === 'cloud'
                         ? 'bg-green-600 text-white'

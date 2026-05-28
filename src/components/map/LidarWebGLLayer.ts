@@ -74,6 +74,35 @@ void main() {
 }`;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shaders for rendering the ground mesh into the same FBO as the points.
+// Sharing the FBO (color + depth + linear-depth MRT) guarantees correct
+// depth ordering between mesh and points, and lets the EDL composite shade
+// the whole thing uniformly. Output convention matches FS_POINTS exactly.
+// ─────────────────────────────────────────────────────────────────────────────
+const VS_MESH = /* glsl */`#version 300 es
+precision highp float;
+layout(location = 0) in vec3 a_pos;     // METER_OFFSETS
+layout(location = 1) in vec3 a_normal;
+layout(location = 2) in vec4 a_color;
+
+uniform mat4 u_matrix;
+uniform float u_mpu;
+
+out vec4 v_color;
+out float v_depth;
+const vec3 SUN = vec3(0.4472, 0.5367, 0.7155);
+
+void main() {
+    vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
+    gl_Position = u_matrix * vec4(pos, 1.0);
+    v_depth = gl_Position.w;
+    float diff = max(0.0, dot(normalize(a_normal), SUN));
+    v_color = vec4(a_color.rgb * (0.4 + 0.6 * diff), a_color.a);
+}`;
+
+const FS_MESH = FS_POINTS;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Shaders for EDL post-processing (pass 2)
 // ─────────────────────────────────────────────────────────────────────────────
 const VS_QUAD = /* glsl */`#version 300 es
@@ -157,6 +186,30 @@ float aoFactor() {
     if (centerDepthRaw <= 0.0) return 0.0;
     float centerDepth = centerDepthRaw / u_farPlane;
 
+    // --- Tangent-plane (slope) compensation -------------------------------
+    // Without this, an obliquely-viewed flat surface darkens dramatically:
+    // samples down-slope have legitimately greater depth than the centre and
+    // get counted as occluders even though there's no cavity. We estimate the
+    // local depth gradient (dDepth / dPixel) via central differences, then for
+    // every disk sample we subtract the depth difference the tangent plane
+    // alone would predict. Only deviations from the plane contribute to AO.
+    float dRight = texture(u_depth, v_uv + vec2(u_texelSize.x, 0.0)).r;
+    float dLeft  = texture(u_depth, v_uv - vec2(u_texelSize.x, 0.0)).r;
+    float dUp    = texture(u_depth, v_uv + vec2(0.0, u_texelSize.y)).r;
+    float dDown  = texture(u_depth, v_uv - vec2(0.0, u_texelSize.y)).r;
+    // Per-pixel gradient in normalized depth units. Guard against no-data
+    // (0.0) and against large discontinuities (edges) by using the smaller
+    // one-sided difference whose magnitude is more plausible.
+    float gx = 0.0;
+    if (dRight > 0.0 && dLeft > 0.0) {
+        gx = (dRight - dLeft) * 0.5 / u_farPlane;
+    }
+    float gy = 0.0;
+    if (dUp > 0.0 && dDown > 0.0) {
+        gy = (dUp - dDown) * 0.5 / u_farPlane;
+    }
+    vec2 grad = vec2(gx, gy);
+
     // Per-pixel rotation, breaks the banding that fixed sample directions cause.
     float ang = hash12(gl_FragCoord.xy) * 6.28318;
     float ca = cos(ang);
@@ -180,14 +233,21 @@ float aoFactor() {
         float r = sqrt(t);
         float theta = t * 6.28318 * 7.0;
         vec2 dir = rot * vec2(cos(theta), sin(theta));
-        vec2 uv = v_uv + dir * r * pxScale * step2;
+        vec2 offsetUv = dir * r * pxScale * step2;
+        vec2 uv = v_uv + offsetUv;
         float sd = texture(u_depth, uv).r;
         if (sd <= 0.0) continue;
         float dz = centerDepth - sd / u_farPlane;
-        // Smooth band: ramps up from 0 at dz≈0 to 1 around range/2,
-        // back to 0 by dz=range. Avoids hard "halo" rings.
-        float w = smoothstep(0.0, range * 0.5, dz)
-                * (1.0 - smoothstep(range * 0.5, range, dz));
+        // Expected dz on the local tangent plane at this offset (in pixels):
+        //   sample_plane = centre + grad · offsetPx
+        //   dz_plane     = centre - sample_plane = -grad · offsetPx
+        vec2 offsetPx = offsetUv / u_texelSize;
+        float dzPlane = -dot(grad, offsetPx);
+        float dzDev = dz - dzPlane;
+        // Smooth band on the *deviation* from the tangent plane.
+        // Symmetric clamp lets us ignore both pure slope and far background.
+        float w = smoothstep(0.0, range * 0.5, dzDev)
+                * (1.0 - smoothstep(range * 0.5, range, dzDev));
         occlusion += w;
         weightSum += 1.0;
     }
@@ -277,6 +337,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
 
+    // Mesh rendering (mixed mode): drawn into the same FBO before points.
+    // Origin (centerLng/centerLat) is guaranteed to match the point cloud's,
+    // so we reuse _ox/_oy/_mpu for the transform.
+    private _progMesh: WebGLProgram | null = null;
+    private _vaoMesh: WebGLVertexArrayObject | null = null;
+    private _meshPosBuf: WebGLBuffer | null = null;
+    private _meshNorBuf: WebGLBuffer | null = null;
+    private _meshColBuf: WebGLBuffer | null = null;
+    private _meshIdxBuf: WebGLBuffer | null = null;
+    private _meshIndexCount = 0;
+    private _locMesh: {
+        matrix: WebGLUniformLocation | null;
+        mpu: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null };
+
     // EDL post-processing
     private _progEdl: WebGLProgram | null = null;
     private _vaoQuad: WebGLVertexArrayObject | null = null;
@@ -332,7 +407,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, _args: CustomRenderMethodInput): void {
-        if (!this._count || !this._progPoints || !this._vao) {
+        if ((!this._count && !this._meshIndexCount) || !this._progPoints || !this._vao) {
             return;
         }
         const gl2 = gl as WebGL2RenderingContext;
@@ -374,24 +449,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         const effectivePointSize = this._effectivePointSize();
 
         if (this.config.edlEnabled && this._fbo && this._progEdl) {
-            // ─── Pass 1: Render points to FBO ───
+            // ─── Pass 1: Render mesh (if any) then points into the FBO ───
             this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
             gl2.viewport(0, 0, w, h);
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
             gl2.clear(gl2.COLOR_BUFFER_BIT | gl2.DEPTH_BUFFER_BIT);
-
-            gl2.useProgram(this._progPoints);
-            // Enable depth test so nearer points correctly occlude farther ones
-            // (otherwise points render in vertex order, producing see-through).
             gl2.enable(gl2.DEPTH_TEST);
             gl2.depthFunc(gl2.LEQUAL);
             gl2.depthMask(true);
-            // Disable blending: R32F depth attachment cannot be alpha-blended
-            // (its single channel has no alpha and would produce undefined/zero
-            // results, breaking the EDL algorithm). Point colors are opaque.
             gl2.disable(gl2.BLEND);
+
+            this._drawMesh(gl2, translatedMatrix);
+
+            gl2.useProgram(this._progPoints);
 
             gl2.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
             gl2.uniform1f(this._locPoints.mpu, this._mpu);
@@ -441,12 +513,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
             gl2.clear(gl2.COLOR_BUFFER_BIT | gl2.DEPTH_BUFFER_BIT);
-
-            gl2.useProgram(this._progPoints);
             gl2.enable(gl2.DEPTH_TEST);
             gl2.depthFunc(gl2.LEQUAL);
             gl2.depthMask(true);
             gl2.disable(gl2.BLEND);
+
+            this._drawMesh(gl2, translatedMatrix);
+
+            gl2.useProgram(this._progPoints);
 
             gl2.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
             gl2.uniform1f(this._locPoints.mpu, this._mpu);
@@ -564,6 +638,40 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._map?.triggerRepaint();
     }
 
+    /**
+     * Upload mesh geometry into the same FBO pipeline as the points. Origin
+     * (lng/lat) must match the point cloud's origin — in practice both come
+     * from the same browser fetch so this is guaranteed.
+     */
+    setMesh(
+        positions: Float32Array,
+        normals: Float32Array,
+        colors: Uint8Array,
+        indices: Uint32Array,
+    ): void {
+        const gl = this._gl;
+        if (!gl) return;
+        this._meshIndexCount = indices.length;
+        const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshNorBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+        gl.bindVertexArray(this._vaoMesh);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+        gl.bindVertexArray(prevVAO);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this._map?.triggerRepaint();
+    }
+
+    clearMesh(): void {
+        this._meshIndexCount = 0;
+        this._map?.triggerRepaint();
+    }
+
     setConfig(config: Partial<LidarWebGLLayerConfig>): void {
         Object.assign(this.config, config);
         this._map?.triggerRepaint();
@@ -591,6 +699,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             }
         }
         this._map?.triggerRepaint();
+    }
+
+    /**
+     * Draw the optional ground mesh into the currently-bound FBO. Caller is
+     * responsible for setting depth/blend state (we expect DEPTH_TEST on,
+     * BLEND off, both color + R32F-depth MRT attached). Origin (centerLng/Lat)
+     * matches the point cloud's, so we share `_mpu` and the translated matrix.
+     */
+    private _drawMesh(gl: WebGL2RenderingContext, translatedMatrix: Float32Array): void {
+        if (!this._meshIndexCount || !this._progMesh || !this._vaoMesh) return;
+        gl.useProgram(this._progMesh);
+        gl.uniformMatrix4fv(this._locMesh.matrix, false, translatedMatrix);
+        gl.uniform1f(this._locMesh.mpu, this._mpu);
+        gl.bindVertexArray(this._vaoMesh);
+        gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
     }
 
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
@@ -651,6 +774,34 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.enableVertexAttribArray(3);
         gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindVertexArray(prevVAO);
+
+        // ─── Mesh shader (mixed mode) ───
+        this._progMesh = linkProgram(gl, VS_MESH, FS_MESH);
+        this._locMesh = {
+            matrix: gl.getUniformLocation(this._progMesh, 'u_matrix'),
+            mpu: gl.getUniformLocation(this._progMesh, 'u_mpu'),
+        };
+
+        // ─── Mesh buffers & VAO ───
+        this._meshPosBuf = gl.createBuffer();
+        this._meshNorBuf = gl.createBuffer();
+        this._meshColBuf = gl.createBuffer();
+        this._meshIdxBuf = gl.createBuffer();
+        this._vaoMesh = gl.createVertexArray();
+        gl.bindVertexArray(this._vaoMesh);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshNorBuf);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
+        gl.bindVertexArray(prevVAO);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
         // ─── EDL shader ───
         this._progEdl = linkProgram(gl, VS_QUAD, FS_EDL);
@@ -719,12 +870,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _cleanup(gl: WebGL2RenderingContext): void {
         if (this._vao) { gl.deleteVertexArray(this._vao); this._vao = null; }
         if (this._vaoQuad) { gl.deleteVertexArray(this._vaoQuad); this._vaoQuad = null; }
+        if (this._vaoMesh) { gl.deleteVertexArray(this._vaoMesh); this._vaoMesh = null; }
         if (this._posBuf) { gl.deleteBuffer(this._posBuf); this._posBuf = null; }
         if (this._norBuf) { gl.deleteBuffer(this._norBuf); this._norBuf = null; }
         if (this._colBuf) { gl.deleteBuffer(this._colBuf); this._colBuf = null; }
         if (this._clsBuf) { gl.deleteBuffer(this._clsBuf); this._clsBuf = null; }
+        if (this._meshPosBuf) { gl.deleteBuffer(this._meshPosBuf); this._meshPosBuf = null; }
+        if (this._meshNorBuf) { gl.deleteBuffer(this._meshNorBuf); this._meshNorBuf = null; }
+        if (this._meshColBuf) { gl.deleteBuffer(this._meshColBuf); this._meshColBuf = null; }
+        if (this._meshIdxBuf) { gl.deleteBuffer(this._meshIdxBuf); this._meshIdxBuf = null; }
         if (this._quadBuf) { gl.deleteBuffer(this._quadBuf); this._quadBuf = null; }
         if (this._progPoints) { gl.deleteProgram(this._progPoints); this._progPoints = null; }
+        if (this._progMesh) { gl.deleteProgram(this._progMesh); this._progMesh = null; }
         if (this._progEdl) { gl.deleteProgram(this._progEdl); this._progEdl = null; }
         if (this._texColor) { gl.deleteTexture(this._texColor); this._texColor = null; }
         if (this._texDepth) { gl.deleteTexture(this._texDepth); this._texDepth = null; }

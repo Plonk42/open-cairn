@@ -2,6 +2,7 @@ import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import {
     fetchLidarCloud as fetchLidarCloudBrowser,
     fetchLidarMesh as fetchLidarMeshBrowser,
+    fetchLidarMixed as fetchLidarMixedBrowser,
     fetchLidarShaded as fetchLidarShadedBrowser,
     type LidarProgress,
     type MeshMethod,
@@ -108,9 +109,9 @@ interface MapState {
     /** Backend used to crop COPC tiles: 'service' = Node service at /api/lidar-cloud, 'browser' = in-page copc.js pipeline. */
     lidarBackend: 'service' | 'browser';
     setLidarBackend: (v: 'service' | 'browser') => void;
-    /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, or shaded point splatting. */
-    lidarMode: 'cloud' | 'mesh' | 'shaded';
-    setLidarMode: (v: 'cloud' | 'mesh' | 'shaded') => void;
+    /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, shaded point splatting, or mixed (ground mesh + veg points). */
+    lidarMode: 'cloud' | 'mesh' | 'shaded' | 'mixed';
+    setLidarMode: (v: 'cloud' | 'mesh' | 'shaded' | 'mixed') => void;
     /** Mesh reconstruction algorithm (browser backend only). */
     lidarMeshMethod: MeshMethod;
     setLidarMeshMethod: (v: MeshMethod) => void;
@@ -201,7 +202,7 @@ type PersistedSettings = {
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
-    lidarMode?: 'cloud' | 'mesh' | 'shaded';
+    lidarMode?: 'cloud' | 'mesh' | 'shaded' | 'mixed';
     lidarMeshMethod?: MeshMethod;
     lidarBackend?: 'service' | 'browser';
     lidarCloudRadius?: number;
@@ -372,6 +373,27 @@ export const useMapStore = create<MapState>((set, get) => ({
                     onProgress,
                 });
                 set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false, lidarCloudProgress: null });
+            } else if (state.lidarMode === 'mixed') {
+                // Mixed mode is browser-only (the Node service has no equivalent).
+                if (!isBrowser) {
+                    throw new Error('Le mode Mixte n’est disponible qu’avec le backend Navigateur.');
+                }
+                const mixed = await fetchLidarMixedBrowser({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: state.lidarCloudRadius,
+                    stride: state.lidarCloudStride,
+                    onProgress,
+                });
+                // Set both layers — overlay renders mesh + shaded simultaneously
+                // and the existing class mask handles vegetation toggling.
+                set({
+                    lidarMesh: mixed.mesh,
+                    lidarShaded: mixed.shaded,
+                    lidarCloud: null,
+                    lidarCloudLoading: false,
+                    lidarCloudProgress: null,
+                });
             } else if (state.lidarMode === 'mesh') {
                 const mesh = await fetchMesh({
                     lng: center.lng,

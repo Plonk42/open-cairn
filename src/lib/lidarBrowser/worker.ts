@@ -16,25 +16,35 @@
  * across the worker boundary.
  */
 /// <reference lib="webworker" />
-import { fetchLidarCloudBrowser, fetchLidarMeshBrowser, fetchLidarShadedBrowser, type BrowserFetchParams } from './pipeline';
+import { fetchLidarCloudBrowser, fetchLidarMeshBrowser, fetchLidarMixedBrowser, fetchLidarShadedBrowser, type BrowserFetchParams } from './pipeline';
 import type { LidarProgress } from './progress';
 
 type RequestMessage =
     | { id: number; kind: 'cloud'; params: BrowserFetchParams }
     | { id: number; kind: 'mesh'; params: BrowserFetchParams }
-    | { id: number; kind: 'shaded'; params: BrowserFetchParams };
+    | { id: number; kind: 'shaded'; params: BrowserFetchParams }
+    | { id: number; kind: 'mixed'; params: BrowserFetchParams };
 
 declare const self: DedicatedWorkerGlobalScope;
 
 /**
  * Collect every `ArrayBuffer` underlying the TypedArray fields of a result
- * so they can be transferred back to the main thread.
+ * so they can be transferred back to the main thread. Recurses one level
+ * into nested objects (mixed mode wraps mesh + shaded).
  */
 function collectTransferables(obj: Record<string, unknown>): ArrayBuffer[] {
     const out: ArrayBuffer[] = [];
-    for (const v of Object.values(obj)) {
-        if (ArrayBuffer.isView(v)) out.push(v.buffer as ArrayBuffer);
-    }
+    const seen = new Set<ArrayBuffer>();
+    const add = (b: ArrayBuffer) => { if (!seen.has(b)) { seen.add(b); out.push(b); } };
+    const visit = (v: unknown) => {
+        if (ArrayBuffer.isView(v)) add(v.buffer as ArrayBuffer);
+        else if (v && typeof v === 'object') {
+            for (const inner of Object.values(v as Record<string, unknown>)) {
+                if (ArrayBuffer.isView(inner)) add(inner.buffer as ArrayBuffer);
+            }
+        }
+    };
+    for (const v of Object.values(obj)) visit(v);
     return out;
 }
 
@@ -51,6 +61,7 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
             case 'cloud': data = await fetchLidarCloudBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
             case 'mesh': data = await fetchLidarMeshBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
             case 'shaded': data = await fetchLidarShadedBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'mixed': data = await fetchLidarMixedBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
         self.postMessage({ id, ok: true, data }, transferables);

@@ -122,7 +122,7 @@ export function buildVoxelMesh(
     const sz = W * H;
     for (let i = 0; i < n; i++) {
         // Coordinates in voxel-centre units (so floor gives the lower corner).
-        const gx = (positions[i * 3]     - ox) * invCell - 0.5;
+        const gx = (positions[i * 3] - ox) * invCell - 0.5;
         const gy = (positions[i * 3 + 1] - oy) * invCell - 0.5;
         const gz = (positions[i * 3 + 2] - oz) * invCell - 0.5;
         const ix = Math.floor(gx);
@@ -136,14 +136,14 @@ export function buildVoxelMesh(
         const gy0 = 1 - fy, gy1 = fy;
         const gz0 = 1 - fz, gz1 = fz;
         const base = ix + iy * sy + iz * sz;
-        weights[base]                   += gx0 * gy0 * gz0;
-        weights[base + 1]               += gx1 * gy0 * gz0;
-        weights[base + sy]              += gx0 * gy1 * gz0;
-        weights[base + 1 + sy]          += gx1 * gy1 * gz0;
-        weights[base + sz]              += gx0 * gy0 * gz1;
-        weights[base + 1 + sz]          += gx1 * gy0 * gz1;
-        weights[base + sy + sz]         += gx0 * gy1 * gz1;
-        weights[base + 1 + sy + sz]     += gx1 * gy1 * gz1;
+        weights[base] += gx0 * gy0 * gz0;
+        weights[base + 1] += gx1 * gy0 * gz0;
+        weights[base + sy] += gx0 * gy1 * gz0;
+        weights[base + 1 + sy] += gx1 * gy1 * gz0;
+        weights[base + sz] += gx0 * gy0 * gz1;
+        weights[base + 1 + sz] += gx1 * gy0 * gz1;
+        weights[base + sy + sz] += gx0 * gy1 * gz1;
+        weights[base + 1 + sy + sz] += gx1 * gy1 * gz1;
     }
 
     // 4. Soft occupancy field. Map splatted weight → [0, 1] linearly up to
@@ -170,7 +170,7 @@ export function buildVoxelMesh(
     const nVerts = mc.positions.length / 3;
     const outPos = new Float32Array(nVerts * 3);
     for (let v = 0; v < nVerts; v++) {
-        outPos[v * 3]     = ox + mc.positions[v * 3]     * cellSize;
+        outPos[v * 3] = ox + mc.positions[v * 3] * cellSize;
         outPos[v * 3 + 1] = oy + mc.positions[v * 3 + 1] * cellSize;
         outPos[v * 3 + 2] = oz + mc.positions[v * 3 + 2] * cellSize;
     }

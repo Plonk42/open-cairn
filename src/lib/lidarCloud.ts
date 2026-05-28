@@ -74,6 +74,22 @@ export interface LidarShadedCloudData {
     radius: number;
 }
 
+/**
+ * Combined output for the "mixed" mode: ground (class 2) is reconstructed
+ * as a Delaunay mesh, every other point is kept as a shaded cloud so the
+ * user can toggle vegetation/buildings on/off via the existing class mask.
+ */
+export interface LidarMixedData {
+    kind: 'mixed';
+    centerLng: number;
+    centerLat: number;
+    radius: number;
+    /** Ground-only triangulated surface. */
+    mesh: LidarMeshData;
+    /** All non-ground points with normals + colors, GPU-class-filterable. */
+    shaded: LidarShadedCloudData;
+}
+
 const HEADER_BYTES = 24;
 const LIDA_MAGIC = 0x4c494441;
 const LIDM_MAGIC = 0x4c49444d;
