@@ -2,29 +2,18 @@
  * Browser-side LiDAR HD pipeline. Orchestrates:
  *   1. WFS query   → tile URLs
  *   2. COPC walk   → cropped points (parallel across tiles)
- *   3. mode-specific finalization (raw cloud / mesh / shaded)
+ *   3. mode-specific finalization (shaded cloud / mixed)
  *
- * Returns the same data shapes as the existing `src/lib/lidarCloud.ts`
- * service client so it can be swapped in without touching the store or
- * the overlay.
- *
- * Currently runs on the main thread. Phase 2 will move it into a Web
- * Worker to keep the UI fluid during long extractions.
+ * Returns the same data shapes as `src/lib/lidarCloud.ts` types.
  */
-import type { LidarCloudData, LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
-import { buildGridMesh } from './gridMesh';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN } from './normals';
-import { buildPoissonMesh } from './poissonMesh';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals } from './slope';
-import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
-
-/** Available mesh reconstruction methods. */
-export type MeshMethod = 'delaunay' | 'grid' | 'voxel' | 'poisson';
 
 export interface BrowserFetchParams {
     lng: number;
@@ -32,8 +21,6 @@ export interface BrowserFetchParams {
     radius: number;
     stride: number;
     classes?: number[];
-    /** Mesh reconstruction algorithm (only used by the mesh fetch). */
-    meshMethod?: MeshMethod;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -141,25 +128,8 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     };
 }
 
-/** Raw point cloud — same shape as `fetchLidarCloud()` from the service client. */
-export async function fetchLidarCloudBrowser(
-    params: BrowserFetchParams,
-): Promise<LidarCloudData> {
-    const onProgress = params.onProgress ?? noopProgress;
-    const c = await fetchCommon(params);
-    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
-    return {
-        centerLng: c.centerLng,
-        centerLat: c.centerLat,
-        positions: c.positions,
-        classifications: c.classifications,
-        pointCount: c.pointCount,
-        radius: c.radius,
-    };
-}
-
 /** Shaded point cloud (per-point normals + slope coloring). */
-export async function fetchLidarShadedBrowser(
+export async function fetchLidarShaded(
     params: BrowserFetchParams,
 ): Promise<LidarShadedCloudData> {
     const onProgress = params.onProgress ?? noopProgress;
@@ -182,74 +152,12 @@ export async function fetchLidarShadedBrowser(
     };
 }
 
-/** Slope-shaded triangulated mesh. Method selectable: `delaunay` (2.5D
- *  Delaunator, fast but cliff-stripe artefacts), `grid` (regular
- *  heightfield, clean cliffs, no caves), or `voxel` (3D Marching Cubes,
- *  represents arches/caves/overhangs at the cost of more compute).
- */
-export async function fetchLidarMeshBrowser(
-    params: BrowserFetchParams,
-): Promise<LidarMeshData> {
-    const onProgress = params.onProgress ?? noopProgress;
-    const c = await fetchCommon(params);
-    const method: MeshMethod = params.meshMethod ?? 'delaunay';
-    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${c.pointCount.toLocaleString()} points (${method})` });
-
-    let mesh: { positions: Float32Array; normals: Float32Array; colors: Uint8Array; indices: Uint32Array };
-    let vertexCount: number;
-    if (method === 'grid') {
-        // Cell size ≈ point spacing. IGN HD is ~10 pt/m² so ~0.3 m spacing;
-        // 0.5 m grid is fine enough to keep cliff detail while staying
-        // robust to gaps. Bump hole-fill passes accordingly.
-        mesh = buildGridMesh(c.positions, 0.5, 3);
-        vertexCount = mesh.positions.length / 3;
-    } else if (method === 'voxel') {
-        mesh = buildVoxelMesh(c.positions, {
-            cellSize: 0.4,
-            smoothPasses: 0,
-            iso: 0.5,
-            fullHits: 2,
-            maxVoxels: 32_000_000,
-        });
-        vertexCount = mesh.positions.length / 3;
-    } else if (method === 'poisson') {
-        mesh = buildPoissonMesh(c.positions, {
-            cellSize: 0.4,
-            bandCells: 2,
-            normalsK: 12,
-            normalsCellSize: 2,
-            maxVoxels: 32_000_000,
-        });
-        vertexCount = mesh.positions.length / 3;
-    } else {
-        // Edge-length threshold: ~10× median spacing for 10 pt/m² IGN data ≈ 3 m;
-        // scales up with stride. Clamp to [1.5 m, 8 m].
-        const expectedSpacing = Math.sqrt(params.stride / 10);
-        const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
-        mesh = buildMesh(c.positions, maxEdge);
-        vertexCount = c.pointCount;
-    }
-    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${mesh.indices.length / 3} triangles` });
-    return {
-        kind: 'mesh',
-        centerLng: c.centerLng,
-        centerLat: c.centerLat,
-        positions: mesh.positions,
-        normals: mesh.normals,
-        colors: mesh.colors,
-        indices: mesh.indices,
-        vertexCount,
-        triangleCount: mesh.indices.length / 3,
-        radius: c.radius,
-    };
-}
-
 /**
  * Mixed mode: build a Delaunay ground mesh AND keep a shaded point cloud
  * of every non-ground point. One fetch, two outputs — lets the user
  * toggle vegetation/buildings classes client-side without re-fetching.
  */
-export async function fetchLidarMixedBrowser(
+export async function fetchLidarMixed(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;

@@ -20,7 +20,7 @@ const LidarCloudOverlay = lazy(() =>
  */
 function LidarCloudOverlayGate() {
     const active = useMapStore(
-        (s) => s.lidarCloud !== null || s.lidarMesh !== null || s.lidarShaded !== null || s.lidarCloudLoading || s.lidarCloudError !== null,
+        (s) => s.lidarShaded !== null || s.lidarCloudLoading || s.lidarCloudError !== null,
     );
     if (!active) return null;
     return (

@@ -13,40 +13,29 @@
  */
 import { clear as idbClear, del as idbDel, get as idbGet, keys as idbKeys, set as idbSet } from 'idb-keyval';
 
-import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarShadedCloudData } from '../lidarCloud';
 
 /** Round-trip data through the cache. */
-export type Cacheable = LidarCloudData | LidarMeshData | LidarShadedCloudData;
+export type Cacheable = LidarShadedCloudData;
 
 /**
  * Stable cache key. Round to 4 decimals (~10 m at the equator) so tiny
  * cursor jitter still hits the cache; bigger moves are intentional.
  */
 function makeKey(
-    mode: 'cloud' | 'mesh' | 'shaded',
-    p: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
+    mode: 'shaded',
+    p: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
 ): string {
     const lng = p.lng.toFixed(4);
     const lat = p.lat.toFixed(4);
     const classes = p.classes && p.classes.length > 0 ? p.classes.slice().sort((a, b) => a - b).join(',') : 'all';
-    // Only meshes care about the reconstruction method; cloud/shaded ignore it.
-    const method = mode === 'mesh' ? (p.meshMethod ?? 'delaunay') : '';
-    return `lidar:${mode}:${lng}:${lat}:${p.radius}:${p.stride}:${classes}${method ? ':' + method : ''}`;
+    return `lidar:${mode}:${lng}:${lat}:${p.radius}:${p.stride}:${classes}`;
 }
 
 /** Soft LRU cap (eviction is best-effort, not strict). */
 const MAX_ENTRIES = 50;
 
 /** Wrap a typed-array buffer as a transferable-friendly plain object. */
-type StoredCloud = {
-    mode: 'cloud';
-    centerLng: number;
-    centerLat: number;
-    positions: ArrayBuffer;
-    classifications: ArrayBuffer;
-    pointCount: number;
-    radius: number;
-};
 type StoredShaded = {
     mode: 'shaded';
     centerLng: number;
@@ -58,31 +47,7 @@ type StoredShaded = {
     pointCount: number;
     radius: number;
 };
-type StoredMesh = {
-    mode: 'mesh';
-    centerLng: number;
-    centerLat: number;
-    positions: ArrayBuffer;
-    normals: ArrayBuffer;
-    colors: ArrayBuffer;
-    indices: ArrayBuffer;
-    vertexCount: number;
-    triangleCount: number;
-    radius: number;
-};
-type Stored = StoredCloud | StoredShaded | StoredMesh;
 
-function packCloud(d: LidarCloudData): StoredCloud {
-    return {
-        mode: 'cloud',
-        centerLng: d.centerLng,
-        centerLat: d.centerLat,
-        positions: d.positions.buffer as ArrayBuffer,
-        classifications: d.classifications.buffer as ArrayBuffer,
-        pointCount: d.pointCount,
-        radius: d.radius,
-    };
-}
 function packShaded(d: LidarShadedCloudData): StoredShaded {
     return {
         mode: 'shaded',
@@ -96,55 +61,17 @@ function packShaded(d: LidarShadedCloudData): StoredShaded {
         radius: d.radius,
     };
 }
-function packMesh(d: LidarMeshData): StoredMesh {
-    return {
-        mode: 'mesh',
-        centerLng: d.centerLng,
-        centerLat: d.centerLat,
-        positions: d.positions.buffer as ArrayBuffer,
-        normals: d.normals.buffer as ArrayBuffer,
-        colors: d.colors.buffer as ArrayBuffer,
-        indices: d.indices.buffer as ArrayBuffer,
-        vertexCount: d.vertexCount,
-        triangleCount: d.triangleCount,
-        radius: d.radius,
-    };
-}
 
-function unpack(s: Stored): Cacheable {
-    if (s.mode === 'cloud') {
-        return {
-            centerLng: s.centerLng,
-            centerLat: s.centerLat,
-            positions: new Float32Array(s.positions),
-            classifications: new Uint8Array(s.classifications),
-            pointCount: s.pointCount,
-            radius: s.radius,
-        };
-    }
-    if (s.mode === 'shaded') {
-        return {
-            kind: 'shaded',
-            centerLng: s.centerLng,
-            centerLat: s.centerLat,
-            positions: new Float32Array(s.positions),
-            normals: new Float32Array(s.normals),
-            colors: new Uint8Array(s.colors),
-            classifications: new Uint8Array(s.classifications),
-            pointCount: s.pointCount,
-            radius: s.radius,
-        };
-    }
+function unpack(s: StoredShaded): Cacheable {
     return {
-        kind: 'mesh',
+        kind: 'shaded',
         centerLng: s.centerLng,
         centerLat: s.centerLat,
         positions: new Float32Array(s.positions),
         normals: new Float32Array(s.normals),
         colors: new Uint8Array(s.colors),
-        indices: new Uint32Array(s.indices),
-        vertexCount: s.vertexCount,
-        triangleCount: s.triangleCount,
+        classifications: new Uint8Array(s.classifications),
+        pointCount: s.pointCount,
         radius: s.radius,
     };
 }
@@ -162,12 +89,12 @@ async function evictIfNeeded(): Promise<void> {
 }
 
 export async function readCachedLidar(
-    mode: 'cloud' | 'mesh' | 'shaded',
-    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
+    mode: 'shaded',
+    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
 ): Promise<Cacheable | null> {
     try {
         const key = makeKey(mode, params);
-        const raw = await idbGet<Stored>(key);
+        const raw = await idbGet<StoredShaded>(key);
         if (!raw) return null;
         return unpack(raw);
     } catch {
@@ -176,16 +103,13 @@ export async function readCachedLidar(
 }
 
 export async function writeCachedLidar(
-    mode: 'cloud' | 'mesh' | 'shaded',
-    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
+    mode: 'shaded',
+    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
     data: Cacheable,
 ): Promise<void> {
     try {
         const key = makeKey(mode, params);
-        let stored: Stored;
-        if (mode === 'cloud') stored = packCloud(data as LidarCloudData);
-        else if (mode === 'shaded') stored = packShaded(data as LidarShadedCloudData);
-        else stored = packMesh(data as LidarMeshData);
+        const stored = packShaded(data);
         await idbSet(key, stored);
         await evictIfNeeded();
     } catch { /* cache write failures are non-fatal */ }

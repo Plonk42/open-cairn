@@ -1,13 +1,10 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import {
-    fetchLidarCloud as fetchLidarCloudBrowser,
-    fetchLidarMesh as fetchLidarMeshBrowser,
-    fetchLidarMixed as fetchLidarMixedBrowser,
-    fetchLidarShaded as fetchLidarShadedBrowser,
+    fetchLidarMixed,
+    fetchLidarShaded,
     type LidarProgress,
-    type MeshMethod,
 } from '@/lib/lidarBrowser';
-import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
+import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
@@ -105,27 +102,19 @@ interface MapState {
     /** Fly the map to fit a bounding box [minLng, minLat, maxLng, maxLat]. */
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 
-    // ---- LiDAR HD point cloud (Option 1: backend cropping service) ----
-    /** Backend used to crop COPC tiles: 'service' = Node service at /api/lidar-cloud, 'browser' = in-page copc.js pipeline. */
-    lidarBackend: 'service' | 'browser';
-    setLidarBackend: (v: 'service' | 'browser') => void;
-    /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, shaded point splatting, or mixed (ground mesh + veg points). */
-    lidarMode: 'cloud' | 'mesh' | 'shaded' | 'mixed';
-    setLidarMode: (v: 'cloud' | 'mesh' | 'shaded' | 'mixed') => void;
-    /** Mesh reconstruction algorithm (browser backend only). */
-    lidarMeshMethod: MeshMethod;
-    setLidarMeshMethod: (v: MeshMethod) => void;
-    /** Loaded point cloud (null = none). */
-    lidarCloud: LidarCloudData | null;
-    /** Loaded mesh (null = none). */
-    lidarMesh: LidarMeshData | null;
+    // ---- LiDAR HD point cloud ----
+    /** Rendering mode: shaded point cloud or mixed (ground mesh + vegetation/buildings points). */
+    lidarMode: 'shaded' | 'mixed';
+    setLidarMode: (v: 'shaded' | 'mixed') => void;
     /** Loaded shaded point cloud (positions + normals + slope colors). */
     lidarShaded: LidarShadedCloudData | null;
-    /** True while a `/api/lidar-cloud` request is in flight. */
+    /** Loaded ground mesh for mixed mode. */
+    lidarMesh: LidarMeshData | null;
+    /** True while a LiDAR request is in flight. */
     lidarCloudLoading: boolean;
     /** Last error message (null if no error). */
     lidarCloudError: string | null;
-    /** Current loading progress (browser mode only). */
+    /** Current loading progress. */
     lidarCloudProgress: LidarProgress | null;
     /** Half-side of the bbox to load, in meters. */
     lidarCloudRadius: number;
@@ -205,9 +194,7 @@ type PersistedSettings = {
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
-    lidarMode?: 'cloud' | 'mesh' | 'shaded' | 'mixed';
-    lidarMeshMethod?: MeshMethod;
-    lidarBackend?: 'service' | 'browser';
+    lidarMode?: 'shaded' | 'mixed';
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
     lidarCloudPointSize?: number;
@@ -301,15 +288,10 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
 
     // LiDAR HD point cloud state
-    lidarMode: persisted.lidarMode ?? 'shaded',
+    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed') ? persisted.lidarMode : 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
-    lidarMeshMethod: persisted.lidarMeshMethod ?? 'delaunay',
-    setLidarMeshMethod: (lidarMeshMethod) => set({ lidarMeshMethod }),
-    lidarBackend: persisted.lidarBackend ?? 'service',
-    setLidarBackend: (lidarBackend) => set({ lidarBackend }),
-    lidarCloud: null,
-    lidarMesh: null,
     lidarShaded: null,
+    lidarMesh: null,
     lidarCloudLoading: false,
     lidarCloudError: null,
     lidarCloudProgress: null,
@@ -358,76 +340,40 @@ export const useMapStore = create<MapState>((set, get) => ({
         }
         set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
         try {
-            const classes = state.lidarCloudClasses.length > 0 ? state.lidarCloudClasses : undefined;
-            const isBrowser = state.lidarBackend === 'browser';
-            const fetchCloud = isBrowser ? fetchLidarCloudBrowser : fetchLidarCloud;
-            const fetchMesh = isBrowser ? fetchLidarMeshBrowser : fetchLidarMesh;
-            const fetchShaded = isBrowser ? fetchLidarShadedBrowser : fetchLidarShaded;
-            // Progress callback for browser mode
-            const onProgress = isBrowser
-                ? (progress: LidarProgress) => set({ lidarCloudProgress: progress })
-                : undefined;
-            if (state.lidarMode === 'shaded') {
-                // No `classes` param: the shaded cloud always fetches every class
-                // and filters on the GPU via LidarWebGLLayer.setClassMask(), so
-                // toggling LAS classes in the UI is instant (no re-fetch).
-                const shaded = await fetchShaded({
+            const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
+            if (state.lidarMode === 'mixed') {
+                const mixed = await fetchLidarMixed({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
                     onProgress,
                 });
-                set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false, lidarCloudProgress: null });
-            } else if (state.lidarMode === 'mixed') {
-                // Mixed mode is browser-only (the Node service has no equivalent).
-                if (!isBrowser) {
-                    throw new Error('Le mode Mixte n’est disponible qu’avec le backend Navigateur.');
-                }
-                const mixed = await fetchLidarMixedBrowser({
-                    lng: center.lng,
-                    lat: center.lat,
-                    radius: state.lidarCloudRadius,
-                    stride: state.lidarCloudStride,
-                    onProgress,
-                });
-                // Set both layers — overlay renders mesh + shaded simultaneously
-                // and the existing class mask handles vegetation toggling.
+                // Set both shaded and mesh layers for mixed mode display
                 set({
-                    lidarMesh: mixed.mesh,
                     lidarShaded: mixed.shaded,
-                    lidarCloud: null,
+                    lidarMesh: mixed.mesh,
                     lidarCloudLoading: false,
                     lidarCloudProgress: null,
                 });
-            } else if (state.lidarMode === 'mesh') {
-                const mesh = await fetchMesh({
-                    lng: center.lng,
-                    lat: center.lat,
-                    radius: state.lidarCloudRadius,
-                    stride: state.lidarCloudStride,
-                    classes: classes ?? [2],
-                    meshMethod: state.lidarMeshMethod,
-                    onProgress,
-                });
-                set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false, lidarCloudProgress: null });
             } else {
-                const data = await fetchCloud({
+                // Shaded mode: always fetches every class and filters on the GPU
+                // via LidarWebGLLayer.setClassMask(), so toggling classes is instant.
+                const shaded = await fetchLidarShaded({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
-                    classes,
                     onProgress,
                 });
-                set({ lidarCloud: data, lidarMesh: null, lidarShaded: null, lidarCloudLoading: false, lidarCloudProgress: null });
+                set({ lidarShaded: shaded, lidarMesh: null, lidarCloudLoading: false, lidarCloudProgress: null });
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Erreur inconnue';
             set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
         }
     },
-    clearLidarCloud: () => set({ lidarCloud: null, lidarMesh: null, lidarShaded: null, lidarCloudError: null, lidarCloudProgress: null }),
+    clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
 
 }));
 
@@ -454,8 +400,6 @@ useMapStore.subscribe((state) => {
             ignScanApiKey: state.ignScanApiKey,
             ignDemApiKey: state.ignDemApiKey,
             lidarMode: state.lidarMode,
-            lidarMeshMethod: state.lidarMeshMethod,
-            lidarBackend: state.lidarBackend,
             lidarCloudRadius: state.lidarCloudRadius,
             lidarCloudStride: state.lidarCloudStride,
             lidarCloudPointSize: state.lidarCloudPointSize,

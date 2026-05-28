@@ -6,7 +6,7 @@
  * pipeline is pure compute on typed arrays, so it ports cleanly.
  *
  * Protocol:
- *   main → worker: { id, kind: 'cloud'|'mesh'|'shaded', params }
+ *   main → worker: { id, kind: 'shaded'|'mixed', params }
  *   worker → main: { id, ok: true,  data, transferables: ArrayBuffer[] }
  *                | { id, ok: false, error: { message, code? } }
  *                | { id, type: 'progress', progress: LidarProgress }
@@ -16,12 +16,10 @@
  * across the worker boundary.
  */
 /// <reference lib="webworker" />
-import { fetchLidarCloudBrowser, fetchLidarMeshBrowser, fetchLidarMixedBrowser, fetchLidarShadedBrowser, type BrowserFetchParams } from './pipeline';
+import { fetchLidarMixed, fetchLidarShaded, type BrowserFetchParams } from './pipeline';
 import type { LidarProgress } from './progress';
 
 type RequestMessage =
-    | { id: number; kind: 'cloud'; params: BrowserFetchParams }
-    | { id: number; kind: 'mesh'; params: BrowserFetchParams }
     | { id: number; kind: 'shaded'; params: BrowserFetchParams }
     | { id: number; kind: 'mixed'; params: BrowserFetchParams };
 
@@ -58,10 +56,8 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
     try {
         let data: Record<string, unknown>;
         switch (kind) {
-            case 'cloud': data = await fetchLidarCloudBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
-            case 'mesh': data = await fetchLidarMeshBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
-            case 'shaded': data = await fetchLidarShadedBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
-            case 'mixed': data = await fetchLidarMixedBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'shaded': data = await fetchLidarShaded(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'mixed': data = await fetchLidarMixed(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
         self.postMessage({ id, ok: true, data }, transferables);

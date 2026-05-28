@@ -8,9 +8,7 @@
         "dev": "vite",
         "build": "tsc -b && vite build",
         "preview": "vite preview",
-        "lint": "tsc --noEmit",
-        "lidar": "node --max-old-space-size=4096 services/lidar-cloud/server.mjs",
-        "dev:full": "concurrently -n vite,lidar -c green,magenta \"npm run dev\" \"npm run lidar\""
+        "lint": "tsc --noEmit"
     },
     "dependencies": {
         "@deck.gl/core": "^9.3.2",
@@ -35,7 +33,6 @@
         "@types/react-dom": "^18.3.1",
         "@vitejs/plugin-react": "^4.3.4",
         "autoprefixer": "^10.4.20",
-        "concurrently": "^9.2.1",
         "postcss": "^8.4.49",
         "tailwindcss": "^3.4.17",
         "typescript": "^5.6.3",

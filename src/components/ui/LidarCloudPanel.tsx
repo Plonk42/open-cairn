@@ -7,18 +7,12 @@ const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
 /**
  * Panel section that controls the on-demand IGN LiDAR HD point cloud overlay.
  *
- * The "Charger ici" button triggers a fetch on the local cropping service
- * (`services/lidar-cloud/server.mjs`), centered on the current map view.
+ * The "Charger ici" button triggers a browser-based fetch via copc.js,
+ * centered on the current map view.
  */
 export function LidarCloudPanel() {
     const mode = useMapStore((s) => s.lidarMode);
     const setMode = useMapStore((s) => s.setLidarMode);
-    const meshMethod = useMapStore((s) => s.lidarMeshMethod);
-    const setMeshMethod = useMapStore((s) => s.setLidarMeshMethod);
-    const backend = useMapStore((s) => s.lidarBackend);
-    const setBackend = useMapStore((s) => s.setLidarBackend);
-    const cloud = useMapStore((s) => s.lidarCloud);
-    const mesh = useMapStore((s) => s.lidarMesh);
     const shaded = useMapStore((s) => s.lidarShaded);
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const error = useMapStore((s) => s.lidarCloudError);
@@ -53,7 +47,7 @@ export function LidarCloudPanel() {
     const setClasses = useMapStore((s) => s.setLidarCloudClasses);
     const load = useMapStore((s) => s.loadLidarCloud);
     const clear = useMapStore((s) => s.clearLidarCloud);
-    const hasData = cloud !== null || mesh !== null || shaded !== null;
+    const hasData = shaded !== null;
 
     const toggleClass = (cls: number) => {
         if (classes.includes(cls)) {
@@ -64,10 +58,9 @@ export function LidarCloudPanel() {
     };
 
     const selectAll = () => setClasses([...AVAILABLE_CLASSES]);
-    const selectNone = () => setClasses([]);
     const selectGround = () => setClasses([2]);
     const selectVegetation = () => setClasses([3, 4, 5]);
-    const selectBuildings = () => setClasses([6, 64, 66]);
+    const selectBuildings = () => setClasses([6, 17, 64, 66]);
 
     return (
         <div>
@@ -92,34 +85,8 @@ export function LidarCloudPanel() {
 
             <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
                 Charge à la demande les points LiDAR HD de l'IGN autour du centre
-                de la carte. Nécessite le service local lancé avec{' '}
-                <span className="font-mono text-[10px]">npm run lidar</span>.
+                de la carte.
             </p>
-
-            <fieldset className="mb-2 inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                <button
-                    type="button"
-                    onClick={() => setBackend('service')}
-                    className={`rounded-l-md px-3 py-1 text-xs ${backend === 'service'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                    title="Crop côté serveur (npm run lidar)"
-                >
-                    Service local
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setBackend('browser')}
-                    className={`rounded-r-md px-3 py-1 text-xs ${backend === 'browser'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                    title="Crop dans le navigateur via copc.js (pas de serveur — déployable sur GitHub Pages)"
-                >
-                    Navigateur
-                </button>
-            </fieldset>
 
             <fieldset className="mb-2 inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
                 <button
@@ -135,99 +102,16 @@ export function LidarCloudPanel() {
                 </button>
                 <button
                     type="button"
-                    onClick={() => setMode('mesh')}
-                    className={`px-3 py-1 text-xs ${mode === 'mesh'
+                    onClick={() => setMode('mixed')}
+                    className={`rounded-r-md px-3 py-1 text-xs ${mode === 'mixed'
                         ? 'bg-green-600 text-white'
                         : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                    title="Mesh 2.5D Delaunay du sol (artefacts en falaise)"
-                >
-                    Mesh sol
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setMode('mixed')}
-                    disabled={backend !== 'browser'}
-                    className={`px-3 py-1 text-xs ${mode === 'mixed'
-                        ? 'bg-green-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                         }`}
                     title="Sol en mesh Delaunay + végétation/bâti en nuage ombré (filtrable à la volée)"
                 >
                     Mixte
                 </button>
-                <button
-                    type="button"
-                    onClick={() => setMode('cloud')}
-                    className={`rounded-r-md px-3 py-1 text-xs ${mode === 'cloud'
-                        ? 'bg-green-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                    title="Nuage brut coloré par classification LAS"
-                >
-                    Nuage brut
-                </button>
             </fieldset>
-
-            {mode === 'mesh' && (
-                <div className="mb-2">
-                    <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Méthode de maillage
-                        {backend !== 'browser' && (
-                            <span className="ml-2 text-amber-600 dark:text-amber-400">(navigateur uniquement)</span>
-                        )}
-                    </div>
-                    <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                        <button
-                            type="button"
-                            onClick={() => setMeshMethod('delaunay')}
-                            className={`rounded-l-md px-3 py-1 text-xs ${meshMethod === 'delaunay'
-                                ? 'bg-amber-600 text-white'
-                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                            title="Delaunay 2.5D — rapide, mais bandes verticales sur les falaises"
-                        >
-                            Delaunay
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setMeshMethod('grid')}
-                            className={`px-3 py-1 text-xs ${meshMethod === 'grid'
-                                ? 'bg-amber-600 text-white'
-                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                            title="Grille régulière (heightfield) — falaises propres, pas de grottes/arches"
-                            disabled={backend !== 'browser'}
-                        >
-                            Grille
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setMeshMethod('voxel')}
-                            className={`px-3 py-1 text-xs ${meshMethod === 'voxel'
-                                ? 'bg-amber-600 text-white'
-                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                            title="Voxels + Marching Cubes — vraie 3D, restitue grottes, arches et surplombs (Pont d'Arc !)"
-                            disabled={backend !== 'browser'}
-                        >
-                            Voxels (3D)
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setMeshMethod('poisson')}
-                            className={`rounded-r-md px-3 py-1 text-xs ${meshMethod === 'poisson'
-                                ? 'bg-amber-600 text-white'
-                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                            title="SDF plan-tangent (Hoppe) — Poisson simplifié, surface lisse posée sur les points"
-                            disabled={backend !== 'browser'}
-                        >
-                            Poisson
-                        </button>
-                    </fieldset>
-                </div>
-            )}
 
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
@@ -278,8 +162,7 @@ export function LidarCloudPanel() {
                     step={0.1}
                     value={pointSize}
                     onChange={(e) => setPointSize(Number(e.target.value))}
-                    disabled={mode === 'mesh'}
-                    className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                    className="mt-1 w-full accent-green-600"
                 />
             </label>
 
@@ -291,8 +174,7 @@ export function LidarCloudPanel() {
                     type="checkbox"
                     checked={sizeCompensation}
                     onChange={(e) => setSizeCompensation(e.target.checked)}
-                    disabled={mode === 'mesh'}
-                    className="h-4 w-4 accent-green-600 disabled:opacity-40"
+                    className="h-4 w-4 accent-green-600"
                 />
             </label>
 
@@ -309,7 +191,6 @@ export function LidarCloudPanel() {
                             : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                             }`}
                         title="Couleurs par classification LAS (sol, végétation, bâtiments...)"
-                        disabled={mode === 'mesh'}
                     >
                         Classification
                     </button>
@@ -321,7 +202,6 @@ export function LidarCloudPanel() {
                             : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                             }`}
                         title="Couleurs basées sur la pente (normales du terrain)"
-                        disabled={mode === 'mesh'}
                     >
                         Pente
                     </button>
@@ -333,7 +213,6 @@ export function LidarCloudPanel() {
                             : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                             }`}
                         title="Sol coloré par pente, végétation et bâtiments par classification LAS"
-                        disabled={mode === 'mesh'}
                     >
                         Mixte
                     </button>
@@ -350,7 +229,6 @@ export function LidarCloudPanel() {
                             }`}
                         role="switch"
                         aria-checked={edl}
-                        disabled={mode === 'mesh'}
                     >
                         <span
                             className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${edl ? 'translate-x-4' : 'translate-x-0'
@@ -373,8 +251,7 @@ export function LidarCloudPanel() {
                                 step={0.5}
                                 value={edlStrength}
                                 onChange={(e) => setEdlStrength(Number(e.target.value))}
-                                disabled={mode === 'mesh'}
-                                className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                                className="mt-1 w-full accent-green-600"
                             />
                         </label>
                         <label className="block">
@@ -390,8 +267,7 @@ export function LidarCloudPanel() {
                                 step={0.1}
                                 value={edlRadius}
                                 onChange={(e) => setEdlRadius(Number(e.target.value))}
-                                disabled={mode === 'mesh'}
-                                className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                                className="mt-1 w-full accent-green-600"
                             />
                         </label>
                         <label className="block">
@@ -407,8 +283,7 @@ export function LidarCloudPanel() {
                                 step={50}
                                 value={edlFarPlane}
                                 onChange={(e) => setEdlFarPlane(Number(e.target.value))}
-                                disabled={mode === 'mesh'}
-                                className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                                className="mt-1 w-full accent-green-600"
                             />
                         </label>
                     </div>
@@ -430,8 +305,7 @@ export function LidarCloudPanel() {
                             step={0.1}
                             value={aoStrength}
                             onChange={(e) => setAoStrength(Number(e.target.value))}
-                            disabled={mode === 'mesh'}
-                            className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                            className="mt-1 w-full accent-green-600"
                         />
                     </label>
                     {aoStrength > 0 && (
@@ -448,8 +322,7 @@ export function LidarCloudPanel() {
                                 step={0.1}
                                 value={aoRadius}
                                 onChange={(e) => setAoRadius(Number(e.target.value))}
-                                disabled={mode === 'mesh'}
-                                className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                                className="mt-1 w-full accent-green-600"
                             />
                         </label>
                     )}
@@ -461,9 +334,8 @@ export function LidarCloudPanel() {
                     <span className="text-sm text-slate-700 dark:text-slate-300">Classes LAS</span>
                     <div className="flex gap-1 text-[10px]">
                         <button type="button" onClick={selectAll} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
-                        <button type="button" onClick={selectNone} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Rien</button>
                         <button type="button" onClick={selectGround} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
-                        <button type="button" onClick={selectVegetation} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végét.</button>
+                        <button type="button" onClick={selectVegetation} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
                         <button type="button" onClick={selectBuildings} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
                     </div>
                 </div>
@@ -535,7 +407,7 @@ export function LidarCloudPanel() {
                 </button>
             </div>
 
-            {/* Progress indicator (browser mode only) */}
+            {/* Progress indicator */}
             {loading && progress && (
                 <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
@@ -556,29 +428,9 @@ export function LidarCloudPanel() {
                 </div>
             )}
 
-            {/* Loading spinner for server mode (no progress info) */}
-            {loading && !progress && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
-                    <span>Chargement en cours…</span>
-                </div>
-            )}
-
             {shaded && !loading && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Points ombrés : {shaded.pointCount.toLocaleString('fr-FR')} points (rayon {shaded.radius} m).
-                </p>
-            )}
-            {mesh && !loading && (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Mesh : {mesh.vertexCount.toLocaleString('fr-FR')} sommets,{' '}
-                    {mesh.triangleCount.toLocaleString('fr-FR')} triangles (rayon {mesh.radius} m).
-                </p>
-            )}
-            {cloud && !loading && (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    {cloud.pointCount.toLocaleString('fr-FR')} points chargés (rayon{' '}
-                    {cloud.radius} m).
+                    {shaded.pointCount.toLocaleString('fr-FR')} points chargés (rayon {shaded.radius} m).
                 </p>
             )}
 

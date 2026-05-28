@@ -16,13 +16,5 @@ export default defineConfig({
     server: {
         host: true,
         port: 5173,
-        proxy: {
-            // Proxy LiDAR cloud requests to the local Node service.
-            // Override with VITE_LIDAR_CLOUD_PROXY=http://host:port if needed.
-            '/api/lidar-cloud': {
-                target: process.env.VITE_LIDAR_CLOUD_PROXY ?? 'http://localhost:8788',
-                changeOrigin: true,
-            },
-        },
     },
 });

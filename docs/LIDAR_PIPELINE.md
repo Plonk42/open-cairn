@@ -1,20 +1,19 @@
 # LiDAR HD data loading & processing pipeline
 
-This document maps how a point cloud / mesh / shaded cloud gets from the
-IGN LiDAR HD archive into the WebGL overlay rendered on top of MapLibre.
+This document maps how a point cloud gets from the IGN LiDAR HD archive
+into the WebGL overlay rendered on top of MapLibre.
 
-Two backends are supported:
+Everything runs **entirely in the browser** using a Web Worker. COPC tiles
+are decoded with `copc.js` + `laz-perf` (WASM). Two render modes are
+supported:
 
-- **`service`** — Node side-car (`services/lidar-cloud/server.mjs`) that
-  crops COPC tiles server-side and streams a compact binary blob.
-- **`browser`** — everything runs in a Web Worker in the page; COPC is
-  decoded with `copc.js` + `laz-perf` (WASM). This is what we mostly use
-  now and what powers the three mesh methods (`delaunay`, `grid`,
-  `voxel`).
+- **`shaded`** — All points with k-NN computed normals, rendered with
+  slope-based coloring and Eye-Dome Lighting
+- **`mixed`** — Ground (class 2) as a Delaunay mesh, vegetation/buildings
+  as shaded points, both rendered together for proper depth ordering
 
-Both backends produce **the same data shapes** (`LidarCloudData`,
-`LidarMeshData`, `LidarShadedCloudData`) so the overlay layer never has
-to care which one ran.
+Both modes produce variants of `LidarShadedCloudData` so the overlay layer
+handles them uniformly.
 
 ---
 
@@ -23,21 +22,17 @@ to care which one ran.
 ```mermaid
 flowchart LR
     UI[LidarCloudPanel<br/>UI] -->|loadLidarCloud| Store[mapStore<br/>Zustand]
-    Store -->|backend choice| BR{lidarBackend?}
-    BR -->|service| SVC[lib/lidarCloud.ts<br/>fetch /api/lidar-cloud]
-    BR -->|browser| IDX[lib/lidarBrowser/index.ts<br/>cache-first wrapper]
-    SVC --> NODE[Node service<br/>services/lidar-cloud/server.mjs]
-    NODE -->|HTTP range| IGN[(data.geopf.fr<br/>COPC LAZ tiles)]
+    Store --> IDX[lib/lidarBrowser/index.ts<br/>cache-first wrapper]
     IDX --> CACHE[(IndexedDB<br/>idb-keyval)]
     IDX --> WC[workerClient.ts]
     WC --> WK[worker.ts<br/>DedicatedWorker]
     WK --> PIPE[pipeline.ts<br/>fetchCommon + finalizers]
     PIPE --> WFS[wfs.ts]
     PIPE --> EXT[extract.ts<br/>COPC reader]
-    WFS --> IGN
+    WFS --> IGN[(data.geopf.fr<br/>COPC LAZ tiles)]
     EXT --> IGN
-    PIPE --> FIN[mesh.ts / gridMesh.ts /<br/>voxelMesh.ts / normals.ts]
-    Store --> OV[LidarCloudOverlay<br/>deck.gl + LidarWebGLLayer]
+    PIPE --> FIN[mesh.ts / normals.ts / slope.ts]
+    Store --> OV[LidarCloudOverlay<br/>LidarWebGLLayer]
     OV --> MAP[MapLibre canvas]
 ```
 
@@ -45,8 +40,8 @@ flowchart LR
 
 ## 2. Common shared stage: `fetchCommon`
 
-All three modes (`cloud`, `mesh`, `shaded`) share the same fetch-and-crop
-prelude. It runs inside the worker.
+Both modes (`shaded`, `mixed`) share the same fetch-and-crop prelude.
+It runs inside the worker.
 
 ```mermaid
 flowchart TD
@@ -120,39 +115,29 @@ flowchart LR
 
 ## 4. Mode-specific finalization
 
-After `fetchCommon`, the worker dispatches one of three finalizers.
+After `fetchCommon`, the worker dispatches one of two finalizers.
 
 ```mermaid
 flowchart TD
     F([fetchCommon output]) --> K{Mode}
-    K -->|cloud| C[fetchLidarCloudBrowser<br/>passthrough]
-    C --> CO([LidarCloudData])
 
-    K -->|shaded| S[fetchLidarShadedBrowser]
+    K -->|shaded| S[fetchLidarShaded]
     S --> S1[normals.ts<br/>computeNormalsKNN<br/>k=12, 2 iterations]
     S1 --> S2[slope.ts<br/>colorsFromNormals]
     S2 --> SO([LidarShadedCloudData<br/>+ normals + RGBA colors])
 
-    K -->|mesh| M[fetchLidarMeshBrowser]
-    M --> MM{meshMethod}
-    MM -->|delaunay| MD[mesh.ts buildMesh<br/>2.5D Delaunator,<br/>edge-length filter]
-    MM -->|grid| MG[gridMesh.ts buildGridMesh<br/>1m XY heightfield,<br/>hole-fill, gradient normals]
-    MM -->|voxel| MV[voxelMesh.ts buildVoxelMesh<br/>0.6m voxel occupancy,<br/>blur, marchingCubes iso=0.4]
-    MD --> MO
-    MG --> MO
-    MV --> MO([LidarMeshData<br/>positions+normals+colors+indices])
+    K -->|mixed| M[fetchLidarMixed]
+    M --> M1[Filter ground class=2]
+    M1 --> M2[mesh.ts buildMesh<br/>2.5D Delaunator]
+    M2 --> M3[Process non-ground as shaded]
+    M3 --> MO([LidarMixedData<br/>mesh + shaded])
 ```
 
-### Mesh methods compared
+### Mesh rendering (mixed mode only)
 
-| Method     | 3D capable | Strength                                    | Weakness                                |
-|------------|------------|---------------------------------------------|-----------------------------------------|
-| `delaunay` | 2.5D       | Fast, preserves point detail                | Stripe artefacts on cliffs              |
-| `grid`     | 2.5D       | Clean cliffs, robust, deterministic         | No caves / arches / overhangs           |
-| `voxel`    | 3D         | Preserves arches/caves (Pont d'Arc, grottes) | Heavier compute, voxel-grid quantization |
-
-The voxel method is the only one that can resolve true overhangs.
-Auto-clamps cell size to keep the grid under ~8 M voxels.
+The Delaunay mesh uses:
+- **2.5D Delaunator** — Fast, preserves point detail, with edge-length
+  filtering to remove long triangles at boundaries
 
 ---
 
@@ -167,24 +152,24 @@ sequenceDiagram
     participant WK as worker.ts
     participant PIPE as pipeline.ts
 
-    Store->>IDX: fetchLidarMesh(params)
-    IDX->>Cache: readCachedLidar(mode, params+meshMethod)
+    Store->>IDX: fetchLidarShaded(params)
+    IDX->>Cache: readCachedLidar('shaded', params)
     Cache-->>IDX: hit? return; miss? continue
-    IDX->>WC: dispatch('mesh', params)
+    IDX->>WC: dispatch('shaded', params)
     WC->>WK: postMessage({id, kind, params})
-    WK->>PIPE: fetchLidarMeshBrowser(paramsWithProgress)
+    WK->>PIPE: fetchLidarShaded(paramsWithProgress)
     loop progress events
         PIPE-->>WK: onProgress(stage, detail)
         WK-->>WC: postMessage({id, type:'progress'})
         WC-->>Store: onProgress callback (UI updates)
     end
-    PIPE-->>WK: LidarMeshData (typed arrays)
+    PIPE-->>WK: LidarShadedCloudData (typed arrays)
     WK->>WK: collectTransferables(data)
     WK-->>WC: postMessage({id, ok, data}, [buffers])
     WC-->>IDX: resolve(data)
     IDX->>Cache: writeCachedLidar (fire-and-forget)
     IDX-->>Store: data
-    Store->>Store: set({lidarCloud: data})
+    Store->>Store: set({lidarShaded: data})
 ```
 
 Key contracts:
@@ -205,7 +190,7 @@ Key contracts:
 
 ```mermaid
 flowchart LR
-    P([params]) --> K[makeKey<br/>lidar:mode:lng:lat:r:s:classes:method]
+    P([params]) --> K[makeKey<br/>lidar:shaded:lng:lat:r:s:classes]
     K --> GET[idbGet]
     GET -->|hit| UNPACK[unpack ArrayBuffer<br/>→ Float32Array etc.]
     GET -->|miss| RUN[run worker pipeline]
@@ -216,7 +201,6 @@ flowchart LR
 
 - Coordinates rounded to 4 decimals (~10 m) so small jitter still hits
   the cache.
-- `meshMethod` is part of the key only for `mode === 'mesh'`.
 - Eviction is best-effort, ordered by insertion (Chromium IDB key
   ordering).
 
@@ -228,13 +212,9 @@ Once data is in the store, the overlay re-renders:
 
 ```mermaid
 flowchart LR
-    Store[mapStore.lidarCloud] --> OV[LidarCloudOverlay.tsx]
-    OV -->|kind=mesh| DM[deck.gl SimpleMeshLayer]
-    OV -->|kind=shaded| DP[deck.gl PointCloudLayer<br/>w/ per-point RGBA]
-    OV -->|kind=cloud| LWG[LidarWebGLLayer<br/>custom GL with EDL + AO]
-    DM --> MAP[MapLibre custom layer]
-    DP --> MAP
-    LWG --> MAP
+    Store[mapStore.lidarShaded] --> OV[LidarCloudOverlay.tsx]
+    OV --> LWG[LidarWebGLLayer<br/>custom GL with EDL + AO]
+    LWG --> MAP[MapLibre custom layer]
 ```
 
 The custom `LidarWebGLLayer` uses MapLibre's `mainMatrix` from
@@ -251,8 +231,5 @@ the vertex shader using
 |-------------------------------------------------|---------------------------------------------------------|
 | `429 Too Many Requests` retries                 | Lower `MAX_INFLIGHT` in [extract.ts](../src/lib/lidarBrowser/extract.ts) |
 | `Aucune dalle LiDAR HD` toast                   | WFS bbox; check `wfs.ts` (lng,lat order!)               |
-| Cached wrong mesh after method switch           | `makeKey` in [cache.ts](../src/lib/lidarBrowser/cache.ts) — `meshMethod` slot |
-| Mesh stripes on cliffs                          | Switch from `delaunay` to `grid`                        |
-| Missing caves on Pont d'Arc                     | Must use `voxel`; check classes include 2,3,4,5,6       |
 | Points drift when pitching/panning              | `LidarWebGLLayer` shader matrix; check `mainMatrix` use |
-| Worker silent / no progress                     | Check `workerClient.cleanParams` keeps `meshMethod`     |
+| Worker silent / no progress                     | Check `workerClient.cleanParams` keeps required params  |

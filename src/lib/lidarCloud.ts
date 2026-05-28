@@ -1,8 +1,6 @@
 /**
- * Client for the local LiDAR HD point cloud service
- * (`services/lidar-cloud/server.mjs`).
- *
- * Binary payload layout matches the server (see that file for details).
+ * Type definitions and helpers for LiDAR HD point cloud data.
+ * All fetching is done via the browser-only pipeline in `@/lib/lidarBrowser`.
  */
 
 export interface LidarCloudData {
@@ -22,18 +20,6 @@ export interface LidarCloudData {
     radius: number;
 }
 
-export interface FetchLidarCloudParams {
-    lng: number;
-    lat: number;
-    /** Half-side of the bbox in meters (server clamps to MAX_RADIUS_M). */
-    radius: number;
-    /** 1 = full density, N = keep one in N points (after bbox filter). */
-    stride: number;
-    /** Optional LAS class whitelist (e.g. `[2]` for ground only). */
-    classes?: number[];
-    signal?: AbortSignal;
-}
-
 export interface LidarMeshData {
     kind: 'mesh';
     centerLng: number;
@@ -49,13 +35,6 @@ export interface LidarMeshData {
     vertexCount: number;
     triangleCount: number;
     radius: number;
-}
-
-export interface FetchLidarMeshParams extends FetchLidarCloudParams {
-    /** Filter to these LAS classes. Default `[2]` (ground only). */
-    classes?: number[];
-    /** Mesh reconstruction algorithm. Service backend always uses Delaunay; accepted for API parity with the browser pipeline. */
-    meshMethod?: 'delaunay' | 'grid' | 'voxel';
 }
 
 export interface LidarShadedCloudData {
@@ -88,92 +67,6 @@ export interface LidarMixedData {
     mesh: LidarMeshData;
     /** All non-ground points with normals + colors, GPU-class-filterable. */
     shaded: LidarShadedCloudData;
-}
-
-const HEADER_BYTES = 24;
-const LIDA_MAGIC = 0x4c494441;
-const LIDM_MAGIC = 0x4c49444d;
-const LIDS_MAGIC = 0x4c494453;
-
-export class LidarCloudError extends Error {
-    code: string;
-    constructor(message: string, code = 'lidar_cloud_error') {
-        super(message);
-        this.code = code;
-    }
-}
-
-/**
- * Fetch a LiDAR HD point cloud crop from the local service.
- */
-export async function fetchLidarCloud(params: FetchLidarCloudParams): Promise<LidarCloudData> {
-    const u = new URL('/api/lidar-cloud', globalThis.location.origin);
-    u.searchParams.set('lng', String(params.lng));
-    u.searchParams.set('lat', String(params.lat));
-    u.searchParams.set('radius', String(Math.round(params.radius)));
-    u.searchParams.set('stride', String(Math.max(1, Math.round(params.stride))));
-    if (params.classes && params.classes.length > 0) {
-        u.searchParams.set('class', params.classes.join(','));
-    }
-
-    let res: Response;
-    try {
-        res = await fetch(u.toString(), { signal: params.signal });
-    } catch (err) {
-        if ((err as { name?: string })?.name === 'AbortError') throw err;
-        throw new LidarCloudError(
-            "Impossible de joindre le service LiDAR HD local (lancez `npm run lidar`).",
-            'service_unreachable',
-        );
-    }
-
-    if (!res.ok) {
-        let message = `Erreur ${res.status}`;
-        let code = 'server_error';
-        try {
-            const body = await res.json();
-            if (typeof body?.message === 'string') message = body.message;
-            if (typeof body?.error === 'string') code = body.error;
-        } catch { /* not json */ }
-        throw new LidarCloudError(message, code);
-    }
-
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength < HEADER_BYTES) {
-        throw new LidarCloudError('Réponse LiDAR HD vide ou tronquée.', 'bad_response');
-    }
-    const dv = new DataView(buf, 0, HEADER_BYTES);
-    const magic = dv.getUint32(0, false);
-    if (magic !== LIDA_MAGIC) {
-        throw new LidarCloudError('Format de réponse LiDAR HD invalide.', 'bad_magic');
-    }
-    const pointCount = dv.getUint32(4, true);
-    const centerLng = dv.getFloat64(8, true);
-    const centerLat = dv.getFloat64(16, true);
-
-    const posByteLen = pointCount * 3 * 4;
-    const expectedLen = HEADER_BYTES + posByteLen + pointCount;
-    if (buf.byteLength < expectedLen) {
-        throw new LidarCloudError(
-            `Charge utile incomplète (${buf.byteLength} < ${expectedLen}).`,
-            'truncated',
-        );
-    }
-    // Copy out of the response buffer into fresh typed arrays so the slice
-    // backing them is aligned and independent of the response lifetime.
-    const positions = new Float32Array(buf.slice(HEADER_BYTES, HEADER_BYTES + posByteLen));
-    const classifications = new Uint8Array(
-        buf.slice(HEADER_BYTES + posByteLen, HEADER_BYTES + posByteLen + pointCount),
-    );
-
-    return {
-        centerLng,
-        centerLat,
-        positions,
-        classifications,
-        pointCount,
-        radius: Math.round(Number(u.searchParams.get('radius') ?? '0')),
-    };
 }
 
 /**
@@ -214,164 +107,4 @@ const DEFAULT_COLOR: [number, number, number] = [220, 220, 220];
 
 export function colorForClass(c: number): [number, number, number] {
     return LAS_CLASS_COLORS[c] ?? DEFAULT_COLOR;
-}
-
-/**
- * Fetch a slope-shaded triangulated mesh of the LiDAR HD points around
- * the given center. Default class filter = ground only (2).
- */
-export async function fetchLidarMesh(params: FetchLidarMeshParams): Promise<LidarMeshData> {
-    const u = new URL('/api/lidar-cloud', globalThis.location.origin);
-    u.searchParams.set('mode', 'mesh');
-    u.searchParams.set('lng', String(params.lng));
-    u.searchParams.set('lat', String(params.lat));
-    u.searchParams.set('radius', String(Math.round(params.radius)));
-    u.searchParams.set('stride', String(Math.max(1, Math.round(params.stride))));
-    const classes = params.classes ?? [2];
-    if (classes.length > 0) u.searchParams.set('class', classes.join(','));
-
-    let res: Response;
-    try {
-        res = await fetch(u.toString(), { signal: params.signal });
-    } catch (err) {
-        if ((err as { name?: string })?.name === 'AbortError') throw err;
-        throw new LidarCloudError(
-            "Impossible de joindre le service LiDAR HD local (lancez `npm run lidar`).",
-            'service_unreachable',
-        );
-    }
-    if (!res.ok) {
-        let message = `Erreur ${res.status}`;
-        let code = 'server_error';
-        try {
-            const body = await res.json();
-            if (typeof body?.message === 'string') message = body.message;
-            if (typeof body?.error === 'string') code = body.error;
-        } catch { /* not json */ }
-        throw new LidarCloudError(message, code);
-    }
-    const buf = await res.arrayBuffer();
-    const MESH_HEADER_BYTES = 28;
-    if (buf.byteLength < MESH_HEADER_BYTES) {
-        throw new LidarCloudError('Réponse LiDAR HD vide ou tronquée.', 'bad_response');
-    }
-    const dv = new DataView(buf, 0, MESH_HEADER_BYTES);
-    const magic = dv.getUint32(0, false);
-    if (magic !== LIDM_MAGIC) {
-        throw new LidarCloudError('Format de mesh LiDAR HD invalide.', 'bad_magic');
-    }
-    const vertexCount = dv.getUint32(4, true);
-    const triangleCount = dv.getUint32(8, true);
-    const centerLng = dv.getFloat64(12, true);
-    const centerLat = dv.getFloat64(20, true);
-
-    const posByteLen = vertexCount * 3 * 4;
-    const nrmByteLen = vertexCount * 3 * 4;
-    const colByteLen = vertexCount * 4;
-    const idxByteLen = triangleCount * 3 * 4;
-    const expectedLen = MESH_HEADER_BYTES + posByteLen + nrmByteLen + colByteLen + idxByteLen;
-    if (buf.byteLength < expectedLen) {
-        throw new LidarCloudError(
-            `Mesh incomplet (${buf.byteLength} < ${expectedLen}).`,
-            'truncated',
-        );
-    }
-    let o = MESH_HEADER_BYTES;
-    const positions = new Float32Array(buf.slice(o, o + posByteLen)); o += posByteLen;
-    const normals = new Float32Array(buf.slice(o, o + nrmByteLen)); o += nrmByteLen;
-    const colors = new Uint8Array(buf.slice(o, o + colByteLen)); o += colByteLen;
-    const indices = new Uint32Array(buf.slice(o, o + idxByteLen));
-
-    return {
-        kind: 'mesh',
-        centerLng,
-        centerLat,
-        positions,
-        normals,
-        colors,
-        indices,
-        vertexCount,
-        triangleCount,
-        radius: Math.round(Number(u.searchParams.get('radius') ?? '0')),
-    };
-}
-
-/**
- * Fetch a shaded LiDAR HD point cloud: positions + per-point normals
- * (k-NN PCA, computed server-side) + slope-based RGBA. Render with
- * `PointCloudLayer` + `LightingEffect` for a CloudCompare-style look that
- * handles cliffs and overhangs natively (each point is independent).
- */
-export async function fetchLidarShaded(params: FetchLidarCloudParams): Promise<LidarShadedCloudData> {
-    const u = new URL('/api/lidar-cloud', globalThis.location.origin);
-    u.searchParams.set('mode', 'shaded');
-    u.searchParams.set('lng', String(params.lng));
-    u.searchParams.set('lat', String(params.lat));
-    u.searchParams.set('radius', String(Math.round(params.radius)));
-    u.searchParams.set('stride', String(Math.max(1, Math.round(params.stride))));
-    if (params.classes && params.classes.length > 0) {
-        u.searchParams.set('class', params.classes.join(','));
-    }
-
-    let res: Response;
-    try {
-        res = await fetch(u.toString(), { signal: params.signal });
-    } catch (err) {
-        if ((err as { name?: string })?.name === 'AbortError') throw err;
-        throw new LidarCloudError(
-            "Impossible de joindre le service LiDAR HD local (lancez `npm run lidar`).",
-            'service_unreachable',
-        );
-    }
-    if (!res.ok) {
-        let message = `Erreur ${res.status}`;
-        let code = 'server_error';
-        try {
-            const body = await res.json();
-            if (typeof body?.message === 'string') message = body.message;
-            if (typeof body?.error === 'string') code = body.error;
-        } catch { /* not json */ }
-        throw new LidarCloudError(message, code);
-    }
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength < HEADER_BYTES) {
-        throw new LidarCloudError('Réponse LiDAR HD vide ou tronquée.', 'bad_response');
-    }
-    const dv = new DataView(buf, 0, HEADER_BYTES);
-    const magic = dv.getUint32(0, false);
-    if (magic !== LIDS_MAGIC) {
-        throw new LidarCloudError('Format de nuage ombré invalide.', 'bad_magic');
-    }
-    const pointCount = dv.getUint32(4, true);
-    const centerLng = dv.getFloat64(8, true);
-    const centerLat = dv.getFloat64(16, true);
-
-    const posByteLen = pointCount * 3 * 4;
-    const nrmByteLen = pointCount * 3 * 4;
-    const colByteLen = pointCount * 4;
-    const clsByteLen = pointCount;
-    const expectedLen = HEADER_BYTES + posByteLen + nrmByteLen + colByteLen + clsByteLen;
-    if (buf.byteLength < expectedLen) {
-        throw new LidarCloudError(
-            `Nuage ombré incomplet (${buf.byteLength} < ${expectedLen}).`,
-            'truncated',
-        );
-    }
-    let o = HEADER_BYTES;
-    const positions = new Float32Array(buf.slice(o, o + posByteLen)); o += posByteLen;
-    const normals = new Float32Array(buf.slice(o, o + nrmByteLen)); o += nrmByteLen;
-    const colors = new Uint8Array(buf.slice(o, o + colByteLen)); o += colByteLen;
-    const classifications = new Uint8Array(buf.slice(o, o + clsByteLen));
-
-    return {
-        kind: 'shaded',
-        centerLng,
-        centerLat,
-        positions,
-        normals,
-        colors,
-        classifications,
-        pointCount,
-        radius: Math.round(Number(u.searchParams.get('radius') ?? '0')),
-    };
 }
