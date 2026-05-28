@@ -145,7 +145,6 @@ interface MapState {
     setLidarCloudOpacity: (v: number) => void;
     /** Whether to dim the underlying basemap when the cloud is visible. */
     lidarCloudHideBasemap: boolean;
-    lidarCloudHideBasemap: boolean;
     setLidarCloudHideBasemap: (v: boolean) => void;
     /** LAS classification filter (empty = all classes). */
     lidarCloudClasses: number[];
