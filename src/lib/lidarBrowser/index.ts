@@ -16,12 +16,16 @@ import { readCachedLidar, writeCachedLidar } from './cache';
 import type { BrowserFetchParams } from './pipeline';
 import * as worker from './workerClient';
 
-export type { BrowserFetchParams as FetchParams };
 export { clearLidarCache } from './cache';
+export type { LidarProgress, ProgressCallback } from './progress';
+export type { BrowserFetchParams as FetchParams };
 
 export async function fetchLidarCloud(params: BrowserFetchParams): Promise<LidarCloudData> {
     const cached = await readCachedLidar('cloud', params);
-    if (cached) return cached as LidarCloudData;
+    if (cached) {
+        params.onProgress?.({ stage: 'done', message: 'Cache', detail: 'données en cache' });
+        return cached as LidarCloudData;
+    }
     const data = await worker.fetchLidarCloud(params);
     void writeCachedLidar('cloud', params, data);
     return data;
@@ -29,7 +33,10 @@ export async function fetchLidarCloud(params: BrowserFetchParams): Promise<Lidar
 
 export async function fetchLidarMesh(params: BrowserFetchParams): Promise<LidarMeshData> {
     const cached = await readCachedLidar('mesh', params);
-    if (cached) return cached as LidarMeshData;
+    if (cached) {
+        params.onProgress?.({ stage: 'done', message: 'Cache', detail: 'données en cache' });
+        return cached as LidarMeshData;
+    }
     const data = await worker.fetchLidarMesh(params);
     void writeCachedLidar('mesh', params, data);
     return data;
@@ -37,7 +44,10 @@ export async function fetchLidarMesh(params: BrowserFetchParams): Promise<LidarM
 
 export async function fetchLidarShaded(params: BrowserFetchParams): Promise<LidarShadedCloudData> {
     const cached = await readCachedLidar('shaded', params);
-    if (cached) return cached as LidarShadedCloudData;
+    if (cached) {
+        params.onProgress?.({ stage: 'done', message: 'Cache', detail: 'données en cache' });
+        return cached as LidarShadedCloudData;
+    }
     const data = await worker.fetchLidarShaded(params);
     void writeCachedLidar('shaded', params, data);
     return data;

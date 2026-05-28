@@ -15,6 +15,7 @@ import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lid
 import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN } from './normals';
+import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals } from './slope';
 import { findTiles } from './wfs';
@@ -26,6 +27,7 @@ export interface BrowserFetchParams {
     stride: number;
     classes?: number[];
     signal?: AbortSignal;
+    onProgress?: ProgressCallback;
 }
 
 const MAX_RADIUS_M = 1000;
@@ -56,6 +58,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     centerLng: number;
     centerLat: number;
 }> {
+    const onProgress = params.onProgress ?? noopProgress;
     const radius = Math.min(MAX_RADIUS_M, Math.max(20, params.radius));
     const stride = Math.max(1, Math.min(200, Math.floor(params.stride)));
     const classFilter = params.classes && params.classes.length > 0
@@ -67,6 +70,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
 
     // WGS84 bbox big enough to bracket the L93 query box after reprojection
     // (20 % padding to compensate for the grid rotation at extreme latitudes).
+    onProgress({ stage: 'wfs', message: STAGE_LABELS.wfs });
     const dLat = (radius * 1.2) / 111_320;
     const dLng = (radius * 1.2) / (111_320 * Math.cos((params.lat * Math.PI) / 180));
     const tiles = await findTiles(
@@ -83,12 +87,29 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     }
 
     // Decode every covering tile in parallel — HTTP Range requests interleave.
-    const results = await Promise.all(tiles.map((tile) => extractPoints({
-        tileUrl: tile.url,
-        x0, y0, radius, stride,
-        classFilter,
-        signal: params.signal,
-    })));
+    onProgress({
+        stage: 'tiles',
+        message: STAGE_LABELS.tiles,
+        detail: `${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`,
+        progress: 0,
+    });
+    let completedTiles = 0;
+    const results = await Promise.all(tiles.map(async (tile) => {
+        const r = await extractPoints({
+            tileUrl: tile.url,
+            x0, y0, radius, stride,
+            classFilter,
+            signal: params.signal,
+        });
+        completedTiles++;
+        onProgress({
+            stage: 'tiles',
+            message: STAGE_LABELS.tiles,
+            detail: `${completedTiles}/${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`,
+            progress: completedTiles / tiles.length,
+        });
+        return r;
+    }));
 
     let totalPts = 0;
     const posParts: Float32Array[] = [];
@@ -116,7 +137,9 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
 export async function fetchLidarCloudBrowser(
     params: BrowserFetchParams,
 ): Promise<LidarCloudData> {
+    const onProgress = params.onProgress ?? noopProgress;
     const c = await fetchCommon(params);
+    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
     return {
         centerLng: c.centerLng,
         centerLat: c.centerLat,
@@ -131,9 +154,13 @@ export async function fetchLidarCloudBrowser(
 export async function fetchLidarShadedBrowser(
     params: BrowserFetchParams,
 ): Promise<LidarShadedCloudData> {
+    const onProgress = params.onProgress ?? noopProgress;
     const c = await fetchCommon(params);
+    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
     const normals = computeNormalsKNN(c.positions, 12, 2);
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const colors = colorsFromNormals(normals);
+    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
     return {
         kind: 'shaded',
         centerLng: c.centerLng,
@@ -151,12 +178,15 @@ export async function fetchLidarShadedBrowser(
 export async function fetchLidarMeshBrowser(
     params: BrowserFetchParams,
 ): Promise<LidarMeshData> {
+    const onProgress = params.onProgress ?? noopProgress;
     const c = await fetchCommon(params);
     // Edge-length threshold: ~10× median spacing for 10 pt/m² IGN data ≈ 3 m;
     // scales up with stride. Clamp to [1.5 m, 8 m].
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
+    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${c.pointCount.toLocaleString()} points` });
     const mesh = buildMesh(c.positions, maxEdge);
+    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${mesh.indices.length / 3} triangles` });
     return {
         kind: 'mesh',
         centerLng: c.centerLng,

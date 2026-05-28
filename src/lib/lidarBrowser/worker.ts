@@ -9,6 +9,7 @@
  *   main → worker: { id, kind: 'cloud'|'mesh'|'shaded', params }
  *   worker → main: { id, ok: true,  data, transferables: ArrayBuffer[] }
  *                | { id, ok: false, error: { message, code? } }
+ *                | { id, type: 'progress', progress: LidarProgress }
  *
  * All large outputs (positions / normals / colors / classifications /
  * indices) are sent back as transferables so the buffers move zero-copy
@@ -16,6 +17,7 @@
  */
 /// <reference lib="webworker" />
 import { fetchLidarCloudBrowser, fetchLidarMeshBrowser, fetchLidarShadedBrowser, type BrowserFetchParams } from './pipeline';
+import type { LidarProgress } from './progress';
 
 type RequestMessage =
     | { id: number; kind: 'cloud'; params: BrowserFetchParams }
@@ -38,12 +40,17 @@ function collectTransferables(obj: Record<string, unknown>): ArrayBuffer[] {
 
 self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
     const { id, kind, params } = ev.data;
+    // Create a progress callback that sends progress to the main thread
+    const onProgress = (progress: LidarProgress) => {
+        self.postMessage({ id, type: 'progress', progress });
+    };
+    const paramsWithProgress = { ...params, onProgress };
     try {
         let data: Record<string, unknown>;
         switch (kind) {
-            case 'cloud': data = await fetchLidarCloudBrowser(params) as unknown as Record<string, unknown>; break;
-            case 'mesh':  data = await fetchLidarMeshBrowser(params) as unknown as Record<string, unknown>;  break;
-            case 'shaded':data = await fetchLidarShadedBrowser(params) as unknown as Record<string, unknown>; break;
+            case 'cloud': data = await fetchLidarCloudBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'mesh': data = await fetchLidarMeshBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'shaded': data = await fetchLidarShadedBrowser(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
         self.postMessage({ id, ok: true, data }, transferables);

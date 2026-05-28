@@ -3,6 +3,7 @@ import {
     fetchLidarCloud as fetchLidarCloudBrowser,
     fetchLidarMesh as fetchLidarMeshBrowser,
     fetchLidarShaded as fetchLidarShadedBrowser,
+    type LidarProgress,
 } from '@/lib/lidarBrowser';
 import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
@@ -119,6 +120,8 @@ interface MapState {
     lidarCloudLoading: boolean;
     /** Last error message (null if no error). */
     lidarCloudError: string | null;
+    /** Current loading progress (browser mode only). */
+    lidarCloudProgress: LidarProgress | null;
     /** Half-side of the bbox to load, in meters. */
     lidarCloudRadius: number;
     setLidarCloudRadius: (v: number) => void;
@@ -297,6 +300,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     lidarShaded: null,
     lidarCloudLoading: false,
     lidarCloudError: null,
+    lidarCloudProgress: null,
     lidarCloudRadius: persisted.lidarCloudRadius ?? 250,
     setLidarCloudRadius: (lidarCloudRadius) => set({ lidarCloudRadius }),
     lidarCloudStride: persisted.lidarCloudStride ?? 10,
@@ -338,12 +342,17 @@ export const useMapStore = create<MapState>((set, get) => ({
         } else {
             center = { lng: state.view.longitude, lat: state.view.latitude };
         }
-        set({ lidarCloudLoading: true, lidarCloudError: null });
+        set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
         try {
             const classes = state.lidarCloudClasses.length > 0 ? state.lidarCloudClasses : undefined;
-            const fetchCloud = state.lidarBackend === 'browser' ? fetchLidarCloudBrowser : fetchLidarCloud;
-            const fetchMesh = state.lidarBackend === 'browser' ? fetchLidarMeshBrowser : fetchLidarMesh;
-            const fetchShaded = state.lidarBackend === 'browser' ? fetchLidarShadedBrowser : fetchLidarShaded;
+            const isBrowser = state.lidarBackend === 'browser';
+            const fetchCloud = isBrowser ? fetchLidarCloudBrowser : fetchLidarCloud;
+            const fetchMesh = isBrowser ? fetchLidarMeshBrowser : fetchLidarMesh;
+            const fetchShaded = isBrowser ? fetchLidarShadedBrowser : fetchLidarShaded;
+            // Progress callback for browser mode
+            const onProgress = isBrowser
+                ? (progress: LidarProgress) => set({ lidarCloudProgress: progress })
+                : undefined;
             if (state.lidarMode === 'shaded') {
                 // No `classes` param: the shaded cloud always fetches every class
                 // and filters on the GPU via LidarWebGLLayer.setClassMask(), so
@@ -353,8 +362,9 @@ export const useMapStore = create<MapState>((set, get) => ({
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
+                    onProgress,
                 });
-                set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false });
+                set({ lidarShaded: shaded, lidarMesh: null, lidarCloud: null, lidarCloudLoading: false, lidarCloudProgress: null });
             } else if (state.lidarMode === 'mesh') {
                 const mesh = await fetchMesh({
                     lng: center.lng,
@@ -362,8 +372,9 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
                     classes: classes ?? [2],
+                    onProgress,
                 });
-                set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false });
+                set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false, lidarCloudProgress: null });
             } else {
                 const data = await fetchCloud({
                     lng: center.lng,
@@ -371,15 +382,16 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
                     classes,
+                    onProgress,
                 });
-                set({ lidarCloud: data, lidarMesh: null, lidarShaded: null, lidarCloudLoading: false });
+                set({ lidarCloud: data, lidarMesh: null, lidarShaded: null, lidarCloudLoading: false, lidarCloudProgress: null });
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Erreur inconnue';
-            set({ lidarCloudLoading: false, lidarCloudError: message });
+            set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
         }
     },
-    clearLidarCloud: () => set({ lidarCloud: null, lidarMesh: null, lidarShaded: null, lidarCloudError: null }),
+    clearLidarCloud: () => set({ lidarCloud: null, lidarMesh: null, lidarShaded: null, lidarCloudError: null, lidarCloudProgress: null }),
 
 }));
 

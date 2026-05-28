@@ -4,13 +4,20 @@
  */
 import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
 import type { BrowserFetchParams } from './pipeline';
+import type { LidarProgress, ProgressCallback } from './progress';
 
 type Pending = {
     // Generic over the worker payload; treated as unknown by the multiplexer
     // and re-typed by the per-kind `dispatch` callers.
     resolve: (data: never) => void;
     reject: (err: Error) => void;
+    onProgress?: ProgressCallback;
 };
+
+type WorkerResultOk = { id: number; ok: true; data: unknown };
+type WorkerResultErr = { id: number; ok: false; error: { message: string; code?: string } };
+type WorkerProgress = { id: number; type: 'progress'; progress: LidarProgress };
+type WorkerMessage = WorkerResultOk | WorkerResultErr | WorkerProgress;
 
 let worker: Worker | null = null;
 let nextId = 0;
@@ -19,21 +26,23 @@ const pending = new Map<number, Pending>();
 function ensureWorker(): Worker {
     if (worker) return worker;
     worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (ev: MessageEvent<{
-        id: number;
-        ok: boolean;
-        data?: unknown;
-        error?: { message: string; code?: string };
-    }>) => {
+    worker.onmessage = (ev: MessageEvent<WorkerMessage>) => {
         const msg = ev.data;
         const p = pending.get(msg.id);
         if (!p) return;
-        pending.delete(msg.id);
-        if (msg.ok) {
-            (p.resolve as (v: unknown) => void)(msg.data);
+        // Handle progress messages (don't delete from pending)
+        if ('type' in msg && msg.type === 'progress') {
+            if (p.onProgress) p.onProgress(msg.progress);
+            return;
+        }
+        // Now msg is narrowed to WorkerResultOk | WorkerResultErr
+        const result = msg as WorkerResultOk | WorkerResultErr;
+        pending.delete(result.id);
+        if (result.ok) {
+            (p.resolve as (v: unknown) => void)(result.data);
         } else {
-            const err = new Error(msg.error?.message ?? 'Worker error') as Error & { code?: string };
-            if (msg.error?.code) err.code = msg.error.code;
+            const err = new Error(result.error?.message ?? 'Worker error') as Error & { code?: string };
+            if (result.error?.code) err.code = result.error.code;
             p.reject(err);
         }
     };
@@ -48,15 +57,15 @@ function ensureWorker(): Worker {
 }
 
 /**
- * Strip `signal` (and any other non-cloneable values) before sending the
- * params over `postMessage`. `AbortSignal` isn't structured-cloneable.
+ * Strip non-cloneable values (`signal`, `onProgress`) before sending the
+ * params over `postMessage`. `AbortSignal` and functions aren't structured-cloneable.
  *
  * Cancellation across the worker boundary is not implemented in this
  * phase — requests just run to completion. The map store already handles
  * race conditions by latest-wins on the returned data.
  */
-function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal'> {
-    const { signal: _ignored, ...rest } = p;
+function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal' | 'onProgress'> {
+    const { signal: _ignored, onProgress: _ignored2, ...rest } = p;
     return rest;
 }
 
@@ -64,7 +73,7 @@ function dispatch<T>(kind: 'cloud' | 'mesh' | 'shaded', params: BrowserFetchPara
     const w = ensureWorker();
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        pending.set(id, { resolve, reject, onProgress: params.onProgress });
         w.postMessage({ id, kind, params: cleanParams(params) });
     });
 }

@@ -20,6 +20,7 @@ export function LidarCloudPanel() {
     const shaded = useMapStore((s) => s.lidarShaded);
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const error = useMapStore((s) => s.lidarCloudError);
+    const progress = useMapStore((s) => s.lidarCloudProgress);
     const radius = useMapStore((s) => s.lidarCloudRadius);
     const setRadius = useMapStore((s) => s.setLidarCloudRadius);
     const stride = useMapStore((s) => s.lidarCloudStride);
@@ -440,6 +441,35 @@ export function LidarCloudPanel() {
                     Effacer
                 </button>
             </div>
+
+            {/* Progress indicator (browser mode only) */}
+            {loading && progress && (
+                <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
+                        <span>{progress.message}</span>
+                        {progress.detail && (
+                            <span className="text-slate-400 dark:text-slate-500">({progress.detail})</span>
+                        )}
+                    </div>
+                    {progress.progress !== undefined && progress.progress > 0 && progress.progress < 1 && (
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-slate-700">
+                            <div
+                                className="h-full bg-green-600 transition-all duration-200"
+                                style={{ width: `${Math.round(progress.progress * 100)}%` }}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Loading spinner for server mode (no progress info) */}
+            {loading && !progress && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
+                    <span>Chargement en cours…</span>
+                </div>
+            )}
 
             {shaded && !loading && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
