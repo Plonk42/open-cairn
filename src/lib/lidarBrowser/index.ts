@@ -18,7 +18,7 @@ import * as worker from './workerClient';
 
 export { clearLidarCache } from './cache';
 export type { LidarProgress, ProgressCallback } from './progress';
-export type { BrowserFetchParams as FetchParams };
+export type { BrowserFetchParams as FetchParams, MeshMethod } from './pipeline';
 
 export async function fetchLidarCloud(params: BrowserFetchParams): Promise<LidarCloudData> {
     const cached = await readCachedLidar('cloud', params);

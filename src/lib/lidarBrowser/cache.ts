@@ -24,12 +24,14 @@ export type Cacheable = LidarCloudData | LidarMeshData | LidarShadedCloudData;
  */
 function makeKey(
     mode: 'cloud' | 'mesh' | 'shaded',
-    p: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
+    p: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
 ): string {
     const lng = p.lng.toFixed(4);
     const lat = p.lat.toFixed(4);
     const classes = p.classes && p.classes.length > 0 ? p.classes.slice().sort((a, b) => a - b).join(',') : 'all';
-    return `lidar:${mode}:${lng}:${lat}:${p.radius}:${p.stride}:${classes}`;
+    // Only meshes care about the reconstruction method; cloud/shaded ignore it.
+    const method = mode === 'mesh' ? (p.meshMethod ?? 'delaunay') : '';
+    return `lidar:${mode}:${lng}:${lat}:${p.radius}:${p.stride}:${classes}${method ? ':' + method : ''}`;
 }
 
 /** Soft LRU cap (eviction is best-effort, not strict). */
@@ -161,7 +163,7 @@ async function evictIfNeeded(): Promise<void> {
 
 export async function readCachedLidar(
     mode: 'cloud' | 'mesh' | 'shaded',
-    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
+    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
 ): Promise<Cacheable | null> {
     try {
         const key = makeKey(mode, params);
@@ -175,7 +177,7 @@ export async function readCachedLidar(
 
 export async function writeCachedLidar(
     mode: 'cloud' | 'mesh' | 'shaded',
-    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[] },
+    params: { lng: number; lat: number; radius: number; stride: number; classes?: number[]; meshMethod?: string },
     data: Cacheable,
 ): Promise<void> {
     try {

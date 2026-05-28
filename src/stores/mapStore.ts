@@ -4,6 +4,7 @@ import {
     fetchLidarMesh as fetchLidarMeshBrowser,
     fetchLidarShaded as fetchLidarShadedBrowser,
     type LidarProgress,
+    type MeshMethod,
 } from '@/lib/lidarBrowser';
 import { fetchLidarCloud, fetchLidarMesh, fetchLidarShaded, type LidarCloudData, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
@@ -110,6 +111,9 @@ interface MapState {
     /** Rendering mode: raw point cloud, slope-shaded 2.5D mesh, or shaded point splatting. */
     lidarMode: 'cloud' | 'mesh' | 'shaded';
     setLidarMode: (v: 'cloud' | 'mesh' | 'shaded') => void;
+    /** Mesh reconstruction algorithm (browser backend only). */
+    lidarMeshMethod: MeshMethod;
+    setLidarMeshMethod: (v: MeshMethod) => void;
     /** Loaded point cloud (null = none). */
     lidarCloud: LidarCloudData | null;
     /** Loaded mesh (null = none). */
@@ -198,6 +202,7 @@ type PersistedSettings = {
     ignScanApiKey?: string;
     ignDemApiKey?: string;
     lidarMode?: 'cloud' | 'mesh' | 'shaded';
+    lidarMeshMethod?: MeshMethod;
     lidarBackend?: 'service' | 'browser';
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
@@ -293,6 +298,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     // LiDAR HD point cloud state
     lidarMode: persisted.lidarMode ?? 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
+    lidarMeshMethod: persisted.lidarMeshMethod ?? 'delaunay',
+    setLidarMeshMethod: (lidarMeshMethod) => set({ lidarMeshMethod }),
     lidarBackend: persisted.lidarBackend ?? 'service',
     setLidarBackend: (lidarBackend) => set({ lidarBackend }),
     lidarCloud: null,
@@ -372,6 +379,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
                     classes: classes ?? [2],
+                    meshMethod: state.lidarMeshMethod,
                     onProgress,
                 });
                 set({ lidarMesh: mesh, lidarCloud: null, lidarShaded: null, lidarCloudLoading: false, lidarCloudProgress: null });
@@ -418,6 +426,7 @@ useMapStore.subscribe((state) => {
             ignScanApiKey: state.ignScanApiKey,
             ignDemApiKey: state.ignDemApiKey,
             lidarMode: state.lidarMode,
+            lidarMeshMethod: state.lidarMeshMethod,
             lidarBackend: state.lidarBackend,
             lidarCloudRadius: state.lidarCloudRadius,
             lidarCloudStride: state.lidarCloudStride,

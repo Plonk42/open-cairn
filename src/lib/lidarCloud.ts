@@ -54,6 +54,8 @@ export interface LidarMeshData {
 export interface FetchLidarMeshParams extends FetchLidarCloudParams {
     /** Filter to these LAS classes. Default `[2]` (ground only). */
     classes?: number[];
+    /** Mesh reconstruction algorithm. Service backend always uses Delaunay; accepted for API parity with the browser pipeline. */
+    meshMethod?: 'delaunay' | 'grid' | 'voxel';
 }
 
 export interface LidarShadedCloudData {

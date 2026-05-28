@@ -13,12 +13,17 @@
  */
 import type { LidarCloudData, LidarMeshData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
+import { buildGridMesh } from './gridMesh';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN } from './normals';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals } from './slope';
+import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
+
+/** Available mesh reconstruction methods. */
+export type MeshMethod = 'delaunay' | 'grid' | 'voxel';
 
 export interface BrowserFetchParams {
     lng: number;
@@ -26,6 +31,8 @@ export interface BrowserFetchParams {
     radius: number;
     stride: number;
     classes?: number[];
+    /** Mesh reconstruction algorithm (only used by the mesh fetch). */
+    meshMethod?: MeshMethod;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -174,18 +181,44 @@ export async function fetchLidarShadedBrowser(
     };
 }
 
-/** Slope-shaded triangulated mesh (2.5D Delaunay + edge pruning). */
+/** Slope-shaded triangulated mesh. Method selectable: `delaunay` (2.5D
+ *  Delaunator, fast but cliff-stripe artefacts), `grid` (regular
+ *  heightfield, clean cliffs, no caves), or `voxel` (3D Marching Cubes,
+ *  represents arches/caves/overhangs at the cost of more compute).
+ */
 export async function fetchLidarMeshBrowser(
     params: BrowserFetchParams,
 ): Promise<LidarMeshData> {
     const onProgress = params.onProgress ?? noopProgress;
     const c = await fetchCommon(params);
-    // Edge-length threshold: ~10× median spacing for 10 pt/m² IGN data ≈ 3 m;
-    // scales up with stride. Clamp to [1.5 m, 8 m].
-    const expectedSpacing = Math.sqrt(params.stride / 10);
-    const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
-    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${c.pointCount.toLocaleString()} points` });
-    const mesh = buildMesh(c.positions, maxEdge);
+    const method: MeshMethod = params.meshMethod ?? 'delaunay';
+    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${c.pointCount.toLocaleString()} points (${method})` });
+
+    let mesh: { positions: Float32Array; normals: Float32Array; colors: Uint8Array; indices: Uint32Array };
+    let vertexCount: number;
+    if (method === 'grid') {
+        // Cell size ≈ point spacing. IGN HD is ~10 pt/m² so ~0.3 m spacing;
+        // 0.5 m grid is fine enough to keep cliff detail while staying
+        // robust to gaps. Bump hole-fill passes accordingly.
+        mesh = buildGridMesh(c.positions, 0.5, 3);
+        vertexCount = mesh.positions.length / 3;
+    } else if (method === 'voxel') {
+        mesh = buildVoxelMesh(c.positions, {
+            cellSize: 0.4,
+            smoothPasses: 0,
+            iso: 0.5,
+            fullHits: 2,
+            maxVoxels: 32_000_000,
+        });
+        vertexCount = mesh.positions.length / 3;
+    } else {
+        // Edge-length threshold: ~10× median spacing for 10 pt/m² IGN data ≈ 3 m;
+        // scales up with stride. Clamp to [1.5 m, 8 m].
+        const expectedSpacing = Math.sqrt(params.stride / 10);
+        const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
+        mesh = buildMesh(c.positions, maxEdge);
+        vertexCount = c.pointCount;
+    }
     onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${mesh.indices.length / 3} triangles` });
     return {
         kind: 'mesh',
@@ -195,7 +228,7 @@ export async function fetchLidarMeshBrowser(
         normals: mesh.normals,
         colors: mesh.colors,
         indices: mesh.indices,
-        vertexCount: c.pointCount,
+        vertexCount,
         triangleCount: mesh.indices.length / 3,
         radius: c.radius,
     };

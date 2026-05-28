@@ -120,17 +120,67 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     // wasm heap would OOM after a few nodes.
     let totalBytesFetched = 0;
     let fetchCount = 0;
+    // IGN's data.geopf.fr aggressively 429s when too many byte-range requests
+    // overlap. Cap in-flight gets and retry with exponential backoff on short
+    // bodies (always an HTML error page from nginx).
+    const MAX_INFLIGHT = 2;
+    let inflight = 0;
+    const waitQueue: Array<() => void> = [];
+    const acquire = async (): Promise<void> => {
+        if (inflight < MAX_INFLIGHT) { inflight++; return; }
+        await new Promise<void>((resolve) => waitQueue.push(resolve));
+        inflight++;
+    };
+    const release = (): void => {
+        inflight--;
+        const next = waitQueue.shift();
+        if (next) next();
+    };
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const get: typeof rawGet = async (begin: number, end: number) => {
-        const buf = await rawGet(begin, end);
         const expected = end - begin;
-        if (buf.byteLength !== expected) {
+        const tileName = tileUrl.split('/').pop() ?? tileUrl;
+        const MAX_ATTEMPTS = 5;
+        let lastSnippet = '';
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            await acquire();
+            let buf: Uint8Array;
+            try {
+                buf = await rawGet(begin, end);
+            } finally {
+                release();
+            }
+            if (buf.byteLength === expected) {
+                totalBytesFetched += buf.byteLength;
+                fetchCount++;
+                return buf;
+            }
+            // Short body — decode for diagnostics. 429s look like '<html>...429 Too Many Requests...'.
+            let snippet = '';
+            try {
+                snippet = new TextDecoder('utf-8', { fatal: false })
+                    .decode(buf.slice(0, Math.min(buf.byteLength, 400)))
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            } catch { /* ignore decode errors */ }
+            lastSnippet = snippet;
+            const looksRetriable = /429|503|too many|throttl|unavailable/i.test(snippet)
+                || buf.byteLength < expected / 8;
+            if (!looksRetriable || attempt === MAX_ATTEMPTS - 1) break;
+            // Exponential backoff with jitter: 0.5s, 1s, 2s, 4s.
+            const delay = 500 * (2 ** attempt) + Math.random() * 250;
             // eslint-disable-next-line no-console
-            console.warn('[lidarBrowser] range mismatch', tileUrl.split('/').pop(),
-                'asked', expected, 'got', buf.byteLength);
+            console.warn('[lidarBrowser] retry', tileName, 'attempt', attempt + 1,
+                'after', Math.round(delay), 'ms (server said:', snippet.slice(0, 80), ')');
+            await sleep(delay);
         }
-        totalBytesFetched += buf.byteLength;
-        fetchCount++;
-        return buf;
+        // eslint-disable-next-line no-console
+        console.warn('[lidarBrowser] range mismatch', tileName,
+            'asked', expected, 'body:', lastSnippet);
+        throw new Error(
+            `Range request failed on ${tileName} (asked ${expected} B). `
+            + `Server response: ${lastSnippet || '<binary>'}`,
+        );
     };
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();

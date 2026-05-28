@@ -13,6 +13,8 @@ const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
 export function LidarCloudPanel() {
     const mode = useMapStore((s) => s.lidarMode);
     const setMode = useMapStore((s) => s.setLidarMode);
+    const meshMethod = useMapStore((s) => s.lidarMeshMethod);
+    const setMeshMethod = useMapStore((s) => s.setLidarMeshMethod);
     const backend = useMapStore((s) => s.lidarBackend);
     const setBackend = useMapStore((s) => s.setLidarBackend);
     const cloud = useMapStore((s) => s.lidarCloud);
@@ -152,6 +154,54 @@ export function LidarCloudPanel() {
                     Nuage brut
                 </button>
             </fieldset>
+
+            {mode === 'mesh' && (
+                <div className="mb-2">
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Méthode de maillage
+                        {backend !== 'browser' && (
+                            <span className="ml-2 text-amber-600 dark:text-amber-400">(navigateur uniquement)</span>
+                        )}
+                    </div>
+                    <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
+                        <button
+                            type="button"
+                            onClick={() => setMeshMethod('delaunay')}
+                            className={`rounded-l-md px-3 py-1 text-xs ${meshMethod === 'delaunay'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Delaunay 2.5D — rapide, mais bandes verticales sur les falaises"
+                        >
+                            Delaunay
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMeshMethod('grid')}
+                            className={`px-3 py-1 text-xs ${meshMethod === 'grid'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Grille régulière (heightfield) — falaises propres, pas de grottes/arches"
+                            disabled={backend !== 'browser'}
+                        >
+                            Grille
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMeshMethod('voxel')}
+                            className={`rounded-r-md px-3 py-1 text-xs ${meshMethod === 'voxel'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Voxels + Marching Cubes — vraie 3D, restitue grottes, arches et surplombs (Pont d'Arc !)"
+                            disabled={backend !== 'browser'}
+                        >
+                            Voxels (3D)
+                        </button>
+                    </fieldset>
+                </div>
+            )}
 
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
