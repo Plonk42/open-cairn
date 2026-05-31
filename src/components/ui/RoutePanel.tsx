@@ -2,13 +2,46 @@ import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/co
 import { FlyoverController } from '@/lib/flyover';
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
 import { exportGpx, importGpxFile } from '@/lib/gpx';
+import { ignReverse } from '@/lib/ignGeocoding';
+import { buildPreview, getSavedRouteById, saveRoute } from '@/lib/savedRoutes';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
     return waypointMode ?? 'auto';
+}
+
+/**
+ * Build a default name for a route based on its waypoints + elevation profile.
+ * - Loop (start ≈ end within 100 m): "{highest-point}, depuis {start}"
+ * - Otherwise: "{end}, depuis {start}"
+ */
+async function buildDefaultRouteName(
+    waypoints: { coordinate: [number, number] }[],
+    profile: { coordinate: [number, number]; elevation: number }[],
+): Promise<string> {
+    if (waypoints.length === 0) return 'Itinéraire';
+    const start = waypoints[0].coordinate;
+    const last = waypoints.at(-1)!.coordinate;
+    const isLoop = waypoints.length >= 2 && distanceMeters(start, last) < 100;
+
+    let endCoord = last;
+    if (isLoop && profile.length > 0) {
+        const summit = profile.reduce((best, s) => (s.elevation > best.elevation ? s : best), profile[0]);
+        endCoord = summit.coordinate;
+    }
+
+    const [endName, startName] = await Promise.all([
+        ignReverse(endCoord[0], endCoord[1]).catch(() => null),
+        ignReverse(start[0], start[1]).catch(() => null),
+    ]);
+
+    if (endName && startName && endName !== startName) return `${endName}, depuis ${startName}`;
+    if (endName) return endName;
+    if (startName) return `Itinéraire depuis ${startName}`;
+    return 'Itinéraire';
 }
 
 export function RoutePanel() {
@@ -44,6 +77,10 @@ export function RoutePanel() {
     const [editingNameId, setEditingNameId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
     const [isFlying, setIsFlying] = useState(false);
+    const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+    const [saveNameDraft, setSaveNameDraft] = useState('');
+    const loadedRouteId = useRouteStore((s) => s.loadedRouteId);
+    const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
     const flyoverRef = useRef<FlyoverController | null>(null);
     const waypointMarkers: WaypointGraphMarker[] = (() => {
         const markers: WaypointGraphMarker[] = [];
@@ -146,6 +183,48 @@ export function RoutePanel() {
                 </div>
 
                 <div className={`ml-auto flex items-center ${isMobile ? 'gap-2' : 'gap-1.5'}`}>
+                    {/* Reverse */}
+                    <button
+                        type="button"
+                        onClick={reverseRoute}
+                        disabled={waypoints.length < 2}
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                        title="Inverser l'itinéraire"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 00.04 1.06l2.1 1.95H6.75a.75.75 0 000 1.5h8.59l-2.1 1.95a.75.75 0 101.02 1.1l3.5-3.25a.75.75 0 000-1.1l-3.5-3.25a.75.75 0 00-1.06.04zm-6.4 8a.75.75 0 00-1.06-.04l-3.5 3.25a.75.75 0 000 1.1l3.5 3.25a.75.75 0 101.02-1.1l-2.1-1.95h8.59a.75.75 0 000-1.5H4.66l2.1-1.95a.75.75 0 00.04-1.06z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                    {/* Flyover 3D */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (isFlying) {
+                                flyoverRef.current?.stop();
+                                setIsFlying(false);
+                            } else {
+                                const map = useMapStore.getState().mapInstance;
+                                if (!map || routeCoordinates.length < 2) return;
+                                const controller = new FlyoverController();
+                                flyoverRef.current = controller;
+                                setIsFlying(true);
+                                controller.start(map, routeCoordinates, {
+                                    onProgress: (d: number) => setHoverDistance(d),
+                                    onEnd: () => {
+                                        setIsFlying(false);
+                                        setHoverDistance(null);
+                                    },
+                                });
+                            }
+                        }}
+                        disabled={routeCoordinates.length < 2}
+                        className={`flex items-center justify-center rounded-md ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 ${isFlying ? 'bg-violet-50 text-violet-600 ring-violet-300 dark:bg-violet-900/30 dark:text-violet-400 dark:ring-violet-700' : 'text-slate-400 hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-900/30'} ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                        title={isFlying ? 'Arrêter le survol' : 'Survoler l\'itinéraire en 3D'}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                            <path d="M3.105 2.29a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.155.75.75 0 000-1.114A28.897 28.897 0 003.105 2.289z" />
+                        </svg>
+                    </button>
                     {/* Import GPX */}
                     <button
                         type="button"
@@ -192,46 +271,21 @@ export function RoutePanel() {
                             <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
                         </svg>
                     </button>
-                    {/* Reverse */}
+                    {/* Save */}
                     <button
                         type="button"
-                        onClick={reverseRoute}
-                        disabled={waypoints.length < 2}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Inverser l'itinéraire"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 00.04 1.06l2.1 1.95H6.75a.75.75 0 000 1.5h8.59l-2.1 1.95a.75.75 0 101.02 1.1l3.5-3.25a.75.75 0 000-1.1l-3.5-3.25a.75.75 0 00-1.06.04zm-6.4 8a.75.75 0 00-1.06-.04l-3.5 3.25a.75.75 0 000 1.1l3.5 3.25a.75.75 0 101.02-1.1l-2.1-1.95h8.59a.75.75 0 000-1.5H4.66l2.1-1.95a.75.75 0 00.04-1.06z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                    {/* Flyover 3D */}
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (isFlying) {
-                                flyoverRef.current?.stop();
-                                setIsFlying(false);
-                            } else {
-                                const map = useMapStore.getState().mapInstance;
-                                if (!map || routeCoordinates.length < 2) return;
-                                const controller = new FlyoverController();
-                                flyoverRef.current = controller;
-                                setIsFlying(true);
-                                controller.start(map, routeCoordinates, {
-                                    onProgress: (d: number) => setHoverDistance(d),
-                                    onEnd: () => {
-                                        setIsFlying(false);
-                                        setHoverDistance(null);
-                                    },
-                                });
-                            }
+                        onClick={async () => {
+                            const existing = loadedRouteId ? getSavedRouteById(loadedRouteId) : null;
+                            const defaultName = existing ? existing.name : await buildDefaultRouteName(waypoints, profile);
+                            setSaveNameDraft(defaultName);
+                            setSaveDialogOpen(true);
                         }}
-                        disabled={routeCoordinates.length < 2}
-                        className={`flex items-center justify-center rounded-md ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 ${isFlying ? 'bg-violet-50 text-violet-600 ring-violet-300 dark:bg-violet-900/30 dark:text-violet-400 dark:ring-violet-700' : 'text-slate-400 hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-900/30'} ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title={isFlying ? 'Arrêter le survol' : 'Survoler l\'itinéraire en 3D'}
+                        disabled={waypoints.length < 2}
+                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-emerald-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                        title="Sauvegarder l'itinéraire"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M3.105 2.29a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.155.75.75 0 000-1.114A28.897 28.897 0 003.105 2.289z" />
+                            <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
                         </svg>
                     </button>
                     {/* Clear */}
@@ -499,6 +553,105 @@ export function RoutePanel() {
                     )}
                 </div>
             )}
+
+            {/* Save dialog */}
+            {saveDialogOpen && (
+                <SaveRouteDialog
+                    defaultName={saveNameDraft}
+                    existingRouteId={loadedRouteId}
+                    onSave={(name, mode) => {
+                        const saved = saveRoute({
+                            id: mode === 'overwrite' && loadedRouteId ? loadedRouteId : undefined,
+                            name,
+                            waypoints,
+                            segments: routeSegments,
+                            stats,
+                            preview: buildPreview(routeCoordinates, profile),
+                        });
+                        setLoadedRouteId(saved.id);
+                        setSaveDialogOpen(false);
+                    }}
+                    onCancel={() => setSaveDialogOpen(false)}
+                />
+            )}
         </div>
+    );
+}
+
+function SaveRouteDialog({ defaultName, existingRouteId, onSave, onCancel }: Readonly<{
+    defaultName: string;
+    existingRouteId: string | null;
+    onSave: (name: string, mode: 'overwrite' | 'new') => void;
+    onCancel: () => void;
+}>) {
+    const [name, setName] = useState(defaultName);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useRef<HTMLDialogElement>(null);
+    const hasExisting = existingRouteId !== null;
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        if (dialog && !dialog.open) dialog.showModal();
+        setTimeout(() => inputRef.current?.select(), 0);
+    }, []);
+
+    const submit = (mode: 'overwrite' | 'new') => {
+        onSave(name.trim() || defaultName, mode);
+    };
+
+    return (
+        <dialog
+            ref={dialogRef}
+            onClose={onCancel}
+            onCancel={onCancel}
+            className="fixed inset-0 z-50 m-auto w-96 rounded-xl bg-white p-5 shadow-xl ring-1 ring-black/5 backdrop:bg-black/40 dark:bg-slate-800 dark:ring-white/10"
+        >
+            <form onSubmit={(e) => { e.preventDefault(); submit(hasExisting ? 'overwrite' : 'new'); }}>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    Sauvegarder l&apos;itinéraire
+                </h3>
+                {hasExisting && (
+                    <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                        Cet itinéraire est déjà sauvegardé. Voulez-vous écraser la version existante ou en créer une nouvelle&nbsp;?
+                    </p>
+                )}
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoFocus
+                    className="mb-4 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-green-400 focus:ring-2 focus:ring-green-400/30 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    placeholder="Nom de l'itinéraire"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') onCancel();
+                    }}
+                />
+                <div className="flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-100 dark:text-slate-400 dark:ring-slate-600 dark:hover:bg-slate-700"
+                    >
+                        Annuler
+                    </button>
+                    {hasExisting && (
+                        <button
+                            type="button"
+                            onClick={() => submit('new')}
+                            className="rounded-md bg-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-100 dark:hover:bg-slate-500"
+                        >
+                            Nouveau
+                        </button>
+                    )}
+                    <button
+                        type="submit"
+                        className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                    >
+                        {hasExisting ? 'Écraser' : 'Sauvegarder'}
+                    </button>
+                </div>
+            </form>
+        </dialog>
     );
 }

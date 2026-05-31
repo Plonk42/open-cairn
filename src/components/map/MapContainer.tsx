@@ -486,6 +486,10 @@ export function MapContainer() {
         if (import.meta.env.DEV)
             (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
 
+        // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
+        // so adding the scale FIRST puts it at the very bottom of the stack, under the other buttons.
+        map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+
         map.addControl(
             new maplibregl.NavigationControl({
                 visualizePitch: true,
@@ -510,7 +514,6 @@ export function MapContainer() {
         terrainControl._terrainButton.addEventListener('click', () => {
             globalThis.setTimeout(() => syncTerrainControlState(map), 0);
         });
-        map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
         map.on('moveend', () => {

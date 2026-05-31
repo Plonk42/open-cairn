@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CursorCoordinates } from './components/map/CursorCoordinates';
 import { MapContainer } from './components/map/MapContainer';
+import { SearchBox } from './components/map/SearchBox';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { LidarCloudPanel } from './components/ui/LidarCloudPanel';
 import { RoutePanel } from './components/ui/RoutePanel';
+import { SavedRoutesPanel } from './components/ui/SavedRoutesPanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
 import { buildShareUrl } from './lib/shareView';
 import { useIsMobile } from './lib/useIsMobile';
 import { useMapStore } from './stores/mapStore';
 import { useRouteStore } from './stores/routeStore';
 
-type RightTab = 'layers' | 'lidar' | 'settings';
-type MobileTab = 'map' | 'route' | 'layers' | 'lidar' | 'settings';
+type RightTab = 'layers' | 'routes' | 'lidar' | 'settings';
+type MobileTab = 'map' | 'route' | 'routes' | 'layers' | 'lidar' | 'settings';
 
 /** Hook to sync the LiDAR preview visibility with the current tab state. */
 function useLidarPreviewSync(tabIsLidar: boolean) {
@@ -117,33 +120,41 @@ export function App() {
                 {/* Map fills remaining space */}
                 <div className="relative flex-1">
                     <MapContainer />
-                    {/* App title badge */}
-                    <div className="pointer-events-none absolute left-3 top-3 z-10 select-none">
-                        <div className="flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5 dark:bg-slate-900/70 dark:ring-white/10">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 20" fill="currentColor" className="h-4 w-3.5 text-green-600 dark:text-emerald-400">
-                                <ellipse cx="8" cy="17" rx="5.5" ry="2" />
-                                <ellipse cx="8" cy="12.5" rx="4" ry="1.8" opacity="0.85" />
-                                <ellipse cx="8" cy="8.5" rx="2.8" ry="1.5" opacity="0.7" />
-                                <circle cx="8" cy="4.5" r="2" opacity="0.9" />
-                            </svg>
-                            <span className="text-slate-700 dark:text-slate-100">open-cairn</span>
-                            <button
-                                type="button"
-                                onClick={handleShare}
-                                className="pointer-events-auto relative ml-1.5 flex items-center gap-1 rounded-md bg-green-600/10 px-2 py-0.5 text-xs font-medium text-green-700 transition hover:bg-green-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:hover:bg-emerald-400/20"
-                                title="Partager la vue actuelle"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                    <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
-                                    <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                    {/* Top-left unified menu: app title + search + cursor coordinates */}
+                    <div className="pointer-events-none absolute left-3 top-3 z-10 w-72">
+                        <div className="overflow-hidden rounded-lg bg-white/85 shadow-sm ring-1 ring-black/5 backdrop-blur-md dark:bg-slate-900/75 dark:ring-white/10">
+                            <div className="flex select-none items-center gap-1.5 px-3 py-1.5 text-sm font-semibold">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 20" fill="currentColor" className="h-4 w-3.5 text-green-600 dark:text-emerald-400">
+                                    <ellipse cx="8" cy="17" rx="5.5" ry="2" />
+                                    <ellipse cx="8" cy="12.5" rx="4" ry="1.8" opacity="0.85" />
+                                    <ellipse cx="8" cy="8.5" rx="2.8" ry="1.5" opacity="0.7" />
+                                    <circle cx="8" cy="4.5" r="2" opacity="0.9" />
                                 </svg>
-                                Partager
-                                {shareTooltip && (
-                                    <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white shadow dark:bg-slate-700">
-                                        Lien copié !
-                                    </span>
-                                )}
-                            </button>
+                                <span className="text-slate-700 dark:text-slate-100">open-cairn</span>
+                                <button
+                                    type="button"
+                                    onClick={handleShare}
+                                    className="pointer-events-auto relative ml-auto flex items-center gap-1 rounded-md bg-green-600/10 px-2 py-0.5 text-xs font-medium text-green-700 transition hover:bg-green-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:hover:bg-emerald-400/20"
+                                    title="Partager la vue actuelle"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                                        <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
+                                        <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                                    </svg>
+                                    Partager
+                                    {shareTooltip && (
+                                        <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white shadow dark:bg-slate-700">
+                                            Lien copié !
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                            <div className="border-t border-black/5 dark:border-white/10">
+                                <SearchBox flat />
+                            </div>
+                            <div className="border-t border-black/5 px-2 py-1 dark:border-white/10">
+                                <CursorCoordinates flat />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -152,43 +163,16 @@ export function App() {
                 <div className={`relative z-10 flex flex-shrink-0 transition-[width] duration-200 ${rightOpen ? 'w-80' : 'w-0'}`}>
                     {/* Tab bar on the edge */}
                     <div className="absolute -left-10 top-3 z-20 flex flex-col gap-1">
-                        <button
-                            type="button"
-                            onClick={() => { setRightOpen(true); setRightTab('layers'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'layers' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
-                            title="Couches"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                                <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                            </svg>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => { setRightOpen(true); setRightTab('lidar'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'lidar' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
-                            title="Nuage LiDAR"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                                <circle cx="4" cy="6" r="1.2" />
-                                <circle cx="10" cy="4" r="1.2" />
-                                <circle cx="16" cy="7" r="1.2" />
-                                <circle cx="6" cy="11" r="1.2" />
-                                <circle cx="13" cy="12" r="1.2" />
-                                <circle cx="4" cy="16" r="1.2" />
-                                <circle cx="11" cy="17" r="1.2" />
-                                <circle cx="17" cy="14" r="1.2" />
-                            </svg>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => { setRightOpen(true); setRightTab('settings'); }}
-                            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${rightOpen && rightTab === 'settings' ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
-                            title="Réglages"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                                <path fillRule="evenodd" d="M8.34 1.804A1 1 0 019.32 1h1.36a1 1 0 01.98.804l.295 1.473c.497.179.971.41 1.416.69l1.38-.588a1 1 0 011.12.258l.962.962a1 1 0 01.258 1.12l-.588 1.38c.28.445.511.919.69 1.416l1.473.295A1 1 0 0119 9.32v1.36a1 1 0 01-.804.98l-1.473.295c-.179.497-.41.971-.69 1.416l.588 1.38a1 1 0 01-.258 1.12l-.962.962a1 1 0 01-1.12.258l-1.38-.588c-.445.28-.919.511-1.416.69l-.295 1.473A1 1 0 0110.68 19H9.32a1 1 0 01-.98-.804l-.295-1.473a7.957 7.957 0 01-1.416-.69l-1.38.588a1 1 0 01-1.12-.258l-.962-.962a1 1 0 01-.258-1.12l.588-1.38a7.957 7.957 0 01-.69-1.416l-1.473-.295A1 1 0 011 10.68V9.32a1 1 0 01.804-.98l1.473-.295c.179-.497.41-.971.69-1.416l-.588-1.38a1 1 0 01.258-1.12l.962-.962a1 1 0 011.12-.258l1.38.588c.445-.28.919-.511 1.416-.69l.295-1.473zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                            </svg>
-                        </button>
+                        {RIGHT_TABS.map((t) => (
+                            <SidebarTabButton
+                                key={t.id}
+                                active={rightOpen && rightTab === t.id}
+                                title={t.title}
+                                onClick={() => { setRightOpen(true); setRightTab(t.id); }}
+                            >
+                                {t.icon}
+                            </SidebarTabButton>
+                        ))}
                         {rightOpen && (
                             <button
                                 type="button"
@@ -206,9 +190,7 @@ export function App() {
                     {rightOpen && (
                         <div className="flex h-full w-80 flex-col overflow-y-auto border-l border-gray-200/60 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
                             <div className="flex-1 p-3">
-                                {rightTab === 'layers' && <LayerSwitcher />}
-                                {rightTab === 'lidar' && <LidarCloudPanel />}
-                                {rightTab === 'settings' && <SettingsPanel />}
+                                <RightTabContent tab={rightTab} />
                             </div>
                         </div>
                     )}
@@ -362,10 +344,7 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                     </div>
                     {/* Sheet content */}
                     <div className="h-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain px-3 pb-2">
-                        {mobileTab === 'route' && <RoutePanel />}
-                        {mobileTab === 'layers' && <LayerSwitcher />}
-                        {mobileTab === 'lidar' && <LidarCloudPanel />}
-                        {mobileTab === 'settings' && <SettingsPanel />}
+                        {mobileTab === 'route' ? <RoutePanel /> : <RightTabContent tab={mobileTab} />}
                     </div>
                 </div>
             )}
@@ -398,6 +377,12 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                         icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M3 3.5A1.5 1.5 0 014.5 2h6.879a1.5 1.5 0 011.06.44l4.122 4.12A1.5 1.5 0 0117 7.622V16.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 16.5v-13zm10.857 5.691a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 00-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>}
                     />
                     <MobileTabButton
+                        active={mobileTab === 'routes'}
+                        label="Mes itin."
+                        onClick={() => setMobileTab('routes')}
+                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" /></svg>}
+                    />
+                    <MobileTabButton
                         active={mobileTab === 'settings'}
                         label="Réglages"
                         onClick={() => setMobileTab('settings')}
@@ -426,3 +411,74 @@ function MobileTabButton({ active, label, icon, onClick }: Readonly<{
         </button>
     );
 }
+
+function RightTabContent({ tab }: Readonly<{ tab: 'layers' | 'routes' | 'lidar' | 'settings' }>) {
+    if (tab === 'layers') return <LayerSwitcher />;
+    if (tab === 'routes') return <SavedRoutesPanel />;
+    if (tab === 'lidar') return <LidarCloudPanel />;
+    return <SettingsPanel />;
+}
+
+function SidebarTabButton({ active, title, onClick, children }: Readonly<{
+    active: boolean;
+    title: string;
+    onClick: () => void;
+    children: React.ReactNode;
+}>) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            title={title}
+            className={`flex h-9 w-9 items-center justify-center rounded-l-lg shadow-sm transition ring-1 ${active ? 'bg-white text-green-600 ring-black/5 dark:bg-slate-800 dark:text-emerald-400 dark:ring-white/10' : 'bg-white/80 text-slate-400 ring-black/5 hover:text-slate-600 dark:bg-slate-900/80 dark:ring-white/10 dark:hover:text-slate-200'}`}
+        >
+            {children}
+        </button>
+    );
+}
+
+const RIGHT_TABS: ReadonlyArray<{ id: RightTab; title: string; icon: React.ReactNode }> = [
+    {
+        id: 'layers',
+        title: 'Couches',
+        icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            </svg>
+        ),
+    },
+    {
+        id: 'lidar',
+        title: 'Nuage LiDAR',
+        icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <circle cx="4" cy="6" r="1.2" />
+                <circle cx="10" cy="4" r="1.2" />
+                <circle cx="16" cy="7" r="1.2" />
+                <circle cx="6" cy="11" r="1.2" />
+                <circle cx="13" cy="12" r="1.2" />
+                <circle cx="4" cy="16" r="1.2" />
+                <circle cx="11" cy="17" r="1.2" />
+                <circle cx="17" cy="14" r="1.2" />
+            </svg>
+        ),
+    },
+    {
+        id: 'routes',
+        title: 'Mes itinéraires',
+        icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
+            </svg>
+        ),
+    },
+    {
+        id: 'settings',
+        title: 'Réglages',
+        icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path fillRule="evenodd" d="M8.34 1.804A1 1 0 019.32 1h1.36a1 1 0 01.98.804l.295 1.473c.497.179.971.41 1.416.69l1.38-.588a1 1 0 011.12.258l.962.962a1 1 0 01.258 1.12l-.588 1.38c.28.445.511.919.69 1.416l1.473.295A1 1 0 0119 9.32v1.36a1 1 0 01-.804.98l-1.473.295c-.179.497-.41.971-.69 1.416l.588 1.38a1 1 0 01-.258 1.12l-.962.962a1 1 0 01-1.12.258l-1.38-.588c-.445.28-.919.511-1.416.69l-.295 1.473A1 1 0 0110.68 19H9.32a1 1 0 01-.98-.804l-.295-1.473a7.957 7.957 0 01-1.416-.69l-1.38.588a1 1 0 01-1.12-.258l-.962-.962a1 1 0 01-.258-1.12l.588-1.38a7.957 7.957 0 01-.69-1.416l-1.473-.295A1 1 0 011 10.68V9.32a1 1 0 01.804-.98l1.473-.295c.179-.497.41-.971.69-1.416l-.588-1.38a1 1 0 01.258-1.12l.962-.962a1 1 0 011.12-.258l1.38.588c.445-.28.919-.511 1.416-.69l.295-1.473zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+            </svg>
+        ),
+    },
+];

@@ -86,6 +86,10 @@ interface RouteState {
     selectionRange: [number, number] | null;
     selectionCoordinates: LngLatTuple[];
 
+    /** Id of the SavedRoute currently loaded (null if none / unsaved). */
+    loadedRouteId: string | null;
+    setLoadedRouteId: (id: string | null) => void;
+
     addWaypoint: (coordinate: LngLatTuple) => void;
     moveWaypoint: (id: string, coordinate: LngLatTuple, recalculate?: boolean) => void;
     reorderWaypoint: (id: string, newIndex: number) => void;
@@ -328,6 +332,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     selectionRange: null,
     selectionCoordinates: [],
 
+    loadedRouteId: null,
+    setLoadedRouteId: (loadedRouteId) => set({ loadedRouteId }),
+
     addWaypoint: (coordinate) => {
         const prevLength = get().waypoints.length;
         set((state) => ({
@@ -471,6 +478,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             hoverCoordinate: null,
             selectionRange: null,
             selectionCoordinates: [],
+            loadedRouteId: null,
         });
         // Compute elevation profile asynchronously
         const abortController = new AbortController();
@@ -508,6 +516,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             hoverCoordinate: null,
             selectionRange: null,
             selectionCoordinates: [],
+            loadedRouteId: null,
             deleteMode: false,
         });
     },
