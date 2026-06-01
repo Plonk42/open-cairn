@@ -14,8 +14,8 @@ type Pending = {
     onProgress?: ProgressCallback;
 };
 
-type WorkerResultOk = { id: number; ok: true; data: unknown };
-type WorkerResultErr = { id: number; ok: false; error: { message: string; code?: string } };
+type WorkerResultOk = { id: number; type: 'ok'; data: unknown };
+type WorkerResultErr = { id: number; type: 'err'; error: { message: string; code?: string } };
 type WorkerProgress = { id: number; type: 'progress'; progress: LidarProgress };
 type WorkerMessage = WorkerResultOk | WorkerResultErr | WorkerProgress;
 
@@ -30,14 +30,12 @@ function ensureWorker(): Worker {
         const msg = ev.data;
         const p = pending.get(msg.id);
         if (!p) return;
-        // Handle progress messages (don't delete from pending)
-        if ('type' in msg && msg.type === 'progress') {
+        if (msg.type === 'progress') {
             if (p.onProgress) p.onProgress(msg.progress);
             return;
         }
-        // Now msg is narrowed to WorkerResultOk | WorkerResultErr
         pending.delete(msg.id);
-        if (msg.ok) {
+        if (msg.type === 'ok') {
             (p.resolve as (v: unknown) => void)(msg.data);
         } else {
             const err = new Error(msg.error?.message ?? 'Worker error') as Error & { code?: string };

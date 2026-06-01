@@ -50,14 +50,16 @@ let modulePromise: Promise<EmModule> | null = null;
 
 async function loadModule(onLog?: (s: string) => void): Promise<EmModule> {
     if (modulePromise !== null) return modulePromise;
-    const base = (globalThis as unknown as { location: { origin: string } }).location.origin;
-    const url = new URL('/wasm/poissonrecon.mjs', base).href;
+    // Resolve the WASM bundle against Vite's BASE_URL so the same code works
+    // both at dev (served from '/') and on GitHub Pages (served from '/<repo>/').
+    const base = new URL(import.meta.env.BASE_URL, globalThis.location.origin).href;
+    const url = new URL('wasm/poissonrecon.mjs', base).href;
     const mod = await import(/* @vite-ignore */ url) as { default: ModuleFactory };
     modulePromise = mod.default({
         print: (s) => onLog?.(s),
         printErr: (s) => onLog?.(s),
         noInitialRun: true,
-        locateFile: (p) => new URL(`/wasm/${p}`, base).href,
+        locateFile: (p) => new URL(`wasm/${p}`, base).href,
     });
     return modulePromise;
 }

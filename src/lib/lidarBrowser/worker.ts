@@ -7,8 +7,8 @@
  *
  * Protocol:
  *   main → worker: { id, kind: 'shaded'|'mixed', params }
- *   worker → main: { id, ok: true,  data, transferables: ArrayBuffer[] }
- *                | { id, ok: false, error: { message, code? } }
+ *   worker → main: { id, type: 'ok',       data, transferables: ArrayBuffer[] }
+ *                | { id, type: 'err',      error: { message, code? } }
  *                | { id, type: 'progress', progress: LidarProgress }
  *
  * All large outputs (positions / normals / colors / classifications /
@@ -62,9 +62,9 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
             case 'poisson': data = await fetchLidarPoisson(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
-        self.postMessage({ id, ok: true, data }, transferables);
+        self.postMessage({ id, type: 'ok', data }, transferables);
     } catch (err) {
         const e = err as Error & { code?: string };
-        self.postMessage({ id, ok: false, error: { message: e.message ?? String(err), code: e.code } });
+        self.postMessage({ id, type: 'err', error: { message: e.message ?? String(err), code: e.code } });
     }
 };
