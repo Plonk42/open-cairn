@@ -9,7 +9,7 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN, propagateNormalOrientation } from './normals';
+import { computeNormalsKNN } from './normals';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
@@ -27,8 +27,8 @@ export interface BrowserFetchParams {
     voxelSize?: number;
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     poissonDepth?: number;
-    /** kNN neighborhood for normal estimation in 'poisson' mode (12 = sharp, 48 = smooth). */
-    poissonNormalsK?: number;
+    /** Validation: skip IGN fetch + PCA normals, use a pre-baked test PLY. */
+    poissonTest?: boolean;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -311,11 +311,12 @@ function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array)
         const nx = uy * vz - uz * vy;
         const ny = uz * vx - ux * vz;
         const nz = ux * vy - uy * vx;
-        const sign = nz < 0 ? -1 : 1;
-        const nnx = nx * sign, nny = ny * sign, nnz = nz * sign;
-        normals[ia * 3] += nnx; normals[ia * 3 + 1] += nny; normals[ia * 3 + 2] += nnz;
-        normals[ib * 3] += nnx; normals[ib * 3 + 1] += nny; normals[ib * 3 + 2] += nnz;
-        normals[ic * 3] += nnx; normals[ic * 3 + 1] += nny; normals[ic * 3 + 2] += nnz;
+        // Trust PoissonRecon's face winding — flipping per-face by sign(nz)
+        // would destroy coherence at edges where some faces tilt slightly down,
+        // creating bogus vertex normals and bright specular speckles.
+        normals[ia * 3] += nx; normals[ia * 3 + 1] += ny; normals[ia * 3 + 2] += nz;
+        normals[ib * 3] += nx; normals[ib * 3 + 1] += ny; normals[ib * 3 + 2] += nz;
+        normals[ic * 3] += nx; normals[ic * 3 + 1] += ny; normals[ic * 3 + 2] += nz;
     }
     const colors = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
@@ -349,22 +350,82 @@ export async function fetchLidarPoisson(
 ): Promise<LidarMeshData> {
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
-    const k = Math.max(8, Math.min(64, Math.floor(params.poissonNormalsK ?? 24)));
-    const cellSize = Math.max(2, Math.round(Math.sqrt(k) / 2));
+
+    // VALIDATION MODE: when window.__POISSON_TEST is set, skip the IGN fetch
+    // and our PCA normal estimation, and feed PoissonRecon the same kind of
+    // pre-oriented point cloud the standalone POC uses (PLY produced offline
+    // by LidarTerrainMesh / PDAL, with x,y,z,nx,ny,nz already baked in).
+    // This isolates whether bubbles/spikes come from input normals or from
+    // the rest of the pipeline.
+    const testFlag = params.poissonTest;
+    if (testFlag) {
+        onProgress({ stage: 'tiles', message: 'TEST: chargement PLY pré-calculé' });
+        const resp = await fetch('/test/chamechaude_250m.ply');
+        const buf = new Uint8Array(await resp.arrayBuffer());
+        const headerEnd = (() => {
+            const needle = new TextEncoder().encode('end_header\n');
+            outer: for (let i = 0; i < buf.length - needle.length; i++) {
+                for (let j = 0; j < needle.length; j++) if (buf[i + j] !== needle[j]) continue outer;
+                return i + needle.length;
+            }
+            throw new Error('TEST PLY: no end_header');
+        })();
+        const headerText = new TextDecoder().decode(buf.subarray(0, headerEnd));
+        const vMatch = /element vertex (\d+)/.exec(headerText);
+        if (!vMatch) throw new Error('TEST PLY: no vertex count');
+        const N = Number.parseInt(vMatch[1], 10);
+        const dv = new DataView(buf.buffer, buf.byteOffset + headerEnd, N * 24);
+        // Positions in PLY are tile-local km; scale to meters and recenter.
+        const interleaved = new Float32Array(N * 6);
+        let mx = 0, my = 0, mz = 0;
+        for (let i = 0; i < N; i++) {
+            const x = dv.getFloat32(i * 24, true) * 1000;
+            const y = dv.getFloat32(i * 24 + 4, true) * 1000;
+            const z = dv.getFloat32(i * 24 + 8, true) * 1000;
+            mx += x; my += y; mz += z;
+            interleaved[i * 6] = x;
+            interleaved[i * 6 + 1] = y;
+            interleaved[i * 6 + 2] = z;
+            interleaved[i * 6 + 3] = dv.getFloat32(i * 24 + 12, true);
+            interleaved[i * 6 + 4] = dv.getFloat32(i * 24 + 16, true);
+            interleaved[i * 6 + 5] = dv.getFloat32(i * 24 + 20, true);
+        }
+        mx /= N; my /= N; mz /= N;
+        for (let i = 0; i < N; i++) {
+            interleaved[i * 6] -= mx;
+            interleaved[i * 6 + 1] -= my;
+            interleaved[i * 6 + 2] -= mz;
+        }
+        onProgress({ stage: 'mesh', message: `TEST: Poisson depth ${depth}`, detail: `${N.toLocaleString()} pts` });
+        const mesh = await reconstructPoisson(interleaved, { depth });
+        const { normals: nrm, colors } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
+        const triangleCount = mesh.indices.length / 3;
+        onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${triangleCount.toLocaleString()} triangles` });
+        return {
+            kind: 'mesh',
+            centerLng: params.lng,
+            centerLat: params.lat,
+            positions: mesh.positions,
+            normals: nrm,
+            colors,
+            indices: mesh.indices,
+            vertexCount: mesh.positions.length / 3,
+            triangleCount,
+            radius: params.radius,
+        };
+    }
+
     // Ground only — vegetation/buildings would pollute the implicit surface.
     const c = await fetchCommon({ ...params, classes: [2] });
     onProgress({
         stage: 'normals',
         message: STAGE_LABELS.normals,
-        detail: `${c.pointCount.toLocaleString()} pts sol · k=${k}`,
+        detail: `${c.pointCount.toLocaleString()} pts sol`,
     });
-    // PCA normals without +Z forcing, then propagate orientation via BFS
-    // through the kNN graph (Hoppe 1992). This matches the MST-oriented
-    // normals that LidarTerrainMesh bakes into the POC's reference PLYs
-    // and is what keeps PoissonRecon from extruding "bubbles" near cliffs
-    // and ridges where the naive +Z heuristic gives inconsistent signs.
-    const normals = computeNormalsKNN(c.positions, k, cellSize, false);
-    propagateNormalOrientation(c.positions, normals, Math.max(2, cellSize), 8);
+    // Terrain is essentially 2.5D: air is always above ground, so the simple
+    // +Z heuristic gives a globally consistent orientation. Larger k / cellSize
+    // smooths PCA noise to reduce Poisson's scan-line ripples.
+    const normals = computeNormalsKNN(c.positions, 24, 3, true);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
     const oriented = new Float32Array(c.pointCount * 6);
     for (let i = 0; i < c.pointCount; i++) {
@@ -381,8 +442,8 @@ export async function fetchLidarPoisson(
         detail: `Poisson depth ${depth}`,
     });
     const mesh = await reconstructPoisson(oriented, { depth });
-    const triangleCount = mesh.indices.length / 3;
     const vertexCount = mesh.positions.length / 3;
+    const triangleCount = mesh.indices.length / 3;
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const { normals: nrm, colors } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
     onProgress({

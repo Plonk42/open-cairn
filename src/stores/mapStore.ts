@@ -157,8 +157,6 @@ interface MapState {
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     lidarCloudPoissonDepth: number;
     setLidarCloudPoissonDepth: (v: number) => void;
-    lidarCloudPoissonNormalsK: number;
-    setLidarCloudPoissonNormalsK: (v: number) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -209,7 +207,6 @@ type PersistedSettings = {
     lidarCloudClasses?: number[];
     lidarCloudVoxelSize?: number;
     lidarCloudPoissonDepth?: number;
-    lidarCloudPoissonNormalsK?: number;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -322,8 +319,6 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudVoxelSize: (lidarCloudVoxelSize) => set({ lidarCloudVoxelSize }),
     lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
     setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
-    lidarCloudPoissonNormalsK: persisted.lidarCloudPoissonNormalsK ?? 24,
-    setLidarCloudPoissonNormalsK: (lidarCloudPoissonNormalsK) => set({ lidarCloudPoissonNormalsK }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -386,7 +381,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: psRadius,
                     stride: state.lidarCloudStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
-                    poissonNormalsK: state.lidarCloudPoissonNormalsK,
+                    poissonTest: (globalThis as { __POISSON_TEST?: boolean }).__POISSON_TEST === true,
                     onProgress,
                 });
                 set({
@@ -452,7 +447,6 @@ useMapStore.subscribe((state) => {
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudVoxelSize: state.lidarCloudVoxelSize,
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
-            lidarCloudPoissonNormalsK: state.lidarCloudPoissonNormalsK,
         });
     }, 500);
 });
