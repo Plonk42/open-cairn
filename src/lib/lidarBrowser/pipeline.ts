@@ -13,6 +13,7 @@ import { computeNormalsKNN } from './normals';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals } from './slope';
+import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
 
 export interface BrowserFetchParams {
@@ -21,6 +22,8 @@ export interface BrowserFetchParams {
     radius: number;
     stride: number;
     classes?: number[];
+    /** Voxel size in meters for the 'volume' mode (Surface Nets). */
+    voxelSize?: number;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -239,5 +242,45 @@ export async function fetchLidarMixed(
         radius: c.radius,
         mesh: meshData,
         shaded: shadedData,
+    };
+}
+
+/**
+ * Volume mode: true 3D surface reconstruction via Hoppe SDF + Surface Nets.
+ * Eliminates the vertical "curtains" of the 2.5D Delaunay mesh on cliffs.
+ * Only the ground class (2) feeds the reconstruction by default.
+ */
+export async function fetchLidarVolume(
+    params: BrowserFetchParams,
+): Promise<LidarMeshData> {
+    const onProgress = params.onProgress ?? noopProgress;
+    const voxelSize = Math.max(0.2, Math.min(4, params.voxelSize ?? 0.5));
+    // Force ground-only for the reconstruction; vegetation/buildings would
+    // pollute the SDF (they are not the ground surface).
+    const c = await fetchCommon({ ...params, classes: [2] });
+    onProgress({
+        stage: 'mesh',
+        message: STAGE_LABELS.mesh,
+        detail: `${c.pointCount.toLocaleString()} pts sol, voxel ${voxelSize} m`,
+    });
+    const m = buildVoxelMesh(c.positions, voxelSize);
+    const triangleCount = m.indices.length / 3;
+    const vertexCount = m.positions.length / 3;
+    onProgress({
+        stage: 'done',
+        message: STAGE_LABELS.done,
+        detail: `${triangleCount.toLocaleString()} triangles`,
+    });
+    return {
+        kind: 'mesh',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: m.positions,
+        normals: m.normals,
+        colors: m.colors,
+        indices: m.indices,
+        vertexCount,
+        triangleCount,
+        radius: c.radius,
     };
 }

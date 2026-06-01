@@ -2,6 +2,7 @@ import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import {
     fetchLidarMixed,
     fetchLidarShaded,
+    fetchLidarVolume,
     type LidarProgress,
 } from '@/lib/lidarBrowser';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
@@ -103,9 +104,9 @@ interface MapState {
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 
     // ---- LiDAR HD point cloud ----
-    /** Rendering mode: shaded point cloud or mixed (ground mesh + vegetation/buildings points). */
-    lidarMode: 'shaded' | 'mixed';
-    setLidarMode: (v: 'shaded' | 'mixed') => void;
+    /** Rendering mode: shaded point cloud, mixed (mesh+points), or volume (Surface Nets). */
+    lidarMode: 'shaded' | 'mixed' | 'volume';
+    setLidarMode: (v: 'shaded' | 'mixed' | 'volume') => void;
     /** Loaded shaded point cloud (positions + normals + slope colors). */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for mixed mode. */
@@ -149,6 +150,9 @@ interface MapState {
     /** LAS classification filter (empty = all classes). */
     lidarCloudClasses: number[];
     setLidarCloudClasses: (v: number[]) => void;
+    /** Voxel size in meters for the 'volume' mode (Hoppe SDF + Surface Nets). */
+    lidarCloudVoxelSize: number;
+    setLidarCloudVoxelSize: (v: number) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -185,7 +189,7 @@ type PersistedSettings = {
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
-    lidarMode?: 'shaded' | 'mixed';
+    lidarMode?: 'shaded' | 'mixed' | 'volume';
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
     lidarCloudPointSize?: number;
@@ -197,6 +201,7 @@ type PersistedSettings = {
     lidarCloudOpacity?: number;
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
+    lidarCloudVoxelSize?: number;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -243,7 +248,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     contourLinesOpacity: persisted.contourLinesOpacity ?? 0.4,
     setContourLinesOpacity: (contourLinesOpacity) => set({ contourLinesOpacity }),
 
-    terrainExaggeration: persisted.terrainExaggeration ?? 1.2,
+    terrainExaggeration: persisted.terrainExaggeration ?? 1,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
 
     renderQuality: persisted.renderQuality ?? 'balanced',
@@ -276,7 +281,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
 
     // LiDAR HD point cloud state
-    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed') ? persisted.lidarMode : 'shaded',
+    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed' || persisted.lidarMode === 'volume') ? persisted.lidarMode : 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
     lidarShaded: null,
     lidarMesh: null,
@@ -305,6 +310,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudHideBasemap: (lidarCloudHideBasemap) => set({ lidarCloudHideBasemap }),
     lidarCloudClasses: persisted.lidarCloudClasses ?? [2],
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
+    lidarCloudVoxelSize: persisted.lidarCloudVoxelSize ?? 0.5,
+    setLidarCloudVoxelSize: (lidarCloudVoxelSize) => set({ lidarCloudVoxelSize }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -335,6 +342,25 @@ export const useMapStore = create<MapState>((set, get) => ({
                 set({
                     lidarShaded: mixed.shaded,
                     lidarMesh: mixed.mesh,
+                    lidarCloudLoading: false,
+                    lidarCloudProgress: null,
+                });
+            } else if (state.lidarMode === 'volume') {
+                // True 3D reconstruction via Hoppe SDF + Surface Nets.
+                // Ground-only (forced inside the pipeline); no point cloud overlay.
+                // Safety cap: the dense step would still spike RAM badly past ~150 m.
+                const volRadius = Math.min(state.lidarCloudRadius, 150);
+                const mesh = await fetchLidarVolume({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: volRadius,
+                    stride: state.lidarCloudStride,
+                    voxelSize: state.lidarCloudVoxelSize,
+                    onProgress,
+                });
+                set({
+                    lidarShaded: null,
+                    lidarMesh: mesh,
                     lidarCloudLoading: false,
                     lidarCloudProgress: null,
                 });
@@ -393,6 +419,7 @@ useMapStore.subscribe((state) => {
             lidarCloudOpacity: state.lidarCloudOpacity,
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,
+            lidarCloudVoxelSize: state.lidarCloudVoxelSize,
         });
     }, 500);
 });

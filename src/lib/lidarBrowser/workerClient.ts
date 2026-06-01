@@ -2,7 +2,7 @@
  * Main-thread client for the LiDAR Web Worker. Lazily spawns a single
  * persistent worker; multiplexes concurrent requests by id.
  */
-import type { LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import type { BrowserFetchParams } from './pipeline';
 import type { LidarProgress, ProgressCallback } from './progress';
 
@@ -36,13 +36,12 @@ function ensureWorker(): Worker {
             return;
         }
         // Now msg is narrowed to WorkerResultOk | WorkerResultErr
-        const result = msg as WorkerResultOk | WorkerResultErr;
-        pending.delete(result.id);
-        if (result.ok) {
-            (p.resolve as (v: unknown) => void)(result.data);
+        pending.delete(msg.id);
+        if (msg.ok) {
+            (p.resolve as (v: unknown) => void)(msg.data);
         } else {
-            const err = new Error(result.error?.message ?? 'Worker error') as Error & { code?: string };
-            if (result.error?.code) err.code = result.error.code;
+            const err = new Error(msg.error?.message ?? 'Worker error') as Error & { code?: string };
+            if (msg.error?.code) err.code = msg.error.code;
             p.reject(err);
         }
     };
@@ -69,7 +68,7 @@ function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal' |
     return rest;
 }
 
-function dispatch<T>(kind: 'shaded' | 'mixed', params: BrowserFetchParams): Promise<T> {
+function dispatch<T>(kind: 'shaded' | 'mixed' | 'volume', params: BrowserFetchParams): Promise<T> {
     const w = ensureWorker();
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
@@ -84,4 +83,8 @@ export function fetchLidarShaded(params: BrowserFetchParams): Promise<LidarShade
 
 export function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedData> {
     return dispatch<LidarMixedData>('mixed', params);
+}
+
+export function fetchLidarVolume(params: BrowserFetchParams): Promise<LidarMeshData> {
+    return dispatch<LidarMeshData>('volume', params);
 }

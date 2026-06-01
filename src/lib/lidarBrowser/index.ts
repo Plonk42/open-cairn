@@ -8,7 +8,7 @@
  *   cache.ts         IndexedDB key/value cache of assembled results
  *   index.ts (here)  cache-first wrappers exposed to the store
  */
-import type { LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { readCachedLidar, writeCachedLidar } from './cache';
 import type { BrowserFetchParams } from './pipeline';
 import * as worker from './workerClient';
@@ -22,7 +22,7 @@ export async function fetchLidarShaded(params: BrowserFetchParams): Promise<Lida
     const cached = await readCachedLidar('shaded', params);
     if (cached) {
         params.onProgress?.({ stage: 'done', message: 'Cache', detail: 'données en cache' });
-        return cached as LidarShadedCloudData;
+        return cached;
     }
     const data = await worker.fetchLidarShaded(params);
     void writeCachedLidar('shaded', params, data);
@@ -35,5 +35,10 @@ export async function fetchLidarShaded(params: BrowserFetchParams): Promise<Lida
  */
 export async function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedData> {
     return worker.fetchLidarMixed(params);
+}
+
+/** Volume mode is not cached for now (experimental, parameters in flux). */
+export async function fetchLidarVolume(params: BrowserFetchParams): Promise<LidarMeshData> {
+    return worker.fetchLidarVolume(params);
 }
 

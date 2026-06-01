@@ -400,14 +400,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     onAdd(map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-        console.log('[LidarWebGLLayer] onAdd');
         this._map = map;
         this._gl = gl as WebGL2RenderingContext;
         this._initGL(this._gl);
     }
 
     onRemove(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-        console.log('[LidarWebGLLayer] onRemove');
         this._cleanup(gl as WebGL2RenderingContext);
     }
 
@@ -614,7 +612,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         originLng: number,
         originLat: number,
     ): void {
-        console.log('[LidarWebGLLayer] setData', { count, originLng, originLat });
         const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
         this._ox = mc.x;
         this._oy = mc.y;
@@ -646,18 +643,25 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     /**
-     * Upload mesh geometry into the same FBO pipeline as the points. Origin
-     * (lng/lat) must match the point cloud's origin — in practice both come
-     * from the same browser fetch so this is guaranteed.
+     * Upload mesh geometry into the same FBO pipeline as the points. Sets the
+     * world origin (lng/lat) so the mesh can be drawn standalone (volume mode
+     * has no companion point cloud). In mixed mode the origin matches the
+     * points, so re-setting it is a no-op.
      */
     setMesh(
         positions: Float32Array,
         normals: Float32Array,
         colors: Uint8Array,
         indices: Uint32Array,
+        originLng: number,
+        originLat: number,
     ): void {
         const gl = this._gl;
         if (!gl) return;
+        const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
+        this._ox = mc.x;
+        this._oy = mc.y;
+        this._mpu = mc.meterInMercatorCoordinateUnits();
         this._meshIndexCount = indices.length;
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
@@ -747,8 +751,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     private _initGL(gl: WebGL2RenderingContext): void {
-        console.log('[LidarWebGLLayer] _initGL');
-
         // ─── Point shader ───
         this._progPoints = linkProgram(gl, VS_POINTS, FS_POINTS);
         this._locPoints = {

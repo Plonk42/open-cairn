@@ -17,7 +17,7 @@ type MobileTab = 'map' | 'route' | 'routes' | 'layers' | 'lidar' | 'settings';
 
 /** Hook to sync the LiDAR preview visibility with the current tab state. */
 function useLidarPreviewSync(tabIsLidar: boolean) {
-    const hasData = useMapStore((s) => s.lidarShaded !== null);
+    const hasData = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
     const setPreviewVisible = useMapStore((s) => s.setLidarPreviewVisible);
     useEffect(() => {
         // Show preview when LiDAR tab is active and no data is loaded

@@ -112,7 +112,14 @@ export function LidarCloudOverlay() {
         const layer = webglRef.current;
         if (!layer) return;
         if (lidarMesh) {
-            layer.setMesh(lidarMesh.positions, lidarMesh.normals, lidarMesh.colors, lidarMesh.indices);
+            layer.setMesh(
+                lidarMesh.positions,
+                lidarMesh.normals,
+                lidarMesh.colors,
+                lidarMesh.indices,
+                lidarMesh.centerLng,
+                lidarMesh.centerLat,
+            );
         } else {
             layer.clearMesh();
         }
