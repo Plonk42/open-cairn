@@ -644,8 +644,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
     /**
      * Upload mesh geometry into the same FBO pipeline as the points. Sets the
-     * world origin (lng/lat) so the mesh can be drawn standalone (volume mode
-     * has no companion point cloud). In mixed mode the origin matches the
+     * world origin (lng/lat) so the mesh can be drawn even when no companion
+     * point cloud is present. In mixed/poisson modes the origin matches the
      * points, so re-setting it is a no-op.
      */
     setMesh(

@@ -2,7 +2,7 @@
  * Main-thread client for the LiDAR Web Worker. Lazily spawns a single
  * persistent worker; multiplexes concurrent requests by id.
  */
-import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import type { LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import type { BrowserFetchParams } from './pipeline';
 import type { LidarProgress, ProgressCallback } from './progress';
 
@@ -68,7 +68,7 @@ function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal' |
     return rest;
 }
 
-function dispatch<T>(kind: 'shaded' | 'mixed' | 'volume' | 'poisson', params: BrowserFetchParams): Promise<T> {
+function dispatch<T>(kind: 'shaded' | 'mixed' | 'poisson', params: BrowserFetchParams): Promise<T> {
     const w = ensureWorker();
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
@@ -85,10 +85,6 @@ export function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedD
     return dispatch<LidarMixedData>('mixed', params);
 }
 
-export function fetchLidarVolume(params: BrowserFetchParams): Promise<LidarMeshData> {
-    return dispatch<LidarMeshData>('volume', params);
-}
-
-export function fetchLidarPoisson(params: BrowserFetchParams): Promise<LidarMeshData> {
-    return dispatch<LidarMeshData>('poisson', params);
+export function fetchLidarPoisson(params: BrowserFetchParams): Promise<LidarMixedData> {
+    return dispatch<LidarMixedData>('poisson', params);
 }

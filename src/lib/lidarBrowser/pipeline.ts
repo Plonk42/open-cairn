@@ -14,7 +14,6 @@ import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
 import { colorsFromNormals, slopeColor } from './slope';
-import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
 
 export interface BrowserFetchParams {
@@ -23,8 +22,6 @@ export interface BrowserFetchParams {
     radius: number;
     stride: number;
     classes?: number[];
-    /** Voxel size in meters for the 'volume' mode (Surface Nets). */
-    voxelSize?: number;
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     poissonDepth?: number;
     signal?: AbortSignal;
@@ -249,46 +246,6 @@ export async function fetchLidarMixed(
 }
 
 /**
- * Volume mode: true 3D surface reconstruction via Hoppe SDF + Surface Nets.
- * Eliminates the vertical "curtains" of the 2.5D Delaunay mesh on cliffs.
- * Only the ground class (2) feeds the reconstruction by default.
- */
-export async function fetchLidarVolume(
-    params: BrowserFetchParams,
-): Promise<LidarMeshData> {
-    const onProgress = params.onProgress ?? noopProgress;
-    const voxelSize = Math.max(0.2, Math.min(4, params.voxelSize ?? 0.5));
-    // Force ground-only for the reconstruction; vegetation/buildings would
-    // pollute the SDF (they are not the ground surface).
-    const c = await fetchCommon({ ...params, classes: [2] });
-    onProgress({
-        stage: 'mesh',
-        message: STAGE_LABELS.mesh,
-        detail: `${c.pointCount.toLocaleString()} pts sol, voxel ${voxelSize} m`,
-    });
-    const m = buildVoxelMesh(c.positions, voxelSize);
-    const triangleCount = m.indices.length / 3;
-    const vertexCount = m.positions.length / 3;
-    onProgress({
-        stage: 'done',
-        message: STAGE_LABELS.done,
-        detail: `${triangleCount.toLocaleString()} triangles`,
-    });
-    return {
-        kind: 'mesh',
-        centerLng: c.centerLng,
-        centerLat: c.centerLat,
-        positions: m.positions,
-        normals: m.normals,
-        colors: m.colors,
-        indices: m.indices,
-        vertexCount,
-        triangleCount,
-        radius: c.radius,
-    };
-}
-
-/**
  * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
  * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
  * output PLY contains only positions + faces.
@@ -339,33 +296,61 @@ function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array)
 }
 
 /**
- * Poisson reconstruction mode: ground-only point cloud → per-point normals
- * via k-NN PCA → PoissonRecon WASM (octree solver) → triangle mesh.
- * Higher octree depth = finer mesh and longer runtime.
+ * Poisson reconstruction mode: ground points → per-point normals via k-NN
+ * PCA → PoissonRecon WASM (octree solver) → triangle mesh. Mirrors the
+ * mixed mode by also returning a shaded point cloud of every non-ground
+ * point (vegetation, buildings, …) so the user can toggle classes without
+ * re-fetching.
  */
 export async function fetchLidarPoisson(
     params: BrowserFetchParams,
-): Promise<LidarMeshData> {
+): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
 
-    // Ground only — vegetation/buildings would pollute the implicit surface.
-    const c = await fetchCommon({ ...params, classes: [2] });
+    // Fetch every class — Poisson reconstruction uses only ground, but the
+    // overlay uses everything else.
+    const c = await fetchCommon({ ...params, classes: undefined });
+
+    // Split ground (class 2) from the rest in a single pass.
+    let groundCount = 0;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
+    const nonGroundCount = c.pointCount - groundCount;
+    const groundPos = new Float32Array(groundCount * 3);
+    const ngPos = new Float32Array(nonGroundCount * 3);
+    const ngCls = new Uint8Array(nonGroundCount);
+    let gi = 0; let ni = 0;
+    for (let i = 0; i < c.pointCount; i++) {
+        const cls = c.classifications[i];
+        const x = c.positions[i * 3];
+        const y = c.positions[i * 3 + 1];
+        const z = c.positions[i * 3 + 2];
+        if (cls === 2) {
+            groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
+            gi++;
+        } else {
+            ngPos[ni * 3] = x; ngPos[ni * 3 + 1] = y; ngPos[ni * 3 + 2] = z;
+            ngCls[ni] = cls;
+            ni++;
+        }
+    }
+
+    // 1. Ground mesh via PoissonRecon.
     onProgress({
         stage: 'normals',
         message: STAGE_LABELS.normals,
-        detail: `${c.pointCount.toLocaleString()} pts sol`,
+        detail: `${groundCount.toLocaleString()} pts sol`,
     });
-    const normals = computeNormalsKNN(c.positions, 12, 2, true);
+    const groundNormals = computeNormalsKNN(groundPos, 12, 2, true);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
-    const oriented = new Float32Array(c.pointCount * 6);
-    for (let i = 0; i < c.pointCount; i++) {
-        oriented[i * 6] = c.positions[i * 3];
-        oriented[i * 6 + 1] = c.positions[i * 3 + 1];
-        oriented[i * 6 + 2] = c.positions[i * 3 + 2];
-        oriented[i * 6 + 3] = normals[i * 3];
-        oriented[i * 6 + 4] = normals[i * 3 + 1];
-        oriented[i * 6 + 5] = normals[i * 3 + 2];
+    const oriented = new Float32Array(groundCount * 6);
+    for (let i = 0; i < groundCount; i++) {
+        oriented[i * 6] = groundPos[i * 3];
+        oriented[i * 6 + 1] = groundPos[i * 3 + 1];
+        oriented[i * 6 + 2] = groundPos[i * 3 + 2];
+        oriented[i * 6 + 3] = groundNormals[i * 3];
+        oriented[i * 6 + 4] = groundNormals[i * 3 + 1];
+        oriented[i * 6 + 5] = groundNormals[i * 3 + 2];
     }
     onProgress({
         stage: 'mesh',
@@ -375,23 +360,50 @@ export async function fetchLidarPoisson(
     const mesh = await reconstructPoisson(oriented, { depth });
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
-    const { normals: nrm, colors } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
-    onProgress({
-        stage: 'done',
-        message: STAGE_LABELS.done,
-        detail: `${triangleCount.toLocaleString()} triangles`,
-    });
-    return {
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
+    const { normals: meshNrm, colors: meshCols } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
+    const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
         centerLat: c.centerLat,
         positions: mesh.positions,
-        normals: nrm,
-        colors,
+        normals: meshNrm,
+        colors: meshCols,
         indices: mesh.indices,
         vertexCount,
         triangleCount,
         radius: c.radius,
+    };
+
+    // 2. Non-ground shaded cloud overlay.
+    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
+    const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
+    const ngColors = colorsFromNormals(ngNormals);
+    const shadedData: LidarShadedCloudData = {
+        kind: 'shaded',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: ngPos,
+        normals: ngNormals,
+        colors: ngColors,
+        classifications: ngCls,
+        pointCount: nonGroundCount,
+        radius: c.radius,
+    };
+
+    onProgress({
+        stage: 'done',
+        message: STAGE_LABELS.done,
+        detail: `${triangleCount.toLocaleString()} tri + ${nonGroundCount.toLocaleString()} pts`,
+    });
+
+    return {
+        kind: 'mixed',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        radius: c.radius,
+        mesh: meshData,
+        shaded: shadedData,
     };
 }

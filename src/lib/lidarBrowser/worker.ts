@@ -16,13 +16,12 @@
  * across the worker boundary.
  */
 /// <reference lib="webworker" />
-import { fetchLidarMixed, fetchLidarPoisson, fetchLidarShaded, fetchLidarVolume, type BrowserFetchParams } from './pipeline';
+import { fetchLidarMixed, fetchLidarPoisson, fetchLidarShaded, type BrowserFetchParams } from './pipeline';
 import type { LidarProgress } from './progress';
 
 type RequestMessage =
     | { id: number; kind: 'shaded'; params: BrowserFetchParams }
     | { id: number; kind: 'mixed'; params: BrowserFetchParams }
-    | { id: number; kind: 'volume'; params: BrowserFetchParams }
     | { id: number; kind: 'poisson'; params: BrowserFetchParams };
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -60,7 +59,6 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
         switch (kind) {
             case 'shaded': data = await fetchLidarShaded(paramsWithProgress) as unknown as Record<string, unknown>; break;
             case 'mixed': data = await fetchLidarMixed(paramsWithProgress) as unknown as Record<string, unknown>; break;
-            case 'volume': data = await fetchLidarVolume(paramsWithProgress) as unknown as Record<string, unknown>; break;
             case 'poisson': data = await fetchLidarPoisson(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
