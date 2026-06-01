@@ -9,10 +9,11 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN } from './normals';
+import { computeNormalsKNN, propagateNormalOrientation } from './normals';
+import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
 import { lngLatToL93 } from './proj';
-import { colorsFromNormals } from './slope';
+import { colorsFromNormals, slopeColor } from './slope';
 import { buildVoxelMesh } from './voxelMesh';
 import { findTiles } from './wfs';
 
@@ -24,6 +25,10 @@ export interface BrowserFetchParams {
     classes?: number[];
     /** Voxel size in meters for the 'volume' mode (Surface Nets). */
     voxelSize?: number;
+    /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
+    poissonDepth?: number;
+    /** kNN neighborhood for normal estimation in 'poisson' mode (12 = sharp, 48 = smooth). */
+    poissonNormalsK?: number;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -279,6 +284,120 @@ export async function fetchLidarVolume(
         normals: m.normals,
         colors: m.colors,
         indices: m.indices,
+        vertexCount,
+        triangleCount,
+        radius: c.radius,
+    };
+}
+
+/**
+ * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
+ * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
+ * output PLY contains only positions + faces.
+ */
+function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array): {
+    normals: Float32Array;
+    colors: Uint8Array;
+} {
+    const n = positions.length / 3;
+    const normals = new Float32Array(n * 3);
+    for (let t = 0; t < indices.length; t += 3) {
+        const ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
+        const ax = positions[ia * 3], ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
+        const bx = positions[ib * 3], by = positions[ib * 3 + 1], bz = positions[ib * 3 + 2];
+        const cx = positions[ic * 3], cy = positions[ic * 3 + 1], cz = positions[ic * 3 + 2];
+        const ux = bx - ax, uy = by - ay, uz = bz - az;
+        const vx = cx - ax, vy = cy - ay, vz = cz - az;
+        const nx = uy * vz - uz * vy;
+        const ny = uz * vx - ux * vz;
+        const nz = ux * vy - uy * vx;
+        const sign = nz < 0 ? -1 : 1;
+        const nnx = nx * sign, nny = ny * sign, nnz = nz * sign;
+        normals[ia * 3] += nnx; normals[ia * 3 + 1] += nny; normals[ia * 3 + 2] += nnz;
+        normals[ib * 3] += nnx; normals[ib * 3 + 1] += nny; normals[ib * 3 + 2] += nnz;
+        normals[ic * 3] += nnx; normals[ic * 3 + 1] += nny; normals[ic * 3 + 2] += nnz;
+    }
+    const colors = new Uint8Array(n * 4);
+    for (let i = 0; i < n; i++) {
+        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+        const len = Math.hypot(nx, ny, nz);
+        if (len > 0) {
+            normals[i * 3] = nx / len;
+            normals[i * 3 + 1] = ny / len;
+            normals[i * 3 + 2] = nz / len;
+        } else {
+            normals[i * 3 + 2] = 1;
+        }
+        const nzn = Math.max(-1, Math.min(1, normals[i * 3 + 2]));
+        const slope = Math.acos(Math.abs(nzn));
+        const [r, g, b] = slopeColor(slope);
+        colors[i * 4] = r;
+        colors[i * 4 + 1] = g;
+        colors[i * 4 + 2] = b;
+        colors[i * 4 + 3] = 255;
+    }
+    return { normals, colors };
+}
+
+/**
+ * Poisson reconstruction mode: ground-only point cloud → per-point normals
+ * via k-NN PCA → PoissonRecon WASM (octree solver) → triangle mesh.
+ * Higher octree depth = finer mesh and longer runtime.
+ */
+export async function fetchLidarPoisson(
+    params: BrowserFetchParams,
+): Promise<LidarMeshData> {
+    const onProgress = params.onProgress ?? noopProgress;
+    const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
+    const k = Math.max(8, Math.min(64, Math.floor(params.poissonNormalsK ?? 24)));
+    const cellSize = Math.max(2, Math.round(Math.sqrt(k) / 2));
+    // Ground only — vegetation/buildings would pollute the implicit surface.
+    const c = await fetchCommon({ ...params, classes: [2] });
+    onProgress({
+        stage: 'normals',
+        message: STAGE_LABELS.normals,
+        detail: `${c.pointCount.toLocaleString()} pts sol · k=${k}`,
+    });
+    // PCA normals without +Z forcing, then propagate orientation via BFS
+    // through the kNN graph (Hoppe 1992). This matches the MST-oriented
+    // normals that LidarTerrainMesh bakes into the POC's reference PLYs
+    // and is what keeps PoissonRecon from extruding "bubbles" near cliffs
+    // and ridges where the naive +Z heuristic gives inconsistent signs.
+    const normals = computeNormalsKNN(c.positions, k, cellSize, false);
+    propagateNormalOrientation(c.positions, normals, Math.max(2, cellSize), 8);
+    // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
+    const oriented = new Float32Array(c.pointCount * 6);
+    for (let i = 0; i < c.pointCount; i++) {
+        oriented[i * 6] = c.positions[i * 3];
+        oriented[i * 6 + 1] = c.positions[i * 3 + 1];
+        oriented[i * 6 + 2] = c.positions[i * 3 + 2];
+        oriented[i * 6 + 3] = normals[i * 3];
+        oriented[i * 6 + 4] = normals[i * 3 + 1];
+        oriented[i * 6 + 5] = normals[i * 3 + 2];
+    }
+    onProgress({
+        stage: 'mesh',
+        message: STAGE_LABELS.mesh,
+        detail: `Poisson depth ${depth}`,
+    });
+    const mesh = await reconstructPoisson(oriented, { depth });
+    const triangleCount = mesh.indices.length / 3;
+    const vertexCount = mesh.positions.length / 3;
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
+    const { normals: nrm, colors } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
+    onProgress({
+        stage: 'done',
+        message: STAGE_LABELS.done,
+        detail: `${triangleCount.toLocaleString()} triangles`,
+    });
+    return {
+        kind: 'mesh',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: mesh.positions,
+        normals: nrm,
+        colors,
+        indices: mesh.indices,
         vertexCount,
         triangleCount,
         radius: c.radius,

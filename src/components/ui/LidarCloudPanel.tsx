@@ -46,6 +46,10 @@ export function LidarCloudPanel() {
     const setClasses = useMapStore((s) => s.setLidarCloudClasses);
     const voxelSize = useMapStore((s) => s.lidarCloudVoxelSize);
     const setVoxelSize = useMapStore((s) => s.setLidarCloudVoxelSize);
+    const poissonDepth = useMapStore((s) => s.lidarCloudPoissonDepth);
+    const setPoissonDepth = useMapStore((s) => s.setLidarCloudPoissonDepth);
+    const poissonNormalsK = useMapStore((s) => s.lidarCloudPoissonNormalsK);
+    const setPoissonNormalsK = useMapStore((s) => s.setLidarCloudPoissonNormalsK);
     const load = useMapStore((s) => s.loadLidarCloud);
     const clear = useMapStore((s) => s.clearLidarCloud);
     const hasData = shaded !== null || mesh !== null;
@@ -200,7 +204,7 @@ export function LidarCloudPanel() {
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                         <span>Rayon</span>
                         <span className="font-mono text-xs text-slate-400">
-                            {radius} m{mode === 'volume' && radius > 150 ? ' → 150 m' : ''}
+                            {radius} m{mode === 'volume' && radius > 150 ? ' → 150 m' : ''}{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
                         </span>
                     </div>
                     <input
@@ -276,13 +280,24 @@ export function LidarCloudPanel() {
                         <button
                             type="button"
                             onClick={() => setMode('volume')}
-                            className={`rounded-r-md px-2.5 py-1 text-xs ${mode === 'volume'
+                            className={`px-2.5 py-1 text-xs ${mode === 'volume'
                                 ? 'bg-green-600 text-white'
                                 : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                                 }`}
                             title="Reconstruction 3D (Hoppe SDF + Surface Nets) — sol uniquement, falaises franches"
                         >
                             Volume
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMode('poisson')}
+                            className={`rounded-r-md px-2.5 py-1 text-xs ${mode === 'poisson'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Reconstruction Poisson (octree adaptatif) — sol uniquement, surface lisse"
+                        >
+                            Poisson
                         </button>
                     </fieldset>
                 </div>
@@ -306,6 +321,52 @@ export function LidarCloudPanel() {
                         />
                         <p className="mt-1 text-[10px] text-slate-400">
                             Plus petit = plus de détail mais mémoire/temps en cube. 0.5 m typique.
+                        </p>
+                    </label>
+                )}
+
+                {/* Poisson depth (poisson mode only) */}
+                {mode === 'poisson' && (
+                    <label className="block">
+                        <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                            <span>Profondeur octree</span>
+                            <span className="font-mono text-xs text-slate-400">depth {poissonDepth}</span>
+                        </div>
+                        <input
+                            aria-label="Profondeur de l'octree PoissonRecon"
+                            type="range"
+                            min={6}
+                            max={12}
+                            step={1}
+                            value={poissonDepth}
+                            onChange={(e) => setPoissonDepth(Number(e.target.value))}
+                            className="mt-1 w-full accent-green-600"
+                        />
+                        <p className="mt-1 text-[10px] text-slate-400">
+                            8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent (RAM en cube).
+                        </p>
+                    </label>
+                )}
+
+                {/* Poisson normals smoothing (poisson mode only) */}
+                {mode === 'poisson' && (
+                    <label className="block">
+                        <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                            <span>Lissage normales</span>
+                            <span className="font-mono text-xs text-slate-400">k={poissonNormalsK}</span>
+                        </div>
+                        <input
+                            aria-label="Voisinage kNN pour le calcul des normales"
+                            type="range"
+                            min={12}
+                            max={48}
+                            step={4}
+                            value={poissonNormalsK}
+                            onChange={(e) => setPoissonNormalsK(Number(e.target.value))}
+                            className="mt-1 w-full accent-green-600"
+                        />
+                        <p className="mt-1 text-[10px] text-slate-400">
+                            Voisins pour PCA. 12 = arêtes nettes mais bulles &middot; 24 = équilibré &middot; 48 = très lisse.
                         </p>
                     </label>
                 )}

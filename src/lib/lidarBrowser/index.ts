@@ -42,3 +42,8 @@ export async function fetchLidarVolume(params: BrowserFetchParams): Promise<Lida
     return worker.fetchLidarVolume(params);
 }
 
+/** Poisson reconstruction mode (WASM PoissonRecon). Not cached. */
+export async function fetchLidarPoisson(params: BrowserFetchParams): Promise<LidarMeshData> {
+    return worker.fetchLidarPoisson(params);
+}
+

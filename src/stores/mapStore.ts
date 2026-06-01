@@ -1,6 +1,7 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import {
     fetchLidarMixed,
+    fetchLidarPoisson,
     fetchLidarShaded,
     fetchLidarVolume,
     type LidarProgress,
@@ -104,9 +105,9 @@ interface MapState {
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 
     // ---- LiDAR HD point cloud ----
-    /** Rendering mode: shaded point cloud, mixed (mesh+points), or volume (Surface Nets). */
-    lidarMode: 'shaded' | 'mixed' | 'volume';
-    setLidarMode: (v: 'shaded' | 'mixed' | 'volume') => void;
+    /** Rendering mode: shaded point cloud, mixed (mesh+points), volume (Surface Nets) or poisson (PoissonRecon WASM). */
+    lidarMode: 'shaded' | 'mixed' | 'volume' | 'poisson';
+    setLidarMode: (v: 'shaded' | 'mixed' | 'volume' | 'poisson') => void;
     /** Loaded shaded point cloud (positions + normals + slope colors). */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for mixed mode. */
@@ -153,6 +154,11 @@ interface MapState {
     /** Voxel size in meters for the 'volume' mode (Hoppe SDF + Surface Nets). */
     lidarCloudVoxelSize: number;
     setLidarCloudVoxelSize: (v: number) => void;
+    /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
+    lidarCloudPoissonDepth: number;
+    setLidarCloudPoissonDepth: (v: number) => void;
+    lidarCloudPoissonNormalsK: number;
+    setLidarCloudPoissonNormalsK: (v: number) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -189,7 +195,7 @@ type PersistedSettings = {
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
-    lidarMode?: 'shaded' | 'mixed' | 'volume';
+    lidarMode?: 'shaded' | 'mixed' | 'volume' | 'poisson';
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
     lidarCloudPointSize?: number;
@@ -202,6 +208,8 @@ type PersistedSettings = {
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudVoxelSize?: number;
+    lidarCloudPoissonDepth?: number;
+    lidarCloudPoissonNormalsK?: number;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -281,7 +289,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
 
     // LiDAR HD point cloud state
-    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed' || persisted.lidarMode === 'volume') ? persisted.lidarMode : 'shaded',
+    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed' || persisted.lidarMode === 'volume' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
     lidarShaded: null,
     lidarMesh: null,
@@ -312,6 +320,10 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
     lidarCloudVoxelSize: persisted.lidarCloudVoxelSize ?? 0.5,
     setLidarCloudVoxelSize: (lidarCloudVoxelSize) => set({ lidarCloudVoxelSize }),
+    lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
+    setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
+    lidarCloudPoissonNormalsK: persisted.lidarCloudPoissonNormalsK ?? 24,
+    setLidarCloudPoissonNormalsK: (lidarCloudPoissonNormalsK) => set({ lidarCloudPoissonNormalsK }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -356,6 +368,25 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: volRadius,
                     stride: state.lidarCloudStride,
                     voxelSize: state.lidarCloudVoxelSize,
+                    onProgress,
+                });
+                set({
+                    lidarShaded: null,
+                    lidarMesh: mesh,
+                    lidarCloudLoading: false,
+                    lidarCloudProgress: null,
+                });
+            } else if (state.lidarMode === 'poisson') {
+                // PoissonRecon WASM. Ground-only. Cap the radius so the WASM
+                // heap (2 GB) and the depth-12 octree don't explode.
+                const psRadius = Math.min(state.lidarCloudRadius, 250);
+                const mesh = await fetchLidarPoisson({
+                    lng: center.lng,
+                    lat: center.lat,
+                    radius: psRadius,
+                    stride: state.lidarCloudStride,
+                    poissonDepth: state.lidarCloudPoissonDepth,
+                    poissonNormalsK: state.lidarCloudPoissonNormalsK,
                     onProgress,
                 });
                 set({
@@ -420,6 +451,8 @@ useMapStore.subscribe((state) => {
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudVoxelSize: state.lidarCloudVoxelSize,
+            lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
+            lidarCloudPoissonNormalsK: state.lidarCloudPoissonNormalsK,
         });
     }, 500);
 });

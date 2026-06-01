@@ -80,15 +80,19 @@ function cellKey(ix: number, iy: number, iz: number): number {
 /**
  * Compute per-point normals via k-NN PCA on a 3D uniform grid.
  *
- * @param positions Interleaved (dx, dy, z) METER_OFFSETS float32.
- * @param k         Number of nearest neighbors to use (default 12).
- * @param cellSize  Grid cell size in meters (default 2).
- * @returns         Interleaved (nx, ny, nz) per point, normalized, nz ≥ 0.
+ * @param positions   Interleaved (dx, dy, z) METER_OFFSETS float32.
+ * @param k           Number of nearest neighbors to use (default 12).
+ * @param cellSize    Grid cell size in meters (default 2).
+ * @param forceUpward When true (default), flip each normal so nz ≥ 0.
+ *                    Pass `false` for Poisson reconstruction — the caller
+ *                    is responsible for running orientation propagation.
+ * @returns           Interleaved (nx, ny, nz) per point, normalized.
  */
 export function computeNormalsKNN(
     positions: Float32Array,
     k = 12,
     cellSize = 2,
+    forceUpward = true,
 ): Float32Array {
     const n = positions.length / 3;
     const normals = new Float32Array(n * 3);
@@ -196,10 +200,128 @@ export function computeNormalsKNN(
         }
 
         const [nx, ny, nz] = smallestEigenVec3(cxx, cyy, czz, cxy, cxz, cyz);
-        const s = nz < 0 ? -1 : 1;
+        const s = forceUpward && nz < 0 ? -1 : 1;
         normals[i * 3] = nx * s;
         normals[i * 3 + 1] = ny * s;
         normals[i * 3 + 2] = nz * s;
     }
     return normals;
+}
+
+/**
+ * Propagate normal orientation by BFS through a k-NN graph (Hoppe 1992,
+ * MST-equivalent in practice for terrain). Mutates `normals` in place.
+ *
+ * Algorithm:
+ *  1. Seed = highest-z point, forced to nz ≥ 0.
+ *  2. BFS through the k-NN graph; for each unvisited neighbor j, if
+ *     `n_i · n_j < 0` flip `n_j`. This keeps the gradient field
+ *     coherent across the surface, which Poisson needs to avoid
+ *     extrapolated "bubbles" near cliffs, ridges and scan boundaries.
+ *  3. Any unvisited remainder (disconnected components) gets the +Z
+ *     fallback.
+ *
+ * Memory: bitset(n) + queue(n*4) — fits comfortably in WASM heap.
+ */
+export function propagateNormalOrientation(
+    positions: Float32Array,
+    normals: Float32Array,
+    cellSize = 3,
+    neighbors = 8,
+): void {
+    const n = positions.length / 3;
+    if (n < 4) return;
+
+    // Build the same uniform grid as computeNormalsKNN.
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxZ = -Infinity, seedIdx = 0;
+    for (let i = 0; i < n; i++) {
+        const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) { maxZ = z; seedIdx = i; }
+    }
+    const invCell = 1 / cellSize;
+    const grid = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+        const ix = Math.floor((positions[i * 3] - minX) * invCell);
+        const iy = Math.floor((positions[i * 3 + 1] - minY) * invCell);
+        const iz = Math.floor((positions[i * 3 + 2] - minZ) * invCell);
+        const key = cellKey(ix, iy, iz);
+        let bucket = grid.get(key);
+        if (!bucket) { bucket = []; grid.set(key, bucket); }
+        bucket.push(i);
+    }
+
+    // Force seed to +Z and run BFS.
+    if (normals[seedIdx * 3 + 2] < 0) {
+        normals[seedIdx * 3] *= -1;
+        normals[seedIdx * 3 + 1] *= -1;
+        normals[seedIdx * 3 + 2] *= -1;
+    }
+    const visited = new Uint8Array(n);
+    visited[seedIdx] = 1;
+    const queue = new Int32Array(n);
+    queue[0] = seedIdx;
+    let qHead = 0, qTail = 1;
+
+    const distBuf = new Float64Array(neighbors);
+    const idxBuf = new Int32Array(neighbors);
+
+    while (qHead < qTail) {
+        const i = queue[qHead++];
+        const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+        const nix = normals[i * 3], niy = normals[i * 3 + 1], niz = normals[i * 3 + 2];
+        const cx = Math.floor((x - minX) * invCell);
+        const cy = Math.floor((y - minY) * invCell);
+        const cz = Math.floor((z - minZ) * invCell);
+        for (let h = 0; h < neighbors; h++) { distBuf[h] = Infinity; idxBuf[h] = -1; }
+        let maxDist = Infinity, maxPos = 0;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dz = -1; dz <= 1; dz++) {
+                    const bucket = grid.get(cellKey(cx + dx, cy + dy, cz + dz));
+                    if (!bucket) continue;
+                    for (let bi = 0; bi < bucket.length; bi++) {
+                        const j = bucket[bi];
+                        if (j === i) continue;
+                        const ex = positions[j * 3] - x;
+                        const ey = positions[j * 3 + 1] - y;
+                        const ez = positions[j * 3 + 2] - z;
+                        const d2 = ex * ex + ey * ey + ez * ez;
+                        if (d2 >= maxDist) continue;
+                        distBuf[maxPos] = d2;
+                        idxBuf[maxPos] = j;
+                        let m = -1, mp = 0;
+                        for (let h = 0; h < neighbors; h++) {
+                            if (distBuf[h] > m) { m = distBuf[h]; mp = h; }
+                        }
+                        maxDist = m; maxPos = mp;
+                    }
+                }
+            }
+        }
+        for (let h = 0; h < neighbors; h++) {
+            const j = idxBuf[h];
+            if (j < 0 || visited[j]) continue;
+            visited[j] = 1;
+            const njx = normals[j * 3], njy = normals[j * 3 + 1], njz = normals[j * 3 + 2];
+            if (nix * njx + niy * njy + niz * njz < 0) {
+                normals[j * 3] = -njx;
+                normals[j * 3 + 1] = -njy;
+                normals[j * 3 + 2] = -njz;
+            }
+            queue[qTail++] = j;
+        }
+    }
+
+    // Fallback for any disconnected components: force +Z.
+    for (let i = 0; i < n; i++) {
+        if (!visited[i] && normals[i * 3 + 2] < 0) {
+            normals[i * 3] *= -1;
+            normals[i * 3 + 1] *= -1;
+            normals[i * 3 + 2] *= -1;
+        }
+    }
 }
