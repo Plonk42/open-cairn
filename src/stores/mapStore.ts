@@ -381,7 +381,6 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: psRadius,
                     stride: state.lidarCloudStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
-                    poissonTest: (globalThis as { __POISSON_TEST?: boolean }).__POISSON_TEST === true,
                     onProgress,
                 });
                 set({
