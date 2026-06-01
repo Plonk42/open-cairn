@@ -23,10 +23,12 @@ uniform float u_ps;        // point size
 // is 1 iff class (32*w + i&31) is visible. Set by setClassMask() — lets the
 // user toggle classes on/off without re-fetching the cloud.
 uniform uint u_classMask[8];
+uniform vec3 u_sunDir;       // unit vector pointing toward the sun (x=E, y=N, z=up)
+uniform float u_sunIntensity; // 0 (night) .. 1 (day high)
+uniform vec3 u_sunColor;     // diffuse tint (warm at sunrise/sunset, white at noon)
 
 out vec4 v_color;
 out float v_depth;
-const vec3 SUN = vec3(0.4472, 0.5367, 0.7155);
 
 void main() {
     // Cheap GPU-side LAS-class filter: discard the point if its bit is unset.
@@ -57,9 +59,13 @@ void main() {
     // Units are the same as the post-projection w (Mercator units * matrix).
     v_depth = gl_Position.w;
     
-    // Normal-based lighting
-    float diff = max(0.0, dot(normalize(a_normal), SUN));
-    v_color = vec4(a_color.rgb * (0.4 + 0.6 * diff), a_color.a);
+    // Normal-based lighting (Lambert), driven by user-controlled sun direction.
+    // Ambient (0.35) keeps shaded sides legible; diffuse fades to 0 at night.
+    // The diffuse term is multiplied by u_sunColor so the lighting itself
+    // gets warmer near sunrise/sunset (without altering ambient).
+    float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    vec3 lit = a_color.rgb * 0.35 + a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_color = vec4(lit, a_color.a);
 }`;
 
 const FS_POINTS = /* glsl */`#version 300 es
@@ -87,17 +93,20 @@ layout(location = 2) in vec4 a_color;
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
+uniform vec3 u_sunDir;
+uniform float u_sunIntensity;
+uniform vec3 u_sunColor;
 
 out vec4 v_color;
 out float v_depth;
-const vec3 SUN = vec3(0.4472, 0.5367, 0.7155);
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
     gl_Position = u_matrix * vec4(pos, 1.0);
     v_depth = gl_Position.w;
-    float diff = max(0.0, dot(normalize(a_normal), SUN));
-    v_color = vec4(a_color.rgb * (0.4 + 0.6 * diff), a_color.a);
+    float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    vec3 lit = a_color.rgb * 0.35 + a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_color = vec4(lit, a_color.a);
 }`;
 
 const FS_MESH = FS_POINTS;
@@ -147,13 +156,34 @@ float edlFactor() {
     // QGIS uses texelSize = 2.0 / textureSize, i.e. step unit = 2 pixels.
     vec2 step2 = 2.0 * u_texelSize;
     float centerDepth = texture(u_depth, v_uv).r / u_farPlane;
+
+    // Tangent-plane compensation (same idea as aoFactor below): without it,
+    // a smooth surface viewed obliquely darkens uniformly because every
+    // down-slope neighbour is legitimately deeper. We estimate the local
+    // depth gradient (dDepth/dPixel) via 1-pixel central differences and
+    // subtract the plane-predicted depth from each neighbour, so EDL only
+    // reacts to true relief / silhouettes — not to camera tilt.
+    float dRight = texture(u_depth, v_uv + vec2(u_texelSize.x, 0.0)).r;
+    float dLeft  = texture(u_depth, v_uv - vec2(u_texelSize.x, 0.0)).r;
+    float dUp    = texture(u_depth, v_uv + vec2(0.0, u_texelSize.y)).r;
+    float dDown  = texture(u_depth, v_uv - vec2(0.0, u_texelSize.y)).r;
+    float gx = (dRight > 0.0 && dLeft > 0.0) ? (dRight - dLeft) * 0.5 / u_farPlane : 0.0;
+    float gy = (dUp    > 0.0 && dDown > 0.0) ? (dUp    - dDown) * 0.5 / u_farPlane : 0.0;
+    vec2 grad = vec2(gx, gy);
+
     float factor = 0.0;
     for (int i = 0; i < 4; i++) {
-        vec2 nc = v_uv + u_radius * step2 * NB[i];
+        vec2 offsetUv = u_radius * step2 * NB[i];
+        vec2 nc = v_uv + offsetUv;
         float nd = texture(u_depth, nc).r / u_farPlane;
         if (nd != 0.0) {
-            if (centerDepth == 0.0) factor += 1.0;
-            else factor += max(0.0, centerDepth - nd);
+            if (centerDepth == 0.0) {
+                factor += 1.0;
+            } else {
+                vec2 offsetPx = offsetUv / u_texelSize;
+                float ndExpected = centerDepth + dot(grad, offsetPx);
+                factor += max(0.0, ndExpected - nd);
+            }
         }
     }
     return factor / 4.0;
@@ -313,6 +343,12 @@ export interface LidarWebGLLayerConfig {
     aoRadius: number;
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
+    /** Unit direction vector pointing TOWARDS the sun (x=east, y=north, z=up). */
+    sunDir: [number, number, number];
+    /** 0 = no diffuse (night), 1 = full daylight. */
+    sunIntensity: number;
+    /** RGB tint multiplied with the diffuse term (warm at sunrise/sunset). */
+    sunColor: [number, number, number];
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -335,7 +371,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         mpu: WebGLUniformLocation | null;
         ps: WebGLUniformLocation | null;
         classMask: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null };
+        sunDir: WebGLUniformLocation | null;
+        sunIntensity: WebGLUniformLocation | null;
+        sunColor: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -353,7 +392,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _locMesh: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null };
+        sunDir: WebGLUniformLocation | null;
+        sunIntensity: WebGLUniformLocation | null;
+        sunColor: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null };
 
     // EDL post-processing
     private _progEdl: WebGLProgram | null = null;
@@ -393,6 +435,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         aoStrength: 0,
         aoRadius: 3,
         opacity: 1,
+        // Default sun: SSE bearing (~150°), 45° above horizon — same flavour as the
+        // old hard-coded SUN constant. Overwritten as soon as setConfig() is called.
+        sunDir: [0.4472, 0.5367, 0.7155],
+        sunIntensity: 1,
+        sunColor: [1, 0.98, 0.95],
     };
 
     constructor(id: string) {
@@ -472,6 +519,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locPoints.mpu, this._mpu);
             gl2.uniform1f(this._locPoints.ps, effectivePointSize);
             gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
+            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
+            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
+            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
 
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
@@ -530,6 +580,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locPoints.mpu, this._mpu);
             gl2.uniform1f(this._locPoints.ps, effectivePointSize);
             gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
+            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
+            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
+            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
 
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
@@ -572,6 +625,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locPoints.mpu, this._mpu);
             gl2.uniform1f(this._locPoints.ps, effectivePointSize);
             gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
+            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
+            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
+            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
 
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
@@ -723,6 +779,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.useProgram(this._progMesh);
         gl.uniformMatrix4fv(this._locMesh.matrix, false, translatedMatrix);
         gl.uniform1f(this._locMesh.mpu, this._mpu);
+        gl.uniform3fv(this._locMesh.sunDir, this.config.sunDir);
+        gl.uniform1f(this._locMesh.sunIntensity, this.config.sunIntensity);
+        gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
         gl.bindVertexArray(this._vaoMesh);
         gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
     }
@@ -758,6 +817,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             mpu: gl.getUniformLocation(this._progPoints, 'u_mpu'),
             ps: gl.getUniformLocation(this._progPoints, 'u_ps'),
             classMask: gl.getUniformLocation(this._progPoints, 'u_classMask[0]'),
+            sunDir: gl.getUniformLocation(this._progPoints, 'u_sunDir'),
+            sunIntensity: gl.getUniformLocation(this._progPoints, 'u_sunIntensity'),
+            sunColor: gl.getUniformLocation(this._progPoints, 'u_sunColor'),
         };
 
         // ─── Point buffers & VAO ───
@@ -789,6 +851,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._locMesh = {
             matrix: gl.getUniformLocation(this._progMesh, 'u_matrix'),
             mpu: gl.getUniformLocation(this._progMesh, 'u_mpu'),
+            sunDir: gl.getUniformLocation(this._progMesh, 'u_sunDir'),
+            sunIntensity: gl.getUniformLocation(this._progMesh, 'u_sunIntensity'),
+            sunColor: gl.getUniformLocation(this._progMesh, 'u_sunColor'),
         };
 
         // ─── Mesh buffers & VAO ───

@@ -1,5 +1,6 @@
 import { STAGE_LABELS, type LidarProgressStage } from '@/lib/lidarBrowser';
 import { LAS_CLASS_LABELS } from '@/lib/lidarCloud';
+import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 
 /** LAS classes available for filtering in the UI. */
@@ -47,6 +48,10 @@ export function LidarCloudPanel() {
     const poissonDepth = useMapStore((s) => s.lidarCloudPoissonDepth);
     const setPoissonDepth = useMapStore((s) => s.setLidarCloudPoissonDepth);
     const load = useMapStore((s) => s.loadLidarCloud);
+    const shader = useMapStore((s) => s.lidarShader);
+    const setShader = useMapStore((s) => s.setLidarShader);
+    const sunDate = useMapStore((s) => s.lidarSunDate);
+    const setSunDate = useMapStore((s) => s.setLidarSunDate);
     const clear = useMapStore((s) => s.clearLidarCloud);
     const hasData = shaded !== null || mesh !== null;
 
@@ -126,121 +131,11 @@ export function LidarCloudPanel() {
                 </div>
             )}
 
-            {/* Action buttons */}
-            <div className="flex gap-2">
-                <button
-                    type="button"
-                    onClick={() => { load(); }}
-                    disabled={loading}
-                    className="flex-1 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {loading ? 'Chargement…' : 'Charger ici'}
-                </button>
-                <button
-                    type="button"
-                    onClick={clear}
-                    disabled={!hasData || loading}
-                    className="rounded-md bg-gray-100 px-3 py-2 text-sm text-slate-700 ring-1 ring-gray-200 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600"
-                >
-                    Effacer
-                </button>
-            </div>
-
-            {/* Status messages */}
-            {shaded && !loading && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                    ✓ {shaded.pointCount.toLocaleString('fr-FR')} points chargés (rayon {shaded.radius} m)
-                </p>
-            )}
-            {error && (
-                <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">
-                    {error}
-                </p>
-            )}
-
             {/* ═══════════════════════════════════════════════════════════════════
-                SECTION: Données
+                SECTION: Calcul
                ═══════════════════════════════════════════════════════════════════ */}
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Données</h4>
-
-                {/* Classes LAS */}
-                <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-sm text-slate-700 dark:text-slate-300">Classes</span>
-                        <div className="flex gap-1 text-[10px]">
-                            <button type="button" onClick={selectAll} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
-                            <button type="button" onClick={selectGround} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
-                            <button type="button" onClick={selectVegetation} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
-                            <button type="button" onClick={selectBuildings} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                        {AVAILABLE_CLASSES.map((cls) => (
-                            <label key={cls} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                                <input
-                                    type="checkbox"
-                                    checked={classes.includes(cls)}
-                                    onChange={() => toggleClass(cls)}
-                                    className="h-3.5 w-3.5 accent-green-600"
-                                />
-                                <span>{LAS_CLASS_LABELS[cls] ?? `Classe ${cls}`}</span>
-                            </label>
-                        ))}
-                    </div>
-                    {classes.length === 0 && (
-                        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
-                            Aucune classe sélectionnée — tous les points seront chargés.
-                        </p>
-                    )}
-                </div>
-
-                {/* Rayon */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Rayon</span>
-                        <span className="font-mono text-xs text-slate-400">
-                            {radius} m{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
-                        </span>
-                    </div>
-                    <input
-                        aria-label="Rayon de chargement LiDAR"
-                        type="range"
-                        min={50}
-                        max={600}
-                        step={25}
-                        value={radius}
-                        onChange={(e) => setRadius(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-
-                {/* Densité */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Densité</span>
-                        <span className="font-mono text-xs text-slate-400">
-                            {stride === 1 ? 'max' : `1/${stride}`}
-                        </span>
-                    </div>
-                    <input
-                        aria-label="Décimation du nuage de points"
-                        type="range"
-                        min={1}
-                        max={50}
-                        step={1}
-                        value={stride}
-                        onChange={(e) => setStride(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-            </div>
-
-            {/* ═══════════════════════════════════════════════════════════════════
-                SECTION: Rendu
-               ═══════════════════════════════════════════════════════════════════ */}
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Rendu</h4>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Calcul</h4>
 
                 {/* Mode */}
                 <div className="flex items-center justify-between">
@@ -305,6 +200,164 @@ export function LidarCloudPanel() {
                     </label>
                 )}
 
+                {/* Rayon */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Rayon</span>
+                        <span className="font-mono text-xs text-slate-400">
+                            {radius} m{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
+                        </span>
+                    </div>
+                    <input
+                        aria-label="Rayon de chargement LiDAR"
+                        type="range"
+                        min={50}
+                        max={600}
+                        step={25}
+                        value={radius}
+                        onChange={(e) => setRadius(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Densité */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Densité</span>
+                        <span className="font-mono text-xs text-slate-400">
+                            {stride === 1 ? 'max' : `1/${stride}`}
+                        </span>
+                    </div>
+                    <input
+                        aria-label="Décimation du nuage de points"
+                        type="range"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={stride}
+                        onChange={(e) => setStride(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Classes LAS */}
+                <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-sm text-slate-700 dark:text-slate-300">Classes</span>
+                        <div className="flex gap-1 text-[10px]">
+                            <button type="button" onClick={selectAll} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
+                            <button type="button" onClick={selectGround} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
+                            <button type="button" onClick={selectVegetation} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
+                            <button type="button" onClick={selectBuildings} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {AVAILABLE_CLASSES.map((cls) => (
+                            <label key={cls} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                                <input
+                                    type="checkbox"
+                                    checked={classes.includes(cls)}
+                                    onChange={() => toggleClass(cls)}
+                                    className="h-3.5 w-3.5 accent-green-600"
+                                />
+                                <span>{LAS_CLASS_LABELS[cls] ?? `Classe ${cls}`}</span>
+                            </label>
+                        ))}
+                    </div>
+                    {classes.length === 0 && (
+                        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+                            Aucune classe sélectionnée — tous les points seront chargés.
+                        </p>
+                    )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-1">
+                    <button
+                        type="button"
+                        onClick={() => { load(); }}
+                        disabled={loading}
+                        className="flex-1 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {loading ? 'Chargement…' : 'Charger ici'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clear}
+                        disabled={!hasData || loading}
+                        className="rounded-md bg-gray-100 px-3 py-2 text-sm text-slate-700 ring-1 ring-gray-200 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600"
+                    >
+                        Effacer
+                    </button>
+                </div>
+
+                {/* Status messages */}
+                {(shaded ?? mesh) !== null && !loading && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                        ✓{mesh ? ` ${mesh.triangleCount.toLocaleString('fr-FR')} tri` : ''}{mesh && shaded ? ' +' : ''}{shaded ? ` ${shaded.pointCount.toLocaleString('fr-FR')} pts` : ''} · rayon {(mesh ?? shaded)!.radius} m
+                    </p>
+                )}
+                {error && (
+                    <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">
+                        {error}
+                    </p>
+                )}
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                SECTION: Affichage
+               ═══════════════════════════════════════════════════════════════════ */}
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Affichage</h4>
+
+                {/* Shader */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
+                    <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
+                        <button
+                            type="button"
+                            onClick={() => setShader('base')}
+                            className={`rounded-l-md px-2.5 py-1 text-xs ${shader === 'base'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Dégradé chaud sable / brun (style CloudCompare)"
+                        >
+                            Base
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShader('cliff')}
+                            className={`px-2.5 py-1 text-xs ${shader === 'cliff'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Rupture nette herbe/calcaire gris avec texture rocheuse"
+                        >
+                            Falaise
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShader('winter')}
+                            className={`rounded-r-md px-2.5 py-1 text-xs ${shader === 'winter'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                            title="Neige sur pentes douces/expositions nord, falaise brun rocheux"
+                        >
+                            Hiver
+                        </button>
+                    </fieldset>
+                </div>
+
+                {/* Soleil — date / heure pour le calcul de l'éclairage */}
+                <SunDateControl
+                    value={sunDate}
+                    onChange={setSunDate}
+                    centerLng={(shaded?.centerLng ?? mesh?.centerLng) ?? null}
+                    centerLat={(shaded?.centerLat ?? mesh?.centerLat) ?? null}
+                />
+
                 {/* Taille des points */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
@@ -332,6 +385,35 @@ export function LidarCloudPanel() {
                         type="checkbox"
                         checked={sizeCompensation}
                         onChange={(e) => setSizeCompensation(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+
+                {/* Opacité */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Opacité</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Opacité du calque LiDAR"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={opacity}
+                        onChange={(e) => setOpacity(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Atténuer le fond */}
+                <label className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Atténuer le fond</span>
+                    <input
+                        type="checkbox"
+                        checked={hideBasemap}
+                        onChange={(e) => setHideBasemap(e.target.checked)}
                         className="h-4 w-4 accent-green-600"
                     />
                 </label>
@@ -404,42 +486,105 @@ export function LidarCloudPanel() {
                     )}
                 </div>
             </div>
+        </div>
+    );
+}
 
-            {/* ═══════════════════════════════════════════════════════════════════
-                SECTION: Affichage
-               ═══════════════════════════════════════════════════════════════════ */}
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Affichage</h4>
+// ─────────────────────────────────────────────────────────────────────────────
+// SunDateControl — date/time picker + live read-out of sun azimuth/elevation.
+// Kept as a small sub-component so the main panel doesn't balloon its
+// cognitive complexity; reuses the global sunLighting() helper.
+// ─────────────────────────────────────────────────────────────────────────────
+function SunDateControl({
+    value,
+    onChange,
+    centerLng,
+    centerLat,
+}: Readonly<{
+    value: string;
+    onChange: (v: string) => void;
+    centerLng: number | null;
+    centerLat: number | null;
+}>) {
+    // value is stored as "YYYY-MM-DDTHH:mm" (local time). Split into date and
+    // minutes-of-day for an independent date picker + hour slider.
+    const datePart = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? '';
+    const timeMatch = /T(\d{2}):(\d{2})/.exec(value);
+    const minutesOfDay = timeMatch
+        ? Math.min(1439, Math.max(0, Number(timeMatch[1]) * 60 + Number(timeMatch[2])))
+        : 12 * 60;
+    const hh = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
+    const mm = String(minutesOfDay % 60).padStart(2, '0');
+    const timeLabel = `${hh}h${mm}`;
 
-                {/* Opacité */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Opacité</span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
-                    </div>
-                    <input
-                        aria-label="Opacité du calque LiDAR"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={opacity}
-                        onChange={(e) => setOpacity(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
+    const setDate = (d: string) => {
+        if (!d) return;
+        onChange(`${d}T${hh}:${mm}`);
+    };
+    const setMinutes = (n: number) => {
+        const h = String(Math.floor(n / 60)).padStart(2, '0');
+        const m = String(n % 60).padStart(2, '0');
+        const base = datePart || new Date().toISOString().slice(0, 10);
+        onChange(`${base}T${h}:${m}`);
+    };
 
-                {/* Atténuer le fond */}
-                <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700 dark:text-slate-300">Atténuer le fond</span>
-                    <input
-                        type="checkbox"
-                        checked={hideBasemap}
-                        onChange={(e) => setHideBasemap(e.target.checked)}
-                        className="h-4 w-4 accent-green-600"
-                    />
-                </label>
+    let azStr = '—';
+    let elStr = '—';
+    let dayState: 'night' | 'twilight' | 'day' = 'day';
+    if (centerLng != null && centerLat != null) {
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) {
+            const { azimuthDeg, elevationDeg, intensity } = sunLighting(d, centerLat, centerLng);
+            azStr = `${Math.round(azimuthDeg)}°`;
+            elStr = `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`;
+            if (intensity <= 0) dayState = 'night';
+            else if (intensity < 1) dayState = 'twilight';
+        }
+    }
+    let dayBadge: string;
+    let dayLabel: string;
+    if (dayState === 'night') {
+        dayBadge = 'bg-slate-700 text-slate-200';
+        dayLabel = 'nuit';
+    } else if (dayState === 'twilight') {
+        dayBadge = 'bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200';
+        dayLabel = 'crépuscule';
+    } else {
+        dayBadge = 'bg-yellow-200 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-200';
+        dayLabel = 'jour';
+    }
+
+    return (
+        <div>
+            <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300">Soleil</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${dayBadge}`}>{dayLabel}</span>
             </div>
+            <input
+                aria-label="Date pour le calcul du soleil"
+                type="date"
+                value={datePart}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            />
+            <div className="mt-2 flex items-center gap-2">
+                <input
+                    aria-label="Heure de la journée"
+                    type="range"
+                    min={0}
+                    max={1439}
+                    step={5}
+                    value={minutesOfDay}
+                    onChange={(e) => setMinutes(Number(e.target.value))}
+                    className="flex-1 accent-green-600"
+                />
+                <span className="w-12 text-right font-mono text-xs text-slate-700 tabular-nums dark:text-slate-200">
+                    {timeLabel}
+                </span>
+            </div>
+            <p className="mt-1 font-mono text-[10px] text-slate-400">
+                az {azStr} · h {elStr}
+            </p>
         </div>
     );
 }

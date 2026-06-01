@@ -1,4 +1,5 @@
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
+import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
@@ -23,6 +24,7 @@ export function LidarCloudOverlay() {
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
+    const sunDate = useMapStore((s) => s.lidarSunDate);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
     // Incremented every time MapLibre rebuilds its style (base-layer switch,
@@ -144,6 +146,22 @@ export function LidarCloudOverlay() {
             opacity,
         });
     }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, styleEpoch]);
+
+    // ── Sun-driven Lambert lighting ───────────────────────────────────────────
+    // Recompute the sun direction whenever the user picks a different date/time
+    // or the loaded cloud changes (we use its center for the solar calc; fall
+    // back to the current map center if no cloud is loaded yet).
+    useEffect(() => {
+        const layer = webglRef.current;
+        if (!layer) return;
+        const lng = lidarShaded?.centerLng ?? lidarMesh?.centerLng ?? mapInstance?.getCenter().lng;
+        const lat = lidarShaded?.centerLat ?? lidarMesh?.centerLat ?? mapInstance?.getCenter().lat;
+        if (lng == null || lat == null) return;
+        const date = new Date(sunDate);
+        if (Number.isNaN(date.getTime())) return;
+        const { dir, intensity, color } = sunLighting(date, lat, lng);
+        layer.setConfig({ sunDir: dir, sunIntensity: intensity, sunColor: color });
+    }, [sunDate, lidarShaded, lidarMesh, mapInstance, styleEpoch]);
 
     // ── Basemap dimming ───────────────────────────────────────────────────────
     useEffect(() => {

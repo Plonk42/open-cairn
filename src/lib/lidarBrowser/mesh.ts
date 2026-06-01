@@ -4,7 +4,7 @@
  * `services/lidar-cloud/server.mjs::buildMesh()`.
  */
 import Delaunator from 'delaunator';
-import { slopeColor } from './slope';
+import { vertexColor, type ShaderPreset } from './slope';
 
 export interface MeshResult {
     /** Same vertex array as input (positions are not duplicated). */
@@ -22,7 +22,7 @@ export interface MeshResult {
  * `maxEdge` meters. Vertex normals are the area-weighted average of the
  * normals of incident triangles, flipped so nz ≥ 0 (LiDAR is from above).
  */
-export function buildMesh(positions: Float32Array, maxEdge: number): MeshResult {
+export function buildMesh(positions: Float32Array, maxEdge: number, shader: ShaderPreset = 'cliff'): MeshResult {
     const n = positions.length / 3;
     if (n < 3) {
         return {
@@ -87,9 +87,9 @@ export function buildMesh(positions: Float32Array, maxEdge: number): MeshResult 
 
     const colors = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
-        const nz = Math.max(-1, Math.min(1, normals[i * 3 + 2]));
-        const slope = Math.acos(Math.abs(nz));
-        const [r, g, b] = slopeColor(slope);
+        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+        const z = positions[i * 3 + 2];
+        const [r, g, b] = vertexColor(nx, ny, nz, z, shader);
         colors[i * 4] = r;
         colors[i * 4 + 1] = g;
         colors[i * 4 + 2] = b;

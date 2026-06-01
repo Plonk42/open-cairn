@@ -11,9 +11,9 @@ import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN } from './normals';
 import { reconstructPoisson } from './poissonRecon';
-import { noopProgress, type ProgressCallback, STAGE_LABELS } from './progress';
+import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { lngLatToL93 } from './proj';
-import { colorsFromNormals, slopeColor } from './slope';
+import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
 import { findTiles } from './wfs';
 
 export interface BrowserFetchParams {
@@ -24,6 +24,8 @@ export interface BrowserFetchParams {
     classes?: number[];
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     poissonDepth?: number;
+    /** Colour shader preset applied to all geometry. */
+    shader?: ShaderPreset;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -136,11 +138,12 @@ export async function fetchLidarShaded(
     params: BrowserFetchParams,
 ): Promise<LidarShadedCloudData> {
     const onProgress = params.onProgress ?? noopProgress;
+    const shader = params.shader ?? 'cliff';
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
     const normals = computeNormalsKNN(c.positions, 12, 2);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
-    const colors = colorsFromNormals(normals);
+    const colors = colorsFromNormals(normals, shader, c.positions);
     onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
     return {
         kind: 'shaded',
@@ -164,6 +167,7 @@ export async function fetchLidarMixed(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
+    const shader = params.shader ?? 'cliff';
     // Mixed mode ignores any incoming `classes` filter (we need ground for
     // the mesh AND non-ground for the cloud). The runtime mask in the
     // overlay decides which classes the user actually sees.
@@ -197,7 +201,7 @@ export async function fetchLidarMixed(
     onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol` });
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
-    const groundMesh = buildMesh(groundPos, maxEdge);
+    const groundMesh = buildMesh(groundPos, maxEdge, shader);
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -216,7 +220,7 @@ export async function fetchLidarMixed(
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const ngNormals = computeNormalsKNN(ngPos, 12, 2);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
-    const ngColors = colorsFromNormals(ngNormals);
+    const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
@@ -250,12 +254,22 @@ export async function fetchLidarMixed(
  * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
  * output PLY contains only positions + faces.
  */
-function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array): {
+function normalsAndColorsFromMesh(
+    positions: Float32Array,
+    indices: Uint32Array,
+    shader: ShaderPreset = 'cliff',
+): {
     normals: Float32Array;
     colors: Uint8Array;
+    roughness: Float32Array;
 } {
     const n = positions.length / 3;
     const normals = new Float32Array(n * 3);
+    // Track Σ|face_normal| per vertex; comparing it to |Σface_normal| after
+    // accumulation gives a coherence metric in [0,1] — high on smooth slabs,
+    // low on rocky outcrops where neighbour faces disagree. Used below to
+    // darken & desaturate rugged areas so they pop visually.
+    const sumMag = new Float32Array(n);
     for (let t = 0; t < indices.length; t += 3) {
         const ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
         const ax = positions[ia * 3], ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
@@ -272,11 +286,17 @@ function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array)
         normals[ia * 3] += nx; normals[ia * 3 + 1] += ny; normals[ia * 3 + 2] += nz;
         normals[ib * 3] += nx; normals[ib * 3 + 1] += ny; normals[ib * 3 + 2] += nz;
         normals[ic * 3] += nx; normals[ic * 3 + 1] += ny; normals[ic * 3 + 2] += nz;
+        const mag = Math.hypot(nx, ny, nz);
+        sumMag[ia] += mag; sumMag[ib] += mag; sumMag[ic] += mag;
     }
     const colors = new Uint8Array(n * 4);
+    const roughnessArr = new Float32Array(n);
     for (let i = 0; i < n; i++) {
         const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
         const len = Math.hypot(nx, ny, nz);
+        // Compute coherence BEFORE normalizing (len = |Σ face_normals| pre-normalized)
+        const coherence = sumMag[i] > 0 ? len / sumMag[i] : 1;
+        roughnessArr[i] = 1 - coherence;
         if (len > 0) {
             normals[i * 3] = nx / len;
             normals[i * 3 + 1] = ny / len;
@@ -284,15 +304,26 @@ function normalsAndColorsFromMesh(positions: Float32Array, indices: Uint32Array)
         } else {
             normals[i * 3 + 2] = 1;
         }
-        const nzn = Math.max(-1, Math.min(1, normals[i * 3 + 2]));
-        const slope = Math.acos(Math.abs(nzn));
-        const [r, g, b] = slopeColor(slope);
-        colors[i * 4] = r;
-        colors[i * 4 + 1] = g;
-        colors[i * 4 + 2] = b;
+        // Rocky-outcrop detection: coherence = |Σ face_normals| / Σ|face_normals|.
+        // Near 1 = smooth slab; near 0 = faces diverge = boulder / crevice.
+        // We blend the palette colour toward dark grey so rough surfaces pop
+        // sharply against the surrounding material regardless of slope.
+        // Parameters are intentionally aggressive to create visible rock texture:
+        //   dead-zone < 0.05: perfectly smooth mesh cells are untouched
+        //   ramp 0.05 → 0.32: transitions quickly
+        //   max blend 80 %: fully rough = almost dark grey
+        const z = positions[i * 3 + 2];
+        const [cr, cg, cb] = vertexColor(
+            normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2],
+            z, shader, roughnessArr[i],
+        );
+        colors[i * 4] = cr;
+        colors[i * 4 + 1] = cg;
+        colors[i * 4 + 2] = cb;
         colors[i * 4 + 3] = 255;
     }
-    return { normals, colors };
+    // roughnessArr is stored so callers can recolorize without re-fetching.
+    return { normals, colors, roughness: roughnessArr };
 }
 
 /**
@@ -307,6 +338,7 @@ export async function fetchLidarPoisson(
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
+    const shader = params.shader ?? 'cliff';
 
     // Fetch every class — Poisson reconstruction uses only ground, but the
     // overlay uses everything else.
@@ -361,7 +393,7 @@ export async function fetchLidarPoisson(
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
-    const { normals: meshNrm, colors: meshCols } = normalsAndColorsFromMesh(mesh.positions, mesh.indices);
+    const { normals: meshNrm, colors: meshCols, roughness: meshRoughness } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -369,6 +401,7 @@ export async function fetchLidarPoisson(
         positions: mesh.positions,
         normals: meshNrm,
         colors: meshCols,
+        roughness: meshRoughness,
         indices: mesh.indices,
         vertexCount,
         triangleCount,
@@ -379,7 +412,7 @@ export async function fetchLidarPoisson(
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const ngNormals = computeNormalsKNN(ngPos, 12, 2);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
-    const ngColors = colorsFromNormals(ngNormals);
+    const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,

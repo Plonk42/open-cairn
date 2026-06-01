@@ -32,6 +32,11 @@ export interface LidarMeshData {
     colors: Uint8Array;
     /** Triangle vertex indices, length = 3 * triangleCount. */
     indices: Uint32Array;
+    /**
+     * Per-vertex roughness in [0,1] derived from face-normal coherence.
+     * Only present for Poisson meshes; undefined for Delaunay (Mixed mode).
+     */
+    roughness?: Float32Array;
     vertexCount: number;
     triangleCount: number;
     radius: number;

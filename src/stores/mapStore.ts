@@ -5,6 +5,8 @@ import {
     fetchLidarShaded,
     type LidarProgress,
 } from '@/lib/lidarBrowser';
+import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { colorsFromNormals, recolorMeshVertices } from '@/lib/lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type maplibregl from 'maplibre-gl';
@@ -107,6 +109,9 @@ interface MapState {
     /** Rendering mode: shaded point cloud, mixed (mesh+points), or poisson (PoissonRecon WASM + points overlay). */
     lidarMode: 'shaded' | 'mixed' | 'poisson';
     setLidarMode: (v: 'shaded' | 'mixed' | 'poisson') => void;
+    /** Colour shader preset for geometry colorization. */
+    lidarShader: ShaderPreset;
+    setLidarShader: (v: ShaderPreset) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors). */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for mixed mode. */
@@ -153,6 +158,14 @@ interface MapState {
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     lidarCloudPoissonDepth: number;
     setLidarCloudPoissonDepth: (v: number) => void;
+    /**
+     * Sun position date/time as a naive local-datetime string
+     * ("YYYY-MM-DDTHH:mm"). Drives the per-vertex Lambert lighting term in
+     * the LiDAR shaders. Lat/lng for the solar calc are taken from the
+     * currently-loaded cloud center (or the map center as fallback).
+     */
+    lidarSunDate: string;
+    setLidarSunDate: (v: string) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -190,6 +203,7 @@ type PersistedSettings = {
     ignScanApiKey?: string;
     ignDemApiKey?: string;
     lidarMode?: 'shaded' | 'mixed' | 'poisson';
+    lidarShader?: ShaderPreset;
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
     lidarCloudPointSize?: number;
@@ -202,6 +216,7 @@ type PersistedSettings = {
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
+    lidarSunDate?: string;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -210,6 +225,14 @@ function loadPersistedSettings(): PersistedSettings {
         if (raw) return JSON.parse(raw) as PersistedSettings;
     } catch { /* ignore */ }
     return {};
+}
+
+/** Default sun date: today at noon, local time, as "YYYY-MM-DDTHH:mm". */
+function defaultSunDate(): string {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function savePersistedSettings(settings: PersistedSettings): void {
@@ -283,6 +306,19 @@ export const useMapStore = create<MapState>((set, get) => ({
     // LiDAR HD point cloud state
     lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
+    lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : 'cliff',
+    setLidarShader: (shader) => {
+        set({ lidarShader: shader });
+        const { lidarShaded, lidarMesh } = get();
+        if (lidarShaded) {
+            const colors = colorsFromNormals(lidarShaded.normals, shader, lidarShaded.positions);
+            set({ lidarShaded: { ...lidarShaded, colors } });
+        }
+        if (lidarMesh) {
+            const colors = recolorMeshVertices(lidarMesh.normals, lidarMesh.positions, lidarMesh.roughness, shader);
+            set({ lidarMesh: { ...lidarMesh, colors } });
+        }
+    },
     lidarShaded: null,
     lidarMesh: null,
     lidarCloudLoading: false,
@@ -312,6 +348,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
     lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
     setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
+    lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
+    setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -336,6 +374,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
+                    shader: state.lidarShader,
                     onProgress,
                 });
                 // Set both shaded and mesh layers for mixed mode display
@@ -356,6 +395,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: psRadius,
                     stride: state.lidarCloudStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
+                    shader: state.lidarShader,
                     onProgress,
                 });
                 set({
@@ -372,6 +412,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
+                    shader: state.lidarShader,
                     onProgress,
                 });
                 set({ lidarShaded: shaded, lidarMesh: null, lidarCloudLoading: false, lidarCloudProgress: null });
@@ -420,6 +461,8 @@ useMapStore.subscribe((state) => {
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
+            lidarShader: state.lidarShader,
+            lidarSunDate: state.lidarSunDate,
         });
     }, 500);
 });
