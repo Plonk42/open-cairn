@@ -1,5 +1,5 @@
 import { STAGE_LABELS, type LidarProgressStage } from '@/lib/lidarBrowser';
-import { LAS_CLASS_LABELS } from '@/lib/lidarCloud';
+import { LAS_CLASS_LABELS, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 
@@ -8,6 +8,66 @@ const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
 
 /** Progress stage ordering for the progress bar. */
 const STAGE_ORDER: LidarProgressStage[] = ['wfs', 'tiles', 'normals', 'mesh', 'colors', 'done'];
+
+interface ShadowControlsProps {
+    enabled: boolean;
+    setEnabled: (v: boolean) => void;
+    strength: number;
+    setStrength: (v: number) => void;
+}
+
+interface LidarStatusLineProps {
+    shaded: LidarShadedCloudData | null;
+    mesh: LidarMeshData | null;
+    center: { radius: number };
+}
+
+function LidarStatusLine({ shaded, mesh, center }: Readonly<LidarStatusLineProps>) {
+    const meshLabel = mesh ? ` ${mesh.triangleCount.toLocaleString('fr-FR')} tri` : '';
+    const sep = mesh && shaded ? ' +' : '';
+    const shadedLabel = shaded ? ` ${shaded.pointCount.toLocaleString('fr-FR')} pts` : '';
+    return (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+            ✓{meshLabel}{sep}{shadedLabel} · rayon {center.radius} m
+        </p>
+    );
+}
+
+function ShadowControls({ enabled, setEnabled, strength, setStrength }: Readonly<ShadowControlsProps>) {
+    return (
+        <>
+            <label className="flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300" title="Le maillage projette des ombres en fonction de la position du soleil">
+                    Ombres portées
+                </span>
+                <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                    className="h-4 w-4 accent-green-600"
+                />
+            </label>
+            {enabled && (
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Intensité ombres</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(strength * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Intensité des ombres LiDAR"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={strength}
+                        onChange={(e) => setStrength(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+            )}
+        </>
+    );
+}
 
 /**
  * Panel section that controls the on-demand IGN LiDAR HD point cloud overlay.
@@ -52,8 +112,13 @@ export function LidarCloudPanel() {
     const setShader = useMapStore((s) => s.setLidarShader);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const setSunDate = useMapStore((s) => s.setLidarSunDate);
+    const shadows = useMapStore((s) => s.lidarShadows);
+    const setShadows = useMapStore((s) => s.setLidarShadows);
+    const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
+    const setShadowStrength = useMapStore((s) => s.setLidarShadowStrength);
     const clear = useMapStore((s) => s.clearLidarCloud);
     const hasData = shaded !== null || mesh !== null;
+    const center = shaded ?? mesh;
 
     const toggleClass = (cls: number) => {
         if (classes.includes(cls)) {
@@ -292,11 +357,7 @@ export function LidarCloudPanel() {
                 </div>
 
                 {/* Status messages */}
-                {(shaded ?? mesh) !== null && !loading && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                        ✓{mesh ? ` ${mesh.triangleCount.toLocaleString('fr-FR')} tri` : ''}{mesh && shaded ? ' +' : ''}{shaded ? ` ${shaded.pointCount.toLocaleString('fr-FR')} pts` : ''} · rayon {(mesh ?? shaded)!.radius} m
-                    </p>
-                )}
+                {hasData && !loading && <LidarStatusLine shaded={shaded} mesh={mesh} center={center!} />}
                 {error && (
                     <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">
                         {error}
@@ -354,8 +415,16 @@ export function LidarCloudPanel() {
                 <SunDateControl
                     value={sunDate}
                     onChange={setSunDate}
-                    centerLng={(shaded?.centerLng ?? mesh?.centerLng) ?? null}
-                    centerLat={(shaded?.centerLat ?? mesh?.centerLat) ?? null}
+                    centerLng={center?.centerLng ?? null}
+                    centerLat={center?.centerLat ?? null}
+                />
+
+                {/* Ombres projetées du maillage LiDAR */}
+                <ShadowControls
+                    enabled={shadows}
+                    setEnabled={setShadows}
+                    strength={shadowStrength}
+                    setStrength={setShadowStrength}
                 />
 
                 {/* Taille des points */}

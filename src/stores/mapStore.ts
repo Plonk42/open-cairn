@@ -166,6 +166,12 @@ interface MapState {
      */
     lidarSunDate: string;
     setLidarSunDate: (v: string) => void;
+    /** Cast hard/soft shadows from the LiDAR mesh based on the sun direction. */
+    lidarShadows: boolean;
+    setLidarShadows: (v: boolean) => void;
+    /** Strength of cast shadows on the LiDAR cloud (0..1). */
+    lidarShadowStrength: number;
+    setLidarShadowStrength: (v: number) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -217,6 +223,8 @@ type PersistedSettings = {
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
     lidarSunDate?: string;
+    lidarShadows?: boolean;
+    lidarShadowStrength?: number;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -350,6 +358,10 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
     lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
     setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
+    lidarShadows: persisted.lidarShadows ?? true,
+    setLidarShadows: (lidarShadows) => set({ lidarShadows }),
+    lidarShadowStrength: persisted.lidarShadowStrength ?? 0.7,
+    setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -463,6 +475,8 @@ useMapStore.subscribe((state) => {
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
             lidarShader: state.lidarShader,
             lidarSunDate: state.lidarSunDate,
+            lidarShadows: state.lidarShadows,
+            lidarShadowStrength: state.lidarShadowStrength,
         });
     }, 500);
 });

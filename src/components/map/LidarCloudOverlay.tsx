@@ -25,6 +25,8 @@ export function LidarCloudOverlay() {
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
+    const shadows = useMapStore((s) => s.lidarShadows);
+    const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
     // Incremented every time MapLibre rebuilds its style (base-layer switch,
@@ -146,6 +148,13 @@ export function LidarCloudOverlay() {
             opacity,
         });
     }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, styleEpoch]);
+
+    useEffect(() => {
+        webglRef.current?.setConfig({
+            shadowsEnabled: shadows,
+            shadowStrength,
+        });
+    }, [shadows, shadowStrength, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
     // Recompute the sun direction whenever the user picks a different date/time

@@ -8,6 +8,13 @@ import { MercatorCoordinate } from 'maplibre-gl';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shaders for rendering points to FBO (pass 1)
+//
+// Lighting decomposition: each vertex emits its ambient term and its diffuse
+// term separately. The fragment shader recombines them as
+//     final = v_ambient + v_diffuse * shadowFactor
+// where shadowFactor ∈ [0,1] comes from sampling the shadow map. Splitting
+// ambient/diffuse this way lets cast shadows darken only the lit portion of
+// the surface (so shaded sides remain legible).
 // ─────────────────────────────────────────────────────────────────────────────
 const VS_POINTS = /* glsl */`#version 300 es
 precision highp float;
@@ -19,63 +26,95 @@ layout(location = 3) in float a_class;   // LAS classification (0..255), unnorma
 uniform mat4 u_matrix;     // Pre-translated matrix (includes origin translation)
 uniform float u_mpu;       // meters per Mercator unit
 uniform float u_ps;        // point size
-// 256-bit class visibility mask, one bit per LAS class. Bit i of word w (=i>>5)
-// is 1 iff class (32*w + i&31) is visible. Set by setClassMask() — lets the
-// user toggle classes on/off without re-fetching the cloud.
 uniform uint u_classMask[8];
-uniform vec3 u_sunDir;       // unit vector pointing toward the sun (x=E, y=N, z=up)
-uniform float u_sunIntensity; // 0 (night) .. 1 (day high)
-uniform vec3 u_sunColor;     // diffuse tint (warm at sunrise/sunset, white at noon)
+uniform vec3 u_sunDir;
+uniform float u_sunIntensity;
+uniform vec3 u_sunColor;
+uniform mat4 u_lightMatrix;   // world-meters → light-clip space
 
-out vec4 v_color;
+out vec3 v_ambient;
+out vec3 v_diffuse;
+out vec4 v_lightPos;
 out float v_depth;
+out float v_alpha;
 
 void main() {
-    // Cheap GPU-side LAS-class filter: discard the point if its bit is unset.
     uint c = uint(a_class);
     uint word = c >> 5u;
     uint bit  = c & 31u;
     if ((u_classMask[word] & (1u << bit)) == 0u) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside clip space → culled
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         gl_PointSize = 0.0;
-        v_color = vec4(0.0);
+        v_ambient = vec3(0.0);
+        v_diffuse = vec3(0.0);
+        v_lightPos = vec4(0.0);
         v_depth = 0.0;
+        v_alpha = 0.0;
         return;
     }
 
-    // Position in Mercator-offset space (relative to origin, baked into matrix)
     vec3 pos = vec3(
         a_pos.x * u_mpu,
         -a_pos.y * u_mpu,
         a_pos.z * u_mpu
     );
-    
-    // Transform through pre-translated matrix
     gl_Position = u_matrix * vec4(pos, 1.0);
     gl_PointSize = max(u_ps, 1.0);
-
-    // Linear view-space depth (clip-space w == -z_view for std. perspective).
-    // This matches QGIS 3D EDL which uses linearizeDepth(...)/farPlane.
-    // Units are the same as the post-projection w (Mercator units * matrix).
     v_depth = gl_Position.w;
-    
-    // Normal-based lighting (Lambert), driven by user-controlled sun direction.
-    // Ambient (0.35) keeps shaded sides legible; diffuse fades to 0 at night.
-    // The diffuse term is multiplied by u_sunColor so the lighting itself
-    // gets warmer near sunrise/sunset (without altering ambient).
+
     float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
-    vec3 lit = a_color.rgb * 0.35 + a_color.rgb * (0.75 * diff) * u_sunColor;
-    v_color = vec4(lit, a_color.a);
+    v_ambient = a_color.rgb * 0.35;
+    v_diffuse = a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_alpha = a_color.a;
+
+    // a_pos is east/north/up in meters — same frame as the light matrix.
+    v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
 }`;
 
 const FS_POINTS = /* glsl */`#version 300 es
 precision highp float;
-in vec4 v_color;
+in vec3 v_ambient;
+in vec3 v_diffuse;
+in vec4 v_lightPos;
 in float v_depth;
+in float v_alpha;
+uniform sampler2D u_shadowMap;
+uniform float u_shadowEnabled;   // 0 or 1
+uniform float u_shadowBias;
+uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
+uniform float u_shadowStrength;  // 0..1, how dark cast shadows are
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth;
+
+float sampleShadow() {
+    if (u_shadowEnabled < 0.5) return 1.0;
+    // Perspective divide (light projection is ortho so w==1, but be safe).
+    vec3 lp = v_lightPos.xyz / v_lightPos.w;
+    // Light NDC ∈ [-1,1] → texture uv ∈ [0,1] and reference depth ∈ [0,1].
+    vec3 luv = lp * 0.5 + 0.5;
+    if (luv.x < 0.0 || luv.x > 1.0 || luv.y < 0.0 || luv.y > 1.0 || luv.z > 1.0) {
+        return 1.0;
+    }
+    float ref = luv.z - u_shadowBias;
+    // 3×3 PCF for a soft penumbra.
+    float sum = 0.0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            vec2 off = vec2(float(dx), float(dy)) * u_shadowTexel;
+            float d = texture(u_shadowMap, luv.xy + off).r;
+            sum += (ref <= d) ? 1.0 : 0.0;
+        }
+    }
+    float visible = sum / 9.0;
+    // Blend toward fully lit by (1 - strength) so a strength of 1 gives
+    // hard cast shadows and strength 0 disables them.
+    return mix(1.0, visible, u_shadowStrength);
+}
+
 void main() {
-    fragColor = v_color;
+    float s = sampleShadow();
+    vec3 lit = v_ambient + v_diffuse * s;
+    fragColor = vec4(lit, v_alpha);
     fragDepth = v_depth;
 }`;
 
@@ -87,7 +126,7 @@ void main() {
 // ─────────────────────────────────────────────────────────────────────────────
 const VS_MESH = /* glsl */`#version 300 es
 precision highp float;
-layout(location = 0) in vec3 a_pos;     // METER_OFFSETS
+layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec4 a_color;
 
@@ -96,20 +135,42 @@ uniform float u_mpu;
 uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
 uniform vec3 u_sunColor;
+uniform mat4 u_lightMatrix;
 
-out vec4 v_color;
+out vec3 v_ambient;
+out vec3 v_diffuse;
+out vec4 v_lightPos;
 out float v_depth;
+out float v_alpha;
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
     gl_Position = u_matrix * vec4(pos, 1.0);
     v_depth = gl_Position.w;
     float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
-    vec3 lit = a_color.rgb * 0.35 + a_color.rgb * (0.75 * diff) * u_sunColor;
-    v_color = vec4(lit, a_color.a);
+    v_ambient = a_color.rgb * 0.35;
+    v_diffuse = a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_alpha = a_color.a;
+    v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
 }`;
 
 const FS_MESH = FS_POINTS;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Depth-only shadow pass: project mesh vertices into the sun's ortho view.
+// The framebuffer attaches only a depth texture; we sample it later with PCF.
+// ─────────────────────────────────────────────────────────────────────────────
+const VS_SHADOW = /* glsl */`#version 300 es
+precision highp float;
+layout(location = 0) in vec3 a_pos;
+uniform mat4 u_lightMatrix;
+void main() {
+    gl_Position = u_lightMatrix * vec4(a_pos, 1.0);
+}`;
+
+const FS_SHADOW = /* glsl */`#version 300 es
+precision highp float;
+void main() {}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shaders for EDL post-processing (pass 2)
@@ -322,6 +383,100 @@ function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLP
     return prog;
 }
 
+type Bbox = { min: [number, number, number]; max: [number, number, number] };
+
+function computeBbox(positions: Float32Array): Bbox | null {
+    if (positions.length < 3) return null;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const y = positions[i + 1];
+        const z = positions[i + 2];
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+}
+
+/**
+ * Build a column-major orthographic light-space VP matrix that maps an
+ * (east, north, up) world point — in the same METER_OFFSETS frame as the mesh
+ * vertices — to NDC ∈ [-1,1]³. The frustum is fitted to the supplied AABB,
+ * oriented along the supplied sun direction (a unit vector pointing TOWARDS
+ * the sun). With the AABB padded by a few meters on every side, every caster
+ * inside the box is visible from the sun's POV and the depth resolution is
+ * spent on the actual range of relief instead of a generic far plane.
+ */
+function buildLightMatrix(sunDir: [number, number, number], bbox: Bbox): Float32Array {
+    // Camera basis: forward = -sunDir (looking from sun TOWARDS scene).
+    const fx = -sunDir[0], fy = -sunDir[1], fz = -sunDir[2];
+    // World-up; switch to (0,1,0) when the sun is near the zenith to avoid
+    // a degenerate cross product.
+    let wuy = 0, wuz = 1;
+    if (Math.abs(sunDir[2]) > 0.95) { wuy = 1; wuz = 0; }
+    // right = forward × up
+    let rx = fy * wuz - fz * wuy;
+    let ry = fz * 0 - fx * wuz;
+    let rz = fx * wuy - fy * 0;
+    const rl = Math.hypot(rx, ry, rz) || 1;
+    rx /= rl; ry /= rl; rz /= rl;
+    // up = right × forward
+    const ux = ry * fz - rz * fy;
+    const uy = rz * fx - rx * fz;
+    const uz = rx * fy - ry * fx;
+
+    // Project the 8 corners onto the (right, up, forward) basis to find the
+    // tight ortho extents.
+    const corners: [number, number, number][] = [
+        [bbox.min[0], bbox.min[1], bbox.min[2]],
+        [bbox.max[0], bbox.min[1], bbox.min[2]],
+        [bbox.min[0], bbox.max[1], bbox.min[2]],
+        [bbox.max[0], bbox.max[1], bbox.min[2]],
+        [bbox.min[0], bbox.min[1], bbox.max[2]],
+        [bbox.max[0], bbox.min[1], bbox.max[2]],
+        [bbox.min[0], bbox.max[1], bbox.max[2]],
+        [bbox.max[0], bbox.max[1], bbox.max[2]],
+    ];
+    let minR = Infinity, maxR = -Infinity;
+    let minU = Infinity, maxU = -Infinity;
+    let minF = Infinity, maxF = -Infinity;
+    for (const [x, y, z] of corners) {
+        const r = x * rx + y * ry + z * rz;
+        const u = x * ux + y * uy + z * uz;
+        const f = x * fx + y * fy + z * fz;
+        minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+        minU = Math.min(minU, u); maxU = Math.max(maxU, u);
+        minF = Math.min(minF, f); maxF = Math.max(maxF, f);
+    }
+    // Pad to absorb light-space jitter at grazing angles + give the depth axis
+    // some headroom so casters slightly above the mesh top still register.
+    const padR = (maxR - minR) * 0.05 + 5;
+    const padU = (maxU - minU) * 0.05 + 5;
+    const padF = (maxF - minF) * 0.1 + 50;
+    minR -= padR; maxR += padR;
+    minU -= padU; maxU += padU;
+    minF -= padF; maxF += padF;
+
+    const dr = maxR - minR;
+    const du = maxU - minU;
+    const df = maxF - minF;
+    // Combined view-projection matrix:
+    //   ndc.x = 2 * (dot(right, P) - minR) / dr - 1
+    //   ndc.y = 2 * (dot(up,    P) - minU) / du - 1
+    //   ndc.z = 2 * (dot(fwd,   P) - minF) / df - 1     (closer to light ⇒ smaller)
+    const m = new Float32Array(16);
+    m[0] = (2 / dr) * rx; m[1] = (2 / du) * ux; m[2] = (2 / df) * fx; m[3] = 0;
+    m[4] = (2 / dr) * ry; m[5] = (2 / du) * uy; m[6] = (2 / df) * fy; m[7] = 0;
+    m[8] = (2 / dr) * rz; m[9] = (2 / du) * uz; m[10] = (2 / df) * fz; m[11] = 0;
+    m[12] = -2 * minR / dr - 1;
+    m[13] = -2 * minU / du - 1;
+    m[14] = -2 * minF / df - 1;
+    m[15] = 1;
+    return m;
+}
+
 export interface LidarWebGLLayerConfig {
     pointSize: number;
     /**
@@ -349,6 +504,17 @@ export interface LidarWebGLLayerConfig {
     sunIntensity: number;
     /** RGB tint multiplied with the diffuse term (warm at sunrise/sunset). */
     sunColor: [number, number, number];
+    /** Cast hard/soft shadows from the mesh based on the sun direction. */
+    shadowsEnabled: boolean;
+    /** Resolution of the shadow map (square). 1024 / 2048 / 4096. */
+    shadowMapSize: number;
+    /**
+     * How dark cast shadows are: 0 = no shadow, 1 = full attenuation of the
+     * diffuse term inside shadowed regions. Ambient is never affected.
+     */
+    shadowStrength: number;
+    /** Constant depth bias applied when sampling the shadow map. */
+    shadowBias: number;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -374,7 +540,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: WebGLUniformLocation | null;
         sunIntensity: WebGLUniformLocation | null;
         sunColor: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null };
+        lightMatrix: WebGLUniformLocation | null;
+        shadowMap: WebGLUniformLocation | null;
+        shadowEnabled: WebGLUniformLocation | null;
+        shadowBias: WebGLUniformLocation | null;
+        shadowTexel: WebGLUniformLocation | null;
+        shadowStrength: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -395,7 +567,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: WebGLUniformLocation | null;
         sunIntensity: WebGLUniformLocation | null;
         sunColor: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null };
+        lightMatrix: WebGLUniformLocation | null;
+        shadowMap: WebGLUniformLocation | null;
+        shadowEnabled: WebGLUniformLocation | null;
+        shadowBias: WebGLUniformLocation | null;
+        shadowTexel: WebGLUniformLocation | null;
+        shadowStrength: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null };
 
     // EDL post-processing
     private _progEdl: WebGLProgram | null = null;
@@ -419,6 +597,19 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         opacity: WebGLUniformLocation | null;
     } = { color: null, depth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
+    // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
+    // by the main pass to attenuate the diffuse term where the mesh occludes
+    // the sun. Mesh-only caster keeps the shadow map dense and noise-free.
+    private _progShadow: WebGLProgram | null = null;
+    private _shadowFbo: WebGLFramebuffer | null = null;
+    private _shadowTex: WebGLTexture | null = null;
+    private _shadowSize = 0;
+    private _locShadow: { lightMatrix: WebGLUniformLocation | null } = { lightMatrix: null };
+    /** Cached light-space VP matrix (column-major). */
+    private readonly _lightMatrix = new Float32Array(16);
+    /** Mesh AABB in METER_OFFSETS, used to size the orthographic light frustum. */
+    private _meshBbox: { min: [number, number, number]; max: [number, number, number] } | null = null;
+
     private _ox = 0;
     private _oy = 0;
     private _mpu = 0;
@@ -440,6 +631,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: [0.4472, 0.5367, 0.7155],
         sunIntensity: 1,
         sunColor: [1, 0.98, 0.95],
+        shadowsEnabled: true,
+        shadowMapSize: 2048,
+        shadowStrength: 0.7,
+        shadowBias: 0.0015,
     };
 
     constructor(id: string) {
@@ -454,6 +649,19 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
     onRemove(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
         this._cleanup(gl as WebGL2RenderingContext);
+    }
+
+    /** Bind point program uniforms (incl. shadows). Caller binds the VAO. */
+    private _bindPointsUniforms(gl: WebGL2RenderingContext, translatedMatrix: Float32Array, effectivePointSize: number): void {
+        gl.useProgram(this._progPoints);
+        gl.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
+        gl.uniform1f(this._locPoints.mpu, this._mpu);
+        gl.uniform1f(this._locPoints.ps, effectivePointSize);
+        gl.uniform1uiv(this._locPoints.classMask, this._classMask);
+        gl.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
+        gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
+        gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
+        this._bindShadowToProgram(gl, this._locPoints);
     }
 
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, _args: CustomRenderMethodInput): void {
@@ -499,6 +707,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         const effectivePointSize = this._effectivePointSize();
 
         if (this.config.edlEnabled && this._fbo && this._progEdl) {
+            // ─── Pass 0: shadow map ───
+            this._renderShadowPass(gl2, prevFBO);
+
             // ─── Pass 1: Render mesh (if any) then points into the FBO ───
             this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
@@ -513,15 +724,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
             this._drawMesh(gl2, translatedMatrix);
 
-            gl2.useProgram(this._progPoints);
-
-            gl2.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
-            gl2.uniform1f(this._locPoints.mpu, this._mpu);
-            gl2.uniform1f(this._locPoints.ps, effectivePointSize);
-            gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
-            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
-            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
-            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
+            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
@@ -555,12 +758,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.drawArrays(gl2.TRIANGLES, 0, 6);
         } else if (this._fbo && this._progEdl) {
             // ─── Direct rendering (no EDL) ───
-            // We still need to render into our own FBO so that point-vs-point
-            // occlusion uses a private depth buffer (we cannot use MapLibre's
-            // depth buffer because the terrain is offset from the cloud).
-            // Then we composite the FBO color onto the screen using the EDL
-            // program with strength=0 (identity pass-through that preserves
-            // alpha, so terrain shows through outside the cloud).
+            this._renderShadowPass(gl2, prevFBO);
             this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
             gl2.viewport(0, 0, w, h);
@@ -574,15 +772,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
             this._drawMesh(gl2, translatedMatrix);
 
-            gl2.useProgram(this._progPoints);
-
-            gl2.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
-            gl2.uniform1f(this._locPoints.mpu, this._mpu);
-            gl2.uniform1f(this._locPoints.ps, effectivePointSize);
-            gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
-            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
-            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
-            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
+            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
@@ -616,19 +806,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.drawArrays(gl2.TRIANGLES, 0, 6);
         } else {
             // ─── Fallback: no FBO available, render directly (legacy path) ───
-            gl2.useProgram(this._progPoints);
+            this._renderShadowPass(gl2, prevFBO);
             gl2.disable(gl2.DEPTH_TEST);
             gl2.enable(gl2.BLEND);
             gl2.blendFunc(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
-
-            gl2.uniformMatrix4fv(this._locPoints.matrix, false, translatedMatrix);
-            gl2.uniform1f(this._locPoints.mpu, this._mpu);
-            gl2.uniform1f(this._locPoints.ps, effectivePointSize);
-            gl2.uniform1uiv(this._locPoints.classMask, this._classMask);
-            gl2.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
-            gl2.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
-            gl2.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
-
+            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
             gl2.bindVertexArray(this._vao);
             gl2.drawArrays(gl2.POINTS, 0, this._count);
         }
@@ -719,6 +901,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._oy = mc.y;
         this._mpu = mc.meterInMercatorCoordinateUnits();
         this._meshIndexCount = indices.length;
+        this._meshBbox = computeBbox(positions);
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
@@ -782,8 +965,84 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunDir, this.config.sunDir);
         gl.uniform1f(this._locMesh.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
+        this._bindShadowToProgram(gl, this._locMesh);
         gl.bindVertexArray(this._vaoMesh);
         gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
+    }
+
+    /**
+     * True iff we have a mesh, a positive sun, and shadow casting is on.
+     * When false, the shadow pass is skipped and the receiver shaders
+     * fall back to no-shadow rendering (u_shadowEnabled = 0).
+     */
+    private _shadowsActive(): boolean {
+        return this.config.shadowsEnabled
+            && this._meshIndexCount > 0
+            && this._meshBbox !== null
+            && this.config.sunIntensity > 0
+            && this._progShadow !== null
+            && this._shadowFbo !== null;
+    }
+
+    /**
+     * Render the mesh into the shadow map (depth-only, ortho projection
+     * aligned with the sun). Updates `_lightMatrix` so receivers can sample
+     * the same projection. Returns true iff the shadow map is ready.
+     */
+    private _renderShadowPass(gl: WebGL2RenderingContext, prevFBO: WebGLFramebuffer | null): boolean {
+        if (!this._shadowsActive() || !this._meshBbox) return false;
+        const m = buildLightMatrix(this.config.sunDir, this._meshBbox);
+        this._lightMatrix.set(m);
+        this._ensureShadowMap(gl, this.config.shadowMapSize);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFbo);
+        gl.viewport(0, 0, this._shadowSize, this._shadowSize);
+        gl.clearDepth(1);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+        // Front-face culling reduces self-shadow acne on convex casters; for
+        // a heightfield-style mesh the difference is small but the bias gets
+        // a wider safe range.
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);
+        gl.useProgram(this._progShadow);
+        gl.uniformMatrix4fv(this._locShadow.lightMatrix, false, this._lightMatrix);
+        gl.bindVertexArray(this._vaoMesh);
+        gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
+        gl.cullFace(gl.BACK);
+        gl.disable(gl.CULL_FACE);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, prevFBO);
+        return true;
+    }
+
+    /**
+     * Push shadow uniforms (light matrix, shadow texture, params) into the
+     * currently-active program. Falls back to disabled state when the shadow
+     * map isn't ready, so receivers always render correctly.
+     */
+    private _bindShadowToProgram(
+        gl: WebGL2RenderingContext,
+        loc: {
+            lightMatrix: WebGLUniformLocation | null;
+            shadowMap: WebGLUniformLocation | null;
+            shadowEnabled: WebGLUniformLocation | null;
+            shadowBias: WebGLUniformLocation | null;
+            shadowTexel: WebGLUniformLocation | null;
+            shadowStrength: WebGLUniformLocation | null;
+        },
+    ): void {
+        const enabled = this._shadowsActive() && this._shadowSize > 0;
+        gl.uniformMatrix4fv(loc.lightMatrix, false, this._lightMatrix);
+        gl.uniform1f(loc.shadowEnabled, enabled ? 1 : 0);
+        gl.uniform1f(loc.shadowBias, this.config.shadowBias);
+        const t = this._shadowSize > 0 ? 1 / this._shadowSize : 0;
+        gl.uniform2f(loc.shadowTexel, t, t);
+        gl.uniform1f(loc.shadowStrength, this.config.shadowStrength);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, this._shadowTex);
+        gl.uniform1i(loc.shadowMap, 2);
     }
 
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
@@ -820,6 +1079,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             sunDir: gl.getUniformLocation(this._progPoints, 'u_sunDir'),
             sunIntensity: gl.getUniformLocation(this._progPoints, 'u_sunIntensity'),
             sunColor: gl.getUniformLocation(this._progPoints, 'u_sunColor'),
+            lightMatrix: gl.getUniformLocation(this._progPoints, 'u_lightMatrix'),
+            shadowMap: gl.getUniformLocation(this._progPoints, 'u_shadowMap'),
+            shadowEnabled: gl.getUniformLocation(this._progPoints, 'u_shadowEnabled'),
+            shadowBias: gl.getUniformLocation(this._progPoints, 'u_shadowBias'),
+            shadowTexel: gl.getUniformLocation(this._progPoints, 'u_shadowTexel'),
+            shadowStrength: gl.getUniformLocation(this._progPoints, 'u_shadowStrength'),
         };
 
         // ─── Point buffers & VAO ───
@@ -854,6 +1119,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             sunDir: gl.getUniformLocation(this._progMesh, 'u_sunDir'),
             sunIntensity: gl.getUniformLocation(this._progMesh, 'u_sunIntensity'),
             sunColor: gl.getUniformLocation(this._progMesh, 'u_sunColor'),
+            lightMatrix: gl.getUniformLocation(this._progMesh, 'u_lightMatrix'),
+            shadowMap: gl.getUniformLocation(this._progMesh, 'u_shadowMap'),
+            shadowEnabled: gl.getUniformLocation(this._progMesh, 'u_shadowEnabled'),
+            shadowBias: gl.getUniformLocation(this._progMesh, 'u_shadowBias'),
+            shadowTexel: gl.getUniformLocation(this._progMesh, 'u_shadowTexel'),
+            shadowStrength: gl.getUniformLocation(this._progMesh, 'u_shadowStrength'),
         };
 
         // ─── Mesh buffers & VAO ───
@@ -940,28 +1211,63 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, null);
+
+        // ─── Shadow program + depth-only FBO ──────────────────────────────
+        // The shadow map is a single DEPTH_COMPONENT24 texture sized to
+        // `config.shadowMapSize`. Sampled with manual 3×3 PCF in FS_POINTS.
+        this._progShadow = linkProgram(gl, VS_SHADOW, FS_SHADOW);
+        this._locShadow = {
+            lightMatrix: gl.getUniformLocation(this._progShadow, 'u_lightMatrix'),
+        };
+        this._shadowFbo = gl.createFramebuffer();
+        this._shadowTex = gl.createTexture();
+        this._ensureShadowMap(gl, this.config.shadowMapSize);
+    }
+
+    private _ensureShadowMap(gl: WebGL2RenderingContext, size: number): void {
+        if (this._shadowSize === size || !this._shadowFbo || !this._shadowTex) return;
+        this._shadowSize = size;
+        gl.bindTexture(gl.TEXTURE_2D, this._shadowTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, size, size, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this._shadowTex, 0);
+        gl.drawBuffers([gl.NONE]);
+        gl.readBuffer(gl.NONE);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     private _cleanup(gl: WebGL2RenderingContext): void {
-        if (this._vao) { gl.deleteVertexArray(this._vao); this._vao = null; }
-        if (this._vaoQuad) { gl.deleteVertexArray(this._vaoQuad); this._vaoQuad = null; }
-        if (this._vaoMesh) { gl.deleteVertexArray(this._vaoMesh); this._vaoMesh = null; }
-        if (this._posBuf) { gl.deleteBuffer(this._posBuf); this._posBuf = null; }
-        if (this._norBuf) { gl.deleteBuffer(this._norBuf); this._norBuf = null; }
-        if (this._colBuf) { gl.deleteBuffer(this._colBuf); this._colBuf = null; }
-        if (this._clsBuf) { gl.deleteBuffer(this._clsBuf); this._clsBuf = null; }
-        if (this._meshPosBuf) { gl.deleteBuffer(this._meshPosBuf); this._meshPosBuf = null; }
-        if (this._meshNorBuf) { gl.deleteBuffer(this._meshNorBuf); this._meshNorBuf = null; }
-        if (this._meshColBuf) { gl.deleteBuffer(this._meshColBuf); this._meshColBuf = null; }
-        if (this._meshIdxBuf) { gl.deleteBuffer(this._meshIdxBuf); this._meshIdxBuf = null; }
-        if (this._quadBuf) { gl.deleteBuffer(this._quadBuf); this._quadBuf = null; }
-        if (this._progPoints) { gl.deleteProgram(this._progPoints); this._progPoints = null; }
-        if (this._progMesh) { gl.deleteProgram(this._progMesh); this._progMesh = null; }
-        if (this._progEdl) { gl.deleteProgram(this._progEdl); this._progEdl = null; }
-        if (this._texColor) { gl.deleteTexture(this._texColor); this._texColor = null; }
-        if (this._texDepth) { gl.deleteTexture(this._texDepth); this._texDepth = null; }
+        const delVao = (v: WebGLVertexArrayObject | null) => { if (v) gl.deleteVertexArray(v); };
+        const delBuf = (b: WebGLBuffer | null) => { if (b) gl.deleteBuffer(b); };
+        const delProg = (p: WebGLProgram | null) => { if (p) gl.deleteProgram(p); };
+        const delTex = (t: WebGLTexture | null) => { if (t) gl.deleteTexture(t); };
+        delVao(this._vao); this._vao = null;
+        delVao(this._vaoQuad); this._vaoQuad = null;
+        delVao(this._vaoMesh); this._vaoMesh = null;
+        delBuf(this._posBuf); this._posBuf = null;
+        delBuf(this._norBuf); this._norBuf = null;
+        delBuf(this._colBuf); this._colBuf = null;
+        delBuf(this._clsBuf); this._clsBuf = null;
+        delBuf(this._meshPosBuf); this._meshPosBuf = null;
+        delBuf(this._meshNorBuf); this._meshNorBuf = null;
+        delBuf(this._meshColBuf); this._meshColBuf = null;
+        delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
+        delBuf(this._quadBuf); this._quadBuf = null;
+        delProg(this._progPoints); this._progPoints = null;
+        delProg(this._progMesh); this._progMesh = null;
+        delProg(this._progEdl); this._progEdl = null;
+        delProg(this._progShadow); this._progShadow = null;
+        delTex(this._texColor); this._texColor = null;
+        delTex(this._texDepth); this._texDepth = null;
+        delTex(this._shadowTex); this._shadowTex = null;
         if (this._rbDepth) { gl.deleteRenderbuffer(this._rbDepth); this._rbDepth = null; }
         if (this._fbo) { gl.deleteFramebuffer(this._fbo); this._fbo = null; }
+        if (this._shadowFbo) { gl.deleteFramebuffer(this._shadowFbo); this._shadowFbo = null; }
         this._count = 0;
         this._map = null;
         this._gl = null;
