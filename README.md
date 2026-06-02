@@ -1,111 +1,159 @@
 # open-cairn
 
-> 🏔️ La montagne en relief comme si vous y étiez — carte 3D open-source avec LiDAR HD, itinéraires et profils altimétriques.
+> 🏔️ La montagne en relief, comme si vous y étiez — carte 3D open-source qui mêle ombrage LiDAR HD,
+> nuages de points, itinéraires piétons et profils altimétriques, le tout dans un navigateur, sans backend.
 
-Carte web 3D avec ombrage LiDAR HD en mode **multiply** sur les fonds IGN, calcul d'itinéraire et profil altimétrique.
+Open-cairn est une application web (SPA React + MapLibre) qui exploite les services publics
+de la **Géoplateforme IGN** pour afficher des cartes 3D détaillées des reliefs français,
+calculer des itinéraires de randonnée, et — sa particularité — décompresser et rendre des
+**nuages de points LiDAR HD** directement dans le navigateur.
 
-## Fonctionnalités
+![stack](https://img.shields.io/badge/stack-React%20%C2%B7%20MapLibre%20%C2%B7%20WebGL%202-blue)
+![data](https://img.shields.io/badge/data-IGN%20G%C3%A9oplateforme-green)
+![status](https://img.shields.io/badge/status-alpha-orange)
 
-- **Fonds de carte** — SCAN 25, Plan IGN, Orthophotos, OpenStreetMap, LiDAR brut
-- **Ombrage LiDAR HD** — Composition en temps réel (mode multiply ou neutre) des couches ombrage MNS / MNT / MNH de l'IGN sur le fond sélectionné, via un protocole custom `composite://` et un blending canvas 2D
-- **Terrain 3D** — Relief MapLibre alimenté par le MNT haute résolution IGN (TerrainRGB)
-- **Itinéraire** — Tracé multi-points sur la carte avec deux modes :
-  - *Guidé* : segments calculés par l'API Navigation IGN (piéton, chemin le plus court)
-  - *Libre* : ligne droite entre les points
-- **Profil altimétrique** — Graphique interactif (Chart.js) avec coloration par pente, survol synchronisé avec la carte, sélection par drag avec surbrillance du tronçon
-- **Interface** — Sidebar rétractable (couches / réglages) + panneau bas (itinéraire / profil), points numérotés sur la carte
+---
 
-## Stack technique
+## ✨ Fonctionnalités
 
-| Couche | Technologie |
-|--------|-------------|
-| Build | Vite |
-| UI | React 18 · TypeScript · Tailwind CSS |
-| Cartographie | MapLibre GL JS 5.11 |
-| État | Zustand |
-| Graphiques | Chart.js |
-| Données | IGN Géoplateforme (WMTS, WMS-r, Navigation, Calcul altimétrique) |
+- **Cartographie multi-fonds** — SCAN 25 Tour, Plan IGN, Orthophotos, OpenStreetMap, ombrage LiDAR brut
+- **Ombrage LiDAR HD** — composition temps réel (mode *multiply* ou *neutre*) des couches MNS / MNT / MNH
+  IGN sur le fond choisi, via un protocole MapLibre custom `composite://`
+- **Relief 3D** — terrain MapLibre alimenté par le MNT haute résolution IGN (TerrainRGB), exagération réglable
+- **Recherche & géocodage** — autocomplétion adresse / lieu-dit / POI via les services IGN sans clé
+- **Itinéraires** — pose de waypoints à la carte, segments en mode *guidé* (API Navigation IGN piéton) ou *libre* (ligne droite)
+- **Profil altimétrique interactif** — Chart.js avec coloration par pente, survol synchronisé, sélection drag
+- **Survol 3D** — animation caméra le long de l'itinéraire (look-ahead, lissage, cap)
+- **Itinéraires sauvegardés** — localStorage avec aperçu polyline + thumbnail
+- **Import / export GPX** — preserves la géométrie originale des traces
+- **Vue partageable** — URL hash encodant tout l'état de l'application
+- **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL2 custom avec
+  Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes : `shaded`, `mixed`, `poisson`.
+- **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs)
 
-## Développement
+---
+
+## 🚀 Démarrage rapide
 
 ```bash
 npm install
-npm run dev
+npm run dev      # Vite dev server, ~http://localhost:5173
+npm run build    # tsc --build && vite build → dist/
+npm run preview  # serve dist/
+npm run lint     # tsc --noEmit (validation type-only)
 ```
 
-## Build
+Aucune clé d'API n'est requise pour les fonctionnalités de base — la quasi-totalité de la
+Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut être saisie dans
+*Réglages* pour les couches privées (SCAN 25 Tour, MNT haute résolution interpolé linéairement).
 
-```bash
-npm run build
-npm run preview
+---
+
+## 🧱 Stack technique
+
+| Couche               | Outil                                             |
+|----------------------|---------------------------------------------------|
+| Build                | Vite 6                                            |
+| Langages             | TypeScript 5 · React 18                           |
+| UI                   | Tailwind CSS 3                                    |
+| Cartographie         | MapLibre GL JS 5.11                               |
+| Rendu 3D additionnel | deck.gl 9 · WebGL 2 custom layers                 |
+| LiDAR                | `copc.js` + `laz-perf` (WASM) · `delaunator` · PoissonRecon (WASM) |
+| État                 | Zustand 5 (avec persistance localStorage)         |
+| Graphiques           | Chart.js 4                                        |
+| Projections          | proj4 (EPSG:2154 Lambert-93 ↔ WGS84)              |
+| Cache                | IndexedDB (`idb-keyval`)                          |
+
+---
+
+## 🗺️ Architecture en un coup d'œil
+
+```mermaid
+flowchart TB
+    User([Utilisateur]) --> App[App.tsx<br/>shell + tabs]
+    App --> MapC[MapContainer<br/>MapLibre GL]
+    App --> Panels[Panels UI<br/>Layers · Route · LiDAR · Settings]
+
+    MapC --> Style[mapStyle.ts<br/>style spec]
+    MapC --> Comp[compositeProtocol<br/>composite://]
+    MapC --> Custom[LidarWebGLLayer<br/>WebGL 2 custom]
+
+    Panels --> StoreM[(mapStore<br/>Zustand)]
+    Panels --> StoreR[(routeStore<br/>Zustand)]
+
+    StoreM --> Lidar[lidarBrowser/<br/>Web Worker pipeline]
+    Lidar --> Custom
+
+    StoreR --> Routing[routing.ts]
+    StoreR --> Elev[elevation.ts]
+
+    Comp --> IGN1[(IGN WMTS / WMS-r)]
+    Routing --> IGN2[(IGN Navigation)]
+    Elev --> IGN3[(IGN Altimétrie)]
+    Lidar --> IGN4[(IGN WFS + COPC LAZ)]
 ```
 
-## Architecture
+L'application est une SPA pure : aucun backend, toutes les données viennent en direct de
+`data.geopf.fr`. Les calculs lourds (décodage LAZ, k-NN PCA, mesh) tournent dans un Web Worker.
 
-### Vue d'ensemble
+---
 
-L'application est une SPA React sans backend. Toutes les données proviennent des services publics de la Géoplateforme IGN (WMTS, WMS-r, Navigation, Calcul altimétrique).
+## 📚 Documentation
 
-```
-src/
-├── components/
-│   ├── map/MapContainer.tsx        # Initialisation MapLibre, couches GeoJSON route, interactions
-│   └── ui/
-│       ├── LayerSwitcher.tsx       # Sélection fond de carte + source hillshade + terrain 3D
-│       ├── SettingsPanel.tsx        # Mode de blend, intensité, qualité de rendu
-│       ├── RoutePanel.tsx           # Gestion waypoints, mode guidé/libre, stats
-│       └── ElevationChart.tsx       # Profil altimétrique interactif (Chart.js canvas)
-├── lib/
-│   ├── compositeProtocol.ts        # Protocole custom composite:// (voir ci-dessous)
-│   ├── elevation.ts                # Échantillonnage altimétrique via API IGN
-│   ├── geo.ts                      # Haversine, interpolation linéaire, découpage
-│   ├── ign.ts                      # URLs WMTS/WMS-r, définitions des couches IGN
-│   ├── mapStyle.ts                 # Génération dynamique du style MapLibre
-│   └── routing.ts                  # Appel API Navigation IGN (piéton, shortest)
-└── stores/
-    ├── mapStore.ts                 # Vue, couche de base, hillshade, terrain, qualité
-    └── routeStore.ts               # Waypoints, segments, profil, sélection, hover
-```
+Documentation détaillée par fonctionnalité, organisée en **sections utilisateur** et
+**sections développeur**, dans le répertoire [docs/](docs/) :
 
-### Protocole `composite://`
+### Données et carto
 
-MapLibre GL JS ne supporte pas nativement les modes de composition (multiply, overlay…) entre couches raster. L'application contourne cette limitation via un protocole custom enregistré avec `maplibregl.addProtocol('composite', ...)`.
+- [docs/BASEMAPS_AND_HILLSHADE.md](docs/BASEMAPS_AND_HILLSHADE.md) — Fonds de carte, ombrage LiDAR HD,
+  protocole `composite://`, relief 3D, courbes de niveau
+- [docs/IGN_DATA_SOURCES.md](docs/IGN_DATA_SOURCES.md) — Récapitulatif de tous les endpoints
+  Géoplateforme utilisés (WMTS, WMS-r, Navigation, Altimétrie, Géocodage, WFS LiDAR)
 
-**Fonctionnement** :
-1. MapLibre demande une tuile à l'URL `composite://<base>/<shadow>/<blend>/<intensity>/<detail>/{z}/{x}/{y}`
-2. Le handler télécharge en parallèle la tuile du fond (SCAN 25, Plan IGN, etc.) et la tuile ombrage LiDAR HD
-3. Les deux images sont composées dans un `OffscreenCanvas` 2D selon le mode choisi :
-   - **lidar-neutral** : pixel-par-pixel, les zones sombres du LiDAR assombrissent le fond, les zones claires l'éclaircissent légèrement (gain asymétrique ombre/lumière)
-   - **multiply** : `globalCompositeOperation = 'multiply'` natif du canvas 2D
-4. L'`ImageBitmap` résultant est renvoyé directement à MapLibre (pas de ré-encodage PNG)
+### Itinéraires
 
-Le protocole gère aussi l'**overzoom** (la tuile source est découpée si le zoom dépasse le maxZoom de la couche) et le **detail scale** (les tuiles shadow sont chargées à un zoom supérieur puis assemblées pour gagner en finesse).
+- [docs/ROUTING_AND_ELEVATION.md](docs/ROUTING_AND_ELEVATION.md) — Pose de waypoints, modes
+  guidé/libre, profil altimétrique, sélection drag
+- [docs/SAVED_ROUTES_AND_GPX.md](docs/SAVED_ROUTES_AND_GPX.md) — Sauvegarde locale, import/export GPX
+- [docs/FLYOVER.md](docs/FLYOVER.md) — Animation caméra de survol
+- [docs/SHARE_VIEW.md](docs/SHARE_VIEW.md) — URL partageable encodant l'état
 
-### Terrain 3D
+### Recherche
 
-Le relief utilise la source `raster-dem` de MapLibre alimentée par le DEM haute résolution IGN :
-- Endpoint : WMS-r privé (`data.geopf.fr/private/wms-r`) avec la couche `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR` en encodage TerrainRGB
-- Exagération verticale configurable (défaut : 1.2×)
+- [docs/SEARCH_AND_COORDINATES.md](docs/SEARCH_AND_COORDINATES.md) — Recherche IGN, affichage
+  coordonnées curseur (décimal / DMS)
 
-### Itinéraire et profil
+### LiDAR HD
 
-Le système de tracé fonctionne par segments entre waypoints :
-1. L'utilisateur clique sur la carte pour poser des points
-2. Chaque segment est calculé indépendamment (guidé via `data.geopf.fr/navigation/itineraire` profil piéton, ou ligne droite en mode libre)
-3. Les segments sont fusionnés en une polyligne unique affichée via des couches GeoJSON MapLibre
-4. Le profil altimétrique est calculé via l'API `data.geopf.fr/altimetrie` sur les coordonnées de la route
-5. Le graphique Chart.js offre : coloration par pente, hover synchronisé (marker sur la carte), et sélection drag → surbrillance du tronçon sur la carte
+- [docs/LIDAR_PIPELINE.md](docs/LIDAR_PIPELINE.md) — Pipeline complet : WFS → COPC → normales → mesh,
+  cache IndexedDB, frontière Web Worker (déjà existant, mis à jour)
+- [docs/LIDAR_RENDERING.md](docs/LIDAR_RENDERING.md) — Rendu WebGL 2 du nuage : shaders,
+  Eye-Dome Lighting, masque de classification, projection Mercator depuis offsets mètres
+- [docs/SUN_LIGHTING.md](docs/SUN_LIGHTING.md) — Position solaire NOAA, intensité et tint
+  appliqués au LiDAR
 
-### Services IGN utilisés
+### Architecture & UI
 
-| Service | Endpoint | Usage |
-|---------|----------|-------|
-| WMTS public | `data.geopf.fr/wmts` | Plan IGN, Ortho, LiDAR HD ombrage (MNS/MNT/MNH) |
-| WMTS privé | `data.geopf.fr/private/wmts` | SCAN 25 Tour |
-| WMS-r privé | `data.geopf.fr/private/wms-r` | DEM TerrainRGB haute résolution |
-| Navigation | `data.geopf.fr/navigation/itineraire` | Calcul d'itinéraire piéton (bdtopo-osrm) |
-| Altimétrie | `data.geopf.fr/altimetrie` | Profil altimétrique le long d'une ligne |
+- [docs/UI_SHELL_AND_RESPONSIVE.md](docs/UI_SHELL_AND_RESPONSIVE.md) — App shell, tabs,
+  layout desktop / mobile, panneau bas redimensionnable
+- [docs/STATE_AND_PERSISTENCE.md](docs/STATE_AND_PERSISTENCE.md) — Stores Zustand, clés
+  localStorage, schéma persisté
 
-## Licence
+---
 
-AGPL-3.0 (TBD).
+## 🤝 Contribution
+
+Le projet est en alpha. Les contributions sont bienvenues, en particulier sur :
+
+- amélioration des artefacts de mesh sur les falaises (cf. limitations dans
+  [LIDAR_PIPELINE.md](docs/LIDAR_PIPELINE.md))
+- accessibilité du panneau d'altimétrie (clavier, lecteur d'écran)
+- support multi-langue (actuellement français uniquement)
+
+Lancer la validation de type : `npm run lint`. La complexité cognitive de `App.tsx` est
+plafonnée par SonarQube ; extraire des sous-composants plutôt que d'empiler des ternaires.
+
+## 📝 Licence
+
+AGPL-3.0 (provisoire). Les données restent la propriété de l'IGN selon leurs conditions
+d'utilisation publiques (Géoplateforme).
