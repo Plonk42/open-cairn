@@ -1,23 +1,71 @@
-# LiDAR HD data loading & processing pipeline
+# Pipeline de chargement et traitement LiDAR HD
 
-This document maps how a point cloud gets from the IGN LiDAR HD archive
-into the WebGL overlay rendered on top of MapLibre.
+Cette page décrit le trajet d'un nuage de points depuis l'archive IGN LiDAR HD
+jusqu'aux tableaux typés exploités par la couche WebGL. Tout s'exécute
+**entièrement dans le navigateur**, dans un Web Worker, avec décodage des dalles
+COPC via `copc.js` + `laz-perf` (WASM) et reconstruction de surface optionnelle
+via PoissonRecon (WASM).
 
-Everything runs **entirely in the browser** using a Web Worker. COPC tiles
-are decoded with `copc.js` + `laz-perf` (WASM). Two render modes are
-supported:
+> Le **rendu WebGL 2** (shaders, EDL, intégration MapLibre) est documenté
+> séparément dans [LIDAR_RENDERING.md](LIDAR_RENDERING.md).
 
-- **`shaded`** — All points with k-NN computed normals, rendered with
-  slope-based coloring and Eye-Dome Lighting
-- **`mixed`** — Ground (class 2) as a Delaunay mesh, vegetation/buildings
-  as shaded points, both rendered together for proper depth ordering
+## Pour les utilisateurs
 
-Both modes produce variants of `LidarShadedCloudData` so the overlay layer
-handles them uniformly.
+### Charger un nuage
+
+Dans le panneau **LiDAR** :
+
+1. Centrez la carte sur la zone d'intérêt et ouvrez le panneau.
+2. Choisissez le **rayon** (20 à 1000 m) et le **stride** (1 à 200, décimation
+   1 point sur N).
+3. Sélectionnez le **mode** :
+   - **Points** (`shaded`) — tous les points sont conservés, normales calculées
+     par k-NN, coloration par pente + Eye-Dome Lighting. Restitue parfaitement
+     falaises, surplombs et végétation.
+   - **Delaunay** (`delaunay`) — le sol (classe LAS = 2) est trié et trianglé
+     en mesh Delaunay 2.5D, le reste (végétation, bâti) reste en points
+     ombrés. Plus propre visuellement sur le sol, et un seul fetch suffit pour
+     basculer les classes côté client.
+   - **Poisson** (`poisson`) — le sol est reconstruit par PoissonRecon (WASM,
+     octree adaptatif), le reste reste en nuage de points ombrés. Sortie la
+     plus propre (mesh continu, sans triangles tendus en bordure), mais la plus
+     coûteuse à calculer. La **profondeur d'octree** (6 à 12, défaut 9) règle
+     le compromis vitesse / finesse.
+4. Filtrez les **classes LAS** à conserver (sol, végétation basse / moyenne /
+   haute, bâtiments, etc.). Note : en modes `delaunay` et `poisson`, le filtre
+   est appliqué côté GPU au runtime — un changement de classes ne déclenche
+   pas un nouveau fetch.
+5. Lancez le chargement : une barre de progression suit les étapes
+   (recherche de dalles → téléchargement → décodage → normales / mesh /
+   reconstruction Poisson).
+
+Le résultat est mis en cache local : recharger les mêmes paramètres au même
+endroit (à ~10 m près) est instantané.
+
+### Limitations connues
+
+- **Aucune dalle** : si la zone n'est pas couverte par LiDAR HD, un toast
+  *« Aucune dalle LiDAR HD »* s'affiche. Déplacez-vous ou élargissez le rayon.
+- **Lenteur sur de gros rayons** : un rayon de 1000 m peut télécharger 4 dalles
+  COPC et plusieurs dizaines de millions de points avant décimation. Augmentez
+  le stride pour fluidifier.
+- **Mode Poisson coûteux** : la reconstruction WASM est mono-thread et bloque
+  le worker pendant plusieurs secondes (voire dizaines de secondes en
+  profondeur 11–12). Préférez `mixed` pour de l'exploration rapide.
+- **Erreurs 429 transitoires** : `data.geopf.fr` limite les requêtes par plage
+  d'octets agressives. Le pipeline retente automatiquement (jusqu'à 5 fois) ;
+  si l'erreur persiste, relancez plus tard.
+- **Pas d'annulation** : un chargement en cours ne peut pas être interrompu
+  proprement ; lancer un nouveau chargement remplace simplement le résultat
+  (logique « le dernier gagne »).
+- **Cache navigateur** : ~50 entrées maximum, éviction LRU. Les très gros
+  nuages peuvent saturer rapidement le quota IndexedDB.
 
 ---
 
-## 1. High-level overview
+## Pour les développeurs
+
+### Vue d'ensemble
 
 ```mermaid
 flowchart LR
@@ -36,12 +84,38 @@ flowchart LR
     OV --> MAP[MapLibre canvas]
 ```
 
----
+Les trois modes (`shaded`, `delaunay`, `poisson`) partagent le même prélude
+(`fetchCommon`) puis dispatchent vers un finalizer dédié. `delaunay` et
+`poisson` produisent tous deux un `LidarMixedData` (mesh sol + nuage non-sol),
+`shaded` produit un `LidarShadedCloudData` ; la couche overlay les traite
+uniformément.
 
-## 2. Common shared stage: `fetchCommon`
+### Fichiers
 
-Both modes (`shaded`, `mixed`) share the same fetch-and-crop prelude.
-It runs inside the worker.
+| Fichier | Rôle |
+|---------|------|
+| [src/components/ui/LidarCloudPanel.tsx](../src/components/ui/LidarCloudPanel.tsx) | UI : rayon, stride, mode, classes, déclenchement du chargement |
+| [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Action `loadLidarCloud`, gestion des courses (latest-wins) |
+| [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper cache-first qui dispatche vers le worker |
+| [src/lib/lidarBrowser/cache.ts](../src/lib/lidarBrowser/cache.ts) | Cache IndexedDB (idb-keyval), pack/unpack typed arrays, LRU |
+| [src/lib/lidarBrowser/workerClient.ts](../src/lib/lidarBrowser/workerClient.ts) | Côté main : `postMessage`, dé-multiplexage par id, transferables |
+| [src/lib/lidarBrowser/worker.ts](../src/lib/lidarBrowser/worker.ts) | Boucle de réception, appel `pipeline.ts`, collecte des transferables |
+| [src/lib/lidarBrowser/pipeline.ts](../src/lib/lidarBrowser/pipeline.ts) | `fetchCommon` + finalizers `fetchLidarShaded` / `fetchLidarDelaunay` / `fetchLidarPoisson` |
+| [src/lib/lidarBrowser/wfs.ts](../src/lib/lidarBrowser/wfs.ts) | Recherche de dalles via WFS IGN (bbox lng,lat) |
+| [src/lib/lidarBrowser/extract.ts](../src/lib/lidarBrowser/extract.ts) | Décodage COPC range-fetch, sémaphore + retry 429 |
+| [src/lib/lidarBrowser/normals.ts](../src/lib/lidarBrowser/normals.ts) | Normales par k-NN (k=12, 2 itérations) |
+| [src/lib/lidarBrowser/mesh.ts](../src/lib/lidarBrowser/mesh.ts) | Triangulation Delaunay 2.5D du sol, filtrage des longues arêtes |
+| [src/lib/lidarBrowser/poissonRecon.ts](../src/lib/lidarBrowser/poissonRecon.ts) | Wrapper WASM PoissonRecon v18.76 (chargement paresseux, parsing PLY binaire) |
+| [src/lib/lidarBrowser/slope.ts](../src/lib/lidarBrowser/slope.ts) | Couleurs RGBA dérivées des normales |
+| [src/lib/lidarBrowser/proj.ts](../src/lib/lidarBrowser/proj.ts) | WGS84 ↔ Lambert-93 |
+| [public/wasm/poissonrecon.mjs](../public/wasm/poissonrecon.mjs) | Bundle WASM PoissonRecon (chargé via `import()` dynamique) |
+
+### Étape commune : `fetchCommon`
+
+Les trois modes partagent le même prélude de fetch / crop, exécuté dans le
+worker. À noter : `delaunay` et `poisson` ignorent le filtre `classes` à ce
+stade — il leur faut le sol (classe 2) pour le mesh **et** le non-sol pour le
+nuage. Le filtrage final est délégué au mask GPU de la couche overlay.
 
 ```mermaid
 flowchart TD
@@ -55,21 +129,19 @@ flowchart TD
     MERGE --> OUT([positions, classifications,<br/>pointCount, radius,<br/>centerLng, centerLat])
 ```
 
-Notes:
+Notes :
 
-- `radius` is the half-side of the L93 query square, not a circle radius.
-- WFS bbox uses **lng/lat order** despite `srsname=EPSG:4326` — IGN
-  quirk (see [wfs.ts](../src/lib/lidarBrowser/wfs.ts)).
-- Positions are **METER_OFFSETS** (Float32 east/north/up) relative to
-  the request center (centerLng/centerLat). This keeps Float32 precision
-  workable for hundreds of meters of range.
+- `radius` est le **demi-côté** d'un carré L93, pas un rayon de cercle.
+- Le bbox WFS utilise l'ordre **lng/lat** malgré `srsname=EPSG:4326` —
+  particularité IGN (cf. [wfs.ts](../src/lib/lidarBrowser/wfs.ts)).
+- Les positions sont des **METER\_OFFSETS** (Float32 est/nord/up) relatifs au
+  centre de la requête (`centerLng`, `centerLat`). Cela maintient une précision
+  Float32 exploitable sur plusieurs centaines de mètres.
 
----
+### Décodage COPC par dalle (`extract.ts`)
 
-## 3. Per-tile COPC decode (`extract.ts`)
-
-A COPC tile is a 0.5–2 GB LAZ file with an octree index in its EVLR.
-We HTTP-Range-fetch only the nodes that intersect our bbox.
+Une dalle COPC est un fichier LAZ de 0.5–2 GB indexé par un octree dans son
+EVLR. On HTTP-Range-fetch uniquement les nœuds qui intersectent notre bbox.
 
 ```mermaid
 flowchart TD
@@ -85,10 +157,10 @@ flowchart TD
     AGG --> OUT([positions Float32 + classifications Uint8<br/>in METER_OFFSETS])
 ```
 
-### Throttle & retry on `data.geopf.fr` 429s
+#### Throttle et retry sur les 429 de `data.geopf.fr`
 
-IGN rate-limits aggressive byte-range storms. The `get` wrapper handles
-this transparently:
+IGN limite les rafales de range-requests. Le wrapper `get` gère ça de façon
+transparente :
 
 ```mermaid
 flowchart LR
@@ -105,17 +177,15 @@ flowchart LR
     BACK -->|attempt 5| THROW
 ```
 
-- Up to **5 attempts**, total ≤ 7.5 s of backoff.
-- Semaphore is per-tile (each `extractPoints` call). With 1–4 tiles,
-  the effective global concurrency is `tiles × MAX_INFLIGHT`. If 429s
-  persist, drop `MAX_INFLIGHT` further or hoist the semaphore to module
-  scope.
+- Jusqu'à **5 tentatives**, soit ≤ 7.5 s de backoff cumulé.
+- Le sémaphore est par-dalle (chaque appel `extractPoints`). Avec 1–4 dalles,
+  la concurrence globale effective est `tiles × MAX_INFLIGHT`. Si les 429
+  persistent, baisser encore `MAX_INFLIGHT` ou hisser le sémaphore au scope
+  module.
 
----
+### Finalisation par mode
 
-## 4. Mode-specific finalization
-
-After `fetchCommon`, the worker dispatches one of two finalizers.
+Après `fetchCommon`, le worker dispatche vers l'un des trois finalizers.
 
 ```mermaid
 flowchart TD
@@ -126,22 +196,34 @@ flowchart TD
     S1 --> S2[slope.ts<br/>colorsFromNormals]
     S2 --> SO([LidarShadedCloudData<br/>+ normals + RGBA colors])
 
-    K -->|mixed| M[fetchLidarMixed]
-    M --> M1[Filter ground class=2]
-    M1 --> M2[mesh.ts buildMesh<br/>2.5D Delaunator]
-    M2 --> M3[Process non-ground as shaded]
+    K -->|delaunay| M[fetchLidarDelaunay]
+    M --> M1[Split ground class=2<br/>vs non-ground]
+    M1 --> M2[mesh.ts buildMesh<br/>2.5D Delaunator + maxEdge filter]
+    M2 --> M3[Non-ground:<br/>kNN normals + slope colors]
     M3 --> MO([LidarMixedData<br/>mesh + shaded])
+
+    K -->|poisson| P[fetchLidarPoisson]
+    P --> P1[Split ground vs non-ground]
+    P1 --> P2[poissonRecon.ts<br/>WASM reconstruct<br/>octree depth 6-12]
+    P2 --> P3[Parse binary PLY<br/>+ normalsAndColorsFromMesh]
+    P3 --> P4[Non-ground:<br/>kNN normals + slope colors]
+    P4 --> PO([LidarMixedData<br/>mesh + shaded])
 ```
 
-### Mesh rendering (mixed mode only)
+- **Mixed** : mesh Delaunay 2.5D rapide via [Delaunator](https://github.com/mapbox/delaunator),
+  avec filtrage des arêtes longues pour éliminer les triangles tendus en
+  bordure de zone. Idéal pour de l'exploration rapide.
+- **Poisson** : reconstruction de surface PoissonRecon v18.76 (Misha Kazhdan)
+  compilée en WASM, chargée paresseusement depuis `/wasm/poissonrecon.mjs`. Le
+  module produit un PLY binaire qu'on reparse en `Float32Array` positions +
+  `Uint32Array` indices. Les normales et couleurs sont ensuite recalculées par
+  pondération d'aires (`normalsAndColorsFromMesh` dans `pipeline.ts`).
 
-The Delaunay mesh uses:
-- **2.5D Delaunator** — Fast, preserves point detail, with edge-length
-  filtering to remove long triangles at boundaries
+Dans les deux cas (`delaunay` et `poisson`), la sortie est un `LidarMixedData`
+(mesh sol + nuage ombré non-sol), donc la couche overlay les traite de la
+même manière.
 
----
-
-## 5. Worker boundary (`workerClient` ↔ `worker`)
+### Frontière worker (`workerClient` ↔ `worker`)
 
 ```mermaid
 sequenceDiagram
@@ -172,21 +254,20 @@ sequenceDiagram
     Store->>Store: set({lidarShaded: data})
 ```
 
-Key contracts:
+Contrats clés :
 
-- **Cloneable params only**: `workerClient.cleanParams` strips `signal`
-  and `onProgress` (functions / AbortSignal don't survive
-  `postMessage`). Cancellation is not currently propagated; the store
-  handles races by "latest-wins".
-- **Transferables**: every TypedArray buffer in the result is sent
-  zero-copy. After `postMessage`, the worker's references are detached.
-- **Progress**: streamed messages of shape
-  `{ id, type: 'progress', progress: LidarProgress }` are de-multiplexed
-  by request id.
+- **Params clonables uniquement** : `workerClient.cleanParams` retire `signal`
+  et `onProgress` (les fonctions et `AbortSignal` ne survivent pas à
+  `postMessage`). L'annulation n'est pas propagée ; le store gère les courses
+  en mode « le dernier gagne ».
+- **Transferables** : chaque buffer de TypedArray du résultat est transféré
+  en zéro-copie. Après `postMessage`, les références côté worker sont
+  détachées.
+- **Progress** : messages streamés de la forme
+  `{ id, type: 'progress', progress: LidarProgress }`, dé-multiplexés par id
+  de requête.
 
----
-
-## 6. IndexedDB cache (`cache.ts`)
+### Cache IndexedDB (`cache.ts`)
 
 ```mermaid
 flowchart LR
@@ -199,16 +280,13 @@ flowchart LR
     SET --> EV[evictIfNeeded<br/>soft LRU, 50 entries cap]
 ```
 
-- Coordinates rounded to 4 decimals (~10 m) so small jitter still hits
-  the cache.
-- Eviction is best-effort, ordered by insertion (Chromium IDB key
-  ordering).
+- Coordonnées arrondies à 4 décimales (~10 m) pour qu'un léger jitter touche
+  encore le cache.
+- Éviction best-effort, ordonnée par insertion (ordre de clés Chromium IDB).
 
----
+### Des données aux pixels
 
-## 7. From data to pixels
-
-Once data is in the store, the overlay re-renders:
+Une fois les données dans le store, l'overlay se ré-affiche :
 
 ```mermaid
 flowchart LR
@@ -217,19 +295,29 @@ flowchart LR
     LWG --> MAP[MapLibre custom layer]
 ```
 
-The custom `LidarWebGLLayer` uses MapLibre's `mainMatrix` from
-`args.defaultProjectionData` so points stay registered with the basemap
-at any pitch/bearing/zoom. METER_OFFSETS are converted to Mercator in
-the vertex shader using
+`LidarWebGLLayer` utilise `args.defaultProjectionData.mainMatrix` de MapLibre
+pour que les points restent calés sur le fond à n'importe quel pitch / bearing
+/ zoom. Les METER\_OFFSETS sont convertis en Mercator dans le vertex shader via
 `MercatorCoordinate.meterInMercatorCoordinateUnits()`.
 
----
+### Limitations techniques
 
-## 8. Where to start when something breaks
+- **Pas de propagation d'annulation** vers le worker : un nouveau chargement
+  ne stoppe pas l'ancien, on s'appuie sur la logique « latest-wins » du store.
+- **Sémaphore par-dalle** : avec N dalles en parallèle, la concurrence
+  globale est `N × MAX_INFLIGHT` ; sous 429 persistant, hisser le sémaphore
+  au scope module est plus robuste que baisser `MAX_INFLIGHT`.
+- **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
+  kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
+  exploitable.
+- **Cache LRU best-effort** : l'éviction n'est pas stricte et peut laisser
+  passer brièvement plus de 50 entrées en cas de concurrence.
 
-| Symptom                                         | Likely culprit                                          |
-|-------------------------------------------------|---------------------------------------------------------|
-| `429 Too Many Requests` retries                 | Lower `MAX_INFLIGHT` in [extract.ts](../src/lib/lidarBrowser/extract.ts) |
-| `Aucune dalle LiDAR HD` toast                   | WFS bbox; check `wfs.ts` (lng,lat order!)               |
-| Points drift when pitching/panning              | `LidarWebGLLayer` shader matrix; check `mainMatrix` use |
-| Worker silent / no progress                     | Check `workerClient.cleanParams` keeps required params  |
+### Points d'entrée pour le debug
+
+| Symptôme                                        | Piste                                                                    |
+|-------------------------------------------------|--------------------------------------------------------------------------|
+| Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT` dans [extract.ts](../src/lib/lidarBrowser/extract.ts) |
+| Toast *« Aucune dalle LiDAR HD »*               | Bbox WFS ; vérifier l'ordre lng,lat dans `wfs.ts`                        |
+| Points qui dérivent au pitch / pan              | Matrice du shader `LidarWebGLLayer` ; vérifier l'usage de `mainMatrix`   |
+| Worker silencieux / pas de progression          | Vérifier que `workerClient.cleanParams` conserve les params requis       |

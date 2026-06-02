@@ -159,16 +159,16 @@ export async function fetchLidarShaded(
 }
 
 /**
- * Mixed mode: build a Delaunay ground mesh AND keep a shaded point cloud
- * of every non-ground point. One fetch, two outputs — lets the user
+ * Delaunay mode: build a Delaunay 2.5D ground mesh AND keep a shaded point
+ * cloud of every non-ground point. One fetch, two outputs — lets the user
  * toggle vegetation/buildings classes client-side without re-fetching.
  */
-export async function fetchLidarMixed(
+export async function fetchLidarDelaunay(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const shader = params.shader ?? 'cliff';
-    // Mixed mode ignores any incoming `classes` filter (we need ground for
+    // Delaunay mode ignores any incoming `classes` filter (we need ground for
     // the mesh AND non-ground for the cloud). The runtime mask in the
     // overlay decides which classes the user actually sees.
     const c = await fetchCommon({ ...params, classes: undefined });

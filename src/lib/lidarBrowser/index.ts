@@ -30,11 +30,11 @@ export async function fetchLidarShaded(params: BrowserFetchParams): Promise<Lida
 }
 
 /**
- * Mixed mode is not cached (composite of mesh + shaded; cache layer keeps
+ * Delaunay mode is not cached (composite of mesh + shaded; cache layer keeps
  * one Stored type per call). Always recomputes.
  */
-export async function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedData> {
-    return worker.fetchLidarMixed(params);
+export async function fetchLidarDelaunay(params: BrowserFetchParams): Promise<LidarMixedData> {
+    return worker.fetchLidarDelaunay(params);
 }
 
 /** Poisson reconstruction mode (WASM PoissonRecon). Not cached. */

@@ -219,14 +219,14 @@ export function LidarCloudPanel() {
                         </button>
                         <button
                             type="button"
-                            onClick={() => setMode('mixed')}
-                            className={`px-2.5 py-1 text-xs ${mode === 'mixed'
+                            onClick={() => setMode('delaunay')}
+                            className={`px-2.5 py-1 text-xs ${mode === 'delaunay'
                                 ? 'bg-green-600 text-white'
                                 : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                                 }`}
-                            title="Sol en mesh Delaunay + végétation/bâti en nuage"
+                            title="Sol en mesh Delaunay 2.5D + végétation/bâti en nuage"
                         >
-                            Mixte
+                            Delaunay
                         </button>
                         <button
                             type="button"

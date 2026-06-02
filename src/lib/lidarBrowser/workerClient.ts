@@ -66,7 +66,7 @@ function cleanParams(p: BrowserFetchParams): Omit<BrowserFetchParams, 'signal' |
     return rest;
 }
 
-function dispatch<T>(kind: 'shaded' | 'mixed' | 'poisson', params: BrowserFetchParams): Promise<T> {
+function dispatch<T>(kind: 'shaded' | 'delaunay' | 'poisson', params: BrowserFetchParams): Promise<T> {
     const w = ensureWorker();
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
@@ -79,8 +79,8 @@ export function fetchLidarShaded(params: BrowserFetchParams): Promise<LidarShade
     return dispatch<LidarShadedCloudData>('shaded', params);
 }
 
-export function fetchLidarMixed(params: BrowserFetchParams): Promise<LidarMixedData> {
-    return dispatch<LidarMixedData>('mixed', params);
+export function fetchLidarDelaunay(params: BrowserFetchParams): Promise<LidarMixedData> {
+    return dispatch<LidarMixedData>('delaunay', params);
 }
 
 export function fetchLidarPoisson(params: BrowserFetchParams): Promise<LidarMixedData> {

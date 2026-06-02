@@ -6,7 +6,7 @@
  * pipeline is pure compute on typed arrays, so it ports cleanly.
  *
  * Protocol:
- *   main → worker: { id, kind: 'shaded'|'mixed', params }
+ *   main → worker: { id, kind: 'shaded'|'delaunay'|'poisson', params }
  *   worker → main: { id, type: 'ok',       data, transferables: ArrayBuffer[] }
  *                | { id, type: 'err',      error: { message, code? } }
  *                | { id, type: 'progress', progress: LidarProgress }
@@ -16,12 +16,12 @@
  * across the worker boundary.
  */
 /// <reference lib="webworker" />
-import { fetchLidarMixed, fetchLidarPoisson, fetchLidarShaded, type BrowserFetchParams } from './pipeline';
+import { fetchLidarDelaunay, fetchLidarPoisson, fetchLidarShaded, type BrowserFetchParams } from './pipeline';
 import type { LidarProgress } from './progress';
 
 type RequestMessage =
     | { id: number; kind: 'shaded'; params: BrowserFetchParams }
-    | { id: number; kind: 'mixed'; params: BrowserFetchParams }
+    | { id: number; kind: 'delaunay'; params: BrowserFetchParams }
     | { id: number; kind: 'poisson'; params: BrowserFetchParams };
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -29,7 +29,7 @@ declare const self: DedicatedWorkerGlobalScope;
 /**
  * Collect every `ArrayBuffer` underlying the TypedArray fields of a result
  * so they can be transferred back to the main thread. Recurses one level
- * into nested objects (mixed mode wraps mesh + shaded).
+ * into nested objects (delaunay / poisson modes wrap mesh + shaded).
  */
 function collectTransferables(obj: Record<string, unknown>): ArrayBuffer[] {
     const out: ArrayBuffer[] = [];
@@ -58,7 +58,7 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
         let data: Record<string, unknown>;
         switch (kind) {
             case 'shaded': data = await fetchLidarShaded(paramsWithProgress) as unknown as Record<string, unknown>; break;
-            case 'mixed': data = await fetchLidarMixed(paramsWithProgress) as unknown as Record<string, unknown>; break;
+            case 'delaunay': data = await fetchLidarDelaunay(paramsWithProgress) as unknown as Record<string, unknown>; break;
             case 'poisson': data = await fetchLidarPoisson(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);

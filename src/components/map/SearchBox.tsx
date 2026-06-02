@@ -1,6 +1,7 @@
+import { parseCoordinates, type ParsedCoordinate } from '@/lib/coordinates';
 import { ignAutocomplete, ignSearch, type IgnSuggestion } from '@/lib/ignGeocoding';
 import { useMapStore } from '@/stores/mapStore';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface SearchBoxProps {
     /** Compact (mobile) variant. */
@@ -19,6 +20,10 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
+
+    // Direct GPS coordinate parse (decimal, DMS, DDM, with or without hemispheres).
+    // When set, surfaced as the first suggestion and used as a fallback on submit.
+    const parsedCoord = useMemo<ParsedCoordinate | null>(() => parseCoordinates(query), [query]);
 
     // Debounced autocomplete fetch
     useEffect(() => {
@@ -75,6 +80,14 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
         }
     }, [mapInstance]);
 
+    const flyToCoord = useCallback((c: ParsedCoordinate) => {
+        if (!mapInstance) return;
+        mapInstance.flyTo({ center: [c.lng, c.lat], zoom: Math.max(mapInstance.getZoom(), 14), duration: 900 });
+        setQuery(c.label);
+        setSuggestions([]);
+        setOpen(false);
+    }, [mapInstance]);
+
     const pick = useCallback((s: IgnSuggestion) => {
         setQuery(s.fulltext);
         setSuggestions([]);
@@ -84,6 +97,10 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
 
     const onSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
+        if (parsedCoord && (suggestions.length === 0 || highlight === 0)) {
+            flyToCoord(parsedCoord);
+            return;
+        }
         if (suggestions.length > 0) {
             pick(suggestions[Math.max(0, Math.min(highlight, suggestions.length - 1))]);
             return;
@@ -100,7 +117,7 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
         } finally {
             setLoading(false);
         }
-    }, [highlight, pick, query, suggestions]);
+    }, [flyToCoord, highlight, parsedCoord, pick, query, suggestions]);
 
     const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
         if (!open || suggestions.length === 0) return;
@@ -154,8 +171,23 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
                     </button>
                 )}
             </form>
-            {open && (suggestions.length > 0 || loading || error) && (
+            {open && (suggestions.length > 0 || loading || error || parsedCoord) && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg bg-white/95 shadow-lg ring-1 ring-black/10 backdrop-blur-md dark:bg-slate-900/95 dark:ring-white/10">
+                    {parsedCoord && (
+                        <button
+                            type="button"
+                            onClick={() => flyToCoord(parsedCoord)}
+                            className="flex w-full items-start gap-2 border-b border-slate-100 px-3 py-1.5 text-left text-sm text-slate-700 transition hover:bg-green-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-emerald-900/30"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-green-600 dark:text-emerald-400">
+                                <path fillRule="evenodd" d="M10 2a6 6 0 016 6c0 4.31-4.5 9.46-5.59 10.66a.55.55 0 01-.82 0C8.5 17.46 4 12.31 4 8a6 6 0 016-6zm0 4a2 2 0 100 4 2 2 0 000-4z" clipRule="evenodd" />
+                            </svg>
+                            <span className="flex-1 truncate">
+                                <span className="block truncate font-mono text-[12px]">{parsedCoord.label}</span>
+                                <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">Coordonnées GPS</span>
+                            </span>
+                        </button>
+                    )}
                     {loading && (
                         <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">Recherche…</div>
                     )}

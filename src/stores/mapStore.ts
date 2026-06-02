@@ -1,6 +1,6 @@
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
 import {
-    fetchLidarMixed,
+    fetchLidarDelaunay,
     fetchLidarPoisson,
     fetchLidarShaded,
     type LidarProgress,
@@ -106,15 +106,15 @@ interface MapState {
     fitBounds: (bounds: [number, number, number, number], options?: { padding?: number }) => void;
 
     // ---- LiDAR HD point cloud ----
-    /** Rendering mode: shaded point cloud, mixed (mesh+points), or poisson (PoissonRecon WASM + points overlay). */
-    lidarMode: 'shaded' | 'mixed' | 'poisson';
-    setLidarMode: (v: 'shaded' | 'mixed' | 'poisson') => void;
+    /** Rendering mode: shaded point cloud, delaunay (Delaunay 2.5D ground mesh + points), or poisson (PoissonRecon WASM ground mesh + points). */
+    lidarMode: 'shaded' | 'delaunay' | 'poisson';
+    setLidarMode: (v: 'shaded' | 'delaunay' | 'poisson') => void;
     /** Colour shader preset for geometry colorization. */
     lidarShader: ShaderPreset;
     setLidarShader: (v: ShaderPreset) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors). */
     lidarShaded: LidarShadedCloudData | null;
-    /** Loaded ground mesh for mixed mode. */
+    /** Loaded ground mesh for delaunay / poisson modes. */
     lidarMesh: LidarMeshData | null;
     /** True while a LiDAR request is in flight. */
     lidarCloudLoading: boolean;
@@ -208,7 +208,7 @@ type PersistedSettings = {
     tileCacheSize?: number;
     ignScanApiKey?: string;
     ignDemApiKey?: string;
-    lidarMode?: 'shaded' | 'mixed' | 'poisson';
+    lidarMode?: 'shaded' | 'delaunay' | 'poisson';
     lidarShader?: ShaderPreset;
     lidarCloudRadius?: number;
     lidarCloudStride?: number;
@@ -312,7 +312,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
 
     // LiDAR HD point cloud state
-    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'mixed' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : 'shaded',
+    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : 'shaded',
     setLidarMode: (lidarMode) => set({ lidarMode }),
     lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : 'cliff',
     setLidarShader: (shader) => {
@@ -380,8 +380,8 @@ export const useMapStore = create<MapState>((set, get) => ({
         set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
         try {
             const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
-            if (state.lidarMode === 'mixed') {
-                const mixed = await fetchLidarMixed({
+            if (state.lidarMode === 'delaunay') {
+                const composite = await fetchLidarDelaunay({
                     lng: center.lng,
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
@@ -389,10 +389,10 @@ export const useMapStore = create<MapState>((set, get) => ({
                     shader: state.lidarShader,
                     onProgress,
                 });
-                // Set both shaded and mesh layers for mixed mode display
+                // Set both shaded and mesh layers for delaunay mode display
                 set({
-                    lidarShaded: mixed.shaded,
-                    lidarMesh: mixed.mesh,
+                    lidarShaded: composite.shaded,
+                    lidarMesh: composite.mesh,
                     lidarCloudLoading: false,
                     lidarCloudProgress: null,
                 });
@@ -401,7 +401,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 // other classes. Cap radius so the WASM heap (2 GB) and the
                 // depth-12 octree don't explode.
                 const psRadius = Math.min(state.lidarCloudRadius, 250);
-                const mixed = await fetchLidarPoisson({
+                const composite = await fetchLidarPoisson({
                     lng: center.lng,
                     lat: center.lat,
                     radius: psRadius,
@@ -411,8 +411,8 @@ export const useMapStore = create<MapState>((set, get) => ({
                     onProgress,
                 });
                 set({
-                    lidarShaded: mixed.shaded,
-                    lidarMesh: mixed.mesh,
+                    lidarShaded: composite.shaded,
+                    lidarMesh: composite.mesh,
                     lidarCloudLoading: false,
                     lidarCloudProgress: null,
                 });
