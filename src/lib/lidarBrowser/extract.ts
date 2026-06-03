@@ -207,10 +207,22 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         positions: Float32Array;
         classifications: Uint8Array;
     }> {
-        // The WASM heap isn't re-entrant; runOnLazPerf serializes the
-        // decompress step (everything after is pure JS and parallel-safe).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const view = await runOnLazPerf(() => Copc.loadPointDataView(get, copc as any, node as any, { lazPerf }));
+        // Step 1 — fetch the compressed chunk over HTTP. This goes through
+        // the in-flight semaphore (MAX_INFLIGHT) so up to N nodes download
+        // concurrently per tile.
+        const buf = await get(node.pointDataOffset, node.pointDataOffset + node.pointDataLength);
+        // Step 2 — decompress on the laz-perf WASM heap. The heap isn't
+        // re-entrant, so this step is serialized via runOnLazPerf. We wrap
+        // the prefetched buffer in a synthetic getter so loadPointDataView
+        // doesn't re-fetch from the network.
+        const prefetchedGet: typeof get = async (begin: number, end: number) => {
+            const off = node.pointDataOffset;
+            return buf.subarray(begin - off, end - off);
+        };
+        const view = await runOnLazPerf(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            () => Copc.loadPointDataView(prefetchedGet, copc as any, node as any, { lazPerf }),
+        );
         const getX = view.getter('X');
         const getY = view.getter('Y');
         const getZ = view.getter('Z');
