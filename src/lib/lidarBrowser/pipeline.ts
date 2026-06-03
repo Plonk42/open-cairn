@@ -32,6 +32,20 @@ export interface BrowserFetchParams {
 
 const MAX_RADIUS_M = 1000;
 
+function fmtMs(ms: number): string {
+    return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms.toFixed(0)} ms`;
+}
+
+function startTimer(): () => number {
+    const t0 = performance.now();
+    return () => performance.now() - t0;
+}
+
+function logStage(label: string, ms: number, extra?: string): void {
+    const suffix = extra ? ' (' + extra + ')' : '';
+    console.log(`[lidar] ${label}: ${fmtMs(ms)}${suffix}`);
+}
+
 function concatPositions(parts: Float32Array[], totalPts: number): Float32Array {
     const out = new Float32Array(totalPts * 3);
     let off = 0;
@@ -71,6 +85,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     // WGS84 bbox big enough to bracket the L93 query box after reprojection
     // (20 % padding to compensate for the grid rotation at extreme latitudes).
     onProgress({ stage: 'wfs', message: STAGE_LABELS.wfs });
+    const wfsTimer = startTimer();
     const dLat = (radius * 1.2) / 111_320;
     const dLng = (radius * 1.2) / (111_320 * Math.cos((params.lat * Math.PI) / 180));
     const tiles = await findTiles(
@@ -78,6 +93,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
         params.lng + dLng, params.lat + dLat,
         params.signal,
     );
+    logStage('wfs', wfsTimer(), `${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`);
     if (tiles.length === 0) {
         const err = new Error(
             'Aucune dalle LiDAR HD IGN ne couvre cette zone (acquisition non encore disponible).',
@@ -93,6 +109,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
         detail: `${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`,
         progress: 0,
     });
+    const tilesTimer = startTimer();
     let completedTiles = 0;
     const results = await Promise.all(tiles.map(async (tile) => {
         const r = await extractPoints({
@@ -122,6 +139,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     }
     const positions = concatPositions(posParts, totalPts);
     const classifications = concatClasses(clsParts, totalPts);
+    logStage('tiles', tilesTimer(), `${tiles.length} dalle${tiles.length > 1 ? 's' : ''} → ${totalPts.toLocaleString()} pts`);
 
     return {
         positions,
@@ -139,11 +157,17 @@ export async function fetchLidarShaded(
 ): Promise<LidarShadedCloudData> {
     const onProgress = params.onProgress ?? noopProgress;
     const shader = params.shader ?? 'cliff';
+    const total = startTimer();
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
+    const tNormals = startTimer();
     const normals = computeNormalsKNN(c.positions, 12, 2);
+    logStage('normals', tNormals(), `${c.pointCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
+    const tColors = startTimer();
     const colors = colorsFromNormals(normals, shader, c.positions);
+    logStage('colors', tColors());
+    logStage('TOTAL (shaded)', total());
     onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
     return {
         kind: 'shaded',
@@ -168,6 +192,7 @@ export async function fetchLidarDelaunay(
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const shader = params.shader ?? 'cliff';
+    const total = startTimer();
     // Delaunay mode ignores any incoming `classes` filter (we need ground for
     // the mesh AND non-ground for the cloud). The runtime mask in the
     // overlay decides which classes the user actually sees.
@@ -199,9 +224,11 @@ export async function fetchLidarDelaunay(
 
     // 1. Ground mesh — Delaunay (cheapest, best with 2.5D ground class).
     onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol` });
+    const tMesh = startTimer();
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
     const groundMesh = buildMesh(groundPos, maxEdge, shader);
+    logStage('delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -218,9 +245,13 @@ export async function fetchLidarDelaunay(
     // 2. Non-ground shaded cloud — normals + slope colors. Even though
     //    vegetation normals are noisy, they're what the WebGL layer wants.
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
+    const tNg = startTimer();
     const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
+    const tNgCol = startTimer();
     const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
+    logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
@@ -233,6 +264,7 @@ export async function fetchLidarDelaunay(
         radius: c.radius,
     };
 
+    logStage('TOTAL (delaunay)', total());
     onProgress({
         stage: 'done',
         message: STAGE_LABELS.done,
@@ -339,6 +371,7 @@ export async function fetchLidarPoisson(
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
     const shader = params.shader ?? 'cliff';
+    const total = startTimer();
 
     // Fetch every class — Poisson reconstruction uses only ground, but the
     // overlay uses everything else.
@@ -373,7 +406,9 @@ export async function fetchLidarPoisson(
         message: STAGE_LABELS.normals,
         detail: `${groundCount.toLocaleString()} pts sol`,
     });
+    const tGroundNrm = startTimer();
     const groundNormals = computeNormalsKNN(groundPos, 12, 2, true);
+    logStage('normals (sol)', tGroundNrm(), `${groundCount.toLocaleString()} pts`);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
     const oriented = new Float32Array(groundCount * 6);
     for (let i = 0; i < groundCount; i++) {
@@ -389,11 +424,15 @@ export async function fetchLidarPoisson(
         message: STAGE_LABELS.mesh,
         detail: `Poisson depth ${depth}`,
     });
+    const tPoisson = startTimer();
     const mesh = await reconstructPoisson(oriented, { depth });
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
+    logStage('poisson', tPoisson(), `depth ${depth} → ${vertexCount.toLocaleString()} verts / ${triangleCount.toLocaleString()} tri`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
+    const tMeshCol = startTimer();
     const { normals: meshNrm, colors: meshCols, roughness: meshRoughness } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
+    logStage('colors (mesh sol)', tMeshCol());
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -410,9 +449,13 @@ export async function fetchLidarPoisson(
 
     // 2. Non-ground shaded cloud overlay.
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
+    const tNgNrm = startTimer();
     const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    logStage('normals (non-sol)', tNgNrm(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
+    const tNgCol = startTimer();
     const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
+    logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
@@ -425,6 +468,7 @@ export async function fetchLidarPoisson(
         radius: c.radius,
     };
 
+    logStage('TOTAL (poisson)', total());
     onProgress({
         stage: 'done',
         message: STAGE_LABELS.done,
