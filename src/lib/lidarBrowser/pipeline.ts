@@ -129,9 +129,13 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     }));
 
     let totalPts = 0;
+    let rawTotal = 0;
+    let inBboxTotal = 0;
     const posParts: Float32Array[] = [];
     const clsParts: Uint8Array[] = [];
     for (const r of results) {
+        rawTotal += r.rawPointCount;
+        inBboxTotal += r.inBboxPointCount;
         if (r.classifications.length === 0) continue;
         posParts.push(r.positions);
         clsParts.push(r.classifications);
@@ -139,7 +143,14 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     }
     const positions = concatPositions(posParts, totalPts);
     const classifications = concatClasses(clsParts, totalPts);
-    logStage('tiles', tilesTimer(), `${tiles.length} dalle${tiles.length > 1 ? 's' : ''} → ${totalPts.toLocaleString()} pts`);
+    const safeStride = Math.max(1, Math.floor(stride));
+    const areaM2 = (2 * radius) * (2 * radius);
+    const inBboxDensity = inBboxTotal / areaM2;
+    const keptDensity = totalPts / areaM2;
+    logStage('tiles', tilesTimer(),
+        `${tiles.length} dalle${tiles.length > 1 ? 's' : ''} → `
+        + `${rawTotal.toLocaleString()} raw → ~${inBboxTotal.toLocaleString()} in-bbox → ${totalPts.toLocaleString()} kept`
+        + ` (stride ${safeStride}, ${inBboxDensity.toFixed(2)} → ${keptDensity.toFixed(2)} pts/m²)`);
 
     return {
         positions,

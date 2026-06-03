@@ -11,6 +11,66 @@
 import { Copc, Getter, Key } from 'copc';
 import { getLazPerf, runOnLazPerf } from './lazPerf';
 
+// Global throttle for HTTP range requests against data.geopf.fr's LiDAR
+// COPC service.
+const MAX_INFLIGHT_GLOBAL = 4;
+let globalInflight = 0;
+const globalWaitQueue: Array<() => void> = [];
+
+// Proactive sliding-window rate limiter. IGN's Kong gateway caps origins
+// at ~8 req/s; rather than hammer the bucket and react to 429s, we keep
+// the timestamps of the last RATE_WINDOW_MAX starts and, before each new
+// request, sleep until the oldest one is older than RATE_WINDOW_MS.
+const RATE_WINDOW_MS = 1000;
+const RATE_WINDOW_MAX = 8;
+const recentStarts: number[] = [];
+
+// Reactive cooldown kept as a safety net in case the server's view of the
+// rate budget drifts from ours (clock skew, shared origin, transient 429s).
+let cooldownUntil = 0;
+
+function noteRateLimit(ms: number): void {
+    const target = Date.now() + ms;
+    if (target > cooldownUntil) cooldownUntil = target;
+}
+
+async function waitForRateBudget(): Promise<void> {
+    // Loop because both the cooldown and the sliding window can advance
+    // while we sleep, and other waiters may consume the freed slot first.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const now = Date.now();
+        // Drop expired entries from the window.
+        while (recentStarts.length > 0 && now - recentStarts[0] >= RATE_WINDOW_MS) {
+            recentStarts.shift();
+        }
+        const cooldownRemaining = cooldownUntil - now;
+        const windowRemaining = recentStarts.length >= RATE_WINDOW_MAX
+            ? RATE_WINDOW_MS - (now - recentStarts[0])
+            : 0;
+        const wait = Math.max(cooldownRemaining, windowRemaining);
+        if (wait <= 0) {
+            recentStarts.push(now);
+            return;
+        }
+        await new Promise((r) => setTimeout(r, wait));
+    }
+}
+
+async function acquireGlobal(): Promise<void> {
+    if (globalInflight >= MAX_INFLIGHT_GLOBAL) {
+        await new Promise<void>((resolve) => globalWaitQueue.push(resolve));
+    }
+    globalInflight++;
+    await waitForRateBudget();
+}
+
+function releaseGlobal(): void {
+    globalInflight--;
+    const next = globalWaitQueue.shift();
+    if (next) next();
+}
+
 export interface ExtractParams {
     /** Full URL of the .copc.laz tile (HTTP/HTTPS, CORS must be enabled). */
     tileUrl: string;
@@ -32,6 +92,10 @@ export interface ExtractResult {
     positions: Float32Array;
     /** ASPRS LAS classification per point (0..255). */
     classifications: Uint8Array;
+    /** Total points present in the intersecting nodes before stride/class/bbox filtering. */
+    rawPointCount: number;
+    /** Points falling inside the query bbox + class filter, before stride decimation. */
+    inBboxPointCount: number;
 }
 
 interface CopcNode {
@@ -120,22 +184,6 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     // wasm heap would OOM after a few nodes.
     let totalBytesFetched = 0;
     let fetchCount = 0;
-    // IGN's data.geopf.fr aggressively 429s when too many byte-range requests
-    // overlap. Cap in-flight gets and retry with exponential backoff on short
-    // bodies (always an HTML error page from nginx).
-    const MAX_INFLIGHT = 2;
-    let inflight = 0;
-    const waitQueue: Array<() => void> = [];
-    const acquire = async (): Promise<void> => {
-        if (inflight < MAX_INFLIGHT) { inflight++; return; }
-        await new Promise<void>((resolve) => waitQueue.push(resolve));
-        inflight++;
-    };
-    const release = (): void => {
-        inflight--;
-        const next = waitQueue.shift();
-        if (next) next();
-    };
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const get: typeof rawGet = async (begin: number, end: number) => {
         const expected = end - begin;
@@ -143,12 +191,12 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         const MAX_ATTEMPTS = 5;
         let lastSnippet = '';
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            await acquire();
+            await acquireGlobal();
             let buf: Uint8Array;
             try {
                 buf = await rawGet(begin, end);
             } finally {
-                release();
+                releaseGlobal();
             }
             if (buf.byteLength === expected) {
                 totalBytesFetched += buf.byteLength;
@@ -167,8 +215,10 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
             const looksRetriable = /429|503|too many|throttl|unavailable/i.test(snippet)
                 || buf.byteLength < expected / 8;
             if (!looksRetriable || attempt === MAX_ATTEMPTS - 1) break;
-            // Exponential backoff with jitter: 0.5s, 1s, 2s, 4s.
-            const delay = 500 * (2 ** attempt) + Math.random() * 250;
+            // Exponential backoff: 1s, 2s, 4s, 8s.
+            const delay = 1000 * (2 ** attempt);
+            // Park every other inflight/queued request for the same window
+            noteRateLimit(delay);
             // eslint-disable-next-line no-console
             console.warn('[lidarBrowser] retry', tileName, 'attempt', attempt + 1,
                 'after', Math.round(delay), 'ms (server said:', snippet.slice(0, 80), ')');
@@ -184,15 +234,19 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     };
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();
+    const tCreate = performance.now();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const copc = (await Copc.create(get)) as any as CopcHandle;
+    const dCreate = performance.now() - tCreate;
     const bbox = {
         minX: x0 - radius,
         maxX: x0 + radius,
         minY: y0 - radius,
         maxY: y0 + radius,
     };
+    const tHier = performance.now();
     const nodes = await collectIntersectingNodes(get, copc, bbox);
+    const dHier = performance.now() - tHier;
     // eslint-disable-next-line no-console
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
         'intersecting nodes:', nodes.length,
@@ -203,18 +257,64 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         })));
     const safeStride = Math.max(1, Math.floor(stride));
 
-    async function processNode(node: CopcNode): Promise<{
+    // Coalesce neighbouring node ranges into bigger HTTP Range requests.
+    // COPC stores nodes mostly contiguously in the file (ordered by octree
+    // key), so for typical queries there are long runs of adjacent nodes.
+    // Merging them lets us spend our 6 req/s budget on fewer, larger reads
+    // and saturate IGN's bandwidth instead of round-tripping per node.
+    //
+    // Trade-off: slurping a few extra KB between nodes is cheap; an entire
+    // unrelated node would just be downloaded and ignored. We cap the gap
+    // at 256 KB and the merged size at 16 MB.
+    const MAX_GAP = 256 * 1024;
+    const MAX_GROUP_BYTES = 16 * 1024 * 1024;
+    const sorted = [...nodes].sort(
+        (a, b) => a.node.pointDataOffset - b.node.pointDataOffset,
+    );
+    interface Group { begin: number; end: number; items: typeof sorted }
+    const groups: Group[] = [];
+    for (const item of sorted) {
+        const begin = item.node.pointDataOffset;
+        const end = begin + item.node.pointDataLength;
+        const last = groups.at(-1);
+        if (last && begin - last.end <= MAX_GAP && end - last.begin <= MAX_GROUP_BYTES) {
+            last.end = Math.max(last.end, end);
+            last.items.push(item);
+        } else {
+            groups.push({ begin, end, items: [item] });
+        }
+    }
+    const totalNodeBytes = sorted.reduce((s, it) => s + it.node.pointDataLength, 0);
+    const totalGroupBytes = groups.reduce((s, g) => s + (g.end - g.begin), 0);
+    console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
+        'coalesced', sorted.length, '→', groups.length, 'ranges',
+        `(overhead ${((totalGroupBytes / Math.max(1, totalNodeBytes) - 1) * 100).toFixed(1)}%)`);
+
+    // Pre-fetch every group concurrently (subject to acquireGlobal). Slice
+    // out the per-node buffers into a Map so the decompress step below
+    // doesn't need to talk to the network at all.
+    const tFetch = performance.now();
+    const nodeBuffers = new Map<string, Uint8Array>();
+    await Promise.all(groups.map(async (g) => {
+        const buf = await get(g.begin, g.end);
+        for (const it of g.items) {
+            const start = it.node.pointDataOffset - g.begin;
+            nodeBuffers.set(it.key, buf.subarray(start, start + it.node.pointDataLength));
+        }
+    }));
+    const dFetch = performance.now() - tFetch;
+
+    async function processNode(key: string, node: CopcNode): Promise<{
         positions: Float32Array;
         classifications: Uint8Array;
+        raw: number;
+        inBbox: number;
     }> {
-        // Step 1 — fetch the compressed chunk over HTTP. This goes through
-        // the in-flight semaphore (MAX_INFLIGHT) so up to N nodes download
-        // concurrently per tile.
-        const buf = await get(node.pointDataOffset, node.pointDataOffset + node.pointDataLength);
-        // Step 2 — decompress on the laz-perf WASM heap. The heap isn't
-        // re-entrant, so this step is serialized via runOnLazPerf. We wrap
-        // the prefetched buffer in a synthetic getter so loadPointDataView
-        // doesn't re-fetch from the network.
+        // The compressed chunk is already in memory (pre-fetched above).
+        // Decompression on the laz-perf WASM heap isn't re-entrant, so it
+        // stays serialized via runOnLazPerf.
+        const buf = nodeBuffers.get(key);
+        if (!buf) throw new Error(`Missing prefetched buffer for node ${key}`);
         const prefetchedGet: typeof get = async (begin: number, end: number) => {
             const off = node.pointDataOffset;
             return buf.subarray(begin - off, end - off);
@@ -247,20 +347,38 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
             cls[kept] = c;
             kept++;
         }
+        // `inBbox` is estimated as kept × stride (the actual ratio is identical
+        // up to a class-filter rounding effect, since we only sample every Nth
+        // point in the node). Cheap, and avoids a full per-point iteration.
         return {
             positions: pos.subarray(0, kept * 3),
             classifications: cls.subarray(0, kept),
+            raw: n,
+            inBbox: kept * safeStride,
         };
     }
 
     // Process all nodes in parallel (HTTP Range requests interleave nicely).
-    const results = await Promise.all(nodes.map(({ node }) => processNode(node)));
+    const tDecode = performance.now();
+    const results = await Promise.all(nodes.map(({ key, node }) => processNode(key, node)));
+    const dDecode = performance.now() - tDecode;
     // eslint-disable-next-line no-console
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
-        'fetched', fetchCount, 'ranges', '(', (totalBytesFetched / 1024 / 1024).toFixed(1), 'MB total)');
+        'fetched', fetchCount, 'ranges', '(', (totalBytesFetched / 1024 / 1024).toFixed(1), 'MB total)',
+        '— phases:',
+        `create ${dCreate.toFixed(0)} ms,`,
+        `hierarchy ${dHier.toFixed(0)} ms,`,
+        `prefetch ${dFetch.toFixed(0)} ms,`,
+        `decompress ${dDecode.toFixed(0)} ms`);
 
     let total = 0;
-    for (const r of results) total += r.classifications.length;
+    let rawTotal = 0;
+    let inBboxTotal = 0;
+    for (const r of results) {
+        total += r.classifications.length;
+        rawTotal += r.raw;
+        inBboxTotal += r.inBbox;
+    }
     const outPos = new Float32Array(total * 3);
     const outCls = new Uint8Array(total);
     let offP = 0, offC = 0;
@@ -270,5 +388,5 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         offP += r.positions.length;
         offC += r.classifications.length;
     }
-    return { positions: outPos, classifications: outCls };
+    return { positions: outPos, classifications: outCls, rawPointCount: rawTotal, inBboxPointCount: inBboxTotal };
 }
