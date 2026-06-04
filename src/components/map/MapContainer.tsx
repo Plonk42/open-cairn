@@ -37,6 +37,9 @@ const ROUTE_SELECTION_SOURCE = 'open-cairn-route-selection';
 const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
 const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
 const LIDAR_PREVIEW_SOURCE = 'open-cairn-lidar-preview';
+const CLIFF_SLICE_LINE_SOURCE = 'open-cairn-cliff-slice-line';
+const CLIFF_SLICE_CORRIDOR_SOURCE = 'open-cairn-cliff-slice-corridor';
+const CLIFF_SLICE_POINTS_SOURCE = 'open-cairn-cliff-slice-points';
 
 registerCompositeProtocol();
 
@@ -95,6 +98,152 @@ function ensureLidarPreviewLayer(map: maplibregl.Map): void {
             },
         });
     }
+}
+
+/* ──────────────────────── Cliff slice map overlay ──────────────────────── */
+
+const DEG_TO_RAD = Math.PI / 180;
+const METERS_PER_DEGREE_LAT = 111_319.491;
+
+/** Compute the four corners of a corridor of half-width `halfM` around segment [start, end]. */
+function corridorPolygon(start: [number, number], end: [number, number], halfM: number): GeoJSON.Position[] {
+    const refLat = (start[1] + end[1]) / 2;
+    const cosLat = Math.cos(refLat * DEG_TO_RAD);
+    const dxE = (end[0] - start[0]) * METERS_PER_DEGREE_LAT * cosLat;
+    const dyN = (end[1] - start[1]) * METERS_PER_DEGREE_LAT;
+    const len = Math.hypot(dxE, dyN) || 1;
+    // Perpendicular unit (east, north) → convert offsets back to deg.
+    const pE = -dyN / len;
+    const pN = dxE / len;
+    const dLng = (pE * halfM) / (METERS_PER_DEGREE_LAT * cosLat);
+    const dLat = (pN * halfM) / METERS_PER_DEGREE_LAT;
+    return [
+        [start[0] + dLng, start[1] + dLat],
+        [end[0] + dLng, end[1] + dLat],
+        [end[0] - dLng, end[1] - dLat],
+        [start[0] - dLng, start[1] - dLat],
+        [start[0] + dLng, start[1] + dLat],
+    ];
+}
+
+function cliffSliceLineGeoJson(points: ReadonlyArray<[number, number]>): GeoJSON.FeatureCollection {
+    if (points.length === 0) return { type: 'FeatureCollection', features: [] };
+    if (points.length === 1) {
+        return {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: points[0] } }],
+        };
+    }
+    return {
+        type: 'FeatureCollection',
+        features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: [...points] },
+        }],
+    };
+}
+
+function cliffSliceCorridorGeoJson(points: ReadonlyArray<[number, number]>, halfM: number): GeoJSON.FeatureCollection {
+    if (points.length < 2) return { type: 'FeatureCollection', features: [] };
+    const features: GeoJSON.Feature[] = [];
+    for (let i = 0; i < points.length - 1; i += 1) {
+        features.push({
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Polygon', coordinates: [corridorPolygon(points[i], points[i + 1], halfM)] },
+        });
+    }
+    return { type: 'FeatureCollection', features };
+}
+
+function cliffSliceEndpointsGeoJson(points: ReadonlyArray<[number, number]>): GeoJSON.FeatureCollection {
+    const features: GeoJSON.Feature[] = [];
+    for (let i = 0; i < points.length; i += 1) {
+        features.push({
+            type: 'Feature',
+            properties: { role: String.fromCodePoint(65 + i) },
+            geometry: { type: 'Point', coordinates: points[i] },
+        });
+    }
+    return { type: 'FeatureCollection', features };
+}
+
+function ensureCliffSliceLayers(map: maplibregl.Map): void {
+    if (!map.isStyleLoaded()) return;
+    if (!map.getSource(CLIFF_SLICE_CORRIDOR_SOURCE)) {
+        map.addSource(CLIFF_SLICE_CORRIDOR_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getSource(CLIFF_SLICE_LINE_SOURCE)) {
+        map.addSource(CLIFF_SLICE_LINE_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getSource(CLIFF_SLICE_POINTS_SOURCE)) {
+        map.addSource(CLIFF_SLICE_POINTS_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getLayer('open-cairn-cliff-slice-corridor-fill')) {
+        map.addLayer({
+            id: 'open-cairn-cliff-slice-corridor-fill',
+            type: 'fill',
+            source: CLIFF_SLICE_CORRIDOR_SOURCE,
+            paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.18 },
+        });
+    }
+    if (!map.getLayer('open-cairn-cliff-slice-corridor-line')) {
+        map.addLayer({
+            id: 'open-cairn-cliff-slice-corridor-line',
+            type: 'line',
+            source: CLIFF_SLICE_CORRIDOR_SOURCE,
+            paint: { 'line-color': '#0ea5e9', 'line-opacity': 0.6, 'line-width': 1, 'line-dasharray': [2, 3] },
+        });
+    }
+    if (!map.getLayer('open-cairn-cliff-slice-line')) {
+        map.addLayer({
+            id: 'open-cairn-cliff-slice-line',
+            type: 'line',
+            source: CLIFF_SLICE_LINE_SOURCE,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': '#0284c7', 'line-width': 3 },
+        });
+    }
+    if (!map.getLayer('open-cairn-cliff-slice-endpoint-halo')) {
+        map.addLayer({
+            id: 'open-cairn-cliff-slice-endpoint-halo',
+            type: 'circle',
+            source: CLIFF_SLICE_POINTS_SOURCE,
+            paint: {
+                'circle-radius': 9,
+                'circle-color': '#f8fafc',
+                'circle-stroke-color': '#0284c7',
+                'circle-stroke-width': 2,
+            },
+        });
+    }
+    if (!map.getLayer('open-cairn-cliff-slice-endpoint-label')) {
+        map.addLayer({
+            id: 'open-cairn-cliff-slice-endpoint-label',
+            type: 'symbol',
+            source: CLIFF_SLICE_POINTS_SOURCE,
+            layout: {
+                'text-field': ['get', 'role'],
+                'text-size': 13,
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-allow-overlap': true,
+            },
+            paint: { 'text-color': '#0284c7' },
+        });
+    }
+}
+
+function syncCliffSliceToMap(map: maplibregl.Map): void {
+    ensureCliffSliceLayers(map);
+    const s = useMapStore.getState();
+    const pts = s.cliffSlicePoints;
+    const corridorGj = cliffSliceCorridorGeoJson(pts, s.cliffSliceCorridor);
+    const lineGj = cliffSliceLineGeoJson(pts);
+    const ptsGj = cliffSliceEndpointsGeoJson(pts);
+    updateGeoJsonSource(map, CLIFF_SLICE_CORRIDOR_SOURCE, corridorGj);
+    updateGeoJsonSource(map, CLIFF_SLICE_LINE_SOURCE, lineGj);
+    updateGeoJsonSource(map, CLIFF_SLICE_POINTS_SOURCE, ptsGj);
 }
 
 function syncCenterElevationToTerrain(map: maplibregl.Map): void {
@@ -529,7 +678,7 @@ export function MapContainer() {
 
         map.once('idle', () => syncCenterElevationToTerrain(map));
 
-        const refreshRouteLayers = () => syncRouteToMap(map);
+        const refreshRouteLayers = () => { syncRouteToMap(map); syncCliffSliceToMap(map); };
         map.once('load', refreshRouteLayers);
         map.on('styledata', refreshRouteLayers);
 
@@ -554,6 +703,17 @@ export function MapContainer() {
         };
 
         map.on('click', (event) => {
+            const slice = useMapStore.getState();
+            // Cliff mode owns the click — never fall through to route, even when
+            // the slice tracé sub-mode is off (read-only chart viewing).
+            if (slice.bottomMode === 'cliff') {
+                if (slice.cliffSliceActive) {
+                    const coord: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+                    slice.addCliffSlicePoint(coord);
+                    event.preventDefault?.();
+                }
+                return;
+            }
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -566,6 +726,7 @@ export function MapContainer() {
         });
 
         map.on('dblclick', (event) => {
+            if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -580,6 +741,7 @@ export function MapContainer() {
         });
 
         map.on('contextmenu', (event) => {
+            if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -589,6 +751,8 @@ export function MapContainer() {
         });
 
         const startDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
+            // Dragging waypoints only makes sense in route mode.
+            if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active || route.deleteMode) return;
             const waypointId = waypointAt(event.point);
@@ -769,6 +933,24 @@ export function MapContainer() {
             updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
             updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
             m.getCanvas().style.cursor = routeCursor(route);
+        });
+    }, []);
+
+    // Cliff slice line + corridor sync.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (map?.isStyleLoaded()) syncCliffSliceToMap(map);
+        return useMapStore.subscribe((state, prev) => {
+            const m = mapRef.current;
+            if (!m?.getStyle()?.layers) return;
+            const cursorChanged = state.cliffSliceActive !== prev.cliffSliceActive;
+            const lineChanged = state.cliffSlicePoints !== prev.cliffSlicePoints
+                || state.cliffSliceCorridor !== prev.cliffSliceCorridor;
+            if (lineChanged) syncCliffSliceToMap(m);
+            if (cursorChanged) {
+                if (state.cliffSliceActive) m.getCanvas().style.cursor = 'crosshair';
+                else if (!useRouteStore.getState().active) m.getCanvas().style.cursor = '';
+            }
         });
     }, []);
 

@@ -29,6 +29,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Vue partageable** — URL hash encodant tout l'état de l'application
 - **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL2 custom avec
   Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes : `shaded`, `mixed`, `poisson`.
+- **Coupe falaise** — cross-section verticale du nuage LiDAR le long d'une polyligne, graphe
+  Canvas 2D à échelle 1:1, relais cliquables et calcul de cordes recommandées (escalade,
+  canyon, rappel)
 - **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs)
 
 ---
@@ -129,6 +132,8 @@ Documentation détaillée par fonctionnalité, organisée en **sections utilisat
   cache IndexedDB, frontière Web Worker (déjà existant, mis à jour)
 - [docs/LIDAR_RENDERING.md](docs/LIDAR_RENDERING.md) — Rendu WebGL 2 du nuage : shaders,
   Eye-Dome Lighting, masque de classification, projection Mercator depuis offsets mètres
+- [docs/CLIFF_SLICE.md](docs/CLIFF_SLICE.md) — Coupe falaise : projection du nuage sur un
+  plan vertical, graphe 1:1, relais et calcul de cordes
 - [docs/SUN_LIGHTING.md](docs/SUN_LIGHTING.md) — Position solaire NOAA, intensité et tint
   appliqués au LiDAR
 

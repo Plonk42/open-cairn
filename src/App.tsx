@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CursorCoordinates } from './components/map/CursorCoordinates';
 import { MapContainer } from './components/map/MapContainer';
 import { SearchBox } from './components/map/SearchBox';
+import { CliffBottomPanel, useCliffSliceProfile } from './components/ui/CliffSlicePanel';
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { LidarCloudPanel } from './components/ui/LidarCloudPanel';
 import { RoutePanel } from './components/ui/RoutePanel';
@@ -14,6 +15,7 @@ import { useRouteStore } from './stores/routeStore';
 
 type RightTab = 'layers' | 'routes' | 'lidar' | 'settings';
 type MobileTab = 'map' | 'route' | 'routes' | 'layers' | 'lidar' | 'settings';
+type BottomMode = 'route' | 'cliff';
 
 /** Hook to sync the LiDAR preview visibility with the current tab state. */
 function useLidarPreviewSync(tabIsLidar: boolean) {
@@ -30,7 +32,38 @@ export function App() {
     const [rightOpen, setRightOpen] = useState(() => globalThis.innerWidth >= 768);
     const [rightTab, setRightTab] = useState<RightTab>('layers');
     const [bottomOpen, setBottomOpen] = useState(false);
+    const bottomMode = useMapStore((s) => s.bottomMode);
+    const setBottomMode = useMapStore((s) => s.setBottomMode);
     const [bottomHeight, setBottomHeight] = useState(330);
+
+    const setActiveSlice = useMapStore((s) => s.setCliffSliceActive);
+    const setActiveRoute = useRouteStore((s) => s.setActive);
+    const lidarLoaded = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
+
+    const handleOpenRoute = useCallback(() => {
+        if (bottomMode === 'route' && bottomOpen) {
+            setBottomOpen(false);
+        } else {
+            setBottomMode('route');
+            setBottomOpen(true);
+            // Leaving cliff mode: turn off the slice tracé so a stray click on the
+            // map doesn't add a slice point.
+            setActiveSlice(false);
+        }
+    }, [bottomMode, bottomOpen, setBottomMode, setActiveSlice]);
+
+    const handleOpenCliff = useCallback(() => {
+        if (bottomMode === 'cliff' && bottomOpen) {
+            setBottomOpen(false);
+        } else {
+            setBottomMode('cliff');
+            setBottomOpen(true);
+            setActiveSlice(true);
+            // Leaving route mode: turn off the route tracé so a stray click on the
+            // map doesn't add a waypoint.
+            setActiveRoute(false);
+        }
+    }, [bottomMode, bottomOpen, setBottomMode, setActiveSlice, setActiveRoute]);
 
     // Auto-expand the Itinéraire panel when the first waypoint is added.
     const waypoints = useRouteStore((s) => s.waypoints);
@@ -41,6 +74,18 @@ export function App() {
         }
         prevWaypointCount.current = waypoints.length;
     }, [waypoints.length]);
+
+    // Auto-expand bottom panel when the cliff-slice polyline has ≥2 points
+    // (covers share-link reload and the case where the user keeps adding
+    // points after collapsing the panel).
+    const slicePointCount = useMapStore((s) => s.cliffSlicePoints.length);
+    const sliceReady = slicePointCount >= 2;
+    useEffect(() => {
+        if (sliceReady) {
+            setBottomMode('cliff');
+            setBottomOpen(true);
+        }
+    }, [sliceReady]);
     const [shareTooltip, setShareTooltip] = useState(false);
     const [mobileTab, setMobileTab] = useState<MobileTab>('map');
     const resizingRef = useRef(false);
@@ -65,6 +110,13 @@ export function App() {
             colorElevationBySlope: route.colorElevationBySlope,
             waypoints: route.waypoints,
             selectionRange: route.selectionRange,
+            cliffSlicePoints: map.cliffSlicePoints,
+            cliffSliceCorridor: map.cliffSliceCorridor,
+            cliffSliceClasses: map.cliffSliceClasses,
+            cliffSliceColorClass: map.cliffSliceColorClass,
+            cliffSliceColorDepth: map.cliffSliceColorDepth,
+            cliffSliceRopeSafety: map.cliffSliceRopeSafety,
+            cliffSliceStations: map.cliffSliceStations,
         });
         navigator.clipboard.writeText(url);
         setShareTooltip(true);
@@ -218,21 +270,23 @@ export function App() {
                         <div className="h-0.5 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
                     </button>
                 )}
-                {/* Collapse toggle */}
-                <button
-                    type="button"
-                    onClick={() => setBottomOpen((v) => !v)}
-                    className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-t-lg bg-white/90 px-3 text-xs text-slate-600 shadow-sm ring-1 ring-black/5 transition hover:text-slate-900 dark:bg-slate-800/90 dark:text-slate-300 dark:ring-white/10 dark:hover:text-slate-100"
-                    title={bottomOpen ? 'Réduire' : 'Agrandir'}
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3.5 w-3.5 transition-transform ${bottomOpen ? '' : 'rotate-180'}`}>
-                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                    </svg>
-                    <span>Itinéraire</span>
-                </button>
+                {/* Mode toggle: Itinéraire / Coupe falaise (replaces single collapse arrow) */}
+                <div className="absolute -top-8 left-1/2 z-20 flex h-7 -translate-x-1/2 overflow-hidden rounded-t-lg bg-white/90 text-xs shadow-sm ring-1 ring-black/5 dark:bg-slate-800/90 dark:ring-white/10">
+                    <BottomModeButton
+                        active={bottomMode === 'route' && bottomOpen}
+                        label="Itinéraire"
+                        onClick={handleOpenRoute}
+                    />
+                    <BottomModeButton
+                        active={bottomMode === 'cliff' && bottomOpen}
+                        label="Coupe falaise"
+                        onClick={handleOpenCliff}
+                        title={lidarLoaded ? undefined : 'Chargez un nuage de points LiDAR (panneau LiDAR) pour utiliser ce mode'}
+                    />
+                </div>
                 {bottomOpen && (
                     <div className="h-full overflow-hidden">
-                        <RoutePanel />
+                        <BottomPanelContent mode={bottomMode} />
                     </div>
                 )}
             </div>
@@ -344,7 +398,7 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                     </div>
                     {/* Sheet content */}
                     <div className="h-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain px-3 pb-2">
-                        {mobileTab === 'route' ? <RoutePanel /> : <RightTabContent tab={mobileTab} />}
+                        <MobileSheetContent mobileTab={mobileTab} />
                     </div>
                 </div>
             )}
@@ -412,11 +466,55 @@ function MobileTabButton({ active, label, icon, onClick }: Readonly<{
     );
 }
 
-function RightTabContent({ tab }: Readonly<{ tab: 'layers' | 'routes' | 'lidar' | 'settings' }>) {
+function BottomModeButton({ active, label, onClick, disabled, title }: Readonly<{
+    active: boolean;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    title?: string;
+}>) {
+    let cls: string;
+    if (disabled) {
+        cls = 'cursor-not-allowed text-slate-300 dark:text-slate-600';
+    } else if (active) {
+        cls = 'bg-green-600 text-white dark:bg-emerald-500';
+    } else {
+        cls = 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60';
+    }
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            className={`px-3 font-medium transition ${cls}`}
+        >
+            {label}
+        </button>
+    );
+}
+
+function RightTabContent({ tab }: Readonly<{ tab: RightTab }>) {
     if (tab === 'layers') return <LayerSwitcher />;
     if (tab === 'routes') return <SavedRoutesPanel />;
     if (tab === 'lidar') return <LidarCloudPanel />;
     return <SettingsPanel />;
+}
+
+/**
+ * Bottom-panel content: dispatches between the route panel and the
+ * cliff-slice cross-section panel based on the user-chosen mode.
+ */
+function BottomPanelContent({ mode }: Readonly<{ mode: BottomMode }>) {
+    const profile = useCliffSliceProfile();
+    if (mode === 'cliff') return <CliffBottomPanel profile={profile} />;
+    return <RoutePanel />;
+}
+
+function MobileSheetContent({ mobileTab }: Readonly<{ mobileTab: MobileTab }>) {
+    if (mobileTab === 'route') return <RoutePanel />;
+    if (mobileTab === 'map') return null;
+    return <RightTabContent tab={mobileTab} />;
 }
 
 function SidebarTabButton({ active, title, onClick, children }: Readonly<{

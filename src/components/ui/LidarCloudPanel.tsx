@@ -2,9 +2,16 @@ import { STAGE_LABELS, type LidarProgressStage } from '@/lib/lidarBrowser';
 import { LAS_CLASS_LABELS, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
+import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 
 /** LAS classes available for filtering in the UI. */
 const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
+
+/** Chip choices for the LiDAR class filter — same visual as the cliff-slice panel. */
+const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((cls) => ({
+    id: cls,
+    label: LAS_CLASS_LABELS[cls] ?? `Classe ${cls}`,
+}));
 
 /** Progress stage ordering for the progress bar. */
 const STAGE_ORDER: LidarProgressStage[] = ['wfs', 'tiles', 'normals', 'mesh', 'colors', 'done'];
@@ -316,19 +323,11 @@ export function LidarCloudPanel() {
                             <button type="button" onClick={selectBuildings} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                        {AVAILABLE_CLASSES.map((cls) => (
-                            <label key={cls} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                                <input
-                                    type="checkbox"
-                                    checked={classes.includes(cls)}
-                                    onChange={() => toggleClass(cls)}
-                                    className="h-3.5 w-3.5 accent-green-600"
-                                />
-                                <span>{LAS_CLASS_LABELS[cls] ?? `Classe ${cls}`}</span>
-                            </label>
-                        ))}
-                    </div>
+                    <ClassFilterChips
+                        choices={LIDAR_CLASS_CHOICES}
+                        selected={classes}
+                        onToggle={toggleClass}
+                    />
                     {classes.length === 0 && (
                         <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
                             Aucune classe sélectionnée — tous les points seront chargés.

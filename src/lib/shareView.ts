@@ -1,3 +1,4 @@
+import type { CliffStation } from './cliffSlice';
 import type { HillshadeSource, MapView } from '@/stores/mapStore';
 import type { RouteMode, RouteWaypoint } from '@/stores/routeStore';
 import type { BlendMode } from './compositeProtocol';
@@ -29,12 +30,23 @@ interface SharePayload {
     ces: 0 | 1;
     wps: SerializedWaypoint[];
     sel?: [number, number];
+    // Cliff slice (all optional — only present when a slice has been drawn)
+    cs?: [number, number][];
+    cw?: number;
+    cc?: number[];
+    cClass?: 0 | 1;
+    cDepth?: 0 | 1;
+    crs?: number;
+    cst?: SerializedStation[];
 }
 
 interface SerializedWaypoint {
     c: LngLatTuple;
     m?: RouteMode;
 }
+
+/** Tuple form: [d, e] or [d, e, label]. */
+type SerializedStation = [number, number] | [number, number, string];
 
 export interface SharedState {
     view: MapView;
@@ -52,11 +64,37 @@ export interface SharedState {
     colorElevationBySlope: boolean;
     waypoints: RouteWaypoint[];
     selectionRange: [number, number] | null;
+    // Cliff slice
+    cliffSlicePoints: LngLatTuple[];
+    cliffSliceCorridor: number;
+    cliffSliceClasses: number[];
+    cliffSliceColorClass: boolean;
+    cliffSliceColorDepth: boolean;
+    cliffSliceRopeSafety: number;
+    cliffSliceStations: CliffStation[];
 }
 
 function round(n: number, decimals: number): number {
     const f = 10 ** decimals;
     return Math.round(n * f) / f;
+}
+
+/** Mutates `payload` to attach optional cliff-slice fields (only when a slice exists). */
+function attachCliffPayload(payload: SharePayload, state: SharedState): void {
+    if (state.cliffSlicePoints.length === 0) return;
+    payload.cs = state.cliffSlicePoints.map((p) => [round(p[0], 6), round(p[1], 6)]);
+    payload.cw = round(state.cliffSliceCorridor, 1);
+    if (state.cliffSliceClasses.length > 0) payload.cc = [...state.cliffSliceClasses];
+    if (state.cliffSliceColorClass) payload.cClass = 1;
+    if (state.cliffSliceColorDepth) payload.cDepth = 1;
+    payload.crs = round(state.cliffSliceRopeSafety, 2);
+    if (state.cliffSliceStations.length > 0) {
+        payload.cst = state.cliffSliceStations.map((st) => {
+            const d = round(st.d, 1);
+            const e = round(st.e, 1);
+            return st.label ? [d, e, st.label] : [d, e];
+        });
+    }
 }
 
 export function encodeShareState(state: SharedState): string {
@@ -87,6 +125,8 @@ export function encodeShareState(state: SharedState): string {
         sel: state.selectionRange ? [round(state.selectionRange[0], 1), round(state.selectionRange[1], 1)] : undefined,
     };
 
+    attachCliffPayload(payload, state);
+
     const json = JSON.stringify(payload);
     const bytes = new TextEncoder().encode(json);
     let binary = '';
@@ -115,6 +155,13 @@ export function decodeShareState(hash: string): SharedState | null {
             modeFromPrevious: i === 0 ? undefined : (wp.m ?? 'auto'),
         }));
 
+        let stId = 1;
+        const cliffSliceStations: CliffStation[] = (p.cst ?? []).map((s) => {
+            const station: CliffStation = { id: `s-${stId++}`, d: s[0], e: s[1] };
+            if (s.length > 2 && typeof s[2] === 'string') station.label = s[2];
+            return station;
+        });
+
         return {
             view: { longitude: p.lng, latitude: p.lat, zoom: p.z, pitch: p.p, bearing: p.b },
             baseLayer: p.bl,
@@ -131,6 +178,13 @@ export function decodeShareState(hash: string): SharedState | null {
             colorElevationBySlope: p.ces === 1,
             waypoints,
             selectionRange: p.sel ?? null,
+            cliffSlicePoints: p.cs ?? [],
+            cliffSliceCorridor: p.cw ?? 2,
+            cliffSliceClasses: p.cc ?? [],
+            cliffSliceColorClass: p.cClass === 1,
+            cliffSliceColorDepth: p.cDepth === 1,
+            cliffSliceRopeSafety: p.crs ?? 0.15,
+            cliffSliceStations,
         };
     } catch {
         return null;

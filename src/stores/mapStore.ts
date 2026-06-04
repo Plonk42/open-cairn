@@ -1,4 +1,6 @@
+import type { CliffStation } from '@/lib/cliffSlice';
 import { setTileCacheMaxSize, type BlendMode } from '@/lib/compositeProtocol';
+import type { LngLatTuple } from '@/lib/geo';
 import {
     fetchLidarDelaunay,
     fetchLidarPoisson,
@@ -179,6 +181,45 @@ interface MapState {
     loadLidarCloud: () => Promise<void>;
     /** Clear the currently displayed point cloud. */
     clearLidarCloud: () => void;
+
+    // ---- Cliff slice / cross-section tool ----
+    /** True while the user is picking points of the slice polyline on the map. */
+    cliffSliceActive: boolean;
+    setCliffSliceActive: (v: boolean) => void;
+    /** Which bottom panel is currently shown: route or cliff. Drives map click routing. */
+    bottomMode: 'route' | 'cliff';
+    setBottomMode: (m: 'route' | 'cliff') => void;
+    /** Polyline vertices in WGS84 (≥2 → slice is drawn). */
+    cliffSlicePoints: LngLatTuple[];
+    setCliffSlicePoints: (pts: LngLatTuple[]) => void;
+    addCliffSlicePoint: (p: LngLatTuple) => void;
+    removeLastCliffSlicePoint: () => void;
+    /** Half-width of the corridor sampled either side of the slice plane, meters. */
+    cliffSliceCorridor: number;
+    setCliffSliceCorridor: (v: number) => void;
+    /** Apply ASPRS class colors to slice points. */
+    cliffSliceColorClass: boolean;
+    setCliffSliceColorClass: (v: boolean) => void;
+    /** Modulate slice point color by depth (front → bright, back → dim). */
+    cliffSliceColorDepth: boolean;
+    setCliffSliceColorDepth: (v: boolean) => void;
+    /** ASPRS LAS classes kept when extracting the slice profile (empty = all). Default = [2] (Sol). */
+    cliffSliceClasses: number[];
+    setCliffSliceClasses: (v: number[]) => void;
+    toggleCliffSliceClass: (cls: number) => void;
+    /** Climber-defined belay stations on the cliff profile. */
+    cliffSliceStations: CliffStation[];
+    addCliffSliceStation: (d: number, e: number) => void;
+    removeCliffSliceStation: (id: string) => void;
+    clearCliffSliceStations: () => void;
+    /** Replace the whole stations list (used for restoring from share URL). */
+    setCliffSliceStations: (stations: CliffStation[]) => void;
+    setCliffSliceStationLabel: (id: string, label: string) => void;
+    /** Safety margin added to the direct rope length (0.15 = +15 %). */
+    cliffSliceRopeSafety: number;
+    setCliffSliceRopeSafety: (v: number) => void;
+    /** Reset everything (line + stations). */
+    clearCliffSlice: () => void;
 }
 
 // Default view: French Alps, around the Vercors / Belledonne area, with a
@@ -225,6 +266,11 @@ type PersistedSettings = {
     lidarSunDate?: string;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
+    cliffSliceCorridor?: number;
+    cliffSliceColorClass?: boolean;
+    cliffSliceColorDepth?: boolean;
+    cliffSliceClasses?: number[];
+    cliffSliceRopeSafety?: number;
 };
 
 function loadPersistedSettings(): PersistedSettings {
@@ -436,6 +482,53 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
     clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
 
+    // Cliff slice state
+    cliffSliceActive: false,
+    setCliffSliceActive: (cliffSliceActive) => set({ cliffSliceActive }),
+    bottomMode: 'route',
+    setBottomMode: (bottomMode) => set({ bottomMode }),
+    cliffSlicePoints: [],
+    setCliffSlicePoints: (cliffSlicePoints) => set({ cliffSlicePoints }),
+    addCliffSlicePoint: (p) => set((s) => ({ cliffSlicePoints: [...s.cliffSlicePoints, p] })),
+    removeLastCliffSlicePoint: () => set((s) => ({ cliffSlicePoints: s.cliffSlicePoints.slice(0, -1) })),
+    cliffSliceCorridor: persisted.cliffSliceCorridor ?? 2,
+    setCliffSliceCorridor: (cliffSliceCorridor) => set({ cliffSliceCorridor }),
+    cliffSliceColorClass: persisted.cliffSliceColorClass ?? true,
+    setCliffSliceColorClass: (cliffSliceColorClass) => set({ cliffSliceColorClass }),
+    cliffSliceColorDepth: persisted.cliffSliceColorDepth ?? false,
+    setCliffSliceColorDepth: (cliffSliceColorDepth) => set({ cliffSliceColorDepth }),
+    cliffSliceClasses: persisted.cliffSliceClasses ?? [2],
+    setCliffSliceClasses: (cliffSliceClasses) => set({ cliffSliceClasses }),
+    toggleCliffSliceClass: (cls) => set((s) => {
+        const has = s.cliffSliceClasses.includes(cls);
+        return {
+            cliffSliceClasses: has
+                ? s.cliffSliceClasses.filter((c) => c !== cls)
+                : [...s.cliffSliceClasses, cls].sort((a, b) => a - b),
+        };
+    }),
+    cliffSliceStations: [],
+    addCliffSliceStation: (d, e) => set((s) => {
+        const id = `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const next = [...s.cliffSliceStations, { id, d, e }].sort((a, b) => a.d - b.d);
+        return { cliffSliceStations: next };
+    }),
+    removeCliffSliceStation: (id) => set((s) => ({
+        cliffSliceStations: s.cliffSliceStations.filter((x) => x.id !== id),
+    })),
+    clearCliffSliceStations: () => set({ cliffSliceStations: [] }),
+    setCliffSliceStations: (cliffSliceStations) => set({ cliffSliceStations }),
+    setCliffSliceStationLabel: (id, label) => set((s) => ({
+        cliffSliceStations: s.cliffSliceStations.map((st) => st.id === id ? { ...st, label } : st),
+    })),
+    cliffSliceRopeSafety: persisted.cliffSliceRopeSafety ?? 0.15,
+    setCliffSliceRopeSafety: (cliffSliceRopeSafety) => set({ cliffSliceRopeSafety }),
+    clearCliffSlice: () => set({
+        cliffSlicePoints: [],
+        cliffSliceStations: [],
+        cliffSliceActive: true,
+    }),
+
 }));
 
 // Auto-save all persistent settings to localStorage whenever they change.
@@ -477,6 +570,11 @@ useMapStore.subscribe((state) => {
             lidarSunDate: state.lidarSunDate,
             lidarShadows: state.lidarShadows,
             lidarShadowStrength: state.lidarShadowStrength,
+            cliffSliceCorridor: state.cliffSliceCorridor,
+            cliffSliceColorClass: state.cliffSliceColorClass,
+            cliffSliceColorDepth: state.cliffSliceColorDepth,
+            cliffSliceClasses: state.cliffSliceClasses,
+            cliffSliceRopeSafety: state.cliffSliceRopeSafety,
         });
     }, 500);
 });
