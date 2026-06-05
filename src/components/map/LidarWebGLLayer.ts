@@ -385,6 +385,13 @@ function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLP
 
 type Bbox = { min: [number, number, number]; max: [number, number, number] };
 
+// Browsers/GPUs cap the number of vertex IDs processed per draw call
+// (Firefox enforces webgl.max-vert-ids-per-draw = 30 000 000). A max-density
+// cloud over a large area can exceed this in a single draw, which silently
+// truncates the geometry and emits a console warning. We split large draws
+// into chunks comfortably below the cap.
+const MAX_VERT_IDS_PER_DRAW = 24_000_000;
+
 function computeBbox(positions: Float32Array): Bbox | null {
     if (positions.length < 3) return null;
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -727,7 +734,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
-            gl2.drawArrays(gl2.POINTS, 0, this._count);
+            this._drawPointsChunked(gl2);
 
             // ─── Pass 2: Apply EDL and render to screen ───
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
@@ -775,7 +782,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
-            gl2.drawArrays(gl2.POINTS, 0, this._count);
+            this._drawPointsChunked(gl2);
 
             // Composite FBO color back to MapLibre framebuffer (strength=0 ⇒ no EDL).
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
@@ -812,7 +819,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.blendFunc(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
             this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
             gl2.bindVertexArray(this._vao);
-            gl2.drawArrays(gl2.POINTS, 0, this._count);
+            this._drawPointsChunked(gl2);
         }
 
         // Restore state
@@ -952,6 +959,34 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     /**
+     * Draw the point cloud, split into chunks so no single draw call exceeds
+     * the per-draw vertex-ID cap (see MAX_VERT_IDS_PER_DRAW). Points are
+     * independent, so a contiguous [start, start+len) range draws correctly.
+     */
+    private _drawPointsChunked(gl: WebGL2RenderingContext): void {
+        const total = this._count;
+        for (let start = 0; start < total; start += MAX_VERT_IDS_PER_DRAW) {
+            const len = Math.min(MAX_VERT_IDS_PER_DRAW, total - start);
+            gl.drawArrays(gl.POINTS, start, len);
+        }
+    }
+
+    /**
+     * Draw the mesh element buffer, split into chunks below the per-draw
+     * vertex-ID cap. The chunk size is rounded down to a multiple of 3 so a
+     * triangle is never split across two draws. Each chunk is a contiguous
+     * range of the index buffer; indices still address the full vertex buffer.
+     */
+    private _drawMeshChunked(gl: WebGL2RenderingContext): void {
+        const total = this._meshIndexCount;
+        const chunk = MAX_VERT_IDS_PER_DRAW - (MAX_VERT_IDS_PER_DRAW % 3);
+        for (let start = 0; start < total; start += chunk) {
+            const len = Math.min(chunk, total - start);
+            gl.drawElements(gl.TRIANGLES, len, gl.UNSIGNED_INT, start * 4);
+        }
+    }
+
+    /**
      * Draw the optional ground mesh into the currently-bound FBO. Caller is
      * responsible for setting depth/blend state (we expect DEPTH_TEST on,
      * BLEND off, both color + R32F-depth MRT attached). Origin (centerLng/Lat)
@@ -967,7 +1002,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
         this._bindShadowToProgram(gl, this._locMesh);
         gl.bindVertexArray(this._vaoMesh);
-        gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
+        this._drawMeshChunked(gl);
     }
 
     /**
@@ -1010,7 +1045,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.useProgram(this._progShadow);
         gl.uniformMatrix4fv(this._locShadow.lightMatrix, false, this._lightMatrix);
         gl.bindVertexArray(this._vaoMesh);
-        gl.drawElements(gl.TRIANGLES, this._meshIndexCount, gl.UNSIGNED_INT, 0);
+        this._drawMeshChunked(gl);
         gl.cullFace(gl.BACK);
         gl.disable(gl.CULL_FACE);
         gl.bindFramebuffer(gl.FRAMEBUFFER, prevFBO);
