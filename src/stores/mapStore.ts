@@ -510,8 +510,9 @@ export const useMapStore = create<MapState>((set, get) => ({
     cliffSliceStations: [],
     addCliffSliceStation: (d, e) => set((s) => {
         const id = `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const next = [...s.cliffSliceStations, { id, d, e }].sort((a, b) => a.d - b.d);
-        return { cliffSliceStations: next };
+        // Preserve click order — climbers chain rappels in the order they
+        // place stations, not in left-to-right d order (a route can U-turn).
+        return { cliffSliceStations: [...s.cliffSliceStations, { id, d, e }] };
     }),
     removeCliffSliceStation: (id) => set((s) => ({
         cliffSliceStations: s.cliffSliceStations.filter((x) => x.id !== id),

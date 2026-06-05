@@ -7,14 +7,20 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 
-// Lazy-loaded so deck.gl + loaders.gl (~1.4 MB) only ship to clients who
-// actually use the LiDAR HD point cloud overlay.
+// Custom WebGL2 layer that renders the shaded LiDAR HD cloud. Lazy-loaded so
+// the WebGL plumbing only ships to clients who actually open the LiDAR overlay.
 const LidarCloudOverlay = lazy(() =>
     import('./LidarCloudOverlay').then((m) => ({ default: m.LidarCloudOverlay })),
 );
 
+// Lazy-loaded so deck.gl (~150 KB gz: core + layers + mapbox) only ships when
+// the user actually draws a cliff slice over a loaded LiDAR cloud.
+const CliffSlicePathOverlay = lazy(() =>
+    import('./CliffSlicePathOverlay').then((m) => ({ default: m.CliffSlicePathOverlay })),
+);
+
 /**
- * Wrapper that only mounts the (lazy) deck.gl overlay once the user has
+ * Wrapper that only mounts the (lazy) LiDAR overlay once the user has
  * interacted with the LiDAR feature at least once, keeping the initial page
  * load lean.
  */
@@ -26,6 +32,23 @@ function LidarCloudOverlayGate() {
     return (
         <Suspense fallback={null}>
             <LidarCloudOverlay />
+        </Suspense>
+    );
+}
+
+/**
+ * Mount the cliff-slice 3D path overlay only when there is both LiDAR data
+ * loaded and a polyline of ≥2 vertices to draw — otherwise nothing for it
+ * to render on/over.
+ */
+function CliffSlicePathOverlayGate() {
+    const active = useMapStore(
+        (s) => (s.lidarShaded !== null || s.lidarMesh !== null) && s.cliffSlicePoints.length >= 2,
+    );
+    if (!active) return null;
+    return (
+        <Suspense fallback={null}>
+            <CliffSlicePathOverlay />
         </Suspense>
     );
 }
@@ -244,6 +267,22 @@ function syncCliffSliceToMap(map: maplibregl.Map): void {
     updateGeoJsonSource(map, CLIFF_SLICE_CORRIDOR_SOURCE, corridorGj);
     updateGeoJsonSource(map, CLIFF_SLICE_LINE_SOURCE, lineGj);
     updateGeoJsonSource(map, CLIFF_SLICE_POINTS_SOURCE, ptsGj);
+    // Hide the terrain-draped 2D line, corridor and A/B markers when LiDAR is
+    // loaded — the deck.gl overlay redraws them all on the cloud surface
+    // instead, so they end up at the right elevation against the cliff.
+    const hasLidar = s.lidarShaded !== null || s.lidarMesh !== null;
+    const draped = hasLidar && pts.length >= 2 ? 'none' : 'visible';
+    for (const layerId of [
+        'open-cairn-cliff-slice-line',
+        'open-cairn-cliff-slice-corridor-fill',
+        'open-cairn-cliff-slice-corridor-line',
+        'open-cairn-cliff-slice-endpoint-halo',
+        'open-cairn-cliff-slice-endpoint-label',
+    ]) {
+        if (map.getLayer(layerId)) {
+            map.setLayoutProperty(layerId, 'visibility', draped);
+        }
+    }
 }
 
 function syncCenterElevationToTerrain(map: maplibregl.Map): void {
@@ -946,7 +985,20 @@ export function MapContainer() {
             const cursorChanged = state.cliffSliceActive !== prev.cliffSliceActive;
             const lineChanged = state.cliffSlicePoints !== prev.cliffSlicePoints
                 || state.cliffSliceCorridor !== prev.cliffSliceCorridor;
-            if (lineChanged) syncCliffSliceToMap(m);
+            const lidarPresenceChanged = (state.lidarShaded !== null || state.lidarMesh !== null)
+                !== (prev.lidarShaded !== null || prev.lidarMesh !== null);
+            // Only re-sync the 2D cliff layers when (a) the polyline / corridor
+            // itself changed, or (b) LiDAR appeared/disappeared and we already
+            // have a polyline to show — the visibility toggle inside
+            // syncCliffSliceToMap is the only thing that needs to react to
+            // LiDAR presence. With no polyline there is nothing to update,
+            // and calling syncCliffSliceToMap pointlessly mutates the style
+            // (ensureCliffSliceLayers adds layers) right when the preview
+            // effect is trying to clear itself.
+            if (lineChanged
+                || (lidarPresenceChanged && state.cliffSlicePoints.length >= 2)) {
+                syncCliffSliceToMap(m);
+            }
             if (cursorChanged) {
                 if (state.cliffSliceActive) m.getCanvas().style.cursor = 'crosshair';
                 else if (!useRouteStore.getState().active) m.getCanvas().style.cursor = '';
@@ -977,11 +1029,13 @@ export function MapContainer() {
             source.setData(lidarPreviewGeoJson(screenCenter.lng, screenCenter.lat, lidarCloudRadius));
         };
 
-        // Initial update
+        // Initial update — use 'idle' rather than 'load' so we recover from
+        // any later style transition (LiDAR layers being added, basemap
+        // switches…), not just the first style load.
         if (map.isStyleLoaded()) {
             updatePreview();
         } else {
-            map.once('load', updatePreview);
+            map.once('idle', updatePreview);
         }
 
         // Update on map move when preview is visible
@@ -996,6 +1050,7 @@ export function MapContainer() {
         <>
             <div ref={containerRef} className="absolute inset-0 h-full w-full" />
             <LidarCloudOverlayGate />
+            <CliffSlicePathOverlayGate />
         </>
     );
 }

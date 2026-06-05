@@ -269,6 +269,188 @@ export function polylineCumulativeLengths(
 }
 
 /**
+ * Walk the upper envelope of a `SliceProfile` to produce a 3D path that
+ * traces the LiDAR surface along the polyline.
+ *
+ * `profile` MUST be the result of `extractPolylineSliceProfile(...)` on the
+ * same polyline (typically the merged cloud + mesh profile the cliff-slice
+ * chart consumes — same projection, same `halfCorridor`, same class filter).
+ * For each `bucketWidth`-meter bucket along the polyline we keep the max
+ * elevation, smooth with a morphological close → open, and reproject the
+ * bucket centre back to (lng, lat) along the polyline.
+ *
+ * The result is the 1D "skyline" the chart already shows, lifted into world
+ * coordinates so it can be drawn on top of the cloud. Buckets without any
+ * profile point are skipped — the chart proves the user-set corridor has
+ * coverage end-to-end, so this normally produces a continuous ribbon. The
+ * first and last vertices coincide in (lng, lat) with the polyline
+ * endpoints (their z comes from the nearest non-empty bucket) so the line
+ * actually attaches at the user clicks.
+ */
+export function traceLidarSurfacePathFromProfile(
+    profile: SliceProfile,
+    polyline: ReadonlyArray<LngLatTuple>,
+    refLng: number,
+    refLat: number,
+    bucketWidth = 0.5,
+): Array<{ lng: number; lat: number; z: number }> {
+    if (profile.length === 0 || profile.points.length === 0) return [];
+    const cum = polylineCumulativeLengths(polyline, refLng, refLat);
+    const totalLen = cum.at(-1) ?? 0;
+    if (totalLen <= 0) return [];
+    // Bucket on the polyline length (not the profile length) so the path's
+    // d axis matches the polyline exactly; otherwise tiny discrepancies
+    // between per-segment `seg.length` and the polyline-length sum compound
+    // along the line and the last buckets fall past B.
+    const env = envelopeFromPoints(profile.points, totalLen, bucketWidth);
+    interpolateGapsInPlace(env);
+    const w = totalLen / env.length;
+    const head = polyline[0];
+    const tail = polyline.at(-1) ?? head;
+    const out: Array<{ lng: number; lat: number; z: number }> = [];
+    // Always emit A at its click location; z is the first non-NaN bucket
+    // (which after gap interpolation is bucket 0 unless the entire envelope
+    // is empty).
+    const headZ = firstFinite(env);
+    if (headZ !== null) out.push({ lng: head[0], lat: head[1], z: headZ });
+    for (let k = 0; k < env.length; k += 1) {
+        const z = env[k];
+        if (Number.isNaN(z)) continue;
+        const d = (k + 0.5) * w;
+        const [lng, lat] = lngLatAtPolylineDistance(polyline, cum, d);
+        out.push({ lng, lat, z });
+    }
+    const tailZ = lastFinite(env);
+    if (tailZ !== null) out.push({ lng: tail[0], lat: tail[1], z: tailZ });
+    return out;
+}
+
+/** Bucket profile points by their d axis over [0, totalLen); max z per bucket; smooth with morphological close → open. */
+function envelopeFromPoints(
+    points: ReadonlyArray<SliceProfilePoint>,
+    totalLen: number,
+    bucketWidth: number,
+): Float32Array {
+    const n = Math.max(2, Math.ceil(totalLen / bucketWidth));
+    const tops = new Float32Array(n);
+    tops.fill(Number.NaN);
+    const w = totalLen / n;
+    for (const p of points) {
+        let k = Math.floor(p.d / w);
+        if (k < 0) k = 0;
+        else if (k >= n) k = n - 1;
+        const cur = tops[k];
+        if (Number.isNaN(cur) || p.e > cur) tops[k] = p.e;
+    }
+    return morph3(morph3(tops, 'max'), 'min');
+}
+
+/** Linearly fill runs of NaN buckets between two finite anchors so the rendered path stays continuous. */
+function interpolateGapsInPlace(buf: Float32Array): void {
+    const n = buf.length;
+    let i = 0;
+    while (i < n) {
+        if (!Number.isNaN(buf[i])) { i += 1; continue; }
+        const j = findGapEnd(buf, i);
+        fillGap(buf, i, j);
+        i = j;
+    }
+}
+
+/** Index of the first finite bucket at or after `start` (or n if none). */
+function findGapEnd(buf: Float32Array, start: number): number {
+    let j = start;
+    while (j < buf.length && Number.isNaN(buf[j])) j += 1;
+    return j;
+}
+
+/** Fill buf[i..j-1] (all NaN) using prev anchor at i-1 and next anchor at j. */
+function fillGap(buf: Float32Array, i: number, j: number): void {
+    const prev = i > 0 ? buf[i - 1] : Number.NaN;
+    const next = j < buf.length ? buf[j] : Number.NaN;
+    const hasPrev = !Number.isNaN(prev);
+    const hasNext = !Number.isNaN(next);
+    if (hasPrev && hasNext) {
+        const span = j - i + 1;
+        for (let k = i; k < j; k += 1) {
+            const t = (k - (i - 1)) / span;
+            buf[k] = prev + (next - prev) * t;
+        }
+    } else if (hasPrev) {
+        for (let k = i; k < j; k += 1) buf[k] = prev;
+    } else if (hasNext) {
+        for (let k = i; k < j; k += 1) buf[k] = next;
+    }
+}
+
+function firstFinite(buf: Float32Array): number | null {
+    for (const v of buf) if (!Number.isNaN(v)) return v;
+    return null;
+}
+
+function lastFinite(buf: Float32Array): number | null {
+    for (let i = buf.length - 1; i >= 0; i -= 1) {
+        if (!Number.isNaN(buf[i])) return buf[i];
+    }
+    return null;
+}
+
+/** Linearly walk the polyline up to cumulative distance `d` (meters); returns the lng/lat at that point. */
+function lngLatAtPolylineDistance(
+    polyline: ReadonlyArray<LngLatTuple>,
+    cum: ReadonlyArray<number>,
+    d: number,
+): [number, number] {
+    if (d <= 0) return [polyline[0][0], polyline[0][1]];
+    const totalLen = cum.at(-1) ?? 0;
+    if (d >= totalLen) {
+        const tail = polyline.at(-1) ?? polyline[0];
+        return [tail[0], tail[1]];
+    }
+    for (let i = 1; i < cum.length; i += 1) {
+        if (d <= cum[i]) {
+            const segStart = cum[i - 1];
+            const segLen = cum[i] - segStart;
+            const t = segLen > 0 ? (d - segStart) / segLen : 0;
+            const a = polyline[i - 1];
+            const b = polyline[i];
+            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        }
+    }
+    const tail = polyline.at(-1) ?? polyline[0];
+    return [tail[0], tail[1]];
+}
+
+/** 3-tap morphological pass over a NaN-aware buffer (op = 'max' or 'min'). */
+function morph3(buf: Float32Array, op: 'max' | 'min'): Float32Array {
+    const n = buf.length;
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+        out[i] = pickExtremum(
+            i > 0 ? buf[i - 1] : Number.NaN,
+            buf[i],
+            i < n - 1 ? buf[i + 1] : Number.NaN,
+            op,
+        );
+    }
+    return out;
+}
+
+function pickExtremum(a: number, b: number, c: number, op: 'max' | 'min'): number {
+    let m = Number.NaN;
+    m = combine(m, a, op);
+    m = combine(m, b, op);
+    m = combine(m, c, op);
+    return m;
+}
+
+function combine(m: number, v: number, op: 'max' | 'min'): number {
+    if (Number.isNaN(v)) return m;
+    if (Number.isNaN(m)) return v;
+    return op === 'max' ? Math.max(m, v) : Math.min(m, v);
+}
+
+/**
  * For every segment of the polyline, sample the topmost LiDAR elevation in
  * pixel-wide d-buckets. Returns `(lng, lat, z)` in polyline order. Buckets
  * with no LiDAR coverage are omitted (the consumer can fall back to terrain

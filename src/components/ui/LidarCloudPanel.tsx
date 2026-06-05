@@ -1,8 +1,8 @@
+import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { STAGE_LABELS, type LidarProgressStage } from '@/lib/lidarBrowser';
 import { LAS_CLASS_LABELS, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
-import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 
 /** LAS classes available for filtering in the UI. */
 const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
@@ -312,29 +312,6 @@ export function LidarCloudPanel() {
                     />
                 </label>
 
-                {/* Classes LAS */}
-                <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-sm text-slate-700 dark:text-slate-300">Classes</span>
-                        <div className="flex gap-1 text-[10px]">
-                            <button type="button" onClick={selectAll} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
-                            <button type="button" onClick={selectGround} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
-                            <button type="button" onClick={selectVegetation} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
-                            <button type="button" onClick={selectBuildings} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
-                        </div>
-                    </div>
-                    <ClassFilterChips
-                        choices={LIDAR_CLASS_CHOICES}
-                        selected={classes}
-                        onToggle={toggleClass}
-                    />
-                    {classes.length === 0 && (
-                        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
-                            Aucune classe sélectionnée — tous les points seront chargés.
-                        </p>
-                    )}
-                </div>
-
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-1">
                     <button
@@ -369,6 +346,58 @@ export function LidarCloudPanel() {
                ═══════════════════════════════════════════════════════════════════ */}
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Affichage</h4>
+
+                {/* Opacité */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Opacité</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Opacité du calque LiDAR"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={opacity}
+                        onChange={(e) => setOpacity(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Atténuer le fond */}
+                <label className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Atténuer le fond</span>
+                    <input
+                        type="checkbox"
+                        checked={hideBasemap}
+                        onChange={(e) => setHideBasemap(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+
+                {/* Classes LAS */}
+                <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-sm text-slate-700 dark:text-slate-300">Classes</span>
+                        <div className="flex gap-1 text-[10px]">
+                            <button type="button" onClick={selectAll} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
+                            <button type="button" onClick={selectGround} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
+                            <button type="button" onClick={selectVegetation} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
+                            <button type="button" onClick={selectBuildings} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
+                        </div>
+                    </div>
+                    <ClassFilterChips
+                        choices={LIDAR_CLASS_CHOICES}
+                        selected={classes}
+                        onToggle={toggleClass}
+                    />
+                    {classes.length === 0 && (
+                        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+                            Aucune classe sélectionnée — tous les points seront chargés.
+                        </p>
+                    )}
+                </div>
 
                 {/* Shader */}
                 <div className="flex items-center justify-between">
@@ -453,35 +482,6 @@ export function LidarCloudPanel() {
                         type="checkbox"
                         checked={sizeCompensation}
                         onChange={(e) => setSizeCompensation(e.target.checked)}
-                        className="h-4 w-4 accent-green-600"
-                    />
-                </label>
-
-                {/* Opacité */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Opacité</span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
-                    </div>
-                    <input
-                        aria-label="Opacité du calque LiDAR"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={opacity}
-                        onChange={(e) => setOpacity(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-
-                {/* Atténuer le fond */}
-                <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700 dark:text-slate-300">Atténuer le fond</span>
-                    <input
-                        type="checkbox"
-                        checked={hideBasemap}
-                        onChange={(e) => setHideBasemap(e.target.checked)}
                         className="h-4 w-4 accent-green-600"
                     />
                 </label>
