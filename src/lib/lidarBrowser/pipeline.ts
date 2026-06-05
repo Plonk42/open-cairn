@@ -436,7 +436,15 @@ export async function fetchLidarPoisson(
         detail: `Poisson depth ${depth}`,
     });
     const tPoisson = startTimer();
-    const mesh = await reconstructPoisson(oriented, { depth });
+    const mesh = await reconstructPoisson(oriented, {
+        depth,
+        onPhase: (label, fraction) => onProgress({
+            stage: 'mesh',
+            message: STAGE_LABELS.mesh,
+            detail: `Poisson depth ${depth} · ${label}`,
+            progress: fraction,
+        }),
+    });
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
     logStage('poisson', tPoisson(), `depth ${depth} → ${vertexCount.toLocaleString()} verts / ${triangleCount.toLocaleString()} tri`);

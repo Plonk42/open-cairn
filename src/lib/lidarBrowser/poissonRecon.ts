@@ -19,6 +19,7 @@ interface EmModule {
         readFile: (path: string) => Uint8Array;
         unlink: (path: string) => void;
     };
+    getExceptionMessage?: (ptr: unknown) => string;
 }
 
 type ModuleFactory = (opts: {
@@ -39,6 +40,8 @@ export interface PoissonOptions {
     pointWeight?: number;
     /** Optional log sink for emcc print/printErr. */
     onLog?: (line: string) => void;
+    /** Coarse progress callback driven by PoissonRecon's stdout phase markers. */
+    onPhase?: (label: string, fraction: number) => void;
 }
 
 export interface PoissonMesh {
@@ -48,20 +51,69 @@ export interface PoissonMesh {
 
 let modulePromise: Promise<EmModule> | null = null;
 
+// Mutated per call inside reconstructPoisson(); the cached Module's print
+// callback always reads from these slots, so subsequent calls' onLog/onPhase
+// take effect even though emcc only sets `print` once at module load.
+let currentLogSink: ((s: string) => void) | null = null;
+let currentPhaseSink: ((label: string, fraction: number) => void) | null = null;
+
+// PoissonRecon prints these markers on stdout in roughly this order. We
+// match case-insensitive substrings (PoissonRecon's exact wording varies
+// slightly across releases) and emit a fraction so the UI can fill a bar.
+const PHASE_MARKERS: ReadonlyArray<{ match: RegExp; label: string; frac: number }> = [
+    { match: /input points|got points|loaded points/i, label: 'Lecture des points', frac: 0.05 },
+    { match: /kernel density/i, label: 'Densité du noyau', frac: 0.15 },
+    { match: /finalized tree|got tree/i, label: 'Octree', frac: 0.25 },
+    { match: /normal field/i, label: 'Champ de normales', frac: 0.4 },
+    { match: /fem constraints/i, label: 'Contraintes FEM', frac: 0.55 },
+    { match: /point constraints/i, label: 'Contraintes points', frac: 0.65 },
+    { match: /solved linear system|linear system/i, label: 'Résolution', frac: 0.8 },
+    { match: /iso-value|got average/i, label: 'Iso-valeur', frac: 0.88 },
+    { match: /got polygons|got triangles/i, label: 'Triangulation', frac: 0.96 },
+];
+
+function dispatchStdout(line: string): void {
+    currentLogSink?.(line);
+    if (!currentPhaseSink) return;
+    for (const p of PHASE_MARKERS) {
+        if (p.match.test(line)) {
+            currentPhaseSink(p.label, p.frac);
+            return;
+        }
+    }
+}
+
+// emcc bakes a hard `throw` at the top of the wasm64 glue mjs when the runtime
+// doesn't support MEMORY64 (Safari, Chrome <128, Firefox <134, Node <23). The
+// dynamic import itself rejects — that's our detection signal. On rejection
+// we transparently load the wasm32 build from the same directory.
 async function loadModule(onLog?: (s: string) => void): Promise<EmModule> {
     if (modulePromise !== null) return modulePromise;
-    // Resolve the WASM bundle against Vite's BASE_URL so the same code works
-    // both at dev (served from '/') and on GitHub Pages (served from '/<repo>/').
     const base = new URL(import.meta.env.BASE_URL, globalThis.location.origin).href;
-    const url = new URL('wasm/poissonrecon.mjs', base).href;
-    const mod = await import(/* @vite-ignore */ url) as { default: ModuleFactory };
-    modulePromise = mod.default({
-        print: (s) => onLog?.(s),
-        printErr: (s) => onLog?.(s),
-        noInitialRun: true,
-        locateFile: (p) => new URL(`wasm/${p}`, base).href,
+    const factory = async (file: string): Promise<EmModule> => {
+        const url = new URL(`wasm/${file}`, base).href;
+        const mod = await import(/* @vite-ignore */ url) as { default: ModuleFactory };
+        return mod.default({
+            print: dispatchStdout,
+            printErr: dispatchStdout,
+            noInitialRun: true,
+            locateFile: (p) => new URL(`wasm/${p}`, base).href,
+        });
+    };
+    modulePromise = factory('poissonrecon.mjs').catch((err) => {
+        onLog?.(`poisson: wasm64 unavailable (${(err as Error).message}); falling back to wasm32`);
+        return factory('poissonrecon.wasm32.mjs');
     });
     return modulePromise;
+}
+
+function decodeWasmException(e: unknown, mod: EmModule): string {
+    if (e instanceof Error) return e.message;
+    try {
+        const m = mod.getExceptionMessage?.(e);
+        if (m) return m;
+    } catch { /* ignore */ }
+    try { return JSON.stringify(e); } catch { return String(e); }
 }
 
 /** Encode interleaved [x,y,z,nx,ny,nz,…] floats as binary little-endian PLY. */
@@ -148,36 +200,43 @@ export async function reconstructPoisson(
     if (points.length % 6 !== 0) {
         throw new Error(`reconstructPoisson: input length ${points.length} not divisible by 6`);
     }
-    const Module = await loadModule(opts.onLog);
-    const inPly = encodePly(points);
-    Module.FS.writeFile('/pr_in.ply', inPly);
-    const args = [
-        '--in', '/pr_in.ply',
-        '--out', '/pr_out.ply',
-        '--depth', String(opts.depth ?? 9),
-        '--bType', String(opts.bType ?? 2),
-        '--samplesPerNode', String(opts.samplesPerNode ?? 1.5),
-        '--pointWeight', String(opts.pointWeight ?? 4),
-        // Without pthreads (single-threaded WASM build), parallel must be 1
-        // — Profiler / _ParallelSections fall back to deferred execution.
-        '--parallel', '1',
-    ];
+    currentLogSink = opts.onLog ?? null;
+    currentPhaseSink = opts.onPhase ?? null;
     try {
-        Module.callMain(args);
-    } catch (e) {
-        const msg = (e as Error)?.message ?? String(e);
-        throw new Error(`PoissonRecon WASM crashed: ${msg}`);
+        const Module = await loadModule(opts.onLog);
+        opts.onPhase?.('Préparation', 0);
+        const inPly = encodePly(points);
+        Module.FS.writeFile('/pr_in.ply', inPly);
+        const args = [
+            '--in', '/pr_in.ply',
+            '--out', '/pr_out.ply',
+            '--depth', String(opts.depth ?? 9),
+            '--bType', String(opts.bType ?? 2),
+            '--samplesPerNode', String(opts.samplesPerNode ?? 1.5),
+            '--pointWeight', String(opts.pointWeight ?? 4),
+            // Mono-thread WASM build → parallel must be 1.
+            '--parallel', '1',
+        ];
+        try {
+            Module.callMain(args);
+        } catch (e) {
+            throw new Error(`PoissonRecon WASM crashed: ${decodeWasmException(e, Module)}`);
+        }
+        let outBytes: Uint8Array;
+        try {
+            outBytes = Module.FS.readFile('/pr_out.ply');
+        } catch (e) {
+            throw new Error(`PoissonRecon did not produce output (${(e as Error).message})`);
+        }
+        // Detach from MEMFS before parsing so the buffer is safe to use.
+        const copy = new Uint8Array(outBytes.length);
+        copy.set(outBytes);
+        Module.FS.unlink('/pr_in.ply');
+        Module.FS.unlink('/pr_out.ply');
+        opts.onPhase?.('Décodage du maillage', 0.99);
+        return decodePly(copy);
+    } finally {
+        currentLogSink = null;
+        currentPhaseSink = null;
     }
-    let outBytes: Uint8Array;
-    try {
-        outBytes = Module.FS.readFile('/pr_out.ply');
-    } catch (e) {
-        throw new Error(`PoissonRecon did not produce output (${(e as Error).message})`);
-    }
-    // Detach from MEMFS before parsing so the buffer is safe to use.
-    const copy = new Uint8Array(outBytes.length);
-    copy.set(outBytes);
-    Module.FS.unlink('/pr_in.ply');
-    Module.FS.unlink('/pr_out.ply');
-    return decodePly(copy);
 }

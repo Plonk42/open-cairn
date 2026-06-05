@@ -16,6 +16,20 @@ const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((c
 /** Progress stage ordering for the progress bar. */
 const STAGE_ORDER: LidarProgressStage[] = ['wfs', 'tiles', 'normals', 'mesh', 'colors', 'done'];
 
+/** Allowed density stops, ordered left→right on the slider (coarse → max). */
+const STRIDE_STOPS = [32, 16, 8, 4, 2, 1] as const;
+
+/** Snap a stride value to the nearest allowed stop's index. */
+function strideToIndex(stride: number): number {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < STRIDE_STOPS.length; i++) {
+        const d = Math.abs(STRIDE_STOPS[i] - stride);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx;
+}
+
 interface ShadowControlsProps {
     enabled: boolean;
     setEnabled: (v: boolean) => void;
@@ -303,13 +317,19 @@ export function LidarCloudPanel() {
                     <input
                         aria-label="Décimation du nuage de points"
                         type="range"
-                        min={1}
-                        max={50}
+                        min={0}
+                        max={STRIDE_STOPS.length - 1}
                         step={1}
-                        value={stride}
-                        onChange={(e) => setStride(Number(e.target.value))}
+                        list="lidar-density-stops"
+                        value={strideToIndex(stride)}
+                        onChange={(e) => setStride(STRIDE_STOPS[Number(e.target.value)])}
                         className="mt-1 w-full accent-green-600"
                     />
+                    <datalist id="lidar-density-stops">
+                        {STRIDE_STOPS.map((s, i) => (
+                            <option key={s} value={i} label={s === 1 ? 'max' : `1/${s}`} />
+                        ))}
+                    </datalist>
                 </label>
 
                 {/* Action buttons */}
