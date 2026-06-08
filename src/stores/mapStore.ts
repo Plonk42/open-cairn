@@ -151,6 +151,9 @@ interface MapState {
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     lidarCloudOpacity: number;
     setLidarCloudOpacity: (v: number) => void;
+    /** Drapage orthophoto IGN sur le mesh 0..1 (0 = palette, 1 = photo). */
+    lidarCloudPhotoOpacity: number;
+    setLidarCloudPhotoOpacity: (v: number) => void;
     /** Whether to dim the underlying basemap when the cloud is visible. */
     lidarCloudHideBasemap: boolean;
     setLidarCloudHideBasemap: (v: boolean) => void;
@@ -266,6 +269,7 @@ type PersistedSettings = {
     lidarCloudEdlRadius?: number;
     lidarCloudEdlFarPlane?: number;
     lidarCloudOpacity?: number;
+    lidarCloudPhotoOpacity?: number;
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
@@ -404,6 +408,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudEdlFarPlane: (lidarCloudEdlFarPlane) => set({ lidarCloudEdlFarPlane }),
     lidarCloudOpacity: persisted.lidarCloudOpacity ?? 1,
     setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
+    lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? 0,
+    setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
     lidarCloudHideBasemap: persisted.lidarCloudHideBasemap ?? false,
     setLidarCloudHideBasemap: (lidarCloudHideBasemap) => set({ lidarCloudHideBasemap }),
     lidarCloudClasses: persisted.lidarCloudClasses ?? [2],
@@ -578,6 +584,7 @@ useMapStore.subscribe((state) => {
             lidarCloudEdlRadius: state.lidarCloudEdlRadius,
             lidarCloudEdlFarPlane: state.lidarCloudEdlFarPlane,
             lidarCloudOpacity: state.lidarCloudOpacity,
+            lidarCloudPhotoOpacity: state.lidarCloudPhotoOpacity,
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,

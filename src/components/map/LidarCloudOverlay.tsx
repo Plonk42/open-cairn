@@ -1,3 +1,4 @@
+import { fetchOrthoMosaic } from '@/lib/lidarBrowser/orthoTexture';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
@@ -22,6 +23,7 @@ export function LidarCloudOverlay() {
     const edlRadius = useMapStore((s) => s.lidarCloudEdlRadius);
     const edlFarPlane = useMapStore((s) => s.lidarCloudEdlFarPlane);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
+    const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
@@ -29,6 +31,9 @@ export function LidarCloudOverlay() {
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
+    // Mesh + style-epoch for which the orthophoto mosaic was last fetched, so we
+    // don't re-download it when only the opacity slider moves.
+    const orthoRef = useRef<{ mesh: unknown; epoch: number } | null>(null);
     // Incremented every time MapLibre rebuilds its style (base-layer switch,
     // hillshade toggle, …). setStyle({diff:true}) drops custom MapLibre layers,
     // so we re-add ours on 'style.load' and bump this counter to force the
@@ -146,8 +151,9 @@ export function LidarCloudOverlay() {
             aoStrength: 0, // AO disabled
             aoRadius: 0,
             opacity,
+            photoOpacity,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({
@@ -155,6 +161,34 @@ export function LidarCloudOverlay() {
             shadowStrength,
         });
     }, [shadows, shadowStrength, styleEpoch]);
+
+    // ── Drapage orthophoto IGN sur le mesh ────────────────────────────────────
+    // Récupère une mosaïque orthophoto couvrant l'emprise du mesh et la fournit
+    // au calque WebGL. Le téléchargement n'a lieu que lorsqu'un mesh est chargé
+    // et que le drapage est activé (opacité > 0) ; bouger le slider ensuite ne
+    // re-télécharge rien (le shader mélange juste palette ↔ photo).
+    useEffect(() => {
+        const layer = webglRef.current;
+        if (!layer) return undefined;
+        if (!lidarMesh) {
+            layer.clearOrthoTexture();
+            orthoRef.current = null;
+            return undefined;
+        }
+        if (photoOpacity <= 0) return undefined;
+        const already = orthoRef.current;
+        if (already?.mesh === lidarMesh && already?.epoch === styleEpoch) return undefined;
+        orthoRef.current = { mesh: lidarMesh, epoch: styleEpoch };
+        const controller = new AbortController();
+        let cancelled = false;
+        fetchOrthoMosaic(lidarMesh.centerLng, lidarMesh.centerLat, lidarMesh.radius, controller.signal)
+            .then((mosaic) => {
+                if (cancelled || !mosaic) return;
+                webglRef.current?.setOrthoTexture(mosaic.image, mosaic.lngLatRect);
+            })
+            .catch(() => { /* couverture orthophoto indisponible : on ignore */ });
+        return () => { cancelled = true; controller.abort(); };
+    }, [lidarMesh, photoOpacity, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
     // Recompute the sun direction whenever the user picks a different date/time

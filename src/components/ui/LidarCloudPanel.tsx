@@ -122,6 +122,8 @@ export function LidarCloudPanel() {
     const setEdlFarPlane = useMapStore((s) => s.setLidarCloudEdlFarPlane);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
+    const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
+    const setPhotoOpacity = useMapStore((s) => s.setLidarCloudPhotoOpacity);
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const setHideBasemap = useMapStore((s) => s.setLidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -430,6 +432,29 @@ export function LidarCloudPanel() {
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>
+
+                {/* Texture photo (orthophoto IGN drapée sur le mesh) */}
+                {(mode === 'delaunay' || mode === 'poisson') && (
+                    <label className="block">
+                        <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                            <span>Texture photo</span>
+                            <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacity * 100)}%</span>
+                        </div>
+                        <input
+                            aria-label="Opacité de la texture photo (orthophoto IGN)"
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={photoOpacity}
+                            onChange={(e) => setPhotoOpacity(Number(e.target.value))}
+                            className="mt-1 w-full accent-green-600"
+                        />
+                        <p className="mt-1 text-[11px] text-slate-400">
+                            Drape l'orthophoto IGN sur le maillage reconstruit.
+                        </p>
+                    </label>
+                )}
 
                 {/* Atténuer le fond */}
                 <label className="flex items-center justify-between">

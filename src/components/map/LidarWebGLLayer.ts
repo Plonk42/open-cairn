@@ -29,11 +29,12 @@ uniform float u_ps;        // point size
 uniform uint u_classMask[8];
 uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
-uniform vec3 u_sunColor;
 uniform mat4 u_lightMatrix;   // world-meters → light-clip space
+uniform vec4 u_uvRect;        // (eMin, nMin, eMax, nMax) en mètres-offset
 
-out vec3 v_ambient;
-out vec3 v_diffuse;
+out vec3 v_albedo;
+out float v_diff;
+out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
@@ -45,8 +46,9 @@ void main() {
     if ((u_classMask[word] & (1u << bit)) == 0u) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         gl_PointSize = 0.0;
-        v_ambient = vec3(0.0);
-        v_diffuse = vec3(0.0);
+        v_albedo = vec3(0.0);
+        v_diff = 0.0;
+        v_uv = vec2(-1.0);
         v_lightPos = vec4(0.0);
         v_depth = 0.0;
         v_alpha = 0.0;
@@ -62,10 +64,15 @@ void main() {
     gl_PointSize = max(u_ps, 1.0);
     v_depth = gl_Position.w;
 
-    float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
-    v_ambient = a_color.rgb * 0.35;
-    v_diffuse = a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    v_albedo = a_color.rgb;
     v_alpha = a_color.a;
+    // Projection planaire nadir (vue de dessus) identique au mesh : permet de
+    // draper l'orthophoto sur les points (végétation, bâti, …).
+    v_uv = vec2(
+        (a_pos.x - u_uvRect.x) / (u_uvRect.z - u_uvRect.x),
+        (u_uvRect.w - a_pos.y) / (u_uvRect.w - u_uvRect.y)
+    );
 
     // a_pos is east/north/up in meters — same frame as the light matrix.
     v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
@@ -73,16 +80,21 @@ void main() {
 
 const FS_POINTS = /* glsl */`#version 300 es
 precision highp float;
-in vec3 v_ambient;
-in vec3 v_diffuse;
+in vec3 v_albedo;
+in float v_diff;
+in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
+uniform vec3 u_sunColor;
 uniform sampler2D u_shadowMap;
 uniform float u_shadowEnabled;   // 0 or 1
 uniform float u_shadowBias;
 uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
 uniform float u_shadowStrength;  // 0..1, how dark cast shadows are
+uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
+uniform float u_photoOpacity;    // 0..1, force du drapage photo
+uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth;
 
@@ -113,7 +125,17 @@ float sampleShadow() {
 
 void main() {
     float s = sampleShadow();
-    vec3 lit = v_ambient + v_diffuse * s;
+    vec3 albedo = v_albedo;
+    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque.
+    if (u_hasPhoto > 0.5
+        && v_uv.x >= 0.0 && v_uv.x <= 1.0
+        && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
+        vec3 photo = texture(u_ortho, v_uv).rgb;
+        albedo = mix(v_albedo, photo, u_photoOpacity);
+    }
+    vec3 ambient = albedo * 0.35;
+    vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
+    vec3 lit = ambient + diffuse * s;
     fragColor = vec4(lit, v_alpha);
     fragDepth = v_depth;
 }`;
@@ -122,8 +144,14 @@ void main() {
 // Shaders for rendering the ground mesh into the same FBO as the points.
 // Sharing the FBO (color + depth + linear-depth MRT) guarantees correct
 // depth ordering between mesh and points, and lets the EDL composite shade
-// the whole thing uniformly. Output convention matches FS_POINTS exactly.
+// the whole thing uniformly. MRT output convention matches FS_POINTS.
 // ─────────────────────────────────────────────────────────────────────────────
+// Le mesh peut recevoir une texture orthophoto IGN drapée en projection nadir
+// (vue de dessus). L'albédo de base (couleur de palette) et la photo sont
+// mélangés dans le fragment shader selon `u_photoOpacity`, puis éclairés par le
+// même modèle ambient/diffus + ombres que les points. Pour pouvoir mélanger
+// l'albédo *avant* l'éclairage, on transmet l'albédo brut (v_albedo) et le
+// facteur diffus scalaire (v_diff) au lieu des termes ambient/diffus pré-calculés.
 const VS_MESH = /* glsl */`#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_pos;
@@ -134,11 +162,12 @@ uniform mat4 u_matrix;
 uniform float u_mpu;
 uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
-uniform vec3 u_sunColor;
 uniform mat4 u_lightMatrix;
+uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
 
-out vec3 v_ambient;
-out vec3 v_diffuse;
+out vec3 v_albedo;
+out float v_diff;
+out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
@@ -147,14 +176,74 @@ void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
     gl_Position = u_matrix * vec4(pos, 1.0);
     v_depth = gl_Position.w;
-    float diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
-    v_ambient = a_color.rgb * 0.35;
-    v_diffuse = a_color.rgb * (0.75 * diff) * u_sunColor;
+    v_diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    v_albedo = a_color.rgb;
     v_alpha = a_color.a;
+    // Projection planaire nadir : u suit l'est, v suit le nord. La première
+    // ligne de la texture correspond au nord (haut), d'où le flip vertical.
+    v_uv = vec2(
+        (a_pos.x - u_uvRect.x) / (u_uvRect.z - u_uvRect.x),
+        (u_uvRect.w - a_pos.y) / (u_uvRect.w - u_uvRect.y)
+    );
     v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
 }`;
 
-const FS_MESH = FS_POINTS;
+const FS_MESH = /* glsl */`#version 300 es
+precision highp float;
+in vec3 v_albedo;
+in float v_diff;
+in vec2 v_uv;
+in vec4 v_lightPos;
+in float v_depth;
+in float v_alpha;
+uniform vec3 u_sunColor;
+uniform sampler2D u_shadowMap;
+uniform float u_shadowEnabled;   // 0 ou 1
+uniform float u_shadowBias;
+uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
+uniform float u_shadowStrength;  // 0..1
+uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
+uniform float u_photoOpacity;    // 0..1, force du drapage photo
+uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out float fragDepth;
+
+float sampleShadow() {
+    if (u_shadowEnabled < 0.5) return 1.0;
+    vec3 lp = v_lightPos.xyz / v_lightPos.w;
+    vec3 luv = lp * 0.5 + 0.5;
+    if (luv.x < 0.0 || luv.x > 1.0 || luv.y < 0.0 || luv.y > 1.0 || luv.z > 1.0) {
+        return 1.0;
+    }
+    float ref = luv.z - u_shadowBias;
+    float sum = 0.0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            vec2 off = vec2(float(dx), float(dy)) * u_shadowTexel;
+            float d = texture(u_shadowMap, luv.xy + off).r;
+            sum += (ref <= d) ? 1.0 : 0.0;
+        }
+    }
+    float visible = sum / 9.0;
+    return mix(1.0, visible, u_shadowStrength);
+}
+
+void main() {
+    float s = sampleShadow();
+    vec3 albedo = v_albedo;
+    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque.
+    if (u_hasPhoto > 0.5
+        && v_uv.x >= 0.0 && v_uv.x <= 1.0
+        && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
+        vec3 photo = texture(u_ortho, v_uv).rgb;
+        albedo = mix(v_albedo, photo, u_photoOpacity);
+    }
+    vec3 ambient = albedo * 0.35;
+    vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
+    vec3 lit = ambient + diffuse * s;
+    fragColor = vec4(lit, v_alpha);
+    fragDepth = v_depth;
+}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Depth-only shadow pass: project mesh vertices into the sun's ortho view.
@@ -505,6 +594,11 @@ export interface LidarWebGLLayerConfig {
     aoRadius: number;
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
+    /**
+     * Force du drapage de l'orthophoto IGN sur le mesh (modes delaunay/poisson).
+     * 0 = palette de relief pure, 1 = photo opaque. Sans effet sur les points.
+     */
+    photoOpacity: number;
     /** Unit direction vector pointing TOWARDS the sun (x=east, y=north, z=up). */
     sunDir: [number, number, number];
     /** 0 = no diffuse (night), 1 = full daylight. */
@@ -553,7 +647,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowBias: WebGLUniformLocation | null;
         shadowTexel: WebGLUniformLocation | null;
         shadowStrength: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null };
+        uvRect: WebGLUniformLocation | null;
+        ortho: WebGLUniformLocation | null;
+        photoOpacity: WebGLUniformLocation | null;
+        hasPhoto: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -580,7 +678,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowBias: WebGLUniformLocation | null;
         shadowTexel: WebGLUniformLocation | null;
         shadowStrength: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null };
+        uvRect: WebGLUniformLocation | null;
+        ortho: WebGLUniformLocation | null;
+        photoOpacity: WebGLUniformLocation | null;
+        hasPhoto: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
+
+    // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
+    // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
+    private _orthoTex: WebGLTexture | null = null;
+    private _hasPhoto = false;
+    /** Emprise de la mosaïque en mètres-offset : (eMin, nMin, eMax, nMax). */
+    private readonly _uvRect = new Float32Array([0, 0, 1, 1]);
 
     // EDL post-processing
     private _progEdl: WebGLProgram | null = null;
@@ -633,6 +742,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         aoStrength: 0,
         aoRadius: 3,
         opacity: 1,
+        photoOpacity: 0,
         // Default sun: SSE bearing (~150°), 45° above horizon — same flavour as the
         // old hard-coded SUN constant. Overwritten as soon as setConfig() is called.
         sunDir: [0.4472, 0.5367, 0.7155],
@@ -668,6 +778,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
         gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
+        // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
+        const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
+        gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
+        gl.uniform1f(this._locPoints.hasPhoto, photoOn ? 1 : 0);
+        gl.uniform1f(this._locPoints.photoOpacity, this.config.photoOpacity);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        gl.uniform1i(this._locPoints.ortho, 3);
         this._bindShadowToProgram(gl, this._locPoints);
     }
 
@@ -929,6 +1047,45 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._map?.triggerRepaint();
     }
 
+    /**
+     * Upload an orthophoto mosaic to drape over the mesh. `lngLatRect` is the
+     * exact geographic extent the image covers; it is converted to the layer's
+     * meter-offset frame (shared `_ox/_oy/_mpu`) so the vertex shader can map
+     * each ground vertex to its UV with a planar nadir projection.
+     */
+    setOrthoTexture(
+        source: TexImageSource,
+        lngLatRect: { west: number; south: number; east: number; north: number },
+    ): void {
+        const gl = this._gl;
+        if (!gl || !this._orthoTex) return;
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        // Convert the lng/lat rect to meter offsets relative to the mesh origin.
+        // mercX depends only on lng, mercY only on lat; the rendering uses
+        //   mercX = ox + east*mpu  →  east  = (mercX - ox) / mpu
+        //   mercY = oy - north*mpu →  north = (oy - mercY) / mpu
+        const w = MercatorCoordinate.fromLngLat({ lng: lngLatRect.west, lat: lngLatRect.north }).x;
+        const e = MercatorCoordinate.fromLngLat({ lng: lngLatRect.east, lat: lngLatRect.north }).x;
+        const n = MercatorCoordinate.fromLngLat({ lng: lngLatRect.west, lat: lngLatRect.north }).y;
+        const s = MercatorCoordinate.fromLngLat({ lng: lngLatRect.west, lat: lngLatRect.south }).y;
+        this._uvRect[0] = (w - this._ox) / this._mpu;          // eMin (ouest)
+        this._uvRect[1] = (this._oy - s) / this._mpu;          // nMin (sud)
+        this._uvRect[2] = (e - this._ox) / this._mpu;          // eMax (est)
+        this._uvRect[3] = (this._oy - n) / this._mpu;          // nMax (nord)
+        this._hasPhoto = true;
+        this._map?.triggerRepaint();
+    }
+
+    clearOrthoTexture(): void {
+        this._hasPhoto = false;
+        this._map?.triggerRepaint();
+    }
+
     setConfig(config: Partial<LidarWebGLLayerConfig>): void {
         Object.assign(this.config, config);
         this._map?.triggerRepaint();
@@ -1000,6 +1157,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunDir, this.config.sunDir);
         gl.uniform1f(this._locMesh.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
+        // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
+        const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
+        gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
+        gl.uniform1f(this._locMesh.hasPhoto, photoOn ? 1 : 0);
+        gl.uniform1f(this._locMesh.photoOpacity, this.config.photoOpacity);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        gl.uniform1i(this._locMesh.ortho, 3);
         this._bindShadowToProgram(gl, this._locMesh);
         gl.bindVertexArray(this._vaoMesh);
         this._drawMeshChunked(gl);
@@ -1120,6 +1285,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowBias: gl.getUniformLocation(this._progPoints, 'u_shadowBias'),
             shadowTexel: gl.getUniformLocation(this._progPoints, 'u_shadowTexel'),
             shadowStrength: gl.getUniformLocation(this._progPoints, 'u_shadowStrength'),
+            uvRect: gl.getUniformLocation(this._progPoints, 'u_uvRect'),
+            ortho: gl.getUniformLocation(this._progPoints, 'u_ortho'),
+            photoOpacity: gl.getUniformLocation(this._progPoints, 'u_photoOpacity'),
+            hasPhoto: gl.getUniformLocation(this._progPoints, 'u_hasPhoto'),
         };
 
         // ─── Point buffers & VAO ───
@@ -1160,7 +1329,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowBias: gl.getUniformLocation(this._progMesh, 'u_shadowBias'),
             shadowTexel: gl.getUniformLocation(this._progMesh, 'u_shadowTexel'),
             shadowStrength: gl.getUniformLocation(this._progMesh, 'u_shadowStrength'),
+            uvRect: gl.getUniformLocation(this._progMesh, 'u_uvRect'),
+            ortho: gl.getUniformLocation(this._progMesh, 'u_ortho'),
+            photoOpacity: gl.getUniformLocation(this._progMesh, 'u_photoOpacity'),
+            hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
         };
+
+        // Texture orthophoto (1×1 par défaut, remplie par setOrthoTexture).
+        this._orthoTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+        gl.bindTexture(gl.TEXTURE_2D, null);
 
         // ─── Mesh buffers & VAO ───
         this._meshPosBuf = gl.createBuffer();
@@ -1300,6 +1483,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delTex(this._texColor); this._texColor = null;
         delTex(this._texDepth); this._texDepth = null;
         delTex(this._shadowTex); this._shadowTex = null;
+        delTex(this._orthoTex); this._orthoTex = null;
         if (this._rbDepth) { gl.deleteRenderbuffer(this._rbDepth); this._rbDepth = null; }
         if (this._fbo) { gl.deleteFramebuffer(this._fbo); this._fbo = null; }
         if (this._shadowFbo) { gl.deleteFramebuffer(this._shadowFbo); this._shadowFbo = null; }
