@@ -160,6 +160,12 @@ interface MapState {
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     lidarCloudPoissonDepth: number;
     setLidarCloudPoissonDepth: (v: number) => void;
+    /** Min samples per octree node for PoissonRecon. Default 1.5. */
+    lidarCloudPoissonSamplesPerNode: number;
+    setLidarCloudPoissonSamplesPerNode: (v: number) => void;
+    /** Interpolation weight for PoissonRecon. Default 4. */
+    lidarCloudPoissonPointWeight: number;
+    setLidarCloudPoissonPointWeight: (v: number) => void;
     /**
      * Sun position date/time as a naive local-datetime string
      * ("YYYY-MM-DDTHH:mm"). Drives the per-vertex Lambert lighting term in
@@ -263,6 +269,8 @@ type PersistedSettings = {
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
+    lidarCloudPoissonSamplesPerNode?: number;
+    lidarCloudPoissonPointWeight?: number;
     lidarSunDate?: string;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
@@ -402,6 +410,10 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
     lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
     setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
+    lidarCloudPoissonSamplesPerNode: persisted.lidarCloudPoissonSamplesPerNode ?? 1.5,
+    setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
+    lidarCloudPoissonPointWeight: persisted.lidarCloudPoissonPointWeight ?? 4,
+    setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
     lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
     setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
     lidarShadows: persisted.lidarShadows ?? true,
@@ -453,6 +465,8 @@ export const useMapStore = create<MapState>((set, get) => ({
                     radius: psRadius,
                     stride: state.lidarCloudStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
+                    poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
+                    poissonPointWeight: state.lidarCloudPoissonPointWeight,
                     shader: state.lidarShader,
                     onProgress,
                 });
@@ -567,6 +581,8 @@ useMapStore.subscribe((state) => {
             lidarCloudHideBasemap: state.lidarCloudHideBasemap,
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
+            lidarCloudPoissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
+            lidarCloudPoissonPointWeight: state.lidarCloudPoissonPointWeight,
             lidarShader: state.lidarShader,
             lidarSunDate: state.lidarSunDate,
             lidarShadows: state.lidarShadows,

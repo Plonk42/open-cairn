@@ -128,6 +128,10 @@ export function LidarCloudPanel() {
     const setClasses = useMapStore((s) => s.setLidarCloudClasses);
     const poissonDepth = useMapStore((s) => s.lidarCloudPoissonDepth);
     const setPoissonDepth = useMapStore((s) => s.setLidarCloudPoissonDepth);
+    const poissonSamplesPerNode = useMapStore((s) => s.lidarCloudPoissonSamplesPerNode);
+    const setPoissonSamplesPerNode = useMapStore((s) => s.setLidarCloudPoissonSamplesPerNode);
+    const poissonPointWeight = useMapStore((s) => s.lidarCloudPoissonPointWeight);
+    const setPoissonPointWeight = useMapStore((s) => s.setLidarCloudPoissonPointWeight);
     const load = useMapStore((s) => s.loadLidarCloud);
     const shader = useMapStore((s) => s.lidarShader);
     const setShader = useMapStore((s) => s.setLidarShader);
@@ -265,25 +269,67 @@ export function LidarCloudPanel() {
 
                 {/* Poisson depth (poisson mode only) */}
                 {mode === 'poisson' && (
-                    <label className="block">
-                        <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                            <span>Profondeur octree</span>
-                            <span className="font-mono text-xs text-slate-400">depth {poissonDepth}</span>
-                        </div>
-                        <input
-                            aria-label="Profondeur de l'octree PoissonRecon"
-                            type="range"
-                            min={6}
-                            max={12}
-                            step={1}
-                            value={poissonDepth}
-                            onChange={(e) => setPoissonDepth(Number(e.target.value))}
-                            className="mt-1 w-full accent-green-600"
-                        />
-                        <p className="mt-1 text-[10px] text-slate-400">
-                            8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent (RAM en cube).
-                        </p>
-                    </label>
+                    <div className="space-y-3">
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span>Profondeur octree</span>
+                                <span className="font-mono text-xs text-slate-400">depth {poissonDepth}</span>
+                            </div>
+                            <input
+                                aria-label="Profondeur de l'octree PoissonRecon"
+                                type="range"
+                                min={6}
+                                max={12}
+                                step={1}
+                                value={poissonDepth}
+                                onChange={(e) => setPoissonDepth(Number(e.target.value))}
+                                className="mt-1 w-full accent-green-600"
+                            />
+                            <p className="mt-1 text-[10px] text-slate-400">
+                                8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent (RAM en cube).
+                            </p>
+                        </label>
+
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span>Échantillons par nœud</span>
+                                <span className="font-mono text-xs text-slate-400">{poissonSamplesPerNode}</span>
+                            </div>
+                            <input
+                                aria-label="Nombre minimal d'échantillons par nœud octree"
+                                type="range"
+                                min={0.5}
+                                max={5}
+                                step={0.5}
+                                value={poissonSamplesPerNode}
+                                onChange={(e) => setPoissonSamplesPerNode(Number(e.target.value))}
+                                className="mt-1 w-full accent-green-600"
+                            />
+                            <p className="mt-1 text-[10px] text-slate-400">
+                                Adapte la finesse du maillage localement &middot; 1,5 (défaut) &middot; min 0,5 / max 5.
+                            </p>
+                        </label>
+
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span>Poids des points</span>
+                                <span className="font-mono text-xs text-slate-400">{poissonPointWeight}</span>
+                            </div>
+                            <input
+                                aria-label="Poids d'interpolation des points PoissonRecon"
+                                type="range"
+                                min={0.5}
+                                max={16}
+                                step={0.5}
+                                value={poissonPointWeight}
+                                onChange={(e) => setPoissonPointWeight(Number(e.target.value))}
+                                className="mt-1 w-full accent-green-600"
+                            />
+                            <p className="mt-1 text-[10px] text-slate-400">
+                                Renforce l'adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
+                            </p>
+                        </label>
+                    </div>
                 )}
 
                 {/* Rayon */}

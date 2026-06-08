@@ -24,6 +24,10 @@ export interface BrowserFetchParams {
     classes?: number[];
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     poissonDepth?: number;
+    /** Min samples per octree node for PoissonRecon. Default 1.5. */
+    poissonSamplesPerNode?: number;
+    /** Interpolation weight for PoissonRecon. Default 4. */
+    poissonPointWeight?: number;
     /** Colour shader preset applied to all geometry. */
     shader?: ShaderPreset;
     signal?: AbortSignal;
@@ -438,6 +442,8 @@ export async function fetchLidarPoisson(
     const tPoisson = startTimer();
     const mesh = await reconstructPoisson(oriented, {
         depth,
+        samplesPerNode: params.poissonSamplesPerNode,
+        pointWeight: params.poissonPointWeight,
         onPhase: (label, fraction) => onProgress({
             stage: 'mesh',
             message: STAGE_LABELS.mesh,
