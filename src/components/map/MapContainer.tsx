@@ -1,6 +1,7 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { ignLayerUrl } from '@/lib/ign';
 import { buildMapStyle, directBaseUrl } from '@/lib/mapStyle';
+import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
@@ -604,6 +605,25 @@ function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
     return '';
 }
 
+/**
+ * Push the current sun direction into the dynamic `sun-hillshade` layer's
+ * paint properties. Azimuth → illumination-direction, elevation → altitude
+ * (0 = grazing/sunset, 90 = zenith), warm sun tint → highlight color. No-op
+ * when the layer isn't present (e.g. sun hillshade disabled).
+ */
+function applySunHillshade(map: maplibregl.Map, sunDate: string): void {
+    if (!map.getLayer('sun-hillshade')) return;
+    const c = map.getCenter();
+    const date = new Date(sunDate);
+    if (Number.isNaN(date.getTime())) return;
+    const { azimuthDeg, elevationDeg, color } = sunLighting(date, c.lat, c.lng);
+    const altitude = Math.max(0, Math.min(90, elevationDeg));
+    const [r, g, b] = color.map((v) => Math.round(v * 255));
+    map.setPaintProperty('sun-hillshade', 'hillshade-illumination-direction', azimuthDeg);
+    map.setPaintProperty('sun-hillshade', 'hillshade-illumination-altitude', altitude);
+    map.setPaintProperty('sun-hillshade', 'hillshade-highlight-color', `rgb(${r}, ${g}, ${b})`);
+}
+
 export function MapContainer() {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -617,6 +637,8 @@ export function MapContainer() {
     const hillshadeSource = useMapStore((s) => s.hillshadeSource);
     const hillshadeBlend = useMapStore((s) => s.hillshadeBlend);
     const hillshadeIntensity = useMapStore((s) => s.hillshadeIntensity);
+    const sunHillshadeEnabled = useMapStore((s) => s.sunHillshadeEnabled);
+    const sunDate = useMapStore((s) => s.lidarSunDate);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
     const renderQuality = useMapStore((s) => s.renderQuality);
@@ -641,6 +663,7 @@ export function MapContainer() {
                 hillshadeSource: initial.hillshadeSource,
                 hillshadeBlend: initial.hillshadeBlend,
                 hillshadeIntensity: initial.hillshadeIntensity,
+                sunHillshade: initial.sunHillshadeEnabled,
                 terrain: initial.terrainEnabled,
                 terrainExaggeration: initial.terrainExaggeration,
                 renderQuality: initial.renderQuality,
@@ -847,6 +870,7 @@ export function MapContainer() {
                     hillshadeSource,
                     hillshadeBlend,
                     hillshadeIntensity,
+                    sunHillshade: sunHillshadeEnabled,
                     terrain: current.terrainEnabled,
                     terrainExaggeration: current.terrainExaggeration,
                     renderQuality: current.renderQuality,
@@ -863,7 +887,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey]);
+    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey, sunHillshadeEnabled]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.
@@ -913,6 +937,21 @@ export function MapContainer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hillshadeSource, hillshadeBlend, hillshadeIntensity, hillshadeEnabled]);
 
+    // Drive the dynamic sun-hillshade layer's illumination from the selected
+    // sun date. Re-applied on style rebuilds (the layer is recreated with
+    // default paint) via a one-shot 'idle' retry when it isn't ready yet.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !sunHillshadeEnabled) return;
+        if (map.getLayer('sun-hillshade')) {
+            applySunHillshade(map, sunDate);
+            return;
+        }
+        const onIdle = () => applySunHillshade(map, sunDate);
+        map.once('idle', onIdle);
+        return () => { map.off('idle', onIdle); };
+    }, [sunHillshadeEnabled, sunDate]);
+
     // Re-fetch all tiles when tile cache is cleared.
     useEffect(() => {
         const handler = () => {
@@ -928,6 +967,7 @@ export function MapContainer() {
                     hillshadeSource: current.hillshadeSource,
                     hillshadeBlend: current.hillshadeBlend,
                     hillshadeIntensity: current.hillshadeIntensity,
+                    sunHillshade: current.sunHillshadeEnabled,
                     terrain: current.terrainEnabled,
                     terrainExaggeration: current.terrainExaggeration,
                     renderQuality: current.renderQuality,

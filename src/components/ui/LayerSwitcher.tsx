@@ -22,6 +22,8 @@ export function LayerSwitcher() {
     const setHillshadeIntensity = useMapStore((s) => s.setHillshadeIntensity);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const setTerrainEnabled = useMapStore((s) => s.setTerrainEnabled);
+    const sunHillshadeEnabled = useMapStore((s) => s.sunHillshadeEnabled);
+    const setSunHillshadeEnabled = useMapStore((s) => s.setSunHillshadeEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
     const setTerrainExaggeration = useMapStore((s) => s.setTerrainExaggeration);
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
@@ -171,6 +173,21 @@ export function LayerSwitcher() {
                         onChange={(e) => setTerrainExaggeration(Number(e.target.value))}
                         disabled={!terrainEnabled}
                         className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                    />
+                </label>
+                <label className="mt-3 flex items-center justify-between gap-3">
+                    <span
+                        className="text-sm text-slate-700 dark:text-slate-300"
+                        title="Ombrage du relief calculé dynamiquement selon la position du soleil (date/heure du panneau LiDAR). Complète l'ombrage LiDAR HD pré-cuit."
+                    >
+                        Ombrage solaire dynamique
+                    </span>
+                    <input
+                        aria-label="Activer l'ombrage solaire dynamique"
+                        type="checkbox"
+                        checked={sunHillshadeEnabled}
+                        onChange={(e) => setSunHillshadeEnabled(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
                     />
                 </label>
             </div>

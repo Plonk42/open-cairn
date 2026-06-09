@@ -171,12 +171,19 @@ out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
+out float v_up;
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
     gl_Position = u_matrix * vec4(pos, 1.0);
     v_depth = gl_Position.w;
-    v_diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    vec3 n = normalize(a_normal);
+    v_diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
+    // Composante « vers le haut » de la normale (frame est/nord/up) : +1 face
+    // au ciel, -1 face au sol. Sert à ne pas draper la photo nadir sur les
+    // surfaces orientées vers le bas (fond fermé « fantôme » du mesh Poisson,
+    // dessous de surplombs/grottes).
+    v_up = n.z;
     v_albedo = a_color.rgb;
     v_alpha = a_color.a;
     // Projection planaire nadir : u suit l'est, v suit le nord. La première
@@ -196,6 +203,7 @@ in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
+in float v_up;
 uniform vec3 u_sunColor;
 uniform sampler2D u_shadowMap;
 uniform float u_shadowEnabled;   // 0 ou 1
@@ -231,12 +239,19 @@ float sampleShadow() {
 void main() {
     float s = sampleShadow();
     vec3 albedo = v_albedo;
-    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque.
+    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et
+    // seulement sur les surfaces qui « voient le ciel ». Une photo nadir n'a
+    // aucun sens sur une face orientée vers le bas : on l'estompe quand la
+    // normale bascule sous l'horizontale, ce qui retire la texture du fond
+    // fermé fantôme du mesh Poisson (et des dessous de surplombs) sans toucher
+    // à la géométrie ni aux falaises verticales.
+    float photoFacing = smoothstep(-0.25, 0.05, v_up);
     if (u_hasPhoto > 0.5
+        && photoFacing > 0.0
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
         && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
         vec3 photo = texture(u_ortho, v_uv).rgb;
-        albedo = mix(v_albedo, photo, u_photoOpacity);
+        albedo = mix(v_albedo, photo, u_photoOpacity * photoFacing);
     }
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;

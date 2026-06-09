@@ -1,14 +1,14 @@
-import { formatDistance, formatElevation, type LngLatTuple } from '@/lib/geo';
 import {
-    deleteSavedRoute,
-    listSavedRoutes,
-    renameSavedRoute,
-    type SavedRoute,
-    type SavedRoutePreview,
-} from '@/lib/savedRoutes';
+    CLOUD_MODE_LABELS,
+    deleteSavedCloud,
+    listSavedClouds,
+    loadSavedCloudData,
+    renameSavedCloud,
+    type SavedCloud,
+    type SavedCloudPreview,
+} from '@/lib/savedClouds';
 import { useMapStore } from '@/stores/mapStore';
-import { useRouteStore } from '@/stores/routeStore';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function formatDate(iso: string): string {
     try {
@@ -21,160 +21,134 @@ function formatDate(iso: string): string {
     }
 }
 
-function buildSparkline(
-    elevations: number[],
-    x0: number, y0: number, w: number, h: number,
-): { line: string; area: string } {
-    const min = Math.min(...elevations);
-    const max = Math.max(...elevations);
-    const span = Math.max(max - min, 1);
-    const n = elevations.length;
-    let line = '';
-    elevations.forEach((z, i) => {
-        const x = x0 + (n === 1 ? 0 : (i * w) / (n - 1));
-        const y = y0 + h - ((z - min) / span) * h;
-        line += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)} `;
-    });
-    const area = `${line}L${(x0 + w).toFixed(1)},${(y0 + h).toFixed(1)} L${x0.toFixed(1)},${(y0 + h).toFixed(1)} Z`;
-    return { line, area };
+function formatCount(n: number): string {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(0)} k`;
+    return String(n);
 }
 
-function PreviewThumb({ preview }: Readonly<{ preview: SavedRoutePreview }>) {
-    const { coords, bbox, elevations, summit } = preview;
-    const gradientId = useId();
-    const W = 120, MAP_H = 56, GAP = 4, SPARK_H = 20, P = 6;
-    const H = MAP_H + GAP + SPARK_H;
+/** Multi-stop elevation ramp: low = teal, mid = khaki/green, high = near-white. */
+function altColor(t: number): string {
+    const stops: Array<[number, number, number]> = [
+        [56, 107, 131],
+        [76, 140, 82],
+        [184, 162, 92],
+        [240, 240, 235],
+    ];
+    const clamped = Math.max(0, Math.min(1, t));
+    const seg = clamped * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(seg));
+    const f = seg - i;
+    const a = stops[i], b = stops[i + 1];
+    const r = Math.round(a[0] + (b[0] - a[0]) * f);
+    const g = Math.round(a[1] + (b[1] - a[1]) * f);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * f);
+    return `rgb(${r}, ${g}, ${bl})`;
+}
 
-    if (coords.length < 2 || !elevations) {
+function CloudThumb({ preview }: Readonly<{ preview: SavedCloudPreview }>) {
+    const { points, alts } = preview;
+    const W = 120, H = 80, P = 6;
+    if (alts.length < 2) {
         return <div className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-100 dark:bg-slate-800" />;
     }
-    const [w, s, e, n] = bbox;
-    const dx = Math.max(e - w, 1e-6);
-    const dy = Math.max(n - s, 1e-6);
-    const scale = Math.min((W - 2 * P) / dx, (MAP_H - 2 * P) / dy);
-    const offX = (W - dx * scale) / 2;
-    const offY = (MAP_H - dy * scale) / 2;
-    const project = ([lng, lat]: LngLatTuple): [number, number] => [
-        offX + (lng - w) * scale,
-        MAP_H - (offY + (lat - s) * scale),
-    ];
-    let d = '';
-    coords.forEach((c, i) => {
-        const [x, y] = project(c);
-        d += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)} `;
-    });
-    const startPt = project(coords[0]);
-    const endPt = project(coords.at(-1) ?? coords[0]);
-    const isLoop = Math.hypot(endPt[0] - startPt[0], endPt[1] - startPt[1]) < 4;
-
-    const spark = buildSparkline(elevations, 0, MAP_H + GAP, W, SPARK_H);
-
-    let summitPt: [number, number] | null = null;
-    if (summit) {
-        const [sx, sy] = project(summit);
-        const farFromStart = Math.hypot(sx - startPt[0], sy - startPt[1]) > 5;
-        const farFromEnd = Math.hypot(sx - endPt[0], sy - endPt[1]) > 5;
-        if (farFromStart && farFromEnd) summitPt = [sx, sy];
+    const dots = [];
+    for (let i = 0; i < alts.length; i++) {
+        const x = P + points[i * 2] * (W - 2 * P);
+        const y = P + points[i * 2 + 1] * (H - 2 * P);
+        dots.push(
+            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={1.1} fill={altColor(alts[i])} />,
+        );
     }
-
     return (
         <svg
             viewBox={`0 0 ${W} ${H}`}
-            className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+            className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700"
         >
-            <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.05" />
-                    <stop offset="100%" stopColor="#059669" stopOpacity="0.35" />
-                </linearGradient>
-            </defs>
-            <line x1={0} y1={MAP_H + GAP / 2} x2={W} y2={MAP_H + GAP / 2} stroke="#e2e8f0" strokeWidth={0.6} className="dark:[stroke:#334155]" />
-            <path d={d} fill="none" stroke="white" strokeWidth={3.2} strokeLinejoin="round" strokeLinecap="round" opacity={0.85} />
-            <path d={d} fill="none" stroke="#1379d3" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-            {summitPt && (
-                <polygon
-                    points={`${summitPt[0]},${summitPt[1] - 3.6} ${summitPt[0] - 3.2},${summitPt[1] + 2.4} ${summitPt[0] + 3.2},${summitPt[1] + 2.4}`}
-                    fill="#0f172a"
-                    stroke="white"
-                    strokeWidth={0.9}
-                    strokeLinejoin="round"
-                />
-            )}
-            {isLoop ? (
-                <circle cx={startPt[0]} cy={startPt[1]} r={2.6} fill="#16a34a" stroke="white" strokeWidth={1} />
-            ) : (
-                <>
-                    <circle cx={startPt[0]} cy={startPt[1]} r={2.6} fill="#16a34a" stroke="white" strokeWidth={1} />
-                    <circle cx={endPt[0]} cy={endPt[1]} r={2.6} fill="#dc2626" stroke="white" strokeWidth={1} />
-                </>
-            )}
-            <path d={spark.area} fill={`url(#${gradientId})`} />
-            <path d={spark.line} fill="none" stroke="#047857" strokeWidth={0.9} strokeLinejoin="round" strokeLinecap="round" />
+            {dots}
         </svg>
     );
 }
 
-export function SavedRoutesPanel() {
-    const [routes, setRoutes] = useState<SavedRoute[]>(() => listSavedRoutes());
+export function SavedCloudsPanel() {
+    const [clouds, setClouds] = useState<SavedCloud[]>(() => listSavedClouds());
     const [renaming, setRenaming] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+    const [loadingId, setLoadingId] = useState<string | null>(null);
 
-    const importRoute = useRouteStore((s) => s.importRoute);
-    const setRouteActive = useRouteStore((s) => s.setActive);
-    const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
+    const showSnapshot = useMapStore((s) => s.showLidarCloudSnapshot);
+    const setLidarMode = useMapStore((s) => s.setLidarMode);
     const fitBounds = useMapStore((s) => s.fitBounds);
 
     useEffect(() => {
-        const refresh = () => setRoutes(listSavedRoutes());
-        globalThis.addEventListener('open-cairn-saved-routes-changed', refresh);
-        return () => globalThis.removeEventListener('open-cairn-saved-routes-changed', refresh);
+        const refresh = () => setClouds(listSavedClouds());
+        globalThis.addEventListener('open-cairn-saved-clouds-changed', refresh);
+        return () => globalThis.removeEventListener('open-cairn-saved-clouds-changed', refresh);
     }, []);
 
-    const handleLoad = (r: SavedRoute) => {
-        importRoute(r.waypoints, r.segments);
-        setLoadedRouteId(r.id);
-        setRouteActive(true);
-        if (r.preview.bbox?.some((v) => v !== 0)) {
-            const [w, s, e, n] = r.preview.bbox;
-            fitBounds([w, s, e, n], { padding: 60 });
+    const handleLoad = async (c: SavedCloud) => {
+        setLoadingId(c.id);
+        try {
+            const data = await loadSavedCloudData(c.id);
+            if (!data) {
+                deleteSavedCloud(c.id); // payload gone (cache cleared) — drop the stale entry
+                return;
+            }
+            setLidarMode(c.mode);
+            showSnapshot(data);
+            // Frame the loaded area: convert the request radius (m) to degrees.
+            const dLat = c.radius / 111320;
+            const dLng = c.radius / (111320 * Math.cos((c.centerLat * Math.PI) / 180));
+            fitBounds(
+                [c.centerLng - dLng, c.centerLat - dLat, c.centerLng + dLng, c.centerLat + dLat],
+                { padding: 60 },
+            );
+        } finally {
+            setLoadingId(null);
         }
     };
 
-    const startRename = (r: SavedRoute) => {
-        setRenaming(r.id);
-        setRenameValue(r.name);
+    const startRename = (c: SavedCloud) => {
+        setRenaming(c.id);
+        setRenameValue(c.name);
     };
     const commitRename = (id: string) => {
         const next = renameValue.trim();
-        if (next) renameSavedRoute(id, next);
+        if (next) renameSavedCloud(id, next);
         setRenaming(null);
     };
 
     return (
-        <div className="space-y-4">
-            {routes.length === 0 ? (
+        <div className="space-y-3">
+            {clouds.length === 0 ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Aucun itinéraire sauvegardé pour le moment.
+                    Aucun nuage chargé pour le moment. Chargez un nuage pour le retrouver ici.
                 </p>
             ) : (
                 <ul className="space-y-2">
-                    {routes.map((r) => {
-                        const isRenaming = renaming === r.id;
-                        const isConfirming = confirmDelete === r.id;
+                    {clouds.map((c) => {
+                        const isRenaming = renaming === c.id;
+                        const isConfirming = confirmDelete === c.id;
+                        const isLoading = loadingId === c.id;
                         return (
                             <li
-                                key={r.id}
+                                key={c.id}
                                 className="rounded-lg bg-gray-50 p-2 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700"
                             >
                                 <div className="flex gap-2.5">
                                     <button
                                         type="button"
-                                        onClick={() => handleLoad(r)}
-                                        title="Charger cet itinéraire"
-                                        className="flex-shrink-0 cursor-pointer rounded transition hover:opacity-80"
+                                        onClick={() => handleLoad(c)}
+                                        title="Réafficher ce nuage"
+                                        className="relative flex-shrink-0 cursor-pointer rounded transition hover:opacity-80"
                                     >
-                                        <PreviewThumb preview={r.preview} />
+                                        <CloudThumb preview={c.preview} />
+                                        {isLoading && (
+                                            <span className="absolute inset-0 flex items-center justify-center rounded bg-slate-900/50 text-[10px] text-white">
+                                                …
+                                            </span>
+                                        )}
                                     </button>
                                     <div className="min-w-0 flex-1">
                                         {isRenaming ? (
@@ -182,9 +156,9 @@ export function SavedRoutesPanel() {
                                                 type="text"
                                                 value={renameValue}
                                                 onChange={(e) => setRenameValue(e.target.value)}
-                                                onBlur={() => commitRename(r.id)}
+                                                onBlur={() => commitRename(c.id)}
                                                 onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') commitRename(r.id);
+                                                    if (e.key === 'Enter') commitRename(c.id);
                                                     else if (e.key === 'Escape') setRenaming(null);
                                                 }}
                                                 autoFocus
@@ -193,44 +167,40 @@ export function SavedRoutesPanel() {
                                         ) : (
                                             <button
                                                 type="button"
-                                                onDoubleClick={() => startRename(r)}
-                                                onClick={() => handleLoad(r)}
-                                                title="Charger (clic) ou renommer (double-clic)"
+                                                onDoubleClick={() => startRename(c)}
+                                                onClick={() => handleLoad(c)}
+                                                title="Réafficher (clic) ou renommer (double-clic)"
                                                 className="block w-full cursor-pointer truncate text-left text-xs font-semibold text-slate-700 hover:text-green-700 dark:text-slate-200 dark:hover:text-emerald-400"
                                             >
-                                                {r.name}
+                                                {c.name}
                                             </button>
                                         )}
                                         <p className="mt-0.5 text-[10.5px] text-slate-400 dark:text-slate-500">
-                                            {formatDate(r.createdAt)}
+                                            {formatDate(c.createdAt)}
                                         </p>
-                                        <p className="mt-1 text-[11px] tabular-nums text-slate-600 dark:text-slate-300">
-                                            {formatDistance(r.stats.distance)}
-                                            {r.stats.ascent > 0 && (
-                                                <span className="text-emerald-600 dark:text-emerald-400">
-                                                    {' '}↑ {formatElevation(r.stats.ascent)}
-                                                </span>
-                                            )}
-                                            {r.stats.descent > 0 && (
-                                                <span className="text-rose-500 dark:text-rose-400">
-                                                    {' '}↓ {formatElevation(r.stats.descent)}
-                                                </span>
-                                            )}
+                                        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] tabular-nums text-slate-600 dark:text-slate-300">
+                                            <span className="rounded bg-slate-200/70 px-1 text-[10px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                                {CLOUD_MODE_LABELS[c.mode]}
+                                            </span>
+                                            <span>r {c.radius} m</span>
+                                            {c.pointCount > 0 && <span>· {formatCount(c.pointCount)} pts</span>}
+                                            {c.hasMesh && c.vertexCount && <span>· {formatCount(c.vertexCount)} v</span>}
                                         </p>
                                         <div className="mt-1.5 flex items-center gap-1">
                                             <button
                                                 type="button"
-                                                onClick={() => handleLoad(r)}
-                                                title="Charger cet itinéraire"
+                                                onClick={() => handleLoad(c)}
+                                                title="Réafficher ce nuage"
                                                 className="flex h-6 w-6 items-center justify-center rounded bg-green-600/10 text-green-700 transition hover:bg-green-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:hover:bg-emerald-400/20"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                                                    <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
+                                                    <path d="M10 3.5a6.5 6.5 0 1 0 6.326 8.064.75.75 0 1 1 1.456.362A8 8 0 1 1 10 2a.75.75 0 0 1 0 1.5z" />
+                                                    <path d="M10 6.5a.75.75 0 0 1 .75.75v2h2a.75.75 0 0 1 0 1.5h-2.75a.75.75 0 0 1-.75-.75V7.25A.75.75 0 0 1 10 6.5z" />
                                                 </svg>
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => startRename(r)}
+                                                onClick={() => startRename(c)}
                                                 title="Renommer"
                                                 className="flex h-6 w-6 items-center justify-center rounded bg-slate-200 text-slate-600 transition hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                                             >
@@ -242,7 +212,7 @@ export function SavedRoutesPanel() {
                                                 <>
                                                     <button
                                                         type="button"
-                                                        onClick={() => { deleteSavedRoute(r.id); setConfirmDelete(null); }}
+                                                        onClick={() => { deleteSavedCloud(c.id); setConfirmDelete(null); }}
                                                         title="Confirmer la suppression"
                                                         className="ml-auto flex h-6 items-center gap-1 rounded bg-rose-600 px-1.5 text-[10.5px] font-medium text-white transition hover:bg-rose-700"
                                                     >
@@ -265,7 +235,7 @@ export function SavedRoutesPanel() {
                                             ) : (
                                                 <button
                                                     type="button"
-                                                    onClick={() => setConfirmDelete(r.id)}
+                                                    onClick={() => setConfirmDelete(c.id)}
                                                     title="Supprimer"
                                                     className="ml-auto flex h-6 w-6 items-center justify-center rounded bg-rose-500/10 text-rose-600 transition hover:bg-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
                                                 >

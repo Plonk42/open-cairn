@@ -15,6 +15,47 @@ export interface SunPosition {
     elevation: number;
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// Naive sun-date string helpers
+//
+// The UI stores the sun date/time as a naive local wall-clock string
+// ("YYYY-MM-DDTHH:mm") so it round-trips through <input type="date"> and
+// localStorage without timezone drift. These helpers convert between that
+// string and its numeric working unit — minutes-of-day — so callers do plain
+// arithmetic instead of ad-hoc string surgery.
+// ───────────────────────────────────────────────────────────────────────
+
+/** Today's local date as "YYYY-MM-DD". */
+export function todaySunDatePart(): string {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Parse a naive "YYYY-MM-DDTHH:mm" sun-date string into its date part and
+ * minutes-of-day. Missing/invalid time defaults to noon (720).
+ */
+export function parseSunDate(value: string): { datePart: string; minutesOfDay: number } {
+    const datePart = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? '';
+    const timeMatch = /T(\d{2}):(\d{2})/.exec(value);
+    const minutesOfDay = timeMatch
+        ? Math.min(1439, Math.max(0, Number(timeMatch[1]) * 60 + Number(timeMatch[2])))
+        : 12 * 60;
+    return { datePart, minutesOfDay };
+}
+
+/**
+ * Format a date part + minutes-of-day back into a naive "YYYY-MM-DDTHH:mm"
+ * sun-date string. Falls back to today's local date when `datePart` is empty.
+ */
+export function formatSunDate(datePart: string, minutesOfDay: number): string {
+    const base = datePart || todaySunDatePart();
+    const h = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
+    const m = String(minutesOfDay % 60).padStart(2, '0');
+    return `${base}T${h}:${m}`;
+}
+
 export function computeSunPosition(date: Date, lat: number, lng: number): SunPosition {
     const rad = Math.PI / 180;
     // Julian day (UTC)

@@ -68,6 +68,12 @@ export interface MapStyleOptions {
     hillshadeBlend: BlendMode;
     /** 0..1, only used when `hillshade` is true. */
     hillshadeIntensity: number;
+    /**
+     * Add a dynamic, sun-driven MapLibre `hillshade` layer over the base,
+     * shaded from the terrain DEM. Illumination is updated imperatively from
+     * the selected sun date (see MapContainer).
+     */
+    sunHillshade: boolean;
     /** Enable MapLibre terrain in the style. */
     terrain: boolean;
     /** Vertical exaggeration for MapLibre terrain. */
@@ -157,6 +163,23 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
             'atmosphere-blend': 0.6,
         },
     };
+
+    if (opts.sunHillshade) {
+        // Dynamic relief shading from the terrain DEM, drawn over the base.
+        // Illumination direction/altitude/colour are set imperatively from the
+        // selected sun date in MapContainer; these are just sane initial values.
+        style.layers.push({
+            id: 'sun-hillshade',
+            type: 'hillshade',
+            source: 'terrain',
+            paint: {
+                'hillshade-illumination-anchor': 'map',
+                'hillshade-illumination-direction': 335,
+                'hillshade-illumination-altitude': 45,
+                'hillshade-exaggeration': 0.5,
+            },
+        });
+    }
 
     if (opts.contourLines) {
         const contourDef = IGN_LAYERS.contourLines;

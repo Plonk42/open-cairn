@@ -1,8 +1,9 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { STAGE_LABELS, type LidarProgressStage } from '@/lib/lidarBrowser';
 import { LAS_CLASS_LABELS, type LidarMeshData, type LidarShadedCloudData } from '@/lib/lidarCloud';
-import { sunLighting } from '@/lib/sun';
+import { formatSunDate, parseSunDate, sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
+import { useEffect, useRef, useState } from 'react';
 
 /** LAS classes available for filtering in the UI. */
 const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
@@ -137,8 +138,6 @@ export function LidarCloudPanel() {
     const load = useMapStore((s) => s.loadLidarCloud);
     const shader = useMapStore((s) => s.lidarShader);
     const setShader = useMapStore((s) => s.setLidarShader);
-    const sunDate = useMapStore((s) => s.lidarSunDate);
-    const setSunDate = useMapStore((s) => s.setLidarSunDate);
     const shadows = useMapStore((s) => s.lidarShadows);
     const setShadows = useMapStore((s) => s.setLidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
@@ -415,6 +414,11 @@ export function LidarCloudPanel() {
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Affichage</h4>
 
+                {/* Orbite automatique — petit cercle autour de la vue courante,
+                    disponible dans tous les modes même sans nuage chargé pour
+                    prévisualiser le relief 3D du fond de carte. */}
+                <OrbitControl />
+
                 {/* Opacité */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
@@ -532,8 +536,6 @@ export function LidarCloudPanel() {
 
                 {/* Soleil — date / heure pour le calcul de l'éclairage */}
                 <SunDateControl
-                    value={sunDate}
-                    onChange={setSunDate}
                     centerLng={center?.centerLng ?? null}
                     centerLat={center?.centerLat ?? null}
                 />
@@ -650,68 +652,191 @@ export function LidarCloudPanel() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SunDateControl — date/time picker + live read-out of sun azimuth/elevation.
+// OrbitControl — wiggles the camera in a small circle within its own view plane
+// while keeping it aimed at the fixed map center ("wiggle stereo" parallax).
+// A bearing oscillation moves the viewpoint left/right on screen; a pitch
+// oscillation moves it up/down; 90° out of phase they trace a small circle in
+// the camera plane. Center stays locked so near features sweep more than far
+// ones → depth pops. Manual drag/zoom stops it; the start view is restored.
+// ───────────────────────────────────────────────────────────────────────
+function OrbitControl() {
+    const [orbiting, setOrbiting] = useState(false);
+
+    useEffect(() => {
+        if (!orbiting) return;
+        const map = useMapStore.getState().mapInstance;
+        if (!map) {
+            setOrbiting(false);
+            return;
+        }
+        const PERIOD_MS = 8000;          // one loop every 8 s
+        const BEARING_AMP = 12;           // ° left/right wobble (screen X)
+        const PITCH_AMP = 5;             // ° up/down wobble (screen Y)
+        const center = map.getCenter();
+        const baseBearing = map.getBearing();
+        const basePitch = map.getPitch();
+        const maxPitch = map.getMaxPitch();
+        const minPitch = map.getMinPitch();
+
+        let raf = 0;
+        let stopped = false;
+        const start = performance.now();
+        const tick = (now: number) => {
+            if (stopped) return;
+            const a = ((now - start) / PERIOD_MS) * Math.PI * 2;
+            const pitch = Math.max(
+                minPitch,
+                Math.min(maxPitch, basePitch + Math.sin(a) * PITCH_AMP),
+            );
+            // Bearing rotates and pitch tilts around the (fixed) center, so the
+            // look-at point stays put while the camera circles in its own plane.
+            map.setBearing(baseBearing + Math.cos(a) * BEARING_AMP);
+            map.setPitch(pitch);
+            map.setCenter(center);
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+
+        const stop = () => setOrbiting(false);
+        map.on('dragstart', stop);
+        map.on('zoomstart', stop);
+
+        return () => {
+            stopped = true;
+            cancelAnimationFrame(raf);
+            map.off('dragstart', stop);
+            map.off('zoomstart', stop);
+            // Restore the starting view so the wiggle leaves no drift.
+            map.setBearing(baseBearing);
+            map.setPitch(basePitch);
+            map.setCenter(center);
+        };
+    }, [orbiting]);
+
+    return (
+        <div className="flex items-center justify-between">
+            <span
+                className="text-sm text-slate-700 dark:text-slate-300"
+                title="Fait pivoter la caméra autour du centre fixe de la vue pour révéler le relief 3D (parallaxe)"
+            >
+                Orbite auto
+            </span>
+            <button
+                type="button"
+                onClick={() => setOrbiting((o) => !o)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${orbiting ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                role="switch"
+                aria-checked={orbiting}
+                aria-label="Orbite automatique autour du LiDAR"
+            >
+                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${orbiting ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+        </div>
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// SunDateControl helpers — kept module-level so the component stays under the
+// cognitive-complexity cap.
+// ───────────────────────────────────────────────────────────────────────
+type SunDayState = 'night' | 'dawn' | 'dusk' | 'day';
+
+/** Daylight window (minutes-of-day) the sun animation loops over. */
+const SUN_DAY_START = 4 * 60; // 4h
+const SUN_NIGHT_END = 22 * 60; // 22h
+
+function computeSunReadout(
+    value: string,
+    centerLng: number | null,
+    centerLat: number | null,
+): { azStr: string; elStr: string; dayState: SunDayState } {
+    if (centerLng == null || centerLat == null) return { azStr: '—', elStr: '—', dayState: 'day' };
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return { azStr: '—', elStr: '—', dayState: 'day' };
+    const { azimuthDeg, elevationDeg, intensity } = sunLighting(d, centerLat, centerLng);
+    let dayState: SunDayState = 'day';
+    if (intensity <= 0) {
+        dayState = 'night';
+    } else if (intensity < 1) {
+        // Twilight: morning (before noon) is dawn, afternoon is dusk.
+        dayState = d.getHours() < 12 ? 'dawn' : 'dusk';
+    }
+    return {
+        azStr: `${Math.round(azimuthDeg)}°`,
+        elStr: `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`,
+        dayState,
+    };
+}
+
+const SUN_BADGES: Record<SunDayState, { badge: string; label: string }> = {
+    night: { badge: 'bg-slate-700 text-slate-200', label: 'nuit' },
+    dawn: { badge: 'bg-sky-200 text-sky-900 dark:bg-sky-900/40 dark:text-sky-200', label: 'aube' },
+    dusk: { badge: 'bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200', label: 'crépuscule' },
+    day: { badge: 'bg-yellow-200 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-200', label: 'jour' },
+};
+
+/** Loops the time-of-day forward while `playing` */
+function useSunPlayback(
+    playing: boolean,
+    datePart: string,
+    minutesRef: { current: number },
+    onChange: (v: string) => void,
+) {
+    useEffect(() => {
+        if (!playing) return;
+        const id = globalThis.setInterval(() => {
+            let next = minutesRef.current + 5;
+            // Skip the dark hours (22h → 4h) where nothing is visible: once the
+            // animation reaches 22h, jump straight to 4h the next morning.
+            if (next >= SUN_NIGHT_END || next < SUN_DAY_START) next = SUN_DAY_START;
+            onChange(formatSunDate(datePart, next));
+        }, 60);
+        return () => globalThis.clearInterval(id);
+    }, [playing, datePart, minutesRef, onChange]);
+}
+
+// ───────────────────────────────────────────────────────────────────────// SunDateControl — date/time picker + live read-out of sun azimuth/elevation.
 // Kept as a small sub-component so the main panel doesn't balloon its
 // cognitive complexity; reuses the global sunLighting() helper.
 // ─────────────────────────────────────────────────────────────────────────────
 function SunDateControl({
-    value,
-    onChange,
     centerLng,
     centerLat,
 }: Readonly<{
-    value: string;
-    onChange: (v: string) => void;
     centerLng: number | null;
     centerLat: number | null;
 }>) {
+    // Subscribe to the sun date here (rather than in the parent panel) so that
+    // the "course du soleil" playback, which rewrites this value every ~60 ms,
+    // only re-renders this small control instead of the whole LiDAR panel.
+    const value = useMapStore((s) => s.lidarSunDate);
+    const onChange = useMapStore((s) => s.setLidarSunDate);
+
     // value is stored as "YYYY-MM-DDTHH:mm" (local time). Split into date and
     // minutes-of-day for an independent date picker + hour slider.
-    const datePart = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? '';
-    const timeMatch = /T(\d{2}):(\d{2})/.exec(value);
-    const minutesOfDay = timeMatch
-        ? Math.min(1439, Math.max(0, Number(timeMatch[1]) * 60 + Number(timeMatch[2])))
-        : 12 * 60;
+    const { datePart, minutesOfDay } = parseSunDate(value);
     const hh = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
     const mm = String(minutesOfDay % 60).padStart(2, '0');
     const timeLabel = `${hh}h${mm}`;
 
     const setDate = (d: string) => {
         if (!d) return;
-        onChange(`${d}T${hh}:${mm}`);
+        onChange(formatSunDate(d, minutesOfDay));
     };
     const setMinutes = (n: number) => {
-        const h = String(Math.floor(n / 60)).padStart(2, '0');
-        const m = String(n % 60).padStart(2, '0');
-        const base = datePart || new Date().toISOString().slice(0, 10);
-        onChange(`${base}T${h}:${m}`);
+        onChange(formatSunDate(datePart, n));
     };
 
-    let azStr = '—';
-    let elStr = '—';
-    let dayState: 'night' | 'twilight' | 'day' = 'day';
-    if (centerLng != null && centerLat != null) {
-        const d = new Date(value);
-        if (!Number.isNaN(d.getTime())) {
-            const { azimuthDeg, elevationDeg, intensity } = sunLighting(d, centerLat, centerLng);
-            azStr = `${Math.round(azimuthDeg)}°`;
-            elStr = `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`;
-            if (intensity <= 0) dayState = 'night';
-            else if (intensity < 1) dayState = 'twilight';
-        }
-    }
-    let dayBadge: string;
-    let dayLabel: string;
-    if (dayState === 'night') {
-        dayBadge = 'bg-slate-700 text-slate-200';
-        dayLabel = 'nuit';
-    } else if (dayState === 'twilight') {
-        dayBadge = 'bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200';
-        dayLabel = 'crépuscule';
-    } else {
-        dayBadge = 'bg-yellow-200 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-200';
-        dayLabel = 'jour';
-    }
+    // Animation « course du soleil » : fait défiler l'heure sur la journée en
+    // boucle. minutesRef garde la valeur courante pour avancer depuis le dernier
+    // rendu sans recréer l'intervalle à chaque tick.
+    const [playing, setPlaying] = useState(false);
+    const minutesRef = useRef(minutesOfDay);
+    minutesRef.current = minutesOfDay;
+    useSunPlayback(playing, datePart, minutesRef, onChange);
+
+    const { azStr, elStr, dayState } = computeSunReadout(value, centerLng, centerLat);
+    const { badge: dayBadge, label: dayLabel } = SUN_BADGES[dayState];
 
     return (
         <div>
@@ -727,6 +852,27 @@ function SunDateControl({
                 className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
             />
             <div className="mt-2 flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => setPlaying((p) => !p)}
+                    aria-label={playing ? 'Arrêter la course du soleil' : 'Lancer la course du soleil'}
+                    title={playing ? 'Arrêter l’animation' : 'Animer la course du soleil sur la journée'}
+                    className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full transition-colors ${playing
+                        ? 'bg-green-600 text-white'
+                        : 'bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600'
+                        }`}
+                >
+                    {playing ? (
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                            <rect x="3" y="2" width="3.5" height="12" rx="1" />
+                            <rect x="9.5" y="2" width="3.5" height="12" rx="1" />
+                        </svg>
+                    ) : (
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                            <path d="M4 2.5v11a.75.75 0 0 0 1.14.64l9-5.5a.75.75 0 0 0 0-1.28l-9-5.5A.75.75 0 0 0 4 2.5Z" />
+                        </svg>
+                    )}
+                </button>
                 <input
                     aria-label="Heure de la journée"
                     type="range"

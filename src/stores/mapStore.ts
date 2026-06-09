@@ -11,6 +11,8 @@ import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { colorsFromNormals, recolorMeshVertices } from '@/lib/lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import type { BaseLayerId } from '@/lib/mapStyle';
+import { saveLoadedCloud } from '@/lib/savedClouds';
+import { formatSunDate, todaySunDatePart } from '@/lib/sun';
 import type maplibregl from 'maplibre-gl';
 import { create } from 'zustand';
 
@@ -64,6 +66,14 @@ interface MapState {
     /** Strength of the multiply blend (0 = no effect, 1 = full multiply). */
     hillshadeIntensity: number;
     setHillshadeIntensity: (v: number) => void;
+
+    /**
+     * Dynamic, sun-driven hillshade on the terrain DEM. Unlike the pre-baked
+     * LiDAR HD shadow raster, this MapLibre hillshade layer follows the sun
+     * date/time selected in the LiDAR panel (azimuth + altitude + warm tint).
+     */
+    sunHillshadeEnabled: boolean;
+    setSunHillshadeEnabled: (v: boolean) => void;
 
     /** 3D terrain on the base layer. */
     terrainEnabled: boolean;
@@ -188,6 +198,8 @@ interface MapState {
     setLidarPreviewVisible: (v: boolean) => void;
     /** Load the point cloud centered on the current map view. */
     loadLidarCloud: () => Promise<void>;
+    /** Instantly re-display a previously saved cloud/mesh snapshot. */
+    showLidarCloudSnapshot: (data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }) => void;
     /** Clear the currently displayed point cloud. */
     clearLidarCloud: () => void;
 
@@ -249,6 +261,7 @@ type PersistedSettings = {
     hillshadeSource?: HillshadeSource;
     hillshadeBlend?: BlendMode;
     hillshadeIntensity?: number;
+    sunHillshadeEnabled?: boolean;
     terrainEnabled?: boolean;
     terrainExaggeration?: number;
     contourLinesEnabled?: boolean;
@@ -295,10 +308,7 @@ function loadPersistedSettings(): PersistedSettings {
 
 /** Default sun date: today at noon, local time, as "YYYY-MM-DDTHH:mm". */
 function defaultSunDate(): string {
-    const d = new Date();
-    d.setHours(12, 0, 0, 0);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return formatSunDate(todaySunDatePart(), 12 * 60);
 }
 
 function savePersistedSettings(settings: PersistedSettings): void {
@@ -324,6 +334,9 @@ export const useMapStore = create<MapState>((set, get) => ({
 
     hillshadeBlend: persisted.hillshadeBlend ?? 'lidar-neutral',
     setHillshadeBlend: (hillshadeBlend) => set({ hillshadeBlend }),
+
+    sunHillshadeEnabled: persisted.sunHillshadeEnabled ?? false,
+    setSunHillshadeEnabled: (sunHillshadeEnabled) => set({ sunHillshadeEnabled }),
 
     hillshadeIntensity: persisted.hillshadeIntensity ?? 0.85,
     setHillshadeIntensity: (hillshadeIntensity) => set({ hillshadeIntensity }),
@@ -495,12 +508,37 @@ export const useMapStore = create<MapState>((set, get) => ({
                 });
                 set({ lidarShaded: shaded, lidarMesh: null, lidarCloudLoading: false, lidarCloudProgress: null });
             }
+            // Persist a "recently loaded" entry so it can be re-opened instantly.
+            const after = get();
+            const psRadius = state.lidarMode === 'poisson'
+                ? Math.min(state.lidarCloudRadius, 250)
+                : state.lidarCloudRadius;
+            void saveLoadedCloud(
+                {
+                    mode: state.lidarMode,
+                    centerLng: center.lng,
+                    centerLat: center.lat,
+                    radius: psRadius,
+                    stride: state.lidarCloudStride,
+                    classes: state.lidarCloudClasses,
+                    shader: state.lidarShader,
+                },
+                { shaded: after.lidarShaded, mesh: after.lidarMesh },
+            );
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Erreur inconnue';
             set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
         }
     },
     clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
+
+    showLidarCloudSnapshot: (data) => set({
+        lidarShaded: data.shaded,
+        lidarMesh: data.mesh,
+        lidarCloudLoading: false,
+        lidarCloudError: null,
+        lidarCloudProgress: null,
+    }),
 
     // Cliff slice state
     cliffSliceActive: false,
@@ -565,6 +603,7 @@ useMapStore.subscribe((state) => {
             hillshadeSource: state.hillshadeSource,
             hillshadeBlend: state.hillshadeBlend,
             hillshadeIntensity: state.hillshadeIntensity,
+            sunHillshadeEnabled: state.sunHillshadeEnabled,
             terrainEnabled: state.terrainEnabled,
             terrainExaggeration: state.terrainExaggeration,
             contourLinesEnabled: state.contourLinesEnabled,

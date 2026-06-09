@@ -43,27 +43,36 @@ export function LidarCloudOverlay() {
     // ── WebGL layer for shaded cloud ──────────────────────────────────────────
     useEffect(() => {
         if (!mapInstance) return undefined;
-        const layer = new LidarWebGLLayer('lidar-shaded-cloud');
-        // Add BEFORE the route layers so the itinerary renders on top.
-        const beforeId = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
-        mapInstance.addLayer(layer, beforeId);
-        webglRef.current = layer;
 
-        // MapLibre setStyle (called on base-layer / hillshade / quality changes)
-        // wipes custom layers. Re-add ours on every style.load and bump the
-        // epoch so dependent push-effects re-run with the fresh layer.
-        const onStyleLoad = () => {
+        // (Re)add our custom layer and bump the epoch so dependent push-effects
+        // re-upload their buffers to the fresh layer. Idempotent.
+        const ensureLayer = () => {
             if (mapInstance.getLayer('lidar-shaded-cloud')) return;
-            const fresh = new LidarWebGLLayer('lidar-shaded-cloud');
-            const bid = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
-            mapInstance.addLayer(fresh, bid);
-            webglRef.current = fresh;
+            const layer = new LidarWebGLLayer('lidar-shaded-cloud');
+            // Add BEFORE the route layers so the itinerary renders on top.
+            const beforeId = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
+            mapInstance.addLayer(layer, beforeId);
+            webglRef.current = layer;
             setStyleEpoch((e) => e + 1);
         };
-        mapInstance.on('style.load', onStyleLoad);
+
+        // The style may still be (re)building when this overlay mounts — e.g.
+        // right after a base-layer/hillshade switch, or when re-displaying a
+        // saved cloud during a style rebuild. addLayer() throws "Style is not
+        // done loading" in that window, so defer to 'idle' when not ready.
+        if (mapInstance.isStyleLoaded()) {
+            ensureLayer();
+        } else {
+            mapInstance.once('idle', ensureLayer);
+        }
+
+        // MapLibre setStyle (called on base-layer / hillshade / quality changes)
+        // wipes custom layers. Re-add ours on every style.load.
+        mapInstance.on('style.load', ensureLayer);
 
         return () => {
-            mapInstance.off('style.load', onStyleLoad);
+            mapInstance.off('style.load', ensureLayer);
+            mapInstance.off('idle', ensureLayer);
             try { mapInstance.removeLayer('lidar-shaded-cloud'); } catch { /* map may be gone */ }
             webglRef.current = null;
         };

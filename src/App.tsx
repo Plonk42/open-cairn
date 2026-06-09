@@ -6,7 +6,7 @@ import { CliffBottomPanel, useCliffSliceProfile } from './components/ui/CliffSli
 import { LayerSwitcher } from './components/ui/LayerSwitcher';
 import { LidarCloudPanel } from './components/ui/LidarCloudPanel';
 import { RoutePanel } from './components/ui/RoutePanel';
-import { SavedRoutesPanel } from './components/ui/SavedRoutesPanel';
+import { SavedPanel } from './components/ui/SavedPanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
 import { buildShareUrl } from './lib/shareView';
 import { useIsMobile } from './lib/useIsMobile';
@@ -432,9 +432,9 @@ function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Re
                     />
                     <MobileTabButton
                         active={mobileTab === 'routes'}
-                        label="Mes itin."
+                        label="Enreg."
                         onClick={() => setMobileTab('routes')}
-                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" /></svg>}
+                        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M2 6.75A1.75 1.75 0 013.75 5h3.36c.4 0 .78.135 1.094.384L9.81 6.5h6.44A1.75 1.75 0 0118 8.25v6A1.75 1.75 0 0116.25 16H3.75A1.75 1.75 0 012 14.25v-7.5z" /></svg>}
                     />
                     <MobileTabButton
                         active={mobileTab === 'settings'}
@@ -496,7 +496,7 @@ function BottomModeButton({ active, label, onClick, disabled, title }: Readonly<
 
 function RightTabContent({ tab }: Readonly<{ tab: RightTab }>) {
     if (tab === 'layers') return <LayerSwitcher />;
-    if (tab === 'routes') return <SavedRoutesPanel />;
+    if (tab === 'routes') return <SavedPanel />;
     if (tab === 'lidar') return <LidarCloudPanel />;
     return <SettingsPanel />;
 }
@@ -563,10 +563,10 @@ const RIGHT_TABS: ReadonlyArray<{ id: RightTab; title: string; icon: React.React
     },
     {
         id: 'routes',
-        title: 'Mes itinéraires',
+        title: 'Enregistrés',
         icon: (
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
+                <path d="M2 6.25A1.75 1.75 0 013.75 4.5h3.473c.464 0 .909.184 1.237.513L9.81 6.5h6.44A1.75 1.75 0 0118 8.25v6.5A1.75 1.75 0 0116.25 16.5H3.75A1.75 1.75 0 012 14.75v-8.5z" />
             </svg>
         ),
     },
