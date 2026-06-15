@@ -641,6 +641,7 @@ export function MapContainer() {
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const terrainExaggeration = useMapStore((s) => s.terrainExaggeration);
+    const terrainDemSource = useMapStore((s) => s.terrainDemSource);
     const renderQuality = useMapStore((s) => s.renderQuality);
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
@@ -671,6 +672,7 @@ export function MapContainer() {
                 contourLinesOpacity: initial.contourLinesOpacity,
                 ignScanApiKey: initial.ignScanApiKey,
                 ignDemApiKey: initial.ignDemApiKey,
+                terrainDemSource: initial.terrainDemSource,
             }),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
@@ -878,6 +880,7 @@ export function MapContainer() {
                     contourLinesOpacity: current.contourLinesOpacity,
                     ignScanApiKey: current.ignScanApiKey,
                     ignDemApiKey: current.ignDemApiKey,
+                    terrainDemSource: current.terrainDemSource,
                 }),
                 { diff: true },
             );
@@ -887,7 +890,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey, sunHillshadeEnabled]);
+    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey, sunHillshadeEnabled, terrainDemSource]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.
@@ -975,6 +978,7 @@ export function MapContainer() {
                     contourLinesOpacity: current.contourLinesOpacity,
                     ignScanApiKey: current.ignScanApiKey,
                     ignDemApiKey: current.ignDemApiKey,
+                    terrainDemSource: current.terrainDemSource,
                 }),
                 { diff: false },
             );

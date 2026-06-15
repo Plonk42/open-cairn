@@ -34,6 +34,18 @@ export const RENDER_QUALITY_LABELS: Record<RenderQuality, string> = {
     sharp: 'Net',
 };
 
+/**
+ * DEM provider used for the 3D terrain mesh and dynamic sun hillshade.
+ * `auto` uses IGN when a DEM API key is set, otherwise falls back to Mapterhorn.
+ */
+export type TerrainDemSource = 'auto' | 'ign' | 'mapterhorn';
+
+export const TERRAIN_DEM_SOURCE_LABELS: Record<TerrainDemSource, string> = {
+    auto: 'Auto',
+    ign: 'IGN',
+    mapterhorn: 'Mapterhorn',
+};
+
 export type UiTheme = 'light' | 'dark';
 
 export interface MapView {
@@ -90,6 +102,10 @@ interface MapState {
     /** Vertical exaggeration of the 3D terrain. */
     terrainExaggeration: number;
     setTerrainExaggeration: (v: number) => void;
+
+    /** DEM provider for the 3D terrain mesh (auto = IGN with key, else Mapterhorn). */
+    terrainDemSource: TerrainDemSource;
+    setTerrainDemSource: (v: TerrainDemSource) => void;
 
     /** Raster and canvas quality used for pitched 3D views. */
     renderQuality: RenderQuality;
@@ -264,6 +280,7 @@ type PersistedSettings = {
     sunHillshadeEnabled?: boolean;
     terrainEnabled?: boolean;
     terrainExaggeration?: number;
+    terrainDemSource?: TerrainDemSource;
     contourLinesEnabled?: boolean;
     contourLinesOpacity?: number;
     uiTheme?: UiTheme;
@@ -352,6 +369,9 @@ export const useMapStore = create<MapState>((set, get) => ({
 
     terrainExaggeration: persisted.terrainExaggeration ?? 1,
     setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
+
+    terrainDemSource: persisted.terrainDemSource ?? 'auto',
+    setTerrainDemSource: (terrainDemSource) => set({ terrainDemSource }),
 
     renderQuality: persisted.renderQuality ?? 'balanced',
     setRenderQuality: (renderQuality) => set({ renderQuality }),
@@ -606,6 +626,7 @@ useMapStore.subscribe((state) => {
             sunHillshadeEnabled: state.sunHillshadeEnabled,
             terrainEnabled: state.terrainEnabled,
             terrainExaggeration: state.terrainExaggeration,
+            terrainDemSource: state.terrainDemSource,
             contourLinesEnabled: state.contourLinesEnabled,
             contourLinesOpacity: state.contourLinesOpacity,
             uiTheme: state.uiTheme,

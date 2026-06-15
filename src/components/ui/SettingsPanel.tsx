@@ -4,10 +4,20 @@ import {
     clearTileCache,
     type BlendMode,
 } from '@/lib/compositeProtocol';
-import { RENDER_QUALITY_LABELS, useMapStore, type RenderQuality, type UiTheme } from '@/stores/mapStore';
+import { RENDER_QUALITY_LABELS, TERRAIN_DEM_SOURCE_LABELS, useMapStore, type RenderQuality, type TerrainDemSource, type UiTheme } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 
 const RENDER_QUALITIES: RenderQuality[] = ['balanced', 'sharp'];
+const TERRAIN_DEM_SOURCES: TerrainDemSource[] = ['auto', 'ign', 'mapterhorn'];
+
+/** Human-readable description of the active terrain DEM source. */
+function terrainDemHint(source: TerrainDemSource, hasIgnKey: boolean): string {
+    if (source === 'ign') return 'IGN RGE ALTI — France uniquement.';
+    if (source === 'mapterhorn') return 'Mapterhorn — couverture mondiale, identique aux courbes de niveau.';
+    return hasIgnKey
+        ? 'Auto : IGN RGE ALTI (clé fournie).'
+        : 'Auto : Mapterhorn (aucune clé IGN fournie).';
+}
 const UI_THEMES: Array<{ id: UiTheme; label: string }> = [
     { id: 'light', label: 'Clair' },
     { id: 'dark', label: 'Sombre' },
@@ -28,6 +38,8 @@ export function SettingsPanel() {
     const setIgnScanApiKey = useMapStore((s) => s.setIgnScanApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const setIgnDemApiKey = useMapStore((s) => s.setIgnDemApiKey);
+    const terrainDemSource = useMapStore((s) => s.terrainDemSource);
+    const setTerrainDemSource = useMapStore((s) => s.setTerrainDemSource);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
     const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
@@ -182,6 +194,35 @@ export function SettingsPanel() {
                         className="w-14 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
                     />
                 </label>
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-slate-700" />
+
+            <div>
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M1 17.25a.75.75 0 01.45-.688l5.5-2.357 5.385 2.308a.75.75 0 00.59 0l5.385-2.308.24.103a.75.75 0 11-.59 1.379l-5.33 2.285a.75.75 0 01-.59 0L7.5 15.66l-5.05 2.164A.75.75 0 011 17.25zm6.95-13.94a.75.75 0 01.59 0l8 3.429a.75.75 0 010 1.379l-8 3.428a.75.75 0 01-.59 0l-8-3.428a.75.75 0 010-1.38l8-3.428z" clipRule="evenodd" />
+                    </svg>
+                    Relief 3D (MNT)
+                </h3>
+                <div className="grid grid-cols-3 gap-1.5">
+                    {TERRAIN_DEM_SOURCES.map((id) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setTerrainDemSource(id)}
+                            className={`rounded-md px-2 py-1.5 text-xs ring-1 transition ${terrainDemSource === id
+                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
+                                }`}
+                        >
+                            {TERRAIN_DEM_SOURCE_LABELS[id]}
+                        </button>
+                    ))}
+                </div>
+                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                    {terrainDemHint(terrainDemSource, !!ignDemApiKey)}
+                </p>
             </div>
 
             <div className="h-px bg-gray-200 dark:bg-slate-700" />

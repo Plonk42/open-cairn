@@ -118,14 +118,6 @@ export const IGN_LAYERS = {
         label: 'Ombrage IGN (national)',
         private: false,
     },
-    contourLines: {
-        id: 'ELEVATION.CONTOUR.LINE',
-        format: 'image/png' as const,
-        minZoom: 0,
-        maxZoom: 18,
-        label: 'Courbes de niveau',
-        private: false,
-    },
 } as const;
 
 /** Build a WMTS URL for one of the registered IGN layers. */

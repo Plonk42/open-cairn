@@ -1,7 +1,47 @@
-import type { RenderQuality } from '@/stores/mapStore';
+import type { RenderQuality, TerrainDemSource } from '@/stores/mapStore';
 import maplibregl from 'maplibre-gl';
+import mlcontour from 'maplibre-contour';
 import { compositeTileUrl, type BlendMode, type CompositeBaseKey, type ShadowKind } from './compositeProtocol';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
+
+/**
+ * Mapterhorn global terrain tiles, used as the DEM for contour lines.
+ *
+ * Mapterhorn exposes a standard Web Mercator XYZ endpoint of Terrarium-encoded
+ * WebP tiles (512 px), so `maplibre-contour` can consume it directly — no
+ * custom tile manager or `{bbox}` translation needed. Coverage is global 30 m,
+ * with France down to ~5 m country-wide (1 m in places). Licensed BSD-3.
+ *
+ * @see https://mapterhorn.com/data-access
+ */
+const MAPTERHORN_DEM_URL = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp';
+const MAPTERHORN_ATTRIBUTION = '<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a>';
+
+/**
+ * Singleton `maplibre-contour` DEM source. It registers MapLibre protocols
+ * (one shared raster-dem cache, one dynamic contour vector tiler) that compute
+ * contour lines on the fly from the Mapterhorn DEM. Because the source is a
+ * plain XYZ endpoint, contour computation runs in a web worker (`worker: true`)
+ * via `dem.setupMaplibre`. The protocols are global and persist across
+ * `setStyle` calls, so the source is created once.
+ */
+let contourDemSource: InstanceType<typeof mlcontour.DemSource> | null = null;
+
+const CONTOUR_DEM_MAXZOOM = 14;
+
+function getContourDemSource(): InstanceType<typeof mlcontour.DemSource> {
+    if (!contourDemSource) {
+        const dem = new mlcontour.DemSource({
+            url: MAPTERHORN_DEM_URL,
+            encoding: 'terrarium',
+            maxzoom: CONTOUR_DEM_MAXZOOM,
+            worker: true,
+        });
+        dem.setupMaplibre(maplibregl);
+        contourDemSource = dem;
+    }
+    return contourDemSource;
+}
 
 export type BaseLayerId = 'scan25' | 'plan' | 'ortho' | 'osm' | 'lidar';
 
@@ -14,6 +54,45 @@ const BASE_DEFS = {
 } as const;
 
 const TERRAIN_TILE_SIZE = 256;
+
+/**
+ * Build the `terrain` raster-dem source for the chosen DEM provider.
+ *
+ * `auto` resolves to IGN when a DEM API key is supplied, otherwise to
+ * Mapterhorn — so users without an IGN key still get a working 3D mesh from
+ * the same DEM that feeds the contour lines. IGN uses Mapbox-style `custom`
+ * encoding; Mapterhorn uses `terrarium`.
+ */
+function resolveTerrainSource(
+    source: TerrainDemSource,
+    ignDemApiKey?: string,
+): maplibregl.RasterDEMSourceSpecification {
+    const useMapterhorn = source === 'mapterhorn' || (source === 'auto' && !ignDemApiKey);
+    if (useMapterhorn) {
+        return {
+            type: 'raster-dem',
+            tiles: [MAPTERHORN_DEM_URL],
+            tileSize: 512,
+            minzoom: 0,
+            maxzoom: CONTOUR_DEM_MAXZOOM,
+            encoding: 'terrarium',
+            attribution: MAPTERHORN_ATTRIBUTION,
+        };
+    }
+    return {
+        type: 'raster-dem',
+        tiles: [ignTerrainRgbUrl(ignDemApiKey)],
+        tileSize: TERRAIN_TILE_SIZE,
+        minzoom: 6,
+        maxzoom: 14,
+        encoding: 'custom',
+        redFactor: 6553.6,
+        greenFactor: 25.6,
+        blueFactor: 0.1,
+        baseShift: 10000,
+        attribution: IGN_ATTRIBUTION,
+    };
+}
 
 const BASE_KEY: Record<Exclude<BaseLayerId, 'lidar'>, CompositeBaseKey> = {
     scan25: 'scan25Tour',
@@ -88,6 +167,8 @@ export interface MapStyleOptions {
     ignScanApiKey?: string;
     /** IGN API key for terrain DEM (private WMS-r, enables HIGHRES.LINEAR). */
     ignDemApiKey?: string;
+    /** DEM provider for the 3D terrain mesh and sun hillshade. */
+    terrainDemSource: TerrainDemSource;
 }
 
 /**
@@ -124,19 +205,7 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
                 maxzoom: base.maxZoom,
                 attribution: base.attribution,
             },
-            terrain: {
-                type: 'raster-dem',
-                tiles: [ignTerrainRgbUrl(opts.ignDemApiKey)],
-                tileSize: TERRAIN_TILE_SIZE,
-                minzoom: 6,
-                maxzoom: 14,
-                encoding: 'custom',
-                redFactor: 6553.6,
-                greenFactor: 25.6,
-                blueFactor: 0.1,
-                baseShift: 10000,
-                attribution: IGN_ATTRIBUTION,
-            },
+            terrain: resolveTerrainSource(opts.terrainDemSource, opts.ignDemApiKey),
         },
         layers: [
             {
@@ -182,24 +251,66 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
     }
 
     if (opts.contourLines) {
-        const contourDef = IGN_LAYERS.contourLines;
+        const dem = getContourDemSource();
         style.sources['contour-lines'] = {
-            type: 'raster',
-            tiles: [ignLayerUrl('contourLines')],
-            tileSize: 128,
-            minzoom: contourDef.minZoom,
-            maxzoom: contourDef.maxZoom,
-            attribution: IGN_ATTRIBUTION,
+            type: 'vector',
+            tiles: [
+                dem.contourProtocolUrl({
+                    // zoom: [minor interval (m), major interval (m)]
+                    thresholds: {
+                        10: [200, 1000],
+                        11: [100, 500],
+                        12: [100, 500],
+                        13: [50, 250],
+                        14: [25, 125],
+                        15: [10, 50],
+                        16: [10, 50],
+                    },
+                    elevationKey: 'ele',
+                    levelKey: 'level',
+                    contourLayer: 'contours',
+                    overzoom: 1,
+                }),
+            ],
+            maxzoom: 16,
+            attribution: MAPTERHORN_ATTRIBUTION,
         };
-        style.layers.push({
-            id: 'contour-lines',
-            type: 'raster',
-            source: 'contour-lines',
-            paint: {
-                'raster-resampling': 'linear',
-                'raster-opacity': opts.contourLinesOpacity,
+        style.layers.push(
+            {
+                id: 'contour-lines',
+                type: 'line',
+                source: 'contour-lines',
+                'source-layer': 'contours',
+                layout: {
+                    'line-join': 'round',
+                },
+                paint: {
+                    'line-color': '#8a5a2b',
+                    'line-opacity': opts.contourLinesOpacity,
+                    // "major" contours have level=1, "minor" have level=0
+                    'line-width': ['match', ['get', 'level'], 1, 1.2, 0.6],
+                },
             },
-        });
+            {
+                id: 'contour-labels',
+                type: 'symbol',
+                source: 'contour-lines',
+                'source-layer': 'contours',
+                filter: ['>', ['get', 'level'], 0],
+                paint: {
+                    'text-color': '#5a3a1a',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.9)',
+                    'text-halo-width': 1,
+                    'text-opacity': opts.contourLinesOpacity,
+                },
+                layout: {
+                    'symbol-placement': 'line',
+                    'text-size': 10,
+                    'text-field': ['concat', ['number-format', ['get', 'ele'], {}], ' m'],
+                    'text-font': ['Noto Sans Bold'],
+                },
+            },
+        );
     }
 
     if (opts.terrain) {
