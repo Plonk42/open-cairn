@@ -34,10 +34,16 @@ uniform vec4 u_uvRect;        // (eMin, nMin, eMax, nMax) en mètres-offset
 
 out vec3 v_albedo;
 out float v_diff;
+out float v_flatDiff;
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
+
+// Direction fixe (vers la lumière) de l'éclairage neutre : nord-ouest, 45°
+// au-dessus de l'horizon (frame est/nord/up). Convention cartographique
+// classique d'ombrage de relief — indépendante de la position du soleil.
+const vec3 FLAT_LIGHT_DIR = vec3(-0.5, 0.5, 0.7071);
 
 void main() {
     uint c = uint(a_class);
@@ -48,6 +54,7 @@ void main() {
         gl_PointSize = 0.0;
         v_albedo = vec3(0.0);
         v_diff = 0.0;
+        v_flatDiff = 0.0;
         v_uv = vec2(-1.0);
         v_lightPos = vec4(0.0);
         v_depth = 0.0;
@@ -64,7 +71,11 @@ void main() {
     gl_PointSize = max(u_ps, 1.0);
     v_depth = gl_Position.w;
 
-    v_diff = max(0.0, dot(normalize(a_normal), u_sunDir)) * u_sunIntensity;
+    vec3 nrm = normalize(a_normal);
+    v_diff = max(0.0, dot(nrm, u_sunDir)) * u_sunIntensity;
+    // Éclairage neutre : wrap-lighting doux (le terme négatif est replié pour
+    // que les faces opposées restent éclairées) → relief lisible sans dureté.
+    v_flatDiff = dot(nrm, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
     v_albedo = a_color.rgb;
     v_alpha = a_color.a;
     // Projection planaire nadir (vue de dessus) identique au mesh : permet de
@@ -82,11 +93,13 @@ const FS_POINTS = /* glsl */`#version 300 es
 precision highp float;
 in vec3 v_albedo;
 in float v_diff;
+in float v_flatDiff;
 in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
 uniform vec3 u_sunColor;
+uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform sampler2D u_shadowMap;
 uniform float u_shadowEnabled;   // 0 or 1
 uniform float u_shadowBias;
@@ -136,7 +149,10 @@ void main() {
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
-    fragColor = vec4(lit, v_alpha);
+    // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
+    // ambiant élevé → relief toujours lisible, sans ombres portées dures.
+    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff);
+    fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
     fragDepth = v_depth;
 }`;
 
@@ -167,11 +183,15 @@ uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
 
 out vec3 v_albedo;
 out float v_diff;
+out float v_flatDiff;
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
 out float v_up;
+
+// Direction fixe (vers la lumière) de l'éclairage neutre : nord-ouest, 45°.
+const vec3 FLAT_LIGHT_DIR = vec3(-0.5, 0.5, 0.7071);
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
@@ -179,6 +199,8 @@ void main() {
     v_depth = gl_Position.w;
     vec3 n = normalize(a_normal);
     v_diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
+    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    v_flatDiff = dot(n, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
     // Composante « vers le haut » de la normale (frame est/nord/up) : +1 face
     // au ciel, -1 face au sol. Sert à ne pas draper la photo nadir sur les
     // surfaces orientées vers le bas (fond fermé « fantôme » du mesh Poisson,
@@ -199,12 +221,14 @@ const FS_MESH = /* glsl */`#version 300 es
 precision highp float;
 in vec3 v_albedo;
 in float v_diff;
+in float v_flatDiff;
 in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
 in float v_up;
 uniform vec3 u_sunColor;
+uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform sampler2D u_shadowMap;
 uniform float u_shadowEnabled;   // 0 ou 1
 uniform float u_shadowBias;
@@ -256,7 +280,10 @@ void main() {
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
-    fragColor = vec4(lit, v_alpha);
+    // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
+    // ambiant élevé → relief toujours lisible, sans ombres portées dures.
+    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff);
+    fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
     fragDepth = v_depth;
 }`;
 
@@ -620,6 +647,11 @@ export interface LidarWebGLLayerConfig {
     sunIntensity: number;
     /** RGB tint multiplied with the diffuse term (warm at sunrise/sunset). */
     sunColor: [number, number, number];
+    /**
+     * Opt-in directional sun lighting. When false, a neutral omnidirectional
+     * light is applied instead (full albedo, no directional bias, no shadows).
+     */
+    sunLightingEnabled: boolean;
     /** Cast hard/soft shadows from the mesh based on the sun direction. */
     shadowsEnabled: boolean;
     /** Resolution of the shadow map (square). 1024 / 2048 / 4096. */
@@ -656,6 +688,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: WebGLUniformLocation | null;
         sunIntensity: WebGLUniformLocation | null;
         sunColor: WebGLUniformLocation | null;
+        flatLight: WebGLUniformLocation | null;
         lightMatrix: WebGLUniformLocation | null;
         shadowMap: WebGLUniformLocation | null;
         shadowEnabled: WebGLUniformLocation | null;
@@ -666,7 +699,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         ortho: WebGLUniformLocation | null;
         photoOpacity: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -687,6 +720,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: WebGLUniformLocation | null;
         sunIntensity: WebGLUniformLocation | null;
         sunColor: WebGLUniformLocation | null;
+        flatLight: WebGLUniformLocation | null;
         lightMatrix: WebGLUniformLocation | null;
         shadowMap: WebGLUniformLocation | null;
         shadowEnabled: WebGLUniformLocation | null;
@@ -697,7 +731,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         ortho: WebGLUniformLocation | null;
         photoOpacity: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -763,6 +797,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunDir: [0.4472, 0.5367, 0.7155],
         sunIntensity: 1,
         sunColor: [1, 0.98, 0.95],
+        sunLightingEnabled: true,
         shadowsEnabled: true,
         shadowMapSize: 2048,
         shadowStrength: 0.7,
@@ -793,6 +828,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locPoints.sunDir, this.config.sunDir);
         gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
+        gl.uniform1f(this._locPoints.flatLight, this.config.sunLightingEnabled ? 0 : 1);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
@@ -1076,8 +1112,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         if (!gl || !this._orthoTex) return;
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        // Upload as a single base level with a LINEAR filter (no mipmaps): the
+        // mosaic is a non-power-of-two canvas and `generateMipmap` throws
+        // GL_INVALID_OPERATION on some ANGLE drivers, which leaves the texture
+        // mipmap-incomplete and makes every sample read back black — draping
+        // the mesh in solid black. A plain LINEAR texture is robust everywhere.
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-        gl.generateMipmap(gl.TEXTURE_2D);
         gl.bindTexture(gl.TEXTURE_2D, null);
 
         // Convert the lng/lat rect to meter offsets relative to the mesh origin.
@@ -1172,6 +1212,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunDir, this.config.sunDir);
         gl.uniform1f(this._locMesh.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
+        gl.uniform1f(this._locMesh.flatLight, this.config.sunLightingEnabled ? 0 : 1);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
@@ -1192,6 +1233,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      */
     private _shadowsActive(): boolean {
         return this.config.shadowsEnabled
+            && this.config.sunLightingEnabled
             && this._meshIndexCount > 0
             && this._meshBbox !== null
             && this.config.sunIntensity > 0
@@ -1294,6 +1336,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             sunDir: gl.getUniformLocation(this._progPoints, 'u_sunDir'),
             sunIntensity: gl.getUniformLocation(this._progPoints, 'u_sunIntensity'),
             sunColor: gl.getUniformLocation(this._progPoints, 'u_sunColor'),
+            flatLight: gl.getUniformLocation(this._progPoints, 'u_flatLight'),
             lightMatrix: gl.getUniformLocation(this._progPoints, 'u_lightMatrix'),
             shadowMap: gl.getUniformLocation(this._progPoints, 'u_shadowMap'),
             shadowEnabled: gl.getUniformLocation(this._progPoints, 'u_shadowEnabled'),
@@ -1338,6 +1381,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             sunDir: gl.getUniformLocation(this._progMesh, 'u_sunDir'),
             sunIntensity: gl.getUniformLocation(this._progMesh, 'u_sunIntensity'),
             sunColor: gl.getUniformLocation(this._progMesh, 'u_sunColor'),
+            flatLight: gl.getUniformLocation(this._progMesh, 'u_flatLight'),
             lightMatrix: gl.getUniformLocation(this._progMesh, 'u_lightMatrix'),
             shadowMap: gl.getUniformLocation(this._progMesh, 'u_shadowMap'),
             shadowEnabled: gl.getUniformLocation(this._progMesh, 'u_shadowEnabled'),
@@ -1353,7 +1397,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // Texture orthophoto (1×1 par défaut, remplie par setOrthoTexture).
         this._orthoTex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);

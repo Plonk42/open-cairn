@@ -203,6 +203,13 @@ interface MapState {
      */
     lidarSunDate: string;
     setLidarSunDate: (v: string) => void;
+    /**
+     * Opt-in directional sun lighting on the LiDAR cloud. When false, a
+     * neutral omnidirectional light is applied (no harsh directional bias,
+     * no cast shadows). Defaults to off.
+     */
+    lidarSunEnabled: boolean;
+    setLidarSunEnabled: (v: boolean) => void;
     /** Cast hard/soft shadows from the LiDAR mesh based on the sun direction. */
     lidarShadows: boolean;
     setLidarShadows: (v: boolean) => void;
@@ -306,6 +313,7 @@ type PersistedSettings = {
     lidarCloudPoissonSamplesPerNode?: number;
     lidarCloudPoissonPointWeight?: number;
     lidarSunDate?: string;
+    lidarSunEnabled?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
     cliffSliceCorridor?: number;
@@ -455,6 +463,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
     lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
     setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
+    lidarSunEnabled: persisted.lidarSunEnabled ?? false,
+    setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
     lidarShadows: persisted.lidarShadows ?? true,
     setLidarShadows: (lidarShadows) => set({ lidarShadows }),
     lidarShadowStrength: persisted.lidarShadowStrength ?? 0.7,
@@ -652,6 +662,7 @@ useMapStore.subscribe((state) => {
             lidarCloudPoissonPointWeight: state.lidarCloudPoissonPointWeight,
             lidarShader: state.lidarShader,
             lidarSunDate: state.lidarSunDate,
+            lidarSunEnabled: state.lidarSunEnabled,
             lidarShadows: state.lidarShadows,
             lidarShadowStrength: state.lidarShadowStrength,
             cliffSliceCorridor: state.cliffSliceCorridor,

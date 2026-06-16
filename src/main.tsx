@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { Root } from './Root';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
 import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
@@ -42,8 +42,9 @@ if (shared) {
         // Store only the range; coordinates will be computed once route finishes
         useRouteStore.setState({ selectionRange: shared.selectionRange });
     }
-    // Clear the hash so MapLibre's hash:true doesn't choke on it
-    history.replaceState(null, '', globalThis.location.pathname);
+    // Clear the hash so MapLibre's hash:true doesn't choke on it, but keep the
+    // search params (e.g. ?view=lidar) so the view switch survives a share link.
+    history.replaceState(null, '', globalThis.location.pathname + globalThis.location.search);
 } else {
     // Restore route waypoints from localStorage (map state is restored via store defaults).
     const savedRoute = loadPersistedRoute();
@@ -60,6 +61,6 @@ if (!root) throw new Error('Missing #root element');
 
 createRoot(root).render(
     <StrictMode>
-        <App />
+        <Root />
     </StrictMode>,
 );

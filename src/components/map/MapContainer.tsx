@@ -682,6 +682,9 @@ export function MapContainer() {
             canvasContextAttributes: {
                 antialias: true,
                 powerPreference: 'high-performance',
+                // Keep the rendered frame readable so the LiDAR Studio can grab
+                // showcase thumbnails / clean captures from the canvas.
+                preserveDrawingBuffer: true,
             },
             anisotropicFilterPitch: 0,
             pixelRatio: pixelRatioForQuality(initial.renderQuality),

@@ -27,6 +27,7 @@ export function LidarCloudOverlay() {
     const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
+    const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
     const shadows = useMapStore((s) => s.lidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
 
@@ -166,10 +167,11 @@ export function LidarCloudOverlay() {
 
     useEffect(() => {
         webglRef.current?.setConfig({
+            sunLightingEnabled: sunEnabled,
             shadowsEnabled: shadows,
             shadowStrength,
         });
-    }, [shadows, shadowStrength, styleEpoch]);
+    }, [sunEnabled, shadows, shadowStrength, styleEpoch]);
 
     // ── Drapage orthophoto IGN sur le mesh ────────────────────────────────────
     // Récupère une mosaïque orthophoto couvrant l'emprise du mesh et la fournit
