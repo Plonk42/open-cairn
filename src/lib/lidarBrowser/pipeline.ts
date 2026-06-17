@@ -9,7 +9,7 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN } from './normals';
+import { computeNormalsKNN, propagateNormalOrientation } from './normals';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { lngLatToL93 } from './proj';
@@ -422,7 +422,13 @@ export async function fetchLidarPoisson(
         detail: `${groundCount.toLocaleString()} pts sol`,
     });
     const tGroundNrm = startTimer();
-    const groundNormals = computeNormalsKNN(groundPos, 12, 2, true);
+    // Poisson needs a *coherently oriented* gradient field, not an upward one:
+    // forcing nz≥0 flips the normals under overhangs, arches and cave roofs so
+    // the solver can't represent those cavities and seals them into smooth
+    // "bubbles". Compute unoriented normals (forceUpward=false) then propagate a
+    // consistent orientation across the surface via Hoppe BFS.
+    const groundNormals = computeNormalsKNN(groundPos, 12, 2, false);
+    propagateNormalOrientation(groundPos, groundNormals);
     logStage('normals (sol)', tGroundNrm(), `${groundCount.toLocaleString()} pts`);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
     const oriented = new Float32Array(groundCount * 6);
