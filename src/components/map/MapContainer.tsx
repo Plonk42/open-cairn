@@ -14,6 +14,11 @@ const LidarCloudOverlay = lazy(() =>
     import('./LidarCloudOverlay').then((m) => ({ default: m.LidarCloudOverlay })),
 );
 
+// The map is shared with the LiDAR Studio (`?view=lidar`). In that view map
+// clicks must NOT edit the itinerary — read fresh from the URL inside handlers.
+const isLidarStudioView = () =>
+    new URLSearchParams(globalThis.location.search).get('view') === 'lidar';
+
 // Lazy-loaded so deck.gl (~150 KB gz: core + layers + mapbox) only ships when
 // the user actually draws a cliff slice over a loaded LiDAR cloud.
 const CliffSlicePathOverlay = lazy(() =>
@@ -770,6 +775,8 @@ export function MapContainer() {
         };
 
         map.on('click', (event) => {
+            // The LiDAR Studio shares this map but must never edit the itinerary.
+            if (isLidarStudioView()) return;
             const slice = useMapStore.getState();
             // Cliff mode owns the click — never fall through to route, even when
             // the slice tracé sub-mode is off (read-only chart viewing).
@@ -793,6 +800,7 @@ export function MapContainer() {
         });
 
         map.on('dblclick', (event) => {
+            if (isLidarStudioView()) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
@@ -808,6 +816,7 @@ export function MapContainer() {
         });
 
         map.on('contextmenu', (event) => {
+            if (isLidarStudioView()) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
@@ -819,6 +828,7 @@ export function MapContainer() {
 
         const startDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
             // Dragging waypoints only makes sense in route mode.
+            if (isLidarStudioView()) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active || route.deleteMode) return;

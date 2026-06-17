@@ -77,8 +77,6 @@ export function LidarAppearanceControls() {
     const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const setPhotoOpacity = useMapStore((s) => s.setLidarCloudPhotoOpacity);
-    const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
-    const setHideBasemap = useMapStore((s) => s.setLidarCloudHideBasemap);
     const pointSize = useMapStore((s) => s.lidarCloudPointSize);
     const setPointSize = useMapStore((s) => s.setLidarCloudPointSize);
     const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
@@ -123,16 +121,7 @@ export function LidarAppearanceControls() {
                 </label>
             )}
 
-            {/* Atténuer le fond */}
-            <label className="flex items-center justify-between">
-                <span className="text-sm text-slate-700 dark:text-slate-300">Atténuer le fond</span>
-                <input
-                    type="checkbox"
-                    checked={hideBasemap}
-                    onChange={(e) => setHideBasemap(e.target.checked)}
-                    className="h-4 w-4 accent-green-600"
-                />
-            </label>
+            {/* Atténuer le fond : géré par le bouton « Fond » de la barre du haut. */}
 
             <ClassFilterSection />
 

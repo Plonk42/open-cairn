@@ -218,20 +218,34 @@ export function LidarCloudOverlay() {
     }, [sunDate, lidarShaded, lidarMesh, mapInstance, styleEpoch]);
 
     // ── Basemap dimming ───────────────────────────────────────────────────────
+    // The "Estomper" toggle fades the basemap (raster-opacity 0.15) while keeping
+    // it visible under the cloud. A base-layer switch (Photo/Plan) rebuilds the
+    // style via `setStyle({diff:true})`, and because the new style spec carries no
+    // `raster-opacity` on the `base` layer, the diff RESETS it to the default 1 —
+    // silently dropping the fade. So we re-apply on every `styledata` (fires after
+    // any rebuild) in addition to the immediate apply for the toggle itself. The
+    // transition is forced to 0 ms so the change is instant, not a 300 ms fade.
     useEffect(() => {
         const map = mapInstance;
         if (!map) return;
-        const hasOverlay = lidarShaded !== null;
+        const hasOverlay = lidarShaded !== null || lidarMesh !== null;
         const targetOpacity = hideBasemap && hasOverlay ? 0.15 : 1;
-        const style = map.getStyle();
-        if (!style?.layers) return;
-        for (const layer of style.layers) {
-            if (layer.type !== 'raster') continue;
-            try {
-                map.setPaintProperty(layer.id, 'raster-opacity', targetOpacity);
-            } catch { /* layer might not accept the property */ }
-        }
-    }, [mapInstance, hideBasemap, lidarShaded]);
+        const apply = () => {
+            const style = map.getStyle();
+            if (!style?.layers) return;
+            for (const layer of style.layers) {
+                if (layer.type !== 'raster') continue;
+                try {
+                    map.setPaintProperty(layer.id, 'raster-opacity-transition', { duration: 0 });
+                    map.setPaintProperty(layer.id, 'raster-opacity', targetOpacity);
+                } catch { /* layer might not accept the property */ }
+            }
+        };
+        if (map.isStyleLoaded()) apply();
+        else map.once('idle', apply);
+        map.on('styledata', apply);
+        return () => { map.off('styledata', apply); };
+    }, [mapInstance, hideBasemap, lidarShaded, lidarMesh]);
 
     return null;
 }

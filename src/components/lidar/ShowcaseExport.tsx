@@ -6,6 +6,15 @@ import { useState } from 'react';
 
 const MAX_BLOB_BYTES = 500 * 1024 * 1024;
 
+function DownloadIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+            <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+        </svg>
+    );
+}
+
 /** Persisted export destination choice (survives across exports). */
 const TARGET_KEY = 'open-cairn-export-target';
 
@@ -220,9 +229,10 @@ export function ShowcaseExport() {
                 onClick={openPrompt}
                 disabled={!hasData || busy}
                 title={hasData ? 'Exporter la vue actuelle en scène showcase' : 'Chargez un nuage pour exporter'}
-                className="rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10 disabled:opacity-40"
             >
-                {busy ? 'Export…' : 'Exporter cette vue'}
+                <DownloadIcon className="h-4 w-4" />
+                <span>{busy ? 'Export…' : 'Exporter cette vue'}</span>
             </button>
             {error && <span className="text-xs text-rose-300">{error}</span>}
 

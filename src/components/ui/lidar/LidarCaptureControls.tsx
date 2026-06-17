@@ -131,8 +131,6 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
 
     return (
         <div className="space-y-3">
-            {showProgress && loading && progress && <LidarProgressBar progress={progress} />}
-
             {/* Mode */}
             <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
@@ -203,6 +201,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                 </button>
             </div>
 
+            {showProgress && loading && progress && <LidarProgressBar progress={progress} />}
             {hasData && !loading && center && <LidarStatusLine shaded={shaded} mesh={mesh} radius={center.radius} />}
             {error && (
                 <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">

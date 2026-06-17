@@ -9,7 +9,13 @@ import { useEffect, useState } from 'react';
 // the camera plane. Center stays locked so near features sweep more than far
 // ones → depth pops. Manual drag/zoom stops it; the start view is restored.
 // ───────────────────────────────────────────────────────────────────────
-export function OrbitControl() {
+
+/**
+ * Headless camera-wiggle controller. Owns the `orbiting` flag and the rAF loop,
+ * so several presentations (labeled switch, compact rail icon) can drive the
+ * exact same behaviour. Use ONE instance per rendered layout.
+ */
+export function useOrbit() {
     const [orbiting, setOrbiting] = useState(false);
 
     useEffect(() => {
@@ -62,6 +68,13 @@ export function OrbitControl() {
             map.setCenter(center);
         };
     }, [orbiting]);
+
+    return { orbiting, setOrbiting };
+}
+
+/** Labeled "Orbite auto" switch (used in the mobile settings sheet). */
+export function OrbitControl() {
+    const { orbiting, setOrbiting } = useOrbit();
 
     return (
         <div className="flex items-center justify-between">
