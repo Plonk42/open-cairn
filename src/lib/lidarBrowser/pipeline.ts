@@ -9,10 +9,11 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN, propagateNormalOrientation } from './normals';
+import { computeNormalsKNN, orientNormalsForPoisson } from './normals';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { lngLatToL93 } from './proj';
+import type { ScanData } from './scanOrient';
 import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
 import { findTiles } from './wfs';
 
@@ -64,18 +65,121 @@ function concatClasses(parts: Uint8Array[], totalPts: number): Uint8Array {
     return out;
 }
 
+/** Per-node scan dimensions, parallel to the kept classifications. */
+interface ScanNode {
+    classifications: Uint8Array;
+    scanAngle?: Float32Array;
+    sourceId?: Uint16Array;
+    gpsTime?: Float64Array;
+}
+
+/**
+ * Concatenate the optional per-point scan dimensions across nodes, in the same
+ * order and offsets as {@link concatPositions}/{@link concatClasses} (skipping
+ * empty nodes so the indices stay aligned with the merged positions).
+ */
+function mergeScan(results: ScanNode[], totalPts: number): {
+    scanAngle: Float32Array; sourceId: Uint16Array; gpsTime: Float64Array;
+} {
+    const scanAngle = new Float32Array(totalPts);
+    const sourceId = new Uint16Array(totalPts);
+    const gpsTime = new Float64Array(totalPts);
+    let off = 0;
+    for (const r of results) {
+        if (r.classifications.length === 0) continue;
+        if (r.scanAngle) scanAngle.set(r.scanAngle, off);
+        if (r.sourceId) sourceId.set(r.sourceId, off);
+        if (r.gpsTime) gpsTime.set(r.gpsTime, off);
+        off += r.classifications.length;
+    }
+    return { scanAngle, sourceId, gpsTime };
+}
+
+/** Merged cloud as returned by {@link fetchCommon}. */
+interface CommonCloud {
+    positions: Float32Array;
+    classifications: Uint8Array;
+    scanAngle?: Float32Array;
+    sourceId?: Uint16Array;
+    gpsTime?: Float64Array;
+    pointCount: number;
+}
+
+/** Ground/non-ground split plus the ground subset's scan dimensions. */
+interface GroundSplit {
+    groundPos: Float32Array;
+    groundCount: number;
+    ngPos: Float32Array;
+    ngCls: Uint8Array;
+    groundScan: ScanData | null;
+}
+
+/** Allocate the ground scan buffers, or null when the cloud carries no scan dims. */
+function makeGroundScan(c: CommonCloud, groundCount: number): ScanData | null {
+    if (!c.scanAngle || !c.sourceId || !c.gpsTime) return null;
+    return {
+        scanAngle: new Float32Array(groundCount),
+        sourceId: new Uint16Array(groundCount),
+        gpsTime: new Float64Array(groundCount),
+    };
+}
+
+/** Copy point `i`'s scan dims into ground slot `gi` (no-op without scan data). */
+function copyScanPoint(c: CommonCloud, dst: ScanData | null, gi: number, i: number): void {
+    if (!dst) return;
+    dst.scanAngle[gi] = c.scanAngle![i];
+    dst.sourceId[gi] = c.sourceId![i];
+    dst.gpsTime[gi] = c.gpsTime![i];
+}
+
+/**
+ * Split the merged cloud into ground (class 2, fed to PoissonRecon) and
+ * everything else (kept as a shaded overlay), in a single pass. The ground
+ * subset's ScanAngle / PointSourceId / GpsTime are carried alongside so the
+ * flight-line orientation operates on exactly the Poisson input points.
+ */
+function splitGroundForPoisson(c: CommonCloud): GroundSplit {
+    let groundCount = 0;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
+    const groundPos = new Float32Array(groundCount * 3);
+    const ngPos = new Float32Array((c.pointCount - groundCount) * 3);
+    const ngCls = new Uint8Array(c.pointCount - groundCount);
+    const groundScan = makeGroundScan(c, groundCount);
+    let gi = 0; let ni = 0;
+    for (let i = 0; i < c.pointCount; i++) {
+        const x = c.positions[i * 3], y = c.positions[i * 3 + 1], z = c.positions[i * 3 + 2];
+        if (c.classifications[i] === 2) {
+            groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
+            copyScanPoint(c, groundScan, gi, i);
+            gi++;
+        } else {
+            ngPos[ni * 3] = x; ngPos[ni * 3 + 1] = y; ngPos[ni * 3 + 2] = z;
+            ngCls[ni] = c.classifications[i];
+            ni++;
+        }
+    }
+    return { groundPos, groundCount, ngPos, ngCls, groundScan };
+}
+
 /**
  * Run steps 1+2 (WFS query → COPC extract on every covering tile, in
  * parallel) and return the merged point set. Used by all three modes.
+ *
+ * When `opts.needScan` is set, per-point ScanAngle / PointSourceId / GpsTime are
+ * also decoded (Poisson mode uses them for flight-line normal orientation).
  */
-async function fetchCommon(params: BrowserFetchParams): Promise<{
+async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boolean }): Promise<{
     positions: Float32Array;
     classifications: Uint8Array;
+    scanAngle?: Float32Array;
+    sourceId?: Uint16Array;
+    gpsTime?: Float64Array;
     pointCount: number;
     radius: number;
     centerLng: number;
     centerLat: number;
 }> {
+    const needScan = opts?.needScan ?? false;
     const onProgress = params.onProgress ?? noopProgress;
     const radius = Math.min(MAX_RADIUS_M, Math.max(20, params.radius));
     const stride = Math.max(1, Math.min(200, Math.floor(params.stride)));
@@ -120,6 +224,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
             tileUrl: tile.url,
             x0, y0, radius, stride,
             classFilter,
+            needScan,
             signal: params.signal,
         });
         completedTiles++;
@@ -147,6 +252,7 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     }
     const positions = concatPositions(posParts, totalPts);
     const classifications = concatClasses(clsParts, totalPts);
+    const scan = needScan ? mergeScan(results, totalPts) : undefined;
     const safeStride = Math.max(1, Math.floor(stride));
     const areaM2 = (2 * radius) * (2 * radius);
     const inBboxDensity = inBboxTotal / areaM2;
@@ -159,6 +265,9 @@ async function fetchCommon(params: BrowserFetchParams): Promise<{
     return {
         positions,
         classifications,
+        scanAngle: scan?.scanAngle,
+        sourceId: scan?.sourceId,
+        gpsTime: scan?.gpsTime,
         pointCount: totalPts,
         radius,
         centerLng: params.lng,
@@ -389,31 +498,12 @@ export async function fetchLidarPoisson(
     const total = startTimer();
 
     // Fetch every class — Poisson reconstruction uses only ground, but the
-    // overlay uses everything else.
-    const c = await fetchCommon({ ...params, classes: undefined });
+    // overlay uses everything else. Scan dimensions feed flight-line orientation.
+    const c = await fetchCommon({ ...params, classes: undefined }, { needScan: true });
 
-    // Split ground (class 2) from the rest in a single pass.
-    let groundCount = 0;
-    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
-    const nonGroundCount = c.pointCount - groundCount;
-    const groundPos = new Float32Array(groundCount * 3);
-    const ngPos = new Float32Array(nonGroundCount * 3);
-    const ngCls = new Uint8Array(nonGroundCount);
-    let gi = 0; let ni = 0;
-    for (let i = 0; i < c.pointCount; i++) {
-        const cls = c.classifications[i];
-        const x = c.positions[i * 3];
-        const y = c.positions[i * 3 + 1];
-        const z = c.positions[i * 3 + 2];
-        if (cls === 2) {
-            groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
-            gi++;
-        } else {
-            ngPos[ni * 3] = x; ngPos[ni * 3 + 1] = y; ngPos[ni * 3 + 2] = z;
-            ngCls[ni] = cls;
-            ni++;
-        }
-    }
+    // Split ground (class 2) from the rest (with the ground scan subset).
+    const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGroundForPoisson(c);
+    const nonGroundCount = ngCls.length;
 
     // 1. Ground mesh via PoissonRecon.
     onProgress({
@@ -425,11 +515,14 @@ export async function fetchLidarPoisson(
     // Poisson needs a *coherently oriented* gradient field, not an upward one:
     // forcing nz≥0 flips the normals under overhangs, arches and cave roofs so
     // the solver can't represent those cavities and seals them into smooth
-    // "bubbles". Compute unoriented normals (forceUpward=false) then propagate a
-    // consistent orientation across the surface via Hoppe BFS.
-    const groundNormals = computeNormalsKNN(groundPos, 12, 2, false);
-    propagateNormalOrientation(groundPos, groundNormals);
-    logStage('normals (sol)', tGroundNrm(), `${groundCount.toLocaleString()} pts`);
+    // "bubbles". Compute unoriented normals + a PCA fit-quality score, then
+    // cascade a consistent orientation from the strongest cues outward
+    // (laser scan-angle → +z prior → quality-weighted propagation) and weight
+    // each normal by quality so crisp points drive the isosurface.
+    const groundQuality = new Float32Array(groundCount);
+    const groundNormals = computeNormalsKNN(groundPos, 12, 2, false, groundQuality);
+    orientNormalsForPoisson(groundPos, groundNormals, groundQuality, groundScan);
+    logStage('normals (sol)', tGroundNrm(), `${groundCount.toLocaleString()} pts${groundScan ? ' · scan' : ''}`);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
     const oriented = new Float32Array(groundCount * 6);
     for (let i = 0; i < groundCount; i++) {

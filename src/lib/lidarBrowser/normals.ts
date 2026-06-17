@@ -13,14 +13,21 @@
  * second for typical IGN crops (≤ 100k points).
  */
 
+import { buildFlightLines, type FlightLineModel, type ScanData } from './scanOrient';
+
 /**
  * Smallest eigenvector of a 3×3 symmetric matrix
  * `[xx xy xz; xy yy yz; xz yz zz]` via Cardano + cross-product trick.
  * Returns a unit vector, falling back to `[0, 0, 1]` on degenerate input.
+ *
+ * When `outEig` is supplied it is filled with the three eigenvalues sorted
+ * ascending by magnitude `[|λmin|, |λmid|, |λmax|]` (same scale as the input
+ * matrix), used by the caller to derive a PCA-flatness quality score.
  */
 function smallestEigenVec3(
     xx: number, yy: number, zz: number,
     xy: number, xz: number, yz: number,
+    outEig?: Float64Array,
 ): [number, number, number] {
     const tr = xx + yy + zz;
     const p = xx * yy + xx * zz + yy * zz - xy * xy - xz * xz - yz * yz;
@@ -43,6 +50,12 @@ function smallestEigenVec3(
         l3 = a + m * Math.cos(phi + 4 * Math.PI / 3);
     }
     const lambda = Math.min(l1, l2, l3);
+    if (outEig) {
+        const a1 = Math.abs(l1), a2 = Math.abs(l2), a3 = Math.abs(l3);
+        outEig[0] = Math.min(a1, a2, a3);
+        outEig[2] = Math.max(a1, a2, a3);
+        outEig[1] = a1 + a2 + a3 - outEig[0] - outEig[2];
+    }
     const m11 = xx - lambda, m12 = xy, m13 = xz;
     const m22 = yy - lambda, m23 = yz;
     const m33 = zz - lambda;
@@ -86,6 +99,11 @@ function cellKey(ix: number, iy: number, iz: number): number {
  * @param forceUpward When true (default), flip each normal so nz ≥ 0.
  *                    Pass `false` for Poisson reconstruction — the caller
  *                    is responsible for running orientation propagation.
+ * @param quality     Optional out-array (length n). When supplied, each entry
+ *                    receives a PCA fit-quality score in [0, 1] combining the
+ *                    local ellipsoid flatness with an outlier-rejection term —
+ *                    used downstream to weight orientation votes and the final
+ *                    Poisson confidence (normal magnitude).
  * @returns           Interleaved (nx, ny, nz) per point, normalized.
  */
 export function computeNormalsKNN(
@@ -93,6 +111,7 @@ export function computeNormalsKNN(
     k = 12,
     cellSize = 2,
     forceUpward = true,
+    quality?: Float32Array,
 ): Float32Array {
     const n = positions.length / 3;
     const normals = new Float32Array(n * 3);
@@ -132,6 +151,7 @@ export function computeNormalsKNN(
     // 2. For each point, gather up to k neighbours from the 3×3×3 cell ring.
     const distBuf = new Float64Array(k);
     const idxBuf = new Int32Array(k);
+    const eig = new Float64Array(3);
     for (let i = 0; i < n; i++) {
         const x = positions[i * 3];
         const y = positions[i * 3 + 1];
@@ -199,13 +219,33 @@ export function computeNormalsKNN(
             cxy += ex * ey; cxz += ex * ez; cyz += ey * ez;
         }
 
-        const [nx, ny, nz] = smallestEigenVec3(cxx, cyy, czz, cxy, cxz, cyz);
+        const [nx, ny, nz] = smallestEigenVec3(cxx, cyy, czz, cxy, cxz, cyz, eig);
+        if (quality) quality[i] = pcaQuality(eig, count, nx * (x - mx) + ny * (y - my) + nz * (z - mz));
         const s = forceUpward && nz < 0 ? -1 : 1;
         normals[i * 3] = nx * s;
         normals[i * 3 + 1] = ny * s;
         normals[i * 3 + 2] = nz * s;
     }
     return normals;
+}
+
+/**
+ * PCA fit-quality heuristic (Boissonnat-style), in [0, 1]. Port of
+ * `plane_fitting.h::quality()`.
+ *
+ * `qual1` rewards a flat ellipsoid (one eigenvalue much smaller than the other
+ * two): `1 − λmin·λmax / λmid²`. `qual2` rejects the query point being an
+ * outlier of its own neighbourhood: `1 − 3·d⊥² / λmax_mean`, where `d⊥` is the
+ * point's perpendicular distance to the fitted plane. Eigenvalues come in the
+ * matrix's sum-of-squares scale, so `λmax` is divided by `count` to compare it
+ * against the (mean-scale) squared distance.
+ */
+function pcaQuality(eig: Float64Array, count: number, perpDist: number): number {
+    const eMin = eig[0], eMid = eig[1], eMax = eig[2];
+    const qual1 = eMid === 0 ? 0 : Math.max(1 - (eMin * eMax) / (eMid * eMid), 0);
+    const eMaxMean = eMax / count;
+    const qual2 = eMaxMean === 0 ? 0 : Math.max(1 - (3 * perpDist * perpDist) / eMaxMean, 0);
+    return qual1 * qual2;
 }
 
 /** The 27 cell offsets of a 3×3×3 grid ring, precomputed to flatten loops. */
@@ -301,171 +341,223 @@ class PointGrid {
 }
 
 /**
- * Binary max-heap of frontier edges for MST orientation propagation, keyed by
- * normal-alignment priority. Parallel typed arrays avoid per-edge allocation;
- * `src`/`dst` carry the (already-oriented source, to-orient target) endpoints.
+ * Orientation state during the propagation cascade. Ordered so that
+ * `state >= ST_ORIENTED` means "settled — may serve as a voting source".
+ * Mirrors the `EOrient` enum of LidarTerrainMesh (`las_normal.cpp`).
  */
-class EdgeHeap {
-    private cap = 1024;
-    prio = new Float64Array(this.cap);
-    src = new Int32Array(this.cap);
-    dst = new Int32Array(this.cap);
-    size = 0;
+const ST_DEAD = 0;      // unsettled, no settled neighbour — skipped until revived
+const ST_NONE = 1;      // unsettled, still on/near the frontier
+const ST_TMP = 2;       // flipped this pass, not yet usable as a voting source
+const ST_ORIENTED = 3;  // threshold: states ≥ this are settled voting sources
+const ST_PLAGUE = 4;    // settled by propagation
+const ST_Z = 5;         // settled by the +z heuristic
+const ST_SCAN = 6;      // settled by the scan-angle (flight-line) cue
 
-    push(prio: number, src: number, dst: number): void {
-        if (this.size === this.cap) {
-            this.cap *= 2;
-            const p = new Float64Array(this.cap); p.set(this.prio); this.prio = p;
-            const s = new Int32Array(this.cap); s.set(this.src); this.src = s;
-            const d = new Int32Array(this.cap); d.set(this.dst); this.dst = d;
-        }
-        const { prio: P, src: S, dst: D } = this;
-        let c = this.size++;
-        P[c] = prio; S[c] = src; D[c] = dst;
-        while (c > 0) {
-            const parent = (c - 1) >> 1;
-            if (P[parent] >= P[c]) break;
-            const tp = P[parent]; P[parent] = P[c]; P[c] = tp;
-            const ts = S[parent]; S[parent] = S[c]; S[c] = ts;
-            const td = D[parent]; D[parent] = D[c]; D[c] = td;
-            c = parent;
-        }
-    }
+const SCAN_TOL = 0.25;
+const Z_TOL = 0.55;
+const FLIP_TOL = 0.7;
+const PROPAGATE_NEIGHBORS = 16;
+const MAX_PROPAGATE_PASSES = 50;
 
-    pop(): void {
-        const { prio: P, src: S, dst: D } = this;
-        this.size--;
-        if (this.size <= 0) return;
-        P[0] = P[this.size]; S[0] = S[this.size]; D[0] = D[this.size];
-        let c = 0;
-        for (; ;) {
-            const l = 2 * c + 1, r = l + 1;
-            let big = c;
-            if (l < this.size && P[l] > P[big]) big = l;
-            if (r < this.size && P[r] > P[big]) big = r;
-            if (big === c) break;
-            const tp = P[big]; P[big] = P[c]; P[c] = tp;
-            const ts = S[big]; S[big] = S[c]; S[c] = ts;
-            const td = D[big]; D[big] = D[c]; D[c] = td;
-            c = big;
+/** Shared working state threaded through the propagation passes. */
+interface PropagateCtx {
+    grid: PointGrid;
+    normals: Float32Array;
+    quality: Float32Array;
+    state: Uint8Array;
+    distBuf: Float64Array;
+    idxBuf: Int32Array;
+    toVisit: Uint8Array;
+}
+
+function flip(normals: Float32Array, i: number): void {
+    normals[i * 3] *= -1;
+    normals[i * 3 + 1] *= -1;
+    normals[i * 3 + 2] *= -1;
+}
+
+/**
+ * Scan-angle orientation pass — the strongest cue. For every point whose flight
+ * line has a valid reconstructed azimuth, rebuild the laser-beam direction from
+ * `(thetaAcross, scanAngle)` and flip the normal to face *back toward the
+ * sensor* (a surface can only be observed from the side the beam came from).
+ * Acts only when the alignment is confident relative to the point's fit quality.
+ */
+function orientWithScan(
+    normals: Float32Array, quality: Float32Array, state: Uint8Array,
+    scan: ScanData, model: FlightLineModel,
+): void {
+    const n = state.length;
+    for (let i = 0; i < n; i++) {
+        const fl = model.lines[model.sourceIdx[i]];
+        if (!fl.valid) continue;
+        const scanRad = scan.scanAngle[i] * Math.PI / 180;
+        const sinA = Math.sin(scanRad);
+        const bx = Math.cos(fl.thetaAcross) * sinA;
+        const by = Math.sin(fl.thetaAcross) * sinA;
+        const bz = -Math.cos(scanRad);
+        const test = normals[i * 3] * bx + normals[i * 3 + 1] * by + normals[i * 3 + 2] * bz;
+        if (Math.abs(test) > SCAN_TOL + 2 * (1 - quality[i])) {
+            state[i] = ST_SCAN;
+            if (test > 0) flip(normals, i);
         }
     }
 }
 
 /**
- * Propagate a globally-coherent normal orientation across a k-NN graph using
- * Hoppe (1992) minimum-spanning-tree propagation. Mutates `normals` in place.
- *
- * Why MST and not plain BFS: PCA normals have an arbitrary sign, so orientation
- * must be flooded from a seed. A FIFO BFS crosses sharp creases (cliff edges,
- * ridges — where neighbouring normals are nearly perpendicular and the relative
- * sign is ambiguous) at the *same priority* as smooth surfaces, so one bad flip
- * at a crease propagates and inverts a whole region. The visible symptom is an
- * "inflated cushion": Poisson reconstructs that region's isosurface inside-out,
- * smooth side up and relief detail underneath.
- *
- * MST propagation instead always extends from the frontier edge with the
- * *highest* normal agreement |n_i · n_j| (a Prim frontier). Confident, smooth
- * connections are resolved first; ambiguous crease crossings happen last, when
- * both sides are already firmly oriented — so a flip can no longer cascade.
- *
- * Algorithm:
- *  1. Pick the highest-z unvisited point as a component seed, forced to nz ≥ 0
- *     (aerial LiDAR is seen from above, so the top of each piece faces up).
- *  2. Grow a max-priority frontier keyed by |n_i · n_j|; orient each newly
- *     attached point relative to the already-oriented neighbour it attaches to.
- *  3. When the frontier drains, reseed at the next-highest unvisited point.
- *     This orients every disconnected component with the same up-prior, while
- *     still allowing overhangs/cave roofs to point downward *within* a piece.
- *  4. Majority vote per component: once a component is coherently oriented, its
- *     global sign is still arbitrary (the single seed point can be noisy or
- *     near-horizontal, so the whole piece can end up coherently *inside-out* —
- *     the "cushion on top, detail underneath" symptom). A ground/cliff surface
- *     seen from above must mostly face up, so if the component's summed nz is
- *     negative we flip the entire component. This is far more robust than
- *     trusting one seed normal.
+ * Positive-z pass — a geometric prior. Aerial LiDAR is seen from above, so a
+ * confidently near-horizontal surface faces up. Seeds every such point (the
+ * "multi-seed" of the cascade), with the confidence threshold relaxed for
+ * low-quality fits so only trustworthy points are pinned.
  */
-
-/** Flip every normal in `members` so the component, as a whole, faces upward. */
-function orientComponentUpward(normals: Float32Array, members: number[]): void {
-    let sumNz = 0;
-    for (const m of members) sumNz += normals[m * 3 + 2];
-    if (sumNz >= 0) return;
-    for (const m of members) {
-        normals[m * 3] *= -1;
-        normals[m * 3 + 1] *= -1;
-        normals[m * 3 + 2] *= -1;
+function orientWithZ(normals: Float32Array, quality: Float32Array, state: Uint8Array): void {
+    const n = state.length;
+    for (let i = 0; i < n; i++) {
+        if (state[i] >= ST_Z) continue;
+        const nz = normals[i * 3 + 2];
+        if (Math.abs(nz) > Z_TOL + 2 * (1 - quality[i])) {
+            state[i] = ST_Z;
+            if (nz < 0) flip(normals, i);
+        }
     }
 }
 
-export function propagateNormalOrientation(
+/** Guarantee at least one settled seed so propagation always has a source. */
+function ensureSeed(normals: Float32Array, state: Uint8Array): void {
+    const n = state.length;
+    for (let i = 0; i < n; i++) if (state[i] >= ST_ORIENTED) return;
+    let best = -1, bestAbs = -1;
+    for (let i = 0; i < n; i++) {
+        const a = Math.abs(normals[i * 3 + 2]);
+        if (a > bestAbs) { bestAbs = a; best = i; }
+    }
+    if (best < 0) return;
+    state[best] = ST_Z;
+    if (normals[best * 3 + 2] < 0) flip(normals, best);
+}
+
+/**
+ * Try to settle one unsettled point by a quality-weighted majority vote over
+ * its already-settled k-nearest neighbours. A neighbour only votes when the
+ * normal agreement |n_i·n_k| clears a quality-scaled threshold, so ambiguous
+ * crease crossings stay silent until both sides are firmly oriented. On a flip
+ * the neighbourhood is marked `toVisit` to revive dead points next pass.
+ */
+function settlePoint(ctx: PropagateCtx, i: number): void {
+    const { grid, normals, quality, state, distBuf, idxBuf, toVisit } = ctx;
+    grid.gather(i, PROPAGATE_NEIGHBORS, distBuf, idxBuf);
+    const nix = normals[i * 3], niy = normals[i * 3 + 1], niz = normals[i * 3 + 2];
+    const qi = quality[i];
+    let majority = 0, votes = 0;
+    for (let h = 0; h < PROPAGATE_NEIGHBORS; h++) {
+        const j = idxBuf[h];
+        if (j < 0 || state[j] < ST_ORIENTED) continue;
+        const test = nix * normals[j * 3] + niy * normals[j * 3 + 1] + niz * normals[j * 3 + 2];
+        if (Math.abs(test) > FLIP_TOL + (1 - FLIP_TOL) * (1 - qi * quality[j])) {
+            majority += test > 0 ? 1 : -1;
+            votes++;
+        }
+    }
+    if (majority === 0 || Math.abs(majority) < votes / 2) return;
+    state[i] = ST_TMP;
+    if (majority < 0) flip(normals, i);
+    for (let h = 0; h < PROPAGATE_NEIGHBORS; h++) {
+        const k = idxBuf[h];
+        if (k >= 0) toVisit[k] = 1;
+    }
+}
+
+/** One propagation sweep. Returns the number of points newly settled. */
+function propagatePass(ctx: PropagateCtx): number {
+    const { state, toVisit } = ctx;
+    const n = state.length;
+    toVisit.fill(0);
+    for (let i = 0; i < n; i++) {
+        if (state[i] >= ST_ORIENTED || state[i] === ST_DEAD) continue;
+        settlePoint(ctx, i);
+    }
+    let newly = 0;
+    for (let i = 0; i < n; i++) {
+        if (state[i] < ST_TMP) state[i] = toVisit[i] ? ST_NONE : ST_DEAD;
+        else if (state[i] === ST_TMP) { state[i] = ST_PLAGUE; newly++; }
+    }
+    return newly;
+}
+
+function countUnsettled(state: Uint8Array): number {
+    let c = 0;
+    for (const s of state) if (s < ST_ORIENTED) c++;
+    return c;
+}
+
+/**
+ * Final confidence weighting. PoissonRecon uses each input normal's *magnitude*
+ * as the sample weight, so scaling by the PCA fit quality lets crisp, well-fit
+ * points dominate the isosurface while noisy ones contribute softly. Points
+ * that were never oriented get weight 0 — they add no (potentially wrong)
+ * constraint and the solver interpolates across them.
+ */
+function weightByQuality(normals: Float32Array, quality: Float32Array, state: Uint8Array): void {
+    const n = state.length;
+    for (let i = 0; i < n; i++) {
+        const w = state[i] >= ST_ORIENTED ? quality[i] : 0;
+        normals[i * 3] *= w; normals[i * 3 + 1] *= w; normals[i * 3 + 2] *= w;
+    }
+}
+
+/**
+ * Orient unsigned PCA normals into a globally coherent gradient field for
+ * Poisson reconstruction, then weight them by fit quality. Mutates `normals`
+ * in place. Port of the orientation pipeline in
+ * `LidarTerrainMesh/src/compute_normals.cpp`.
+ *
+ * Why this and not a plain "force nz ≥ 0": forcing every normal upward flips the
+ * ones under overhangs, arches and cave roofs, so the solver can't represent
+ * those cavities and seals them into smooth "bubbles". Instead we cascade a
+ * consistent sign from the most trustworthy cues outward:
+ *  1. **Scan angle** (if available): the laser-beam direction fixes the sign
+ *     unambiguously, even on near-vertical cliffs the +z prior can't help.
+ *  2. **Positive z**: confident near-horizontal points are pinned facing up.
+ *  3. **Propagation**: a quality-weighted majority vote floods the orientation
+ *     across the remaining points, resolving smooth links first and ambiguous
+ *     creases last so a bad flip can't cascade.
+ *  4. **Quality weighting**: normals are scaled by fit quality (Poisson reads
+ *     magnitude as confidence); unsettled points are zeroed out.
+ */
+export function orientNormalsForPoisson(
     positions: Float32Array,
     normals: Float32Array,
+    quality: Float32Array,
+    scan: ScanData | null,
     cellSize = 3,
-    neighbors = 8,
 ): void {
     const n = positions.length / 3;
     if (n < 4) return;
+    const state = new Uint8Array(n).fill(ST_NONE);
 
-    const grid = new PointGrid(positions, cellSize);
-
-    // Indices sorted by descending z, used to pick each component's seed.
-    const byZ = new Int32Array(n);
-    for (let i = 0; i < n; i++) byZ[i] = i;
-    byZ.sort((a, b) => positions[b * 3 + 2] - positions[a * 3 + 2]);
-
-    const visited = new Uint8Array(n);
-    const distBuf = new Float64Array(neighbors);
-    const idxBuf = new Int32Array(neighbors);
-    const heap = new EdgeHeap();
-
-    // Push frontier edges from an already-oriented node `i` to its unvisited
-    // k-nearest neighbours, keyed by absolute normal alignment. |dot| is
-    // sign-independent, so it's a valid confidence weight even though n_j
-    // isn't oriented yet.
-    const pushEdges = (i: number): void => {
-        grid.gather(i, neighbors, distBuf, idxBuf);
-        const nix = normals[i * 3], niy = normals[i * 3 + 1], niz = normals[i * 3 + 2];
-        for (let h = 0; h < neighbors; h++) {
-            const j = idxBuf[h];
-            if (j < 0 || visited[j]) continue;
-            const dot = nix * normals[j * 3] + niy * normals[j * 3 + 1] + niz * normals[j * 3 + 2];
-            heap.push(Math.abs(dot), i, j);
-        }
-    };
-
-    for (let s = 0; s < n; s++) {
-        const seed = byZ[s];
-        if (visited[seed]) continue;
-
-        // Seed each component with the up-prior (top of the piece faces up).
-        if (normals[seed * 3 + 2] < 0) {
-            normals[seed * 3] *= -1;
-            normals[seed * 3 + 1] *= -1;
-            normals[seed * 3 + 2] *= -1;
-        }
-        visited[seed] = 1;
-        const members: number[] = [seed];
-        pushEdges(seed);
-
-        while (heap.size > 0) {
-            const i = heap.src[0];
-            const j = heap.dst[0];
-            heap.pop();
-            if (visited[j]) continue;
-            visited[j] = 1;
-            members.push(j);
-            // Orient j to agree with its most-aligned visited neighbour i.
-            const njx = normals[j * 3], njy = normals[j * 3 + 1], njz = normals[j * 3 + 2];
-            if (normals[i * 3] * njx + normals[i * 3 + 1] * njy + normals[i * 3 + 2] * njz < 0) {
-                normals[j * 3] = -njx;
-                normals[j * 3 + 1] = -njy;
-                normals[j * 3 + 2] = -njz;
-            }
-            pushEdges(j);
-        }
-
-        // Fix a coherently-but-globally-inverted component (the whole-mesh flip).
-        orientComponentUpward(normals, members);
+    if (scan) {
+        const model = buildFlightLines(positions, scan);
+        orientWithScan(normals, quality, state, scan, model);
     }
+    orientWithZ(normals, quality, state);
+    ensureSeed(normals, state);
+
+    const ctx: PropagateCtx = {
+        grid: new PointGrid(positions, cellSize),
+        normals, quality, state,
+        distBuf: new Float64Array(PROPAGATE_NEIGHBORS),
+        idxBuf: new Int32Array(PROPAGATE_NEIGHBORS),
+        toVisit: new Uint8Array(n),
+    };
+    let unsettled = countUnsettled(state);
+    let progress = 1;
+    for (let pass = 1;
+        unsettled > 0 && (progress > 0.0001 || pass < 10) && pass <= MAX_PROPAGATE_PASSES;
+        pass++) {
+        const settled = propagatePass(ctx);
+        progress = unsettled > 0 ? settled / unsettled : 0;
+        unsettled -= settled;
+    }
+
+    weightByQuality(normals, quality, state);
 }

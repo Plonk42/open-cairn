@@ -84,6 +84,12 @@ export interface ExtractParams {
     stride: number;
     /** LAS class whitelist (null = keep all). */
     classFilter: Set<number> | null;
+    /**
+     * Also decode per-point ScanAngle / PointSourceId / GpsTime (point
+     * format 6+). Used by the Poisson mode for flight-line normal orientation;
+     * skipped otherwise to avoid the extra per-point reads.
+     */
+    needScan?: boolean;
     signal?: AbortSignal;
 }
 
@@ -92,6 +98,12 @@ export interface ExtractResult {
     positions: Float32Array;
     /** ASPRS LAS classification per point (0..255). */
     classifications: Uint8Array;
+    /** Sensor scan angle (degrees) per point. Present only when `needScan`. */
+    scanAngle?: Float32Array;
+    /** Flight-line id (PointSourceId) per point. Present only when `needScan`. */
+    sourceId?: Uint16Array;
+    /** GPS time (seconds) per point. Present only when `needScan`. */
+    gpsTime?: Float64Array;
     /** Total points present in the intersecting nodes before stride/class/bbox filtering. */
     rawPointCount: number;
     /** Points falling inside the query bbox + class filter, before stride decimation. */
@@ -106,6 +118,95 @@ interface CopcNode {
 
 interface CopcHandle {
     info: { rootHierarchyPage: unknown; cube: number[] };
+}
+
+/** Minimal structural view of a decoded COPC point-data page. */
+interface PointDataView {
+    dimensions: Record<string, unknown>;
+    pointCount: number;
+    getter(name: string): (index: number) => number;
+}
+
+/** Per-point scan getters + preallocated output buffers for the Poisson path. */
+interface ScanReaders {
+    getSA: (i: number) => number;
+    getPSID: (i: number) => number;
+    getGT: (i: number) => number;
+    scanAngle: Float32Array;
+    sourceId: Uint16Array;
+    gpsTime: Float64Array;
+}
+
+/**
+ * Build scan-dimension readers if the tile carries ScanAngle / PointSourceId /
+ * GpsTime (LAS point format 6+). Returns null when any is absent so the caller
+ * silently degrades to geometry-only orientation.
+ */
+function makeScanReaders(view: PointDataView, maxKept: number): ScanReaders | null {
+    if (view.dimensions.ScanAngle === undefined
+        || view.dimensions.PointSourceId === undefined
+        || view.dimensions.GpsTime === undefined) {
+        return null;
+    }
+    return {
+        getSA: view.getter('ScanAngle'),
+        getPSID: view.getter('PointSourceId'),
+        getGT: view.getter('GpsTime'),
+        scanAngle: new Float32Array(maxKept),
+        sourceId: new Uint16Array(maxKept),
+        gpsTime: new Float64Array(maxKept),
+    };
+}
+
+/** Trim the scan buffers to the kept-point count (empty object when absent). */
+function finalizeScan(
+    scan: ScanReaders | null, kept: number,
+): Pick<ExtractResult, 'scanAngle' | 'sourceId' | 'gpsTime'> {
+    if (!scan) return {};
+    return {
+        scanAngle: scan.scanAngle.subarray(0, kept),
+        sourceId: scan.sourceId.subarray(0, kept),
+        gpsTime: scan.gpsTime.subarray(0, kept),
+    };
+}
+
+/** A single decoded node's contribution to the merged extraction. */
+interface NodeResult {
+    positions: Float32Array;
+    classifications: Uint8Array;
+    scanAngle?: Float32Array;
+    sourceId?: Uint16Array;
+    gpsTime?: Float64Array;
+    raw: number;
+    inBbox: number;
+}
+
+/** Concatenate every node's points (and optional scan dims) into flat arrays. */
+function mergeNodeResults(
+    results: NodeResult[], total: number, needScan: boolean,
+): Pick<ExtractResult, 'positions' | 'classifications' | 'scanAngle' | 'sourceId' | 'gpsTime'> {
+    const outPos = new Float32Array(total * 3);
+    const outCls = new Uint8Array(total);
+    const outScanAngle = needScan ? new Float32Array(total) : undefined;
+    const outSourceId = needScan ? new Uint16Array(total) : undefined;
+    const outGpsTime = needScan ? new Float64Array(total) : undefined;
+    let offP = 0, offC = 0;
+    for (const r of results) {
+        outPos.set(r.positions, offP);
+        outCls.set(r.classifications, offC);
+        if (outScanAngle && r.scanAngle) outScanAngle.set(r.scanAngle, offC);
+        if (outSourceId && r.sourceId) outSourceId.set(r.sourceId, offC);
+        if (outGpsTime && r.gpsTime) outGpsTime.set(r.gpsTime, offC);
+        offP += r.positions.length;
+        offC += r.classifications.length;
+    }
+    return {
+        positions: outPos,
+        classifications: outCls,
+        scanAngle: outScanAngle,
+        sourceId: outSourceId,
+        gpsTime: outGpsTime,
+    };
 }
 
 /**
@@ -176,7 +277,7 @@ async function collectIntersectingNodes(
  * and produce METER_OFFSETS-relative positions (dx east, dy north, dz up).
  */
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
-    const { tileUrl, x0, y0, radius, stride, classFilter } = params;
+    const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
     const rawGet = Getter.create(tileUrl);
     // Diagnostic wrapper: every byte-range fetch is logged with the size
     // returned. If the IGN server ever responds with 200 (no Range support)
@@ -307,6 +408,9 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     async function processNode(key: string, node: CopcNode): Promise<{
         positions: Float32Array;
         classifications: Uint8Array;
+        scanAngle?: Float32Array;
+        sourceId?: Uint16Array;
+        gpsTime?: Float64Array;
         raw: number;
         inBbox: number;
     }> {
@@ -334,7 +438,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         const maxKept = Math.ceil(n / safeStride);
         const pos = new Float32Array(maxKept * 3);
         const cls = new Uint8Array(maxKept);
-        let kept = 0;
+        const scan = needScan ? makeScanReaders(view, maxKept) : null; let kept = 0;
         for (let i = 0; i < n; i += safeStride) {
             const x = getX(i);
             const y = getY(i);
@@ -345,6 +449,11 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
             pos[kept * 3 + 1] = y - y0;
             pos[kept * 3 + 2] = getZ(i);
             cls[kept] = c;
+            if (scan) {
+                scan.scanAngle[kept] = scan.getSA(i);
+                scan.sourceId[kept] = scan.getPSID(i);
+                scan.gpsTime[kept] = scan.getGT(i);
+            }
             kept++;
         }
         // `inBbox` is estimated as kept × stride (the actual ratio is identical
@@ -353,6 +462,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         return {
             positions: pos.subarray(0, kept * 3),
             classifications: cls.subarray(0, kept),
+            ...finalizeScan(scan, kept),
             raw: n,
             inBbox: kept * safeStride,
         };
@@ -379,14 +489,9 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         rawTotal += r.raw;
         inBboxTotal += r.inBbox;
     }
-    const outPos = new Float32Array(total * 3);
-    const outCls = new Uint8Array(total);
-    let offP = 0, offC = 0;
-    for (const r of results) {
-        outPos.set(r.positions, offP);
-        outCls.set(r.classifications, offC);
-        offP += r.positions.length;
-        offC += r.classifications.length;
-    }
-    return { positions: outPos, classifications: outCls, rawPointCount: rawTotal, inBboxPointCount: inBboxTotal };
+    return {
+        ...mergeNodeResults(results, total, !!needScan),
+        rawPointCount: rawTotal,
+        inBboxPointCount: inBboxTotal,
+    };
 }
