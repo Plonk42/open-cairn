@@ -18,6 +18,9 @@ import { create } from 'zustand';
 
 const STORAGE_KEY = 'open-cairn-settings';
 
+/** Maximum capture radius (metres) allowed in Poisson mode (WASM heap / octree limit). */
+export const POISSON_MAX_RADIUS = 500;
+
 /** IGN LiDAR HD shadow product used as hillshade source. */
 export type HillshadeSource = 'mns' | 'mnt' | 'mnh';
 
@@ -509,7 +512,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 // PoissonRecon WASM on ground + shaded cloud overlay for the
                 // other classes. Cap radius so the WASM heap (2 GB) and the
                 // depth-12 octree don't explode.
-                const psRadius = Math.min(state.lidarCloudRadius, 250);
+                const psRadius = Math.min(state.lidarCloudRadius, POISSON_MAX_RADIUS);
                 const composite = await fetchLidarPoisson({
                     lng: center.lng,
                     lat: center.lat,
@@ -543,7 +546,7 @@ export const useMapStore = create<MapState>((set, get) => ({
             // Persist a "recently loaded" entry so it can be re-opened instantly.
             const after = get();
             const psRadius = state.lidarMode === 'poisson'
-                ? Math.min(state.lidarCloudRadius, 250)
+                ? Math.min(state.lidarCloudRadius, POISSON_MAX_RADIUS)
                 : state.lidarCloudRadius;
             void saveLoadedCloud(
                 {

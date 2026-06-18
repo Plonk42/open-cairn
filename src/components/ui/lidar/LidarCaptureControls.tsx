@@ -1,4 +1,4 @@
-import { useMapStore } from '@/stores/mapStore';
+import { POISSON_MAX_RADIUS, useMapStore } from '@/stores/mapStore';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
 
@@ -150,12 +150,12 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                         <span>Rayon</span>
                         <span className="font-mono text-xs text-slate-400">
-                            {radius} m{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
+                            {radius} m{mode === 'poisson' && radius > POISSON_MAX_RADIUS ? ` → ${POISSON_MAX_RADIUS} m` : ''}
                         </span>
                     </div>
                     <input
                         aria-label="Rayon de chargement LiDAR"
-                        type="range" min={50} max={600} step={25}
+                        type="range" min={50} max={1000} step={25}
                         value={radius}
                         onChange={(e) => setRadius(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"

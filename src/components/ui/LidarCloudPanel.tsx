@@ -115,7 +115,7 @@ function QuickLoad() {
                 </div>
                 <input
                     aria-label="Rayon de chargement LiDAR"
-                    type="range" min={50} max={600} step={25}
+                    type="range" min={50} max={1000} step={25}
                     value={radius}
                     onChange={(e) => setRadius(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
