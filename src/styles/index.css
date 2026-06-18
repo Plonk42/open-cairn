@@ -25,12 +25,38 @@ html.dark #root {
     outline: none;
 }
 
+/* Slim, themed scrollbar for overflowing panels (e.g. the LiDAR Studio
+   Capture menu when progress is shown). Replaces the chunky native bar. */
+.scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.scrollbar-slim::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.35);
+    border-radius: 9999px;
+}
+
+.scrollbar-slim:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.55);
+}
+
 /* Hide native clear button on <input type="search"> — we render our own. */
 input[type="search"]::-webkit-search-cancel-button,
 input[type="search"]::-webkit-search-decoration {
     -webkit-appearance: none;
     appearance: none;
 }
+
 input[type="search"]::-ms-clear {
     display: none;
 }

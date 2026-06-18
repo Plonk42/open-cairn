@@ -150,8 +150,9 @@ void main() {
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
     // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
-    // ambiant élevé → relief toujours lisible, sans ombres portées dures.
-    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff);
+    // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
+    // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
+    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
     fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
     fragDepth = v_depth;
 }`;
@@ -281,8 +282,9 @@ void main() {
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
     // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
-    // ambiant élevé → relief toujours lisible, sans ombres portées dures.
-    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff);
+    // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
+    // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
+    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
     fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
     fragDepth = v_depth;
 }`;
@@ -547,6 +549,12 @@ function computeBbox(positions: Float32Array): Bbox | null {
  * inside the box is visible from the sun's POV and the depth resolution is
  * spent on the actual range of relief instead of a generic far plane.
  */
+// Fixed neutral light direction — mirrors FLAT_LIGHT_DIR in the GLSL shaders
+// (already unit length: 0.5²+0.5²+0.7071² ≈ 1). Used as the shadow caster
+// direction when sun lighting is disabled, so cast shadows align with the
+// neutral hillshade.
+const FLAT_LIGHT_DIR: [number, number, number] = [-0.5, 0.5, 0.7071];
+
 function buildLightMatrix(sunDir: [number, number, number], bbox: Bbox): Float32Array {
     // Camera basis: forward = -sunDir (looking from sun TOWARDS scene).
     const fx = -sunDir[0], fy = -sunDir[1], fz = -sunDir[2];
@@ -714,6 +722,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshColBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
+    // Whether the ground mesh is drawn. Toggled by the "Sol" class chip in the
+    // Delaunay/Poisson modes (where ground points are replaced by this mesh).
+    private _meshVisible = true;
     private _locMesh: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -1099,6 +1110,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     /**
+     * Show or hide the ground mesh without dropping its GPU buffers. Used by the
+     * "Sol" class chip in Delaunay/Poisson modes, where the ground is a
+     * reconstructed mesh rather than points, so the class-mask filter (which
+     * only affects points) can't toggle it.
+     */
+    setMeshVisible(visible: boolean): void {
+        if (this._meshVisible === visible) return;
+        this._meshVisible = visible;
+        this._map?.triggerRepaint();
+    }
+
+    /**
      * Upload an orthophoto mosaic to drape over the mesh. `lngLatRect` is the
      * exact geographic extent the image covers; it is converted to the layer's
      * meter-offset frame (shared `_ox/_oy/_mpu`) so the vertex shader can map
@@ -1205,7 +1228,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * matches the point cloud's, so we share `_mpu` and the translated matrix.
      */
     private _drawMesh(gl: WebGL2RenderingContext, translatedMatrix: Float32Array): void {
-        if (!this._meshIndexCount || !this._progMesh || !this._vaoMesh) return;
+        if (!this._meshVisible || !this._meshIndexCount || !this._progMesh || !this._vaoMesh) return;
         gl.useProgram(this._progMesh);
         gl.uniformMatrix4fv(this._locMesh.matrix, false, translatedMatrix);
         gl.uniform1f(this._locMesh.mpu, this._mpu);
@@ -1232,11 +1255,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * fall back to no-shadow rendering (u_shadowEnabled = 0).
      */
     private _shadowsActive(): boolean {
+        // Shadows are available with sun lighting AND in the neutral lighting
+        // mode (cast from the fixed FLAT_LIGHT_DIR). The sun-intensity floor
+        // only applies when the directional sun actually drives the shading.
         return this.config.shadowsEnabled
-            && this.config.sunLightingEnabled
+            && this._meshVisible
             && this._meshIndexCount > 0
             && this._meshBbox !== null
-            && this.config.sunIntensity > 0
+            && (!this.config.sunLightingEnabled || this.config.sunIntensity > 0)
             && this._progShadow !== null
             && this._shadowFbo !== null;
     }
@@ -1248,7 +1274,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      */
     private _renderShadowPass(gl: WebGL2RenderingContext, prevFBO: WebGLFramebuffer | null): boolean {
         if (!this._shadowsActive() || !this._meshBbox) return false;
-        const m = buildLightMatrix(this.config.sunDir, this._meshBbox);
+        // With sun lighting on, shadows follow the sun; otherwise they follow
+        // the fixed neutral light direction so they match the flat hillshade.
+        const lightDir = this.config.sunLightingEnabled ? this.config.sunDir : FLAT_LIGHT_DIR;
+        const m = buildLightMatrix(lightDir, this._meshBbox);
         this._lightMatrix.set(m);
         this._ensureShadowMap(gl, this.config.shadowMapSize);
         gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFbo);

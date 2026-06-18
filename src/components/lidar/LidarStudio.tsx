@@ -1,13 +1,11 @@
 import { MapContainer } from '@/components/map/MapContainer';
-import { useIsMobile } from '@/lib/useIsMobile';
 import { useView } from '@/lib/useView';
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
 import { ShowcaseGallery } from './ShowcaseGallery';
-import { QuickBasemapSwitch } from './StudioControls';
-import { OrbitTopBarButton, StudioSettings, type StudioCategoryId } from './StudioSettingsDock';
+import { OrbitTopBarButton, StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
 
 // Forces the contextual orthophoto base map once per page load when the studio
 // is first opened (mountain context reads best over imagery), without fighting
@@ -41,20 +39,6 @@ function useStudioCameraIntro() {
             }
         });
         return unsub;
-    }, []);
-}
-
-/**
- * Show the red footprint preview rectangle only while the studio is open and no
- * cloud is loaded yet; hide it as soon as a render is displayed, and clear it on
- * exit so it never lingers over the classic map view.
- */
-function useStudioPreviewSync(hasData: boolean) {
-    useEffect(() => {
-        useMapStore.getState().setLidarPreviewVisible(!hasData);
-    }, [hasData]);
-    useEffect(() => {
-        return () => useMapStore.getState().setLidarPreviewVisible(false);
     }, []);
 }
 
@@ -107,10 +91,6 @@ function StudioTopBar({
                 <span>Studio LiDAR</span>
             </div>
 
-            <div className="ml-2 hidden md:block">
-                <QuickBasemapSwitch />
-            </div>
-
             {/* Showcase : galerie et export. */}
             <div className="ml-2 hidden items-center gap-2 md:flex">
                 <OrbitTopBarButton />
@@ -138,8 +118,6 @@ function StudioTopBar({
  */
 export function LidarStudio() {
     const { setView } = useView();
-    const isMobile = useIsMobile();
-    const [activeCategory, setActiveCategory] = useState<StudioCategoryId | null>(null);
     const [splashDismissed, setSplashDismissed] = useState(false);
     const shaded = useMapStore((s) => s.lidarShaded);
     const mesh = useMapStore((s) => s.lidarMesh);
@@ -147,7 +125,6 @@ export function LidarStudio() {
     const hasData = shaded !== null || mesh !== null;
 
     useStudioCameraIntro();
-    useStudioPreviewSync(hasData);
 
     useEffect(() => {
         if (studioBaseInitialized) return;
@@ -173,9 +150,6 @@ export function LidarStudio() {
         return () => globalThis.removeEventListener('pointerdown', dismiss);
     }, [showEmptyState]);
 
-    const selectCategory = (id: StudioCategoryId) =>
-        setActiveCategory((cur) => (cur === id ? null : id));
-
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">
             <MapContainer />
@@ -184,7 +158,9 @@ export function LidarStudio() {
 
             <StudioTopBar onExit={() => setView('map')} />
 
-            <StudioSettings isMobile={isMobile} active={activeCategory} onSelect={selectCategory} />
+            <StudioBottomBar />
+
+            <StudioCaptureButton />
         </div>
     );
 }

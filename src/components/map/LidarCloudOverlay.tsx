@@ -24,7 +24,6 @@ export function LidarCloudOverlay() {
     const edlFarPlane = useMapStore((s) => s.lidarCloudEdlFarPlane);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
-    const hideBasemap = useMapStore((s) => s.lidarCloudHideBasemap);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
@@ -150,6 +149,13 @@ export function LidarCloudOverlay() {
         webglRef.current?.setClassMask(classes);
     }, [classes, styleEpoch]);
 
+    // In Delaunay/Poisson modes the ground (class 2) is a reconstructed mesh,
+    // not points, so the class mask above can't toggle it. Mirror the "Sol"
+    // chip onto the mesh: it's shown iff class 2 is selected.
+    useEffect(() => {
+        webglRef.current?.setMeshVisible(classes.includes(2));
+    }, [classes, lidarMesh, styleEpoch]);
+
     useEffect(() => {
         webglRef.current?.setConfig({
             pointSize: basePointSize,
@@ -216,36 +222,6 @@ export function LidarCloudOverlay() {
         const { dir, intensity, color } = sunLighting(date, lat, lng);
         layer.setConfig({ sunDir: dir, sunIntensity: intensity, sunColor: color });
     }, [sunDate, lidarShaded, lidarMesh, mapInstance, styleEpoch]);
-
-    // ── Basemap dimming ───────────────────────────────────────────────────────
-    // The "Estomper" toggle fades the basemap (raster-opacity 0.15) while keeping
-    // it visible under the cloud. A base-layer switch (Photo/Plan) rebuilds the
-    // style via `setStyle({diff:true})`, and because the new style spec carries no
-    // `raster-opacity` on the `base` layer, the diff RESETS it to the default 1 —
-    // silently dropping the fade. So we re-apply on every `styledata` (fires after
-    // any rebuild) in addition to the immediate apply for the toggle itself. The
-    // transition is forced to 0 ms so the change is instant, not a 300 ms fade.
-    useEffect(() => {
-        const map = mapInstance;
-        if (!map) return;
-        const hasOverlay = lidarShaded !== null || lidarMesh !== null;
-        const targetOpacity = hideBasemap && hasOverlay ? 0.15 : 1;
-        const apply = () => {
-            const style = map.getStyle();
-            if (!style?.layers) return;
-            for (const layer of style.layers) {
-                if (layer.type !== 'raster') continue;
-                try {
-                    map.setPaintProperty(layer.id, 'raster-opacity-transition', { duration: 0 });
-                    map.setPaintProperty(layer.id, 'raster-opacity', targetOpacity);
-                } catch { /* layer might not accept the property */ }
-            }
-        };
-        if (map.isStyleLoaded()) apply();
-        else map.once('idle', apply);
-        map.on('styledata', apply);
-        return () => { map.off('styledata', apply); };
-    }, [mapInstance, hideBasemap, lidarShaded, lidarMesh]);
 
     return null;
 }

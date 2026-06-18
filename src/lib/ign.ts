@@ -211,4 +211,4 @@ export function ignStaticMapUrl(opts: {
 
 /** IGN attribution text required by the Geoplateforme terms of use. */
 export const IGN_ATTRIBUTION =
-    '© <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> — Géoplateforme';
+    '© <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a>';

@@ -38,7 +38,7 @@ function ShaderButton({
     );
 }
 
-function ClassFilterSection() {
+export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const setClasses = useMapStore((s) => s.setLidarCloudClasses);
     const toggleClass = (cls: number) => {
@@ -66,30 +66,68 @@ function ClassFilterSection() {
     );
 }
 
-/**
- * Appearance controls brick: opacity, photo texture, basemap dimming, class
- * filter, shader preset, point size and adaptive sizing. Reads/writes the
- * shared mapStore.
- */
-export function LidarAppearanceControls() {
+/** Layer opacity slider + (mesh modes only) draped photo-texture opacity. */
+export function OpacityControls() {
     const mode = useMapStore((s) => s.lidarMode);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const setPhotoOpacity = useMapStore((s) => s.setLidarCloudPhotoOpacity);
-    const pointSize = useMapStore((s) => s.lidarCloudPointSize);
-    const setPointSize = useMapStore((s) => s.setLidarCloudPointSize);
-    const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
-    const setSizeCompensation = useMapStore((s) => s.setLidarCloudSizeCompensation);
-    const shader = useMapStore((s) => s.lidarShader);
-    const setShader = useMapStore((s) => s.setLidarShader);
+    const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
+    const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
+    const contourEnabled = useMapStore((s) => s.contourLinesEnabled);
+    const setContourEnabled = useMapStore((s) => s.setContourLinesEnabled);
+    const contourOpacity = useMapStore((s) => s.contourLinesOpacity);
+    const setContourOpacity = useMapStore((s) => s.setContourLinesOpacity);
+    // A single slider drives the contour lines: 0 = off, >0 = on at that opacity.
+    const contourValue = contourEnabled ? contourOpacity : 0;
+    const onContourChange = (v: number) => {
+        if (v <= 0) {
+            setContourEnabled(false);
+        } else {
+            if (!contourEnabled) setContourEnabled(true);
+            setContourOpacity(v);
+        }
+    };
 
     return (
         <div className="space-y-3">
+            {/* Fond de carte (estompage de l'orthophoto/plan IGN sous le nuage) */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Fond de carte</span>
+                    <span className="font-mono text-xs text-slate-400">{Math.round(basemapOpacity * 100)}%</span>
+                </div>
+                <input
+                    aria-label="Opacité du fond de carte sous le nuage"
+                    type="range" min={0} max={1} step={0.05}
+                    value={basemapOpacity}
+                    onChange={(e) => setBasemapOpacity(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Courbes de niveau — slider 0 = masquées */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Courbes de niveau</span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {contourValue <= 0 ? 'off' : `${Math.round(contourValue * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Opacité des courbes de niveau"
+                    type="range" min={0} max={1} step={0.05}
+                    value={contourValue}
+                    onChange={(e) => onContourChange(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
             {/* Opacité */}
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Opacité</span>
+                    <span>Rendu LiDAR</span>
                     <span className="font-mono text-xs text-slate-400">{Math.round(opacity * 100)}%</span>
                 </div>
                 <input
@@ -115,26 +153,38 @@ export function LidarAppearanceControls() {
                         onChange={(e) => setPhotoOpacity(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
                     />
-                    <p className="mt-1 text-[11px] text-slate-400">
-                        Drape l'orthophoto IGN sur le maillage reconstruit.
-                    </p>
                 </label>
             )}
+        </div>
+    );
+}
 
-            {/* Atténuer le fond : géré par le bouton « Fond » de la barre du haut. */}
+/** Shader preset selector: base / cliff / winter. */
+export function ShaderControls() {
+    const shader = useMapStore((s) => s.lidarShader);
+    const setShader = useMapStore((s) => s.setLidarShader);
 
-            <ClassFilterSection />
+    return (
+        <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
+            <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
+                <ShaderButton preset="base" current={shader} onClick={() => setShader('base')} label="Base" rounded="l" title="Dégradé chaud sable / brun (style CloudCompare)" />
+                <ShaderButton preset="cliff" current={shader} onClick={() => setShader('cliff')} label="Falaise" rounded="" title="Rupture nette herbe/calcaire gris avec texture rocheuse" />
+                <ShaderButton preset="winter" current={shader} onClick={() => setShader('winter')} label="Hiver" rounded="r" title="Neige sur pentes douces/expositions nord, falaise brun rocheux" />
+            </fieldset>
+        </div>
+    );
+}
 
-            {/* Shader */}
-            <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
-                <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                    <ShaderButton preset="base" current={shader} onClick={() => setShader('base')} label="Base" rounded="l" title="Dégradé chaud sable / brun (style CloudCompare)" />
-                    <ShaderButton preset="cliff" current={shader} onClick={() => setShader('cliff')} label="Falaise" rounded="" title="Rupture nette herbe/calcaire gris avec texture rocheuse" />
-                    <ShaderButton preset="winter" current={shader} onClick={() => setShader('winter')} label="Hiver" rounded="r" title="Neige sur pentes douces/expositions nord, falaise brun rocheux" />
-                </fieldset>
-            </div>
+/** Point size slider + adaptive (decimation-compensating) sizing toggle. */
+export function PointSizeControls() {
+    const pointSize = useMapStore((s) => s.lidarCloudPointSize);
+    const setPointSize = useMapStore((s) => s.setLidarCloudPointSize);
+    const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
+    const setSizeCompensation = useMapStore((s) => s.setLidarCloudSizeCompensation);
 
+    return (
+        <div className="space-y-3">
             {/* Taille des points */}
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">

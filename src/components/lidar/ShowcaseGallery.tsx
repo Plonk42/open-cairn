@@ -111,7 +111,11 @@ function applyAmbiance(a: ShowcaseAmbiance) {
     st.setLidarCloudSizeCompensation(a.lidarCloudSizeCompensation);
     st.setLidarCloudOpacity(a.lidarCloudOpacity);
     st.setLidarCloudPhotoOpacity(a.lidarCloudPhotoOpacity);
-    st.setLidarCloudHideBasemap(a.lidarCloudHideBasemap);
+    // Backward compat: legacy scenes stored a `lidarCloudHideBasemap` boolean.
+    const legacy = a as ShowcaseAmbiance & { lidarCloudHideBasemap?: boolean };
+    st.setLidarCloudBasemapOpacity(
+        legacy.lidarCloudBasemapOpacity ?? (legacy.lidarCloudHideBasemap ? 0.15 : 1),
+    );
     st.setLidarCloudClasses(a.lidarCloudClasses);
 }
 

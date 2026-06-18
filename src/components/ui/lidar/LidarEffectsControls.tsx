@@ -28,49 +28,50 @@ export function LidarEffectsControls() {
                     <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${edl ? 'translate-x-4' : 'translate-x-0'}`} />
                 </button>
             </div>
-            {edl && (
-                <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50">
-                    <label className="block">
-                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-                            <span>Intensité</span>
-                            <span className="font-mono text-[10px] text-slate-400">{edlStrength.toFixed(1)}</span>
-                        </div>
-                        <input
-                            aria-label="Intensité EDL"
-                            type="range" min={0} max={50} step={0.5}
-                            value={edlStrength}
-                            onChange={(e) => setEdlStrength(Number(e.target.value))}
-                            className="mt-1 w-full accent-green-600"
-                        />
-                    </label>
-                    <label className="block">
-                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-                            <span>Distance voisins</span>
-                            <span className="font-mono text-[10px] text-slate-400">{edlRadius.toFixed(1)}</span>
-                        </div>
-                        <input
-                            aria-label="Distance voisins EDL"
-                            type="range" min={0.5} max={6} step={0.1}
-                            value={edlRadius}
-                            onChange={(e) => setEdlRadius(Number(e.target.value))}
-                            className="mt-1 w-full accent-green-600"
-                        />
-                    </label>
-                    <label className="block">
-                        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-                            <span>Profondeur</span>
-                            <span className="font-mono text-[10px] text-slate-400">{edlFarPlane.toFixed(0)}</span>
-                        </div>
-                        <input
-                            aria-label="Profondeur EDL"
-                            type="range" min={100} max={5000} step={50}
-                            value={edlFarPlane}
-                            onChange={(e) => setEdlFarPlane(Number(e.target.value))}
-                            className="mt-1 w-full accent-green-600"
-                        />
-                    </label>
-                </div>
-            )}
+            <fieldset
+                disabled={!edl}
+                className={`m-0 mt-2 min-w-0 space-y-2 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50 ${edl ? '' : 'opacity-50'}`}
+            >
+                <label className="block">
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                        <span>Intensité</span>
+                        <span className="font-mono text-[10px] text-slate-400">{edlStrength.toFixed(1)}</span>
+                    </div>
+                    <input
+                        aria-label="Intensité EDL"
+                        type="range" min={0} max={50} step={0.5}
+                        value={edlStrength}
+                        onChange={(e) => setEdlStrength(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+                <label className="block">
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                        <span>Distance voisins</span>
+                        <span className="font-mono text-[10px] text-slate-400">{edlRadius.toFixed(1)}</span>
+                    </div>
+                    <input
+                        aria-label="Distance voisins EDL"
+                        type="range" min={0.5} max={6} step={0.1}
+                        value={edlRadius}
+                        onChange={(e) => setEdlRadius(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+                <label className="block">
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                        <span>Profondeur</span>
+                        <span className="font-mono text-[10px] text-slate-400">{edlFarPlane.toFixed(0)}</span>
+                    </div>
+                    <input
+                        aria-label="Profondeur EDL"
+                        type="range" min={100} max={5000} step={50}
+                        value={edlFarPlane}
+                        onChange={(e) => setEdlFarPlane(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+            </fieldset>
         </div>
     );
 }

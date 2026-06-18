@@ -134,7 +134,7 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
             lidarCloudSizeCompensation: st.lidarCloudSizeCompensation,
             lidarCloudOpacity: st.lidarCloudOpacity,
             lidarCloudPhotoOpacity: st.lidarCloudPhotoOpacity,
-            lidarCloudHideBasemap: st.lidarCloudHideBasemap,
+            lidarCloudBasemapOpacity: st.lidarCloudBasemapOpacity,
             lidarCloudClasses: st.lidarCloudClasses,
         },
         shaded: st.lidarShaded,

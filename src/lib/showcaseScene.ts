@@ -71,7 +71,7 @@ export interface ShowcaseAmbiance {
     lidarCloudSizeCompensation: boolean;
     lidarCloudOpacity: number;
     lidarCloudPhotoOpacity: number;
-    lidarCloudHideBasemap: boolean;
+    lidarCloudBasemapOpacity: number;
     lidarCloudClasses: number[];
 }
 
@@ -115,7 +115,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarCloudSizeCompensation: true,
     lidarCloudOpacity: 1,
     lidarCloudPhotoOpacity: 0,
-    lidarCloudHideBasemap: false,
+    lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [],
 };
 

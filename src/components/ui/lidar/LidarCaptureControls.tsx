@@ -67,7 +67,7 @@ function PoissonControls() {
                     className="mt-1 w-full accent-green-600"
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
-                    8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent (RAM en cube).
+                    8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent.
                 </p>
             </label>
             <label className="block">
@@ -83,7 +83,7 @@ function PoissonControls() {
                     className="mt-1 w-full accent-green-600"
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
-                    Adapte la finesse du maillage localement &middot; 1,5 (défaut) &middot; min 0,5 / max 5.
+                    Adapte la finesse du maillage &middot; 1,5 (défaut) &middot; min 0,5 / max 5.
                 </p>
             </label>
             <label className="block">
@@ -99,7 +99,7 @@ function PoissonControls() {
                     className="mt-1 w-full accent-green-600"
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
-                    Renforce l'adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
+                    Adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
                 </p>
             </label>
         </div>
@@ -130,84 +130,89 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
     const center = shaded ?? mesh;
 
     return (
-        <div className="space-y-3">
-            {/* Mode */}
-            <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
-                <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                    <ModeButton mode="shaded" current={mode} onClick={() => setMode('shaded')} label="Points" rounded="l" title="Nuage de points ombré (normales par k-PPV)" />
-                    <ModeButton mode="delaunay" current={mode} onClick={() => setMode('delaunay')} label="Delaunay" rounded="" title="Sol en mesh Delaunay 2.5D + végétation/bâti en nuage" />
-                    <ModeButton mode="poisson" current={mode} onClick={() => setMode('poisson')} label="Poisson" rounded="r" title="Reconstruction Poisson du sol (octree adaptatif) + nuage végétation/bâti" />
-                </fieldset>
+        <div className="flex min-h-0 flex-col gap-3">
+            {/* Scrollable parameters — keeps the action footer always visible */}
+            <div className="scrollbar-slim min-h-0 flex-1 space-y-3 overflow-y-auto">
+                {/* Mode */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
+                    <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
+                        <ModeButton mode="shaded" current={mode} onClick={() => setMode('shaded')} label="Points" rounded="l" title="Nuage de points ombré (normales par k-PPV)" />
+                        <ModeButton mode="delaunay" current={mode} onClick={() => setMode('delaunay')} label="Delaunay" rounded="" title="Sol en mesh Delaunay 2.5D + végétation/bâti en nuage" />
+                        <ModeButton mode="poisson" current={mode} onClick={() => setMode('poisson')} label="Poisson" rounded="r" title="Reconstruction Poisson du sol (octree adaptatif) + nuage végétation/bâti" />
+                    </fieldset>
+                </div>
+
+                {mode === 'poisson' && <PoissonControls />}
+
+                {/* Rayon */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Rayon</span>
+                        <span className="font-mono text-xs text-slate-400">
+                            {radius} m{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
+                        </span>
+                    </div>
+                    <input
+                        aria-label="Rayon de chargement LiDAR"
+                        type="range" min={50} max={600} step={25}
+                        value={radius}
+                        onChange={(e) => setRadius(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Densité */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Densité</span>
+                        <span className="font-mono text-xs text-slate-400">{stride === 1 ? 'max' : `1/${stride}`}</span>
+                    </div>
+                    <input
+                        aria-label="Décimation du nuage de points"
+                        type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
+                        list="lidar-density-stops"
+                        value={strideToIndex(stride)}
+                        onChange={(e) => setStride(STRIDE_STOPS[Number(e.target.value)])}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                    <datalist id="lidar-density-stops">
+                        {STRIDE_STOPS.map((s, i) => (
+                            <option key={s} value={i} label={s === 1 ? 'max' : `1/${s}`} />
+                        ))}
+                    </datalist>
+                </label>
             </div>
 
-            {mode === 'poisson' && <PoissonControls />}
-
-            {/* Rayon */}
-            <label className="block">
-                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Rayon</span>
-                    <span className="font-mono text-xs text-slate-400">
-                        {radius} m{mode === 'poisson' && radius > 250 ? ' → 250 m' : ''}
-                    </span>
+            {/* Pinned action footer — stays visible even when the params scroll */}
+            <div className="shrink-0 space-y-3">
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => { load(); }}
+                        disabled={loading}
+                        className="flex-1 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {loading ? 'Chargement…' : 'Charger ici'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clear}
+                        disabled={!hasData || loading}
+                        className="rounded-md bg-gray-100 px-3 py-2 text-sm text-slate-700 ring-1 ring-gray-200 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600"
+                    >
+                        Effacer
+                    </button>
                 </div>
-                <input
-                    aria-label="Rayon de chargement LiDAR"
-                    type="range" min={50} max={600} step={25}
-                    value={radius}
-                    onChange={(e) => setRadius(Number(e.target.value))}
-                    className="mt-1 w-full accent-green-600"
-                />
-            </label>
 
-            {/* Densité */}
-            <label className="block">
-                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Densité</span>
-                    <span className="font-mono text-xs text-slate-400">{stride === 1 ? 'max' : `1/${stride}`}</span>
-                </div>
-                <input
-                    aria-label="Décimation du nuage de points"
-                    type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
-                    list="lidar-density-stops"
-                    value={strideToIndex(stride)}
-                    onChange={(e) => setStride(STRIDE_STOPS[Number(e.target.value)])}
-                    className="mt-1 w-full accent-green-600"
-                />
-                <datalist id="lidar-density-stops">
-                    {STRIDE_STOPS.map((s, i) => (
-                        <option key={s} value={i} label={s === 1 ? 'max' : `1/${s}`} />
-                    ))}
-                </datalist>
-            </label>
-
-            {/* Action buttons */}
-            <div className="flex gap-2 pt-1">
-                <button
-                    type="button"
-                    onClick={() => { load(); }}
-                    disabled={loading}
-                    className="flex-1 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {loading ? 'Chargement…' : 'Charger ici'}
-                </button>
-                <button
-                    type="button"
-                    onClick={clear}
-                    disabled={!hasData || loading}
-                    className="rounded-md bg-gray-100 px-3 py-2 text-sm text-slate-700 ring-1 ring-gray-200 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600"
-                >
-                    Effacer
-                </button>
+                {showProgress && loading && progress && <LidarProgressBar progress={progress} />}
+                {hasData && !loading && center && <LidarStatusLine shaded={shaded} mesh={mesh} radius={center.radius} />}
+                {error && (
+                    <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">
+                        {error}
+                    </p>
+                )}
             </div>
-
-            {showProgress && loading && progress && <LidarProgressBar progress={progress} />}
-            {hasData && !loading && center && <LidarStatusLine shaded={shaded} mesh={mesh} radius={center.radius} />}
-            {error && (
-                <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800">
-                    {error}
-                </p>
-            )}
         </div>
     );
 }

@@ -102,10 +102,6 @@ export function SunDateControl({
 
     return (
         <div>
-            <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-sm text-slate-700 dark:text-slate-300">Soleil</span>
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${dayBadge}`}>{dayLabel}</span>
-            </div>
             <input
                 aria-label="Date pour le calcul du soleil"
                 type="date"
@@ -143,14 +139,17 @@ export function SunDateControl({
                     step={5}
                     value={minutesOfDay}
                     onChange={(e) => setMinutes(Number(e.target.value))}
-                    className="flex-1 accent-green-600"
+                    className="min-w-0 flex-1 accent-green-600"
                 />
                 <span className="w-12 text-right font-mono text-xs text-slate-700 tabular-nums dark:text-slate-200">
                     {timeLabel}
                 </span>
+                <span className={`inline-block w-16 rounded px-1.5 py-0.5 text-center text-[10px] font-medium ${dayBadge}`}>
+                    {dayLabel}
+                </span>
             </div>
             <p className="mt-1 font-mono text-[10px] text-slate-400">
-                az {azStr} · h {elStr}
+                Position : az {azStr} · h {elStr}
             </p>
         </div>
     );

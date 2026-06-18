@@ -180,9 +180,9 @@ interface MapState {
     /** Drapage orthophoto IGN sur le mesh 0..1 (0 = palette, 1 = photo). */
     lidarCloudPhotoOpacity: number;
     setLidarCloudPhotoOpacity: (v: number) => void;
-    /** Whether to dim the underlying basemap when the cloud is visible. */
-    lidarCloudHideBasemap: boolean;
-    setLidarCloudHideBasemap: (v: boolean) => void;
+    /** Underlying basemap opacity 0..1 when the cloud is visible (1 = full, lower = "estompé"). */
+    lidarCloudBasemapOpacity: number;
+    setLidarCloudBasemapOpacity: (v: number) => void;
     /** LAS classification filter (empty = all classes). */
     lidarCloudClasses: number[];
     setLidarCloudClasses: (v: number[]) => void;
@@ -307,6 +307,8 @@ type PersistedSettings = {
     lidarCloudEdlFarPlane?: number;
     lidarCloudOpacity?: number;
     lidarCloudPhotoOpacity?: number;
+    /** New numeric basemap opacity; falls back to the legacy lidarCloudHideBasemap boolean. */
+    lidarCloudBasemapOpacity?: number;
     lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
@@ -451,8 +453,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
     lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? 0,
     setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
-    lidarCloudHideBasemap: persisted.lidarCloudHideBasemap ?? false,
-    setLidarCloudHideBasemap: (lidarCloudHideBasemap) => set({ lidarCloudHideBasemap }),
+    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? (persisted.lidarCloudHideBasemap ? 0.15 : 1),
+    setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
     lidarCloudClasses: persisted.lidarCloudClasses ?? [2],
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
     lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
@@ -655,7 +657,7 @@ useMapStore.subscribe((state) => {
             lidarCloudEdlFarPlane: state.lidarCloudEdlFarPlane,
             lidarCloudOpacity: state.lidarCloudOpacity,
             lidarCloudPhotoOpacity: state.lidarCloudPhotoOpacity,
-            lidarCloudHideBasemap: state.lidarCloudHideBasemap,
+            lidarCloudBasemapOpacity: state.lidarCloudBasemapOpacity,
             lidarCloudClasses: state.lidarCloudClasses,
             lidarCloudPoissonDepth: state.lidarCloudPoissonDepth,
             lidarCloudPoissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,

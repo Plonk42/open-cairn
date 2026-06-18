@@ -19,6 +19,50 @@ const LidarCloudOverlay = lazy(() =>
 const isLidarStudioView = () =>
     new URLSearchParams(globalThis.location.search).get('view') === 'lidar';
 
+/**
+ * Applies the studio "Fond de carte" slider to the basemap raster layers.
+ *
+ * Mounted UNCONDITIONALLY (unlike `LidarCloudOverlay`, which only mounts once a
+ * cloud is loaded) so the slider gives live feedback even before any cloud/mesh
+ * is displayed. Dimming is scoped to the studio OR to when a cloud is present,
+ * so the classic map view is never dimmed by a persisted opacity value.
+ *
+ * A base-layer switch (Photo/Plan) rebuilds the style via `setStyle({diff:true})`
+ * and, because the new style spec carries no `raster-opacity` on the `base`
+ * layer, the diff RESETS it to the default 1 — silently dropping the fade. So we
+ * re-apply on every `styledata` (fires after any rebuild). The transition is
+ * forced to 0 ms so the change is instant, not a 300 ms fade.
+ */
+function BasemapDimmer() {
+    const mapInstance = useMapStore((s) => s.mapInstance);
+    const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
+    const lidarShaded = useMapStore((s) => s.lidarShaded);
+    const lidarMesh = useMapStore((s) => s.lidarMesh);
+    useEffect(() => {
+        const map = mapInstance;
+        if (!map) return;
+        const hasOverlay = lidarShaded !== null || lidarMesh !== null;
+        const shouldDim = hasOverlay || isLidarStudioView();
+        const targetOpacity = shouldDim ? basemapOpacity : 1;
+        const apply = () => {
+            const style = map.getStyle();
+            if (!style?.layers) return;
+            for (const layer of style.layers) {
+                if (layer.type !== 'raster') continue;
+                try {
+                    map.setPaintProperty(layer.id, 'raster-opacity-transition', { duration: 0 });
+                    map.setPaintProperty(layer.id, 'raster-opacity', targetOpacity);
+                } catch { /* layer might not accept the property */ }
+            }
+        };
+        if (map.isStyleLoaded()) apply();
+        else map.once('idle', apply);
+        map.on('styledata', apply);
+        return () => { map.off('styledata', apply); };
+    }, [mapInstance, basemapOpacity, lidarShaded, lidarMesh]);
+    return null;
+}
+
 // Lazy-loaded so deck.gl (~150 KB gz: core + layers + mapbox) only ships when
 // the user actually draws a cliff slice over a loaded LiDAR cloud.
 const CliffSlicePathOverlay = lazy(() =>
@@ -670,7 +714,7 @@ export function MapContainer() {
                 hillshadeBlend: initial.hillshadeBlend,
                 hillshadeIntensity: initial.hillshadeIntensity,
                 sunHillshade: initial.sunHillshadeEnabled,
-                terrain: initial.terrainEnabled,
+                terrain: isLidarStudioView() || initial.terrainEnabled,
                 terrainExaggeration: initial.terrainExaggeration,
                 renderQuality: initial.renderQuality,
                 contourLines: initial.contourLinesEnabled,
@@ -708,7 +752,8 @@ export function MapContainer() {
             (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
 
         // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
-        // so adding the scale FIRST puts it at the very bottom of the stack, under the other buttons.
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+
         map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
         map.addControl(
@@ -727,15 +772,18 @@ export function MapContainer() {
             }),
             'bottom-left',
         );
-        const terrainControl = new maplibregl.TerrainControl({
-            source: 'terrain',
-            exaggeration: initial.terrainExaggeration,
-        });
-        map.addControl(terrainControl, 'bottom-left');
-        terrainControl._terrainButton.addEventListener('click', () => {
-            globalThis.setTimeout(() => syncTerrainControlState(map), 0);
-        });
-        map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+        // In the LiDAR Studio, 3D terrain is forced on and not user-toggleable,
+        // so the terrain control button is omitted there.
+        if (!isLidarStudioView()) {
+            const terrainControl = new maplibregl.TerrainControl({
+                source: 'terrain',
+                exaggeration: initial.terrainExaggeration,
+            });
+            map.addControl(terrainControl, 'bottom-left');
+            terrainControl._terrainButton.addEventListener('click', () => {
+                globalThis.setTimeout(() => syncTerrainControlState(map), 0);
+            });
+        }
 
         map.on('moveend', () => {
             const c = map.getCenter();
@@ -886,7 +934,7 @@ export function MapContainer() {
                     hillshadeBlend,
                     hillshadeIntensity,
                     sunHillshade: sunHillshadeEnabled,
-                    terrain: current.terrainEnabled,
+                    terrain: isLidarStudioView() || current.terrainEnabled,
                     terrainExaggeration: current.terrainExaggeration,
                     renderQuality: current.renderQuality,
                     contourLines: current.contourLinesEnabled,
@@ -984,7 +1032,7 @@ export function MapContainer() {
                     hillshadeBlend: current.hillshadeBlend,
                     hillshadeIntensity: current.hillshadeIntensity,
                     sunHillshade: current.sunHillshadeEnabled,
-                    terrain: current.terrainEnabled,
+                    terrain: isLidarStudioView() || current.terrainEnabled,
                     terrainExaggeration: current.terrainExaggeration,
                     renderQuality: current.renderQuality,
                     contourLines: current.contourLinesEnabled,
@@ -1005,10 +1053,11 @@ export function MapContainer() {
     }, [renderQuality]);
 
     // Terrain on/off + exaggeration (no style rebuild needed).
+    // In the LiDAR Studio 3D terrain is forced on (no user toggle).
     useEffect(() => {
         const map = mapRef.current;
         if (!map?.isStyleLoaded()) return;
-        if (terrainEnabled) {
+        if (terrainEnabled || isLidarStudioView()) {
             map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
             map.once('idle', () => syncCenterElevationToTerrain(map));
         } else {
@@ -1107,6 +1156,7 @@ export function MapContainer() {
         <>
             <div ref={containerRef} className="absolute inset-0 h-full w-full" />
             <LidarCloudOverlayGate />
+            <BasemapDimmer />
             <CliffSlicePathOverlayGate />
         </>
     );
