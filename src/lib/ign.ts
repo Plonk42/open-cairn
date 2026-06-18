@@ -166,6 +166,49 @@ export function ignTerrainRgbUrl(apikey?: string): string {
     return `${base}?${params}`;
 }
 
+/**
+ * Static Plan IGN preview for an area, as a single WMS GetMap image.
+ *
+ * Used for thumbnails (e.g. saved-cloud previews): given a center + ground
+ * radius (m), returns a PNG URL framing roughly that area with surrounding
+ * context. The bbox is built in Web Mercator (EPSG:3857), so the ground radius
+ * is scaled by 1/cos(lat).
+ */
+export function ignStaticMapUrl(opts: {
+    centerLng: number;
+    centerLat: number;
+    /** Ground radius in meters. */
+    radius: number;
+    width?: number;
+    height?: number;
+}): string {
+    const { centerLng, centerLat, radius } = opts;
+    const width = opts.width ?? 480;
+    const height = opts.height ?? 300;
+    const R = 6378137;
+    const mx = R * (centerLng * Math.PI) / 180;
+    const my = R * Math.log(Math.tan(Math.PI / 4 + (centerLat * Math.PI) / 360));
+    // Zoom out for surrounding context. Web Mercator units per ground meter ≈ 1/cos(lat).
+    const half = (radius * 2.5) / Math.cos((centerLat * Math.PI) / 180);
+    const aspect = width / height;
+    const halfX = half * Math.max(1, aspect);
+    const halfY = half * Math.max(1, 1 / aspect);
+    const bbox = `${mx - halfX},${my - halfY},${mx + halfX},${my + halfY}`;
+    const params = [
+        'SERVICE=WMS',
+        'VERSION=1.3.0',
+        'REQUEST=GetMap',
+        `LAYERS=${encodeURIComponent(IGN_LAYERS.planIgn.id)}`,
+        'STYLES=',
+        'CRS=EPSG:3857',
+        `BBOX=${bbox}`,
+        `WIDTH=${width}`,
+        `HEIGHT=${height}`,
+        'FORMAT=image/png',
+    ].join('&');
+    return `${IGN_WMS_R_PUBLIC}?${params}`;
+}
+
 /** IGN attribution text required by the Geoplateforme terms of use. */
 export const IGN_ATTRIBUTION =
     '© <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> — Géoplateforme';

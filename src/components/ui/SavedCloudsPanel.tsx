@@ -1,3 +1,4 @@
+import { ignStaticMapUrl } from '@/lib/ign';
 import {
     CLOUD_MODE_LABELS,
     deleteSavedCloud,
@@ -5,7 +6,6 @@ import {
     loadSavedCloudData,
     renameSavedCloud,
     type SavedCloud,
-    type SavedCloudPreview,
 } from '@/lib/savedClouds';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useState } from 'react';
@@ -27,46 +27,20 @@ function formatCount(n: number): string {
     return String(n);
 }
 
-/** Multi-stop elevation ramp: low = teal, mid = khaki/green, high = near-white. */
-function altColor(t: number): string {
-    const stops: Array<[number, number, number]> = [
-        [56, 107, 131],
-        [76, 140, 82],
-        [184, 162, 92],
-        [240, 240, 235],
-    ];
-    const clamped = Math.max(0, Math.min(1, t));
-    const seg = clamped * (stops.length - 1);
-    const i = Math.min(stops.length - 2, Math.floor(seg));
-    const f = seg - i;
-    const a = stops[i], b = stops[i + 1];
-    const r = Math.round(a[0] + (b[0] - a[0]) * f);
-    const g = Math.round(a[1] + (b[1] - a[1]) * f);
-    const bl = Math.round(a[2] + (b[2] - a[2]) * f);
-    return `rgb(${r}, ${g}, ${bl})`;
-}
-
-function CloudThumb({ preview }: Readonly<{ preview: SavedCloudPreview }>) {
-    const { points, alts } = preview;
-    const W = 120, H = 80, P = 6;
-    if (alts.length < 2) {
-        return <div className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-100 dark:bg-slate-800" />;
-    }
-    const dots = [];
-    for (let i = 0; i < alts.length; i++) {
-        const x = P + points[i * 2] * (W - 2 * P);
-        const y = P + points[i * 2 + 1] * (H - 2 * P);
-        dots.push(
-            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={1.1} fill={altColor(alts[i])} />,
-        );
-    }
+/** IGN Plan map framing the loaded area. */
+function CloudThumb({ cloud }: Readonly<{ cloud: SavedCloud }>) {
+    const src = ignStaticMapUrl({
+        centerLng: cloud.centerLng,
+        centerLat: cloud.centerLat,
+        radius: cloud.radius,
+    });
     return (
-        <svg
-            viewBox={`0 0 ${W} ${H}`}
-            className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700"
-        >
-            {dots}
-        </svg>
+        <img
+            src={src}
+            alt=""
+            loading="lazy"
+            className="h-[80px] w-[120px] flex-shrink-0 rounded bg-slate-900 object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+        />
     );
 }
 
@@ -143,7 +117,7 @@ export function SavedCloudsPanel() {
                                         title="Réafficher ce nuage"
                                         className="relative flex-shrink-0 cursor-pointer rounded transition hover:opacity-80"
                                     >
-                                        <CloudThumb preview={c.preview} />
+                                        <CloudThumb cloud={c} />
                                         {isLoading && (
                                             <span className="absolute inset-0 flex items-center justify-center rounded bg-slate-900/50 text-[10px] text-white">
                                                 …

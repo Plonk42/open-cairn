@@ -113,9 +113,9 @@ function StudioTopBar({
 
             {/* Showcase : galerie et export. */}
             <div className="ml-2 hidden items-center gap-2 md:flex">
-                <ShowcaseGallery />
-                <ShowcaseExport />
                 <OrbitTopBarButton />
+                <ShowcaseExport />
+                <ShowcaseGallery />
             </div>
 
             <div className="ml-auto flex items-center gap-2">

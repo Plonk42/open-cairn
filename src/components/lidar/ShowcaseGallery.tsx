@@ -1,10 +1,11 @@
+import { ignStaticMapUrl } from '@/lib/ign';
 import {
     CLOUD_MODE_LABELS,
+    clearAllSavedClouds,
     deleteSavedCloud,
     listSavedClouds,
     loadSavedCloudData,
     type SavedCloud,
-    type SavedCloudPreview,
 } from '@/lib/savedClouds';
 import {
     deleteSavedScene,
@@ -319,41 +320,21 @@ function LocalGalleryBody({
     );
 }
 
-/** Multi-stop elevation ramp: low = teal, mid = khaki/green, high = near-white. */
-function altColor(t: number): string {
-    const stops: Array<[number, number, number]> = [
-        [56, 107, 131],
-        [76, 140, 82],
-        [184, 162, 92],
-        [240, 240, 235],
-    ];
-    const clamped = Math.max(0, Math.min(1, t));
-    const seg = clamped * (stops.length - 1);
-    const i = Math.min(stops.length - 2, Math.floor(seg));
-    const f = seg - i;
-    const a = stops[i], b = stops[i + 1];
-    const r = Math.round(a[0] + (b[0] - a[0]) * f);
-    const g = Math.round(a[1] + (b[1] - a[1]) * f);
-    const bl = Math.round(a[2] + (b[2] - a[2]) * f);
-    return `rgb(${r}, ${g}, ${bl})`;
-}
-
-/** Top-down scatter thumbnail for a recently-loaded cloud (from its stored preview). */
-function CloudThumb({ preview }: Readonly<{ preview: SavedCloudPreview }>) {
-    const { points, alts } = preview;
-    const S = 100, P = 6;
-    if (alts.length < 2) return <div className="aspect-video w-full bg-slate-900" />;
-    const dots = [];
-    for (let i = 0; i < alts.length; i++) {
-        const x = P + points[i * 2] * (S - 2 * P);
-        const y = P + points[i * 2 + 1] * (S - 2 * P);
-        dots.push(<circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={2.6} fill={altColor(alts[i])} />);
-    }
+/** Thumbnail for a recently-loaded cloud: the IGN Plan map framing the loaded area. */
+function CloudThumb({ cloud }: Readonly<{ cloud: SavedCloud }>) {
+    const src = ignStaticMapUrl({
+        centerLng: cloud.centerLng,
+        centerLat: cloud.centerLat,
+        radius: cloud.radius,
+    });
     return (
-        <div className="flex aspect-video w-full items-center justify-center bg-slate-900">
-            <svg viewBox={`0 0 ${S} ${S}`} className="h-full" aria-hidden="true">
-                {dots}
-            </svg>
+        <div className="aspect-video w-full bg-slate-900">
+            <img
+                src={src}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+            />
         </div>
     );
 }
@@ -373,7 +354,7 @@ function RecentTile({
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-800 ring-1 ring-white/10 transition hover:ring-emerald-400/60">
             <button type="button" onClick={onSelect} disabled={busy} className="block w-full text-left disabled:opacity-50">
-                <CloudThumb preview={cloud.preview} />
+                <CloudThumb cloud={cloud} />
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-white">{cloud.name}</div>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-300">
@@ -445,6 +426,7 @@ export function ShowcaseGallery({ variant = 'dark' }: Readonly<{ variant?: 'dark
     const [busyId, setBusyId] = useState<string | null>(null);
     const [localScenes, setLocalScenes] = useState<SavedScene[]>(() => listSavedScenes());
     const [recentClouds, setRecentClouds] = useState<SavedCloud[]>(() => listSavedClouds());
+    const [confirmClearRecent, setConfirmClearRecent] = useState(false);
     const [importing, setImporting] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -657,9 +639,43 @@ export function ShowcaseGallery({ variant = 'dark' }: Readonly<{ variant?: 'dark
                             )}
                             {tab === 'recent' && (
                                 <>
-                                    <p className="mb-3 text-xs text-slate-400">
-                                        Nuages chargés récemment dans ce navigateur.
-                                    </p>
+                                    <div className="mb-3 flex items-center justify-between gap-2">
+                                        <p className="text-xs text-slate-400">
+                                            Nuages chargés récemment dans ce navigateur.
+                                        </p>
+                                        {recentClouds.length > 0 && (
+                                            confirmClearRecent ? (
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-xs text-slate-300">Tout supprimer ?</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { clearAllSavedClouds(); setConfirmClearRecent(false); }}
+                                                        className="rounded-md bg-rose-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700"
+                                                    >
+                                                        Confirmer
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setConfirmClearRecent(false)}
+                                                        className="rounded-md bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
+                                                    >
+                                                        Annuler
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setConfirmClearRecent(true)}
+                                                    className="flex items-center gap-1.5 rounded-md bg-white/5 px-2.5 py-1.5 text-xs font-medium text-rose-300 ring-1 ring-white/15 transition hover:bg-rose-600/20"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.58.177-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                                    </svg>
+                                                    Tout supprimer
+                                                </button>
+                                            )
+                                        )}
+                                    </div>
                                     {error && <p className="mb-3 text-center text-sm text-rose-300">{error}</p>}
                                     <RecentGalleryBody
                                         clouds={recentClouds}

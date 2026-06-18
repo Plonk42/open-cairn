@@ -4,9 +4,9 @@
  *
  * Storage split (see the discussion in the repo): the heavy typed-array
  * payload (positions/normals/colors/indices, several MB) lives in a dedicated
- * IndexedDB store, while a compact descriptor (coords, params, a tiny top-down
- * preview) lives in localStorage so the list renders synchronously and stays
- * well under the ~5 MB localStorage quota.
+ * IndexedDB store, while a compact descriptor (coords, params) lives in
+ * localStorage so the list renders synchronously and stays well under the
+ * ~5 MB localStorage quota.
  *
  * The IndexedDB store is deliberately separate from the pipeline result cache
  * (`lidarBrowser/cache.ts`), so `clearLidarCache()` (which clears the default
@@ -30,14 +30,6 @@ export const CLOUD_MODE_LABELS: Record<LidarCloudMode, string> = {
     poisson: 'Maillage',
 };
 
-/** Compact top-down scatter used as the list thumbnail. */
-export interface SavedCloudPreview {
-    /** Interleaved (x, y) in [0,1], y already flipped for SVG. */
-    points: number[];
-    /** Normalized altitude [0,1] per point, for the colour ramp. */
-    alts: number[];
-}
-
 /** Lightweight descriptor kept in localStorage. */
 export interface SavedCloud {
     id: string;
@@ -58,7 +50,6 @@ export interface SavedCloud {
     /** Vertex count when a mesh is part of the snapshot. */
     vertexCount?: number;
     hasMesh: boolean;
-    preview: SavedCloudPreview;
 }
 
 /** Heavy binary snapshot kept in IndexedDB (structured-cloned typed arrays). */
@@ -111,50 +102,6 @@ function defaultName(p: SavedCloudParams): string {
     return `${CLOUD_MODE_LABELS[p.mode]} · ${p.centerLat.toFixed(3)}, ${p.centerLng.toFixed(3)}`;
 }
 
-const round3 = (v: number) => Math.round(v * 1000) / 1000;
-
-/** Build a compact top-down preview from the snapshot's point/vertex positions. */
-function buildPreview(data: SavedCloudData): SavedCloudPreview {
-    const src = data.shaded ?? data.mesh;
-    if (!src || src.positions.length < 3) return { points: [], alts: [] };
-    const pos = src.positions; // interleaved (x_east, y_north, alt)
-    const n = Math.floor(pos.length / 3);
-    const target = Math.min(n, 220);
-    const step = n / target;
-
-    const xs: number[] = [], ys: number[] = [], zs: number[] = [];
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i < target; i++) {
-        const idx = Math.min(n - 1, Math.floor(i * step)) * 3;
-        const x = pos[idx], y = pos[idx + 1], z = pos[idx + 2];
-        xs.push(x); ys.push(y); zs.push(z);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-    }
-    const spanX = Math.max(maxX - minX, 1e-6);
-    const spanY = Math.max(maxY - minY, 1e-6);
-    const spanZ = Math.max(maxZ - minZ, 1e-6);
-    const span = Math.max(spanX, spanY); // keep aspect ratio square
-    const offX = (span - spanX) / 2;
-    const offY = (span - spanY) / 2;
-
-    const points: number[] = [];
-    const alts: number[] = [];
-    for (let i = 0; i < target; i++) {
-        // Flip Y so north is up in SVG coordinates.
-        points.push(
-            round3((xs[i] - minX + offX) / span),
-            round3(1 - (ys[i] - minY + offY) / span),
-        );
-        alts.push(round3((zs[i] - minZ) / spanZ));
-    }
-    return { points, alts };
-}
-
 /**
  * Persist a freshly-loaded cloud/mesh as a saved entry. Re-loading the same
  * area + params updates the existing entry (and bumps it to the top) instead
@@ -182,7 +129,6 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
         pointCount: data.shaded?.pointCount ?? 0,
         vertexCount: data.mesh?.vertexCount,
         hasMesh: data.mesh !== null,
-        preview: buildPreview(data),
     };
 
     try {
@@ -213,6 +159,14 @@ export async function loadSavedCloudData(id: string): Promise<SavedCloudData | n
 export function deleteSavedCloud(id: string): void {
     void idbDel(`data:${id}`, cloudStore);
     writeAll(readAll().filter((c) => c.id !== id));
+}
+
+/** Remove every saved cloud (descriptors + IndexedDB payloads). */
+export function clearAllSavedClouds(): void {
+    for (const c of readAll()) {
+        void idbDel(`data:${c.id}`, cloudStore);
+    }
+    writeAll([]);
 }
 
 export function renameSavedCloud(id: string, name: string): void {
