@@ -547,7 +547,7 @@ const RIGHT_TABS: ReadonlyArray<{ id: RightTab; title: string; icon: React.React
     },
     {
         id: 'lidar',
-        title: 'Nuage LiDAR',
+        title: 'Rendu 3D LiDAR',
         icon: (
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                 <circle cx="4" cy="6" r="1.2" />
@@ -563,10 +563,10 @@ const RIGHT_TABS: ReadonlyArray<{ id: RightTab; title: string; icon: React.React
     },
     {
         id: 'routes',
-        title: 'Enregistrés',
+        title: 'Mes itinéraires',
         icon: (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M2 6.25A1.75 1.75 0 013.75 4.5h3.473c.464 0 .909.184 1.237.513L9.81 6.5h6.44A1.75 1.75 0 0118 8.25v6.5A1.75 1.75 0 0116.25 16.5H3.75A1.75 1.75 0 012 14.75v-8.5z" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
             </svg>
         ),
     },
