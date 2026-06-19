@@ -147,6 +147,17 @@ function frameCloud(map: maplibregl.Map, lng: number, lat: number, radius: numbe
     const targetMpp = (2 * radius) / (0.6 * minDim);
     const worldMpp = 156543.03 * Math.cos((lat * Math.PI) / 180);
     const zoom = Math.log2(worldMpp / targetMpp);
+    // With 3D terrain forced on, easeTo carries over the *start* center
+    // elevation and never recomputes it for the destination, so the camera
+    // target ends up above/below the relief and the cloud isn't framed. Pre-
+    // seeding the destination's center elevation before the move makes the
+    // flight land synced to the relief (same fix as the showcase gallery).
+    if (map.getTerrain()) {
+        const elevation = map.queryTerrainElevation([lng, lat]);
+        if (typeof elevation === 'number' && Number.isFinite(elevation)) {
+            map.setCenterElevation(elevation);
+        }
+    }
     map.easeTo({
         center: [lng, lat],
         zoom: Math.min(map.getMaxZoom(), Math.max(12, zoom)),
@@ -160,6 +171,14 @@ function LocateIcon({ className }: Readonly<{ className?: string }>) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className={className} aria-hidden="true">
             <circle cx="10" cy="10" r="4" />
             <path strokeLinecap="round" d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18" />
+        </svg>
+    );
+}
+
+function TrashIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 5h13M8 5V3.5h4V5M5 5l.7 10.5a1.5 1.5 0 0 0 1.5 1.4h5.6a1.5 1.5 0 0 0 1.5-1.4L15 5M8.5 8.5v5M11.5 8.5v5" />
         </svg>
     );
 }
@@ -204,24 +223,42 @@ function StudioCloudLocator() {
         if (map) frameCloud(map, lng, lat, radius);
     };
 
+    const handleClear = () => {
+        useMapStore.getState().clearLidarCloud();
+    };
+
     return (
-        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-3">
-            <button
-                type="button"
-                onClick={handleRecenter}
-                title={onScreen ? 'Recadrer sur le nuage LiDAR' : 'Le nuage est hors champ — cliquer pour le recadrer'}
-                className={`pointer-events-auto inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${onScreen
-                    ? 'bg-slate-950/80 text-slate-200 ring-white/15 hover:bg-slate-900/85'
-                    : 'animate-pulse bg-amber-500/90 text-amber-950 ring-amber-300 hover:bg-amber-400'}`}
+        <div className="pointer-events-none absolute bottom-6 right-24 z-30 flex justify-end">
+            <div
+                className={`pointer-events-auto inline-flex items-center gap-1 rounded-full py-1 pl-1 pr-1 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${onScreen
+                    ? 'bg-slate-950/80 text-slate-200 ring-white/15'
+                    : 'animate-pulse bg-amber-500/90 text-amber-950 ring-amber-300'}`}
             >
-                <LocateIcon className="h-4 w-4" />
-                <span>{onScreen ? 'Nuage LiDAR' : 'Nuage hors champ'}</span>
-                {(pointCount || triangleCount) ? (
-                    <span className={onScreen ? 'text-slate-400' : 'text-amber-900/80'}>
-                        {cloudStatsLabel(pointCount, triangleCount)}
-                    </span>
-                ) : null}
-            </button>
+                <button
+                    type="button"
+                    onClick={handleRecenter}
+                    title={onScreen ? 'Recadrer sur le nuage LiDAR' : 'Le nuage est hors champ — cliquer pour le recadrer'}
+                    className={`inline-flex items-center gap-2 rounded-full px-2 py-0.5 transition ${onScreen ? 'hover:bg-white/10' : 'hover:bg-amber-400'}`}
+                >
+                    <LocateIcon className="h-4 w-4" />
+                    <span>{onScreen ? 'Nuage LiDAR' : 'Nuage hors champ'}</span>
+                    {(pointCount || triangleCount) ? (
+                        <span className={onScreen ? 'text-slate-400' : 'text-amber-900/80'}>
+                            {cloudStatsLabel(pointCount, triangleCount)}
+                        </span>
+                    ) : null}
+                </button>
+                <span className={`h-4 w-px ${onScreen ? 'bg-white/15' : 'bg-amber-900/30'}`} aria-hidden="true" />
+                <button
+                    type="button"
+                    onClick={handleClear}
+                    title="Effacer le nuage LiDAR"
+                    aria-label="Effacer le nuage LiDAR"
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition ${onScreen ? 'text-slate-300 hover:bg-white/10 hover:text-white' : 'text-amber-900 hover:bg-amber-400'}`}
+                >
+                    <TrashIcon className="h-4 w-4" />
+                </button>
+            </div>
         </div>
     );
 }
