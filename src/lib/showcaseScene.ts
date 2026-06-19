@@ -217,7 +217,7 @@ function indexDescriptor(tag: number, indices: Uint32Array): BufferDescriptor {
     };
 }
 
-function collectDescriptors(scene: ShowcaseScene): BufferDescriptor[] {
+function collectDescriptors(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): BufferDescriptor[] {
     const descriptors: BufferDescriptor[] = [];
     const { shaded, mesh } = scene;
     if (shaded) {
