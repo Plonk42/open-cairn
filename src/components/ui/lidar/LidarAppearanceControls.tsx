@@ -168,8 +168,8 @@ export function ShaderControls() {
         <div className="flex items-center justify-between">
             <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
             <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                <ShaderButton preset="base" current={shader} onClick={() => setShader('base')} label="Base" rounded="l" title="Dégradé chaud sable / brun (style CloudCompare)" />
-                <ShaderButton preset="cliff" current={shader} onClick={() => setShader('cliff')} label="Falaise" rounded="" title="Rupture nette herbe/calcaire gris avec texture rocheuse" />
+                <ShaderButton preset="base" current={shader} onClick={() => setShader('base')} label="Mono" rounded="l" title="Dégradé chaud sable / brun" />
+                <ShaderButton preset="cliff" current={shader} onClick={() => setShader('cliff')} label="Été" rounded="" title="Rupture nette herbe/calcaire gris avec texture rocheuse" />
                 <ShaderButton preset="winter" current={shader} onClick={() => setShader('winter')} label="Hiver" rounded="r" title="Neige sur pentes douces/expositions nord, falaise brun rocheux" />
             </fieldset>
         </div>
