@@ -3,6 +3,7 @@ import { encodeShowcaseGeometry, serializeShowcaseManifest, type ShowcaseScene }
 import { useMapStore } from '@/stores/mapStore';
 import { zipSync, type Zippable } from 'fflate';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const MAX_BLOB_BYTES = 500 * 1024 * 1024;
 
@@ -124,6 +125,7 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
             lidarMode: st.lidarMode,
             lidarShader: st.lidarShader,
             lidarSunDate: st.lidarSunDate,
+            lidarSunEnabled: st.lidarSunEnabled,
             lidarShadows: st.lidarShadows,
             lidarShadowStrength: st.lidarShadowStrength,
             lidarCloudEdl: st.lidarCloudEdl,
@@ -136,6 +138,8 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
             lidarCloudPhotoOpacity: st.lidarCloudPhotoOpacity,
             lidarCloudBasemapOpacity: st.lidarCloudBasemapOpacity,
             lidarCloudClasses: st.lidarCloudClasses,
+            contourLinesEnabled: st.contourLinesEnabled,
+            contourLinesOpacity: st.contourLinesOpacity,
         },
         shaded: st.lidarShaded,
         mesh: st.lidarMesh,
@@ -236,7 +240,7 @@ export function ShowcaseExport() {
             </button>
             {error && <span className="text-xs text-rose-300">{error}</span>}
 
-            {prompting && (
+            {prompting && createPortal(
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
                     <div className="dark w-full max-w-sm rounded-2xl bg-slate-900 p-5 text-slate-100 shadow-2xl ring-1 ring-white/10">
                         <h3 className="text-sm font-semibold text-white">Exporter cette vue</h3>
@@ -306,7 +310,8 @@ export function ShowcaseExport() {
                             Télécharger seulement l’image (.png)
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

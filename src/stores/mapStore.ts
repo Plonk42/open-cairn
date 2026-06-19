@@ -228,6 +228,8 @@ interface MapState {
     showLidarCloudSnapshot: (data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }) => void;
     /** Clear the currently displayed point cloud. */
     clearLidarCloud: () => void;
+    /** Reset every LiDAR render setting (opacity, classes, shader, lighting, shadows, EDL, contours…) to its default. Does not unload the cloud. */
+    resetLidarRenderSettings: () => void;
 
     // ---- Cliff slice / cross-section tool ----
     /** True while the user is picking points of the slice polyline on the map. */
@@ -310,9 +312,7 @@ type PersistedSettings = {
     lidarCloudEdlFarPlane?: number;
     lidarCloudOpacity?: number;
     lidarCloudPhotoOpacity?: number;
-    /** New numeric basemap opacity; falls back to the legacy lidarCloudHideBasemap boolean. */
     lidarCloudBasemapOpacity?: number;
-    lidarCloudHideBasemap?: boolean;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;
     lidarCloudPoissonSamplesPerNode?: number;
@@ -456,7 +456,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
     lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? 0,
     setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
-    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? (persisted.lidarCloudHideBasemap ? 0.15 : 1),
+    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? 1,
     setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
     lidarCloudClasses: persisted.lidarCloudClasses ?? [2],
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
@@ -566,6 +566,29 @@ export const useMapStore = create<MapState>((set, get) => ({
         }
     },
     clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
+
+    resetLidarRenderSettings: () => {
+        set({
+            lidarMode: 'shaded',
+            lidarCloudPointSize: 2,
+            lidarCloudSizeCompensation: true,
+            lidarCloudEdl: true,
+            lidarCloudEdlStrength: 8,
+            lidarCloudEdlRadius: 1,
+            lidarCloudEdlFarPlane: 1500,
+            lidarCloudOpacity: 1,
+            lidarCloudPhotoOpacity: 0,
+            lidarCloudBasemapOpacity: 1,
+            lidarCloudClasses: [2],
+            lidarSunEnabled: false,
+            lidarShadows: true,
+            lidarShadowStrength: 0.7,
+            contourLinesEnabled: false,
+            contourLinesOpacity: 0.4,
+        });
+        // Go through the shader setter so the loaded geometry is recolored.
+        get().setLidarShader('cliff');
+    },
 
     showLidarCloudSnapshot: (data) => set({
         lidarShaded: data.shaded,

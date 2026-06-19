@@ -61,6 +61,7 @@ export interface ShowcaseAmbiance {
     lidarMode: 'shaded' | 'delaunay' | 'poisson';
     lidarShader: ShaderPreset;
     lidarSunDate: string;
+    lidarSunEnabled: boolean;
     lidarShadows: boolean;
     lidarShadowStrength: number;
     lidarCloudEdl: boolean;
@@ -73,6 +74,8 @@ export interface ShowcaseAmbiance {
     lidarCloudPhotoOpacity: number;
     lidarCloudBasemapOpacity: number;
     lidarCloudClasses: number[];
+    contourLinesEnabled: boolean;
+    contourLinesOpacity: number;
 }
 
 export interface ShowcaseScene {
@@ -105,6 +108,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarMode: 'shaded',
     lidarShader: 'base',
     lidarSunDate: '',
+    lidarSunEnabled: false,
     lidarShadows: false,
     lidarShadowStrength: 0.5,
     lidarCloudEdl: true,
@@ -117,6 +121,8 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarCloudPhotoOpacity: 0,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [],
+    contourLinesEnabled: false,
+    contourLinesOpacity: 0.4,
 };
 
 interface ShadedMeta {

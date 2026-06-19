@@ -102,6 +102,7 @@ function applyAmbiance(a: ShowcaseAmbiance) {
     st.setLidarMode(a.lidarMode);
     st.setLidarShader(a.lidarShader);
     st.setLidarSunDate(a.lidarSunDate);
+    st.setLidarSunEnabled(a.lidarSunEnabled);
     st.setLidarShadows(a.lidarShadows);
     st.setLidarShadowStrength(a.lidarShadowStrength);
     st.setLidarCloudEdl(a.lidarCloudEdl);
@@ -112,12 +113,10 @@ function applyAmbiance(a: ShowcaseAmbiance) {
     st.setLidarCloudSizeCompensation(a.lidarCloudSizeCompensation);
     st.setLidarCloudOpacity(a.lidarCloudOpacity);
     st.setLidarCloudPhotoOpacity(a.lidarCloudPhotoOpacity);
-    // Backward compat: legacy scenes stored a `lidarCloudHideBasemap` boolean.
-    const legacy = a as ShowcaseAmbiance & { lidarCloudHideBasemap?: boolean };
-    st.setLidarCloudBasemapOpacity(
-        legacy.lidarCloudBasemapOpacity ?? (legacy.lidarCloudHideBasemap ? 0.15 : 1),
-    );
+    st.setLidarCloudBasemapOpacity(a.lidarCloudBasemapOpacity);
     st.setLidarCloudClasses(a.lidarCloudClasses);
+    st.setContourLinesEnabled(a.contourLinesEnabled);
+    st.setContourLinesOpacity(a.contourLinesOpacity);
 }
 
 function applyScene(scene: ShowcaseScene) {

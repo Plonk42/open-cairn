@@ -107,6 +107,14 @@ function OrbitIcon({ className }: IconProps) {
     );
 }
 
+function ResetIcon({ className }: IconProps) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h1.103a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v2.715a.75.75 0 0 0 1.5 0v-.964l.31.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V4.456a.75.75 0 0 0-1.5 0v.964l-.31-.311A7 7 0 0 0 3.239 8.247a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.17l.311.31h-1.103a.75.75 0 0 0 0 1.5h2.716a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+        </svg>
+    );
+}
+
 // ── Render-settings registry ──────────────────────────────────────────────────
 
 interface StudioRenderSetting {
@@ -230,10 +238,30 @@ export function StudioBottomBar() {
                 {STUDIO_RENDER_SETTINGS.map((s) => (
                     <BottomBarItem key={s.id} setting={s} active={s.id === active} onSelect={select} />
                 ))}
+                <div className="mx-0.5 h-6 w-px bg-white/15" />
+                <ResetSettingsButton />
             </div>
         </div>
     );
 }
+
+/** Resets every LiDAR render setting (opacity, classes, shader, lighting…) to defaults. */
+function ResetSettingsButton() {
+    const reset = useMapStore((s) => s.resetLidarRenderSettings);
+    return (
+        <button
+            type="button"
+            onClick={() => reset()}
+            title="Réinitialiser tous les réglages de rendu"
+            aria-label="Réinitialiser tous les réglages de rendu"
+            className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
+        >
+            <ResetIcon className="h-4 w-4" />
+            <span>Réinit.</span>
+        </button>
+    );
+}
+
 
 /** Orbit auto toggle for the top bar, sitting beside "Galerie" / "Exporter cette vue". */
 export function OrbitTopBarButton() {
