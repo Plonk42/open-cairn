@@ -133,14 +133,17 @@ function copyScanPoint(c: CommonCloud, dst: ScanData | null, gi: number, i: numb
 }
 
 /**
- * Split the merged cloud into ground (class 2, fed to PoissonRecon) and
- * everything else (kept as a shaded overlay), in a single pass. The ground
- * subset's ScanAngle / PointSourceId / GpsTime are carried alongside so the
- * flight-line orientation operates on exactly the Poisson input points.
+ * Split the merged cloud into ground (class 2) + water (class 9, fed to
+ * PoissonRecon) and everything else (kept as a shaded overlay), in a single
+ * pass. Water points lie on the terrain surface and must be included so
+ * ponds/lakes are reconstructed rather than leaving holes in the mesh.
+ * The ground subset's ScanAngle / PointSourceId / GpsTime are carried
+ * alongside so the flight-line orientation operates on exactly the Poisson
+ * input points.
  */
 function splitGroundForPoisson(c: CommonCloud): GroundSplit {
     let groundCount = 0;
-    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2 || c.classifications[i] === 9) groundCount++;
     const groundPos = new Float32Array(groundCount * 3);
     const ngPos = new Float32Array((c.pointCount - groundCount) * 3);
     const ngCls = new Uint8Array(c.pointCount - groundCount);
@@ -148,7 +151,7 @@ function splitGroundForPoisson(c: CommonCloud): GroundSplit {
     let gi = 0; let ni = 0;
     for (let i = 0; i < c.pointCount; i++) {
         const x = c.positions[i * 3], y = c.positions[i * 3 + 1], z = c.positions[i * 3 + 2];
-        if (c.classifications[i] === 2) {
+        if (c.classifications[i] === 2 || c.classifications[i] === 9) {
             groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
             copyScanPoint(c, groundScan, gi, i);
             gi++;
@@ -322,10 +325,11 @@ export async function fetchLidarDelaunay(
     // overlay decides which classes the user actually sees.
     const c = await fetchCommon({ ...params, classes: undefined });
 
-    // Split into ground (class 2) and the rest. We keep `nonGround` in a
-    // single pass to avoid double-iterating the cloud.
+    // Split into ground (class 2) + water (class 9) and the rest. Water
+    // points lie on the terrain surface and must be in the mesh to avoid holes
+    // over ponds and lakes. We keep `nonGround` in a single pass.
     let groundCount = 0;
-    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2) groundCount++;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2 || c.classifications[i] === 9) groundCount++;
     const nonGroundCount = c.pointCount - groundCount;
     const groundPos = new Float32Array(groundCount * 3);
     const ngPos = new Float32Array(nonGroundCount * 3);
@@ -336,7 +340,7 @@ export async function fetchLidarDelaunay(
         const x = c.positions[i * 3];
         const y = c.positions[i * 3 + 1];
         const z = c.positions[i * 3 + 2];
-        if (cls === 2) {
+        if (cls === 2 || cls === 9) {
             groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
             gi++;
         } else {
@@ -347,12 +351,12 @@ export async function fetchLidarDelaunay(
     }
 
     // 1. Ground mesh — Delaunay (cheapest, best with 2.5D ground class).
-    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol` });
+    onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol+eau` });
     const tMesh = startTimer();
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
     const groundMesh = buildMesh(groundPos, maxEdge, shader);
-    logStage('delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
+    logStage('delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol+eau → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
