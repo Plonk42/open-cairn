@@ -78,3 +78,38 @@ input[type="search"]::-ms-clear {
         width: 100%;
     }
 }
+
+/* ── Firefox range input ────────────────────────────────────────────────────
+   accent-color only colours the thumb in Firefox; the track stays white by
+   default. Override with Firefox-specific pseudo-elements so the track and
+   filled-progress match the Chromium/Safari appearance.                    */
+input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: #475569;
+    /* slate-600 */
+    border: none;
+}
+
+html.dark input[type="range"]::-moz-range-track {
+    background: #334155;
+    /* slate-700 */
+}
+
+input[type="range"]::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: #16a34a;
+    /* green-600 — matches accent-green-600 */
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #94a3b8;
+    /* slate-400 */
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+}

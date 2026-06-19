@@ -312,6 +312,17 @@ export function StudioCaptureButton() {
         return () => globalThis.removeEventListener('open-cairn-studio-reveal', onReveal);
     }, []);
 
+    // Close the menu automatically when a LiDAR load completes successfully.
+    const loading = useMapStore((s) => s.lidarCloudLoading);
+    const loadingError = useMapStore((s) => s.lidarCloudError);
+    const prevLoadingRef = useRef(false);
+    useEffect(() => {
+        if (prevLoadingRef.current && !loading && !loadingError) {
+            setOpen(false);
+        }
+        prevLoadingRef.current = loading;
+    }, [loading, loadingError]);
+
     return (
         <div className="absolute bottom-4 right-4 z-30 flex flex-col items-end gap-3">
             {open && (

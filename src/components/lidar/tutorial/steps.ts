@@ -88,9 +88,9 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         title: '2 · Choisir la reconstruction',
         body: 'Trois façons de reconstruire le terrain, du plus brut au plus sculpté :',
         lines: [
-            'Points — le nuage brut, simplement ombré. Rapide et léger, moins fidèle, mais le seul mode qui restitue falaises et végétation.',
+            'Points — le nuage brut, simplement ombré. Rapide et léger, pas de maillage 3D.',
             'Delaunay — maillage du sol, lisse et rapide. En 2.5D (une seule altitude par point au sol), il ne peut pas reconstruire les falaises verticales.',
-            'Poisson — maillage 3D complet et détaillé, sans trous. Le plus beau pour un rendu sculpté, mais le plus lent à calculer.',
+            'Poisson — maillage 3D complet et détaillé, y compris les parois verticales. Le plus beau pour un rendu sculpté, mais le plus lent à calculer.',
         ],
         placement: 'left',
         reveal: 'capture',
