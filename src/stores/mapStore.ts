@@ -122,6 +122,10 @@ interface MapState {
     uiTheme: UiTheme;
     setUiTheme: (v: UiTheme) => void;
 
+    /** Whether the user has seen (finished or skipped) the LiDAR Studio onboarding tutorial. */
+    studioTutorialSeen: boolean;
+    setStudioTutorialSeen: (v: boolean) => void;
+
     /** IGN API key for SCAN 25 (private WMTS). */
     ignScanApiKey: string;
     setIgnScanApiKey: (v: string) => void;
@@ -296,6 +300,7 @@ type PersistedSettings = {
     contourLinesEnabled?: boolean;
     contourLinesOpacity?: number;
     uiTheme?: UiTheme;
+    studioTutorialSeen?: boolean;
     renderQuality?: RenderQuality;
     tileCacheSize?: number;
     ignScanApiKey?: string;
@@ -397,6 +402,9 @@ export const useMapStore = create<MapState>((set, get) => ({
 
     uiTheme: persisted.uiTheme ?? 'light',
     setUiTheme: (uiTheme) => set({ uiTheme }),
+
+    studioTutorialSeen: persisted.studioTutorialSeen ?? false,
+    setStudioTutorialSeen: (studioTutorialSeen) => set({ studioTutorialSeen }),
 
     ignScanApiKey: persisted.ignScanApiKey ?? '',
     setIgnScanApiKey: (ignScanApiKey) => set({ ignScanApiKey }),
@@ -668,6 +676,7 @@ useMapStore.subscribe((state) => {
             contourLinesEnabled: state.contourLinesEnabled,
             contourLinesOpacity: state.contourLinesOpacity,
             uiTheme: state.uiTheme,
+            studioTutorialSeen: state.studioTutorialSeen,
             renderQuality: state.renderQuality,
             tileCacheSize: state.tileCacheSize,
             ignScanApiKey: state.ignScanApiKey,

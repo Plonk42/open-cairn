@@ -692,6 +692,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         <>
             <button
                 type="button"
+                data-tutorial="gallery"
                 onClick={() => setOpen(true)}
                 className={
                     variant === 'light'

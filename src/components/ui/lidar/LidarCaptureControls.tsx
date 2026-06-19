@@ -134,7 +134,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
             {/* Scrollable parameters — keeps the action footer always visible */}
             <div className="scrollbar-slim min-h-0 flex-1 space-y-3 overflow-y-auto">
                 {/* Mode */}
-                <div className="flex items-center justify-between">
+                <div data-tutorial="capture-modes" className="flex items-center justify-between">
                     <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
                     <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
                         <ModeButton mode="shaded" current={mode} onClick={() => setMode('shaded')} label="Points" rounded="l" title="Nuage de points ombré (normales par k-PPV)" />

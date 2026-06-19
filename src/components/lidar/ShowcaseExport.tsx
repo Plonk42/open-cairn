@@ -230,6 +230,7 @@ export function ShowcaseExport() {
         <div className="flex items-center gap-2">
             <button
                 type="button"
+                data-tutorial="export"
                 onClick={openPrompt}
                 disabled={!hasData || busy}
                 title={hasData ? 'Exporter la vue actuelle en scène showcase' : 'Chargez un nuage pour exporter'}

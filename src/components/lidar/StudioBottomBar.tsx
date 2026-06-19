@@ -231,6 +231,7 @@ export function StudioBottomBar() {
         <div className="dark pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3 text-slate-100">
             <div
                 ref={rootRef}
+                data-tutorial="render-settings"
                 className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
             >
                 <QuickBasemapSwitch />
@@ -269,6 +270,7 @@ export function OrbitTopBarButton() {
     return (
         <button
             type="button"
+            data-tutorial="orbit"
             onClick={() => setOrbiting((o) => !o)}
             title="Orbite automatique autour du LiDAR"
             aria-label="Orbite automatique autour du LiDAR"
@@ -300,6 +302,16 @@ export function StudioCaptureButton() {
     }, [open]);
     useEffect(() => () => useMapStore.getState().setLidarPreviewVisible(false), []);
 
+    // The onboarding tutorial opens this menu (to present the capture modes)
+    // and closes it again by dispatching the studio-reveal event.
+    useEffect(() => {
+        const onReveal = (e: Event) => {
+            setOpen((e as CustomEvent<string | null>).detail === 'capture');
+        };
+        globalThis.addEventListener('open-cairn-studio-reveal', onReveal);
+        return () => globalThis.removeEventListener('open-cairn-studio-reveal', onReveal);
+    }, []);
+
     return (
         <div className="absolute bottom-4 right-4 z-30 flex flex-col items-end gap-3">
             {open && (
@@ -324,6 +336,7 @@ export function StudioCaptureButton() {
             <div className="flex items-center gap-2">
                 <button
                     type="button"
+                    data-tutorial="capture"
                     onClick={() => setOpen((o) => !o)}
                     title="Capturer une zone LiDAR"
                     aria-label="Capturer une zone LiDAR"

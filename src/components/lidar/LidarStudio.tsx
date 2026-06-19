@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
 import { ShowcaseGallery } from './ShowcaseGallery';
 import { OrbitTopBarButton, StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
+import { StudioTutorial } from './tutorial/StudioTutorial';
 
 // Forces the contextual orthophoto base map once per page load when the studio
 // is first opened (mountain context reads best over imagery), without fighting
@@ -42,42 +43,10 @@ function useStudioCameraIntro() {
     }, []);
 }
 
-function StudioEmptyState({ onDismiss }: Readonly<{ onDismiss: () => void }>) {
-    return (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-            <div
-                className="pointer-events-auto relative max-w-sm rounded-2xl bg-slate-900/70 p-6 text-center shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
-                onPointerDown={(e) => e.stopPropagation()}
-            >
-                <button
-                    type="button"
-                    onClick={onDismiss}
-                    title="Fermer"
-                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                    </svg>
-                </button>
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-6 w-6">
-                        <circle cx="4" cy="6" r="1.2" /><circle cx="10" cy="4" r="1.2" /><circle cx="16" cy="7" r="1.2" />
-                        <circle cx="6" cy="11" r="1.2" /><circle cx="13" cy="12" r="1.2" /><circle cx="4" cy="16" r="1.2" />
-                        <circle cx="11" cy="17" r="1.2" /><circle cx="17" cy="14" r="1.2" />
-                    </svg>
-                </div>
-                <h2 className="text-lg font-semibold text-white">Studio LiDAR</h2>
-                <p className="mt-1 text-sm text-slate-300">
-                    Centrez la carte sur une zone de montagne, puis utilisez « Charger ici » ou le panneau de réglages pour explorer le relief en 3D.
-                </p>
-            </div>
-        </div>
-    );
-}
-
 function StudioTopBar({
     onExit,
-}: Readonly<{ onExit: () => void }>) {
+    onHelp,
+}: Readonly<{ onExit: () => void; onHelp: () => void }>) {
     return (
         <div className="pointer-events-auto absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-3 py-2.5">
             {/* Groupe gauche : Studio LiDAR + Orbite + Export + Galerie */}
@@ -99,6 +68,17 @@ function StudioTopBar({
                     <OrbitTopBarButton />
                     <ShowcaseExport />
                     <ShowcaseGallery />
+                    <button
+                        type="button"
+                        onClick={onHelp}
+                        title="Revoir le tutoriel"
+                        aria-label="Revoir le tutoriel"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/5 text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.94 6.94a1.5 1.5 0 0 1 2.56 1.06c0 .58-.34.92-.93 1.36-.66.5-1.07 1-1.07 1.89v.25a.75.75 0 0 0 1.5 0v-.16c0-.4.18-.62.74-1.04.66-.5 1.26-1.13 1.26-2.3a3 3 0 0 0-5.86-.9.75.75 0 0 0 1.43.46c.04-.13.1-.26.18-.38ZM10 15.25a.94.94 0 1 0 0-1.88.94.94 0 0 0 0 1.88Z" clipRule="evenodd" />
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -106,6 +86,7 @@ function StudioTopBar({
             <button
                 type="button"
                 onClick={onExit}
+                data-tutorial="exit"
                 className="ml-auto inline-flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 px-3 py-3 text-xs font-medium text-slate-200 shadow-2xl ring-1 ring-white/10 backdrop-blur-md transition hover:bg-white/10"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
@@ -270,11 +251,14 @@ function StudioCloudLocator() {
  */
 export function LidarStudio() {
     const { setView } = useView();
-    const [splashDismissed, setSplashDismissed] = useState(false);
     const shaded = useMapStore((s) => s.lidarShaded);
     const mesh = useMapStore((s) => s.lidarMesh);
     const loading = useMapStore((s) => s.lidarCloudLoading);
+    const tutorialSeen = useMapStore((s) => s.studioTutorialSeen);
+    const setTutorialSeen = useMapStore((s) => s.setStudioTutorialSeen);
     const hasData = shaded !== null || mesh !== null;
+
+    const [tutorialOpen, setTutorialOpen] = useState(false);
 
     useStudioCameraIntro();
 
@@ -284,37 +268,32 @@ export function LidarStudio() {
         useMapStore.getState().setBaseLayer('ortho');
     }, []);
 
-    // Once a cloud has loaded (or is loading), the welcome popup is permanently
-    // dismissed — clicking "Effacer" must NOT bring it back.
+    // Auto-launch the onboarding tutorial once, on a newcomer's first visit,
+    // and only when nothing is loaded yet (a shared link with a cloud skips it).
+    // Runs a single time per mount — loading a cloud mid-tutorial won't reopen.
     useEffect(() => {
-        if (hasData || loading) setSplashDismissed(true);
-    }, [hasData, loading]);
+        if (!tutorialSeen && !hasData && !loading) setTutorialOpen(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-    const showEmptyState = !hasData && !loading && !splashDismissed;
-
-    // Dismiss the welcome popup as soon as the user interacts anywhere else.
-    // Bubble phase + the card stopping its own pointerdown means clicks inside
-    // the card don't dismiss, while any outside click (map, rail, top bar) does.
-    useEffect(() => {
-        if (!showEmptyState) return;
-        const dismiss = () => setSplashDismissed(true);
-        globalThis.addEventListener('pointerdown', dismiss);
-        return () => globalThis.removeEventListener('pointerdown', dismiss);
-    }, [showEmptyState]);
+    const closeTutorial = () => {
+        setTutorialOpen(false);
+        setTutorialSeen(true);
+    };
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">
             <MapContainer />
 
-            {showEmptyState && <StudioEmptyState onDismiss={() => setSplashDismissed(true)} />}
-
-            <StudioTopBar onExit={() => setView('map')} />
+            <StudioTopBar onExit={() => setView('map')} onHelp={() => setTutorialOpen(true)} />
 
             <StudioCloudLocator />
 
             <StudioBottomBar />
 
             <StudioCaptureButton />
+
+            <StudioTutorial open={tutorialOpen} onClose={closeTutorial} />
         </div>
     );
 }
