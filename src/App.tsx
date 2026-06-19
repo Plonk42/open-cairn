@@ -17,16 +17,6 @@ type RightTab = 'layers' | 'routes' | 'lidar' | 'settings';
 type MobileTab = 'map' | 'route' | 'routes' | 'layers' | 'lidar' | 'settings';
 type BottomMode = 'route' | 'cliff';
 
-/** Hook to sync the LiDAR preview visibility with the current tab state. */
-function useLidarPreviewSync(tabIsLidar: boolean) {
-    const hasData = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
-    const setPreviewVisible = useMapStore((s) => s.setLidarPreviewVisible);
-    useEffect(() => {
-        // Show preview when LiDAR tab is active and no data is loaded
-        setPreviewVisible(tabIsLidar && !hasData);
-    }, [tabIsLidar, hasData, setPreviewVisible]);
-}
-
 export function App() {
     const isMobile = useIsMobile();
     const [rightOpen, setRightOpen] = useState(() => globalThis.innerWidth >= 768);
@@ -150,11 +140,6 @@ export function App() {
     useEffect(() => {
         document.documentElement.classList.toggle('dark', uiTheme === 'dark');
     }, [uiTheme]);
-
-    // Sync LiDAR preview visibility with current tab state (desktop vs mobile)
-    const lidarTabActiveDesktop = !isMobile && rightOpen && rightTab === 'lidar';
-    const lidarTabActiveMobile = isMobile && mobileTab === 'lidar';
-    useLidarPreviewSync(lidarTabActiveDesktop || lidarTabActiveMobile);
 
     if (isMobile) {
         return <MobileLayout

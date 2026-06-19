@@ -785,7 +785,12 @@ export function MapContainer() {
             });
         }
 
-        map.on('moveend', () => {
+        map.on('moveend', (e) => {
+            // The orbit loop drives `jumpTo` every frame; persisting the view
+            // (and thus re-rendering MapContainer, a `view` subscriber) 60×/s
+            // makes the orbit stutter. Orbit frames are tagged via eventData so
+            // we skip them — the final untagged restore frame still persists.
+            if ((e as { orbit?: boolean }).orbit) return;
             const c = map.getCenter();
             setView({
                 longitude: c.lng,

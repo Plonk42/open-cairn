@@ -10,7 +10,6 @@ import { BoundShadowControls, SunControls } from '@/components/ui/lidar/LidarLig
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
-import { QuickBasemapSwitch } from './StudioControls';
 
 export type StudioRenderSettingId =
     | 'opacite'
@@ -118,7 +117,7 @@ interface StudioRenderSetting {
 }
 
 /** Single source of truth for the bottom-bar render settings (one per button). */
-export const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
+const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
     { id: 'opacite', label: 'Opacité', Icon: OpacityIcon, render: () => <OpacityControls /> },
     { id: 'classes', label: 'Classes', Icon: ClassesIcon, render: () => <ClassFilterSection /> },
     { id: 'points', label: 'Points', Icon: SizeIcon, render: () => <PointSizeControls /> },
@@ -133,6 +132,37 @@ function PopoverCloseIcon() {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
             <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
         </svg>
+    );
+}
+
+const BASEMAPS: ReadonlyArray<{ id: 'ortho' | 'plan'; label: string }> = [
+    { id: 'ortho', label: 'Photo' },
+    { id: 'plan', label: 'Plan' },
+];
+
+function QuickBasemapSwitch() {
+    const baseLayer = useMapStore((s) => s.baseLayer);
+    const setBaseLayer = useMapStore((s) => s.setBaseLayer);
+
+    return (
+        <div className="flex items-center gap-1.5">
+            {/* Basemap layer selector (Photo / Plan). */}
+            <div className="inline-flex items-center overflow-hidden rounded-md ring-1 ring-white/15">
+                <fieldset className="inline-flex">
+                    {BASEMAPS.map(({ id, label }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setBaseLayer(id)}
+                            aria-pressed={baseLayer === id}
+                            className={`px-2.5 py-1 text-xs transition ${baseLayer === id ? 'bg-emerald-500 text-white' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </fieldset>
+            </div>
+        </div>
     );
 }
 

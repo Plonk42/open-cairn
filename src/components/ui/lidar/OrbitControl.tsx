@@ -46,9 +46,16 @@ export function useOrbit() {
             );
             // Bearing rotates and pitch tilts around the (fixed) center, so the
             // look-at point stays put while the camera circles in its own plane.
-            map.setBearing(baseBearing + Math.cos(a) * BEARING_AMP);
-            map.setPitch(pitch);
-            map.setCenter(center);
+            // A SINGLE `jumpTo` updates the transform once and fires one
+            // move cycle per frame — calling setBearing/setPitch/setCenter
+            // separately fired three full movestart→move→moveend cascades per
+            // frame, re-rendering every `move`/`moveend` subscriber 3× and
+            // making the orbit stutter.
+            map.jumpTo({
+                center,
+                bearing: baseBearing + Math.cos(a) * BEARING_AMP,
+                pitch,
+            }, { orbit: true });
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
@@ -63,9 +70,7 @@ export function useOrbit() {
             map.off('dragstart', stop);
             map.off('zoomstart', stop);
             // Restore the starting view so the wiggle leaves no drift.
-            map.setBearing(baseBearing);
-            map.setPitch(basePitch);
-            map.setCenter(center);
+            map.jumpTo({ center, bearing: baseBearing, pitch: basePitch });
         };
     }, [orbiting]);
 

@@ -27,6 +27,7 @@ import {
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const INDEX_URL = `${import.meta.env.BASE_URL}showcase/index.json`;
 
@@ -682,7 +683,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
 
     if (inline) {
         return (
-            <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-2xl bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:ring-white/10">
+            <div className="overflow-hidden rounded-2xl bg-white text-slate-900 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:ring-white/10">
                 {galleryPanel}
             </div>
         );
@@ -703,12 +704,13 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 <span>Galerie</span>
             </button>
 
-            {open && (
+            {open && createPortal(
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
                     <div className="dark flex h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-slate-900 text-slate-100 shadow-2xl ring-1 ring-white/10">
                         {galleryPanel}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </>
     );

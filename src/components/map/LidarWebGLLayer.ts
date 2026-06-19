@@ -785,6 +785,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private readonly _lightMatrix = new Float32Array(16);
     /** Mesh AABB in METER_OFFSETS, used to size the orthographic light frustum. */
     private _meshBbox: { min: [number, number, number]; max: [number, number, number] } | null = null;
+    /**
+     * Point-cloud AABB in METER_OFFSETS (same frame as the mesh). Used purely
+     * for view-frustum culling so an off-screen cloud (the user panned away
+     * from the capture site) costs nothing instead of drawing millions of
+     * invisible vertices every frame.
+     */
+    private _pointBbox: { min: [number, number, number]; max: [number, number, number] } | null = null;
+    /**
+     * The shadow map only depends on the mesh and the light direction — both
+     * invariant under camera motion. This flag is raised when one of those
+     * changes so the (expensive) depth pass over the whole mesh runs only then,
+     * and is skipped on camera-only frames (orbit / pan) where the result is
+     * identical. Re-rendering it every frame made the orbit stutter.
+     */
+    private _shadowDirty = true;
 
     private _ox = 0;
     private _oy = 0;
@@ -873,6 +888,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             m[2] * this._ox + m[6] * this._oy + m[14],
             m[3] * this._ox + m[7] * this._oy + m[15],
         ]);
+
+        // View-frustum cull: if the whole cloud/mesh sits outside the camera
+        // frustum (e.g. the user panned 10+ km away from the capture site),
+        // skip the entire pass — drawing millions of off-screen vertices plus
+        // the mesh shadow map every frame was the main cause of the stutter.
+        if (this._isOutsideFrustum(translatedMatrix)) return;
 
         const canvas = gl2.canvas as HTMLCanvasElement;
         const w = canvas.width;
@@ -1042,6 +1063,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._oy = mc.y;
         this._mpu = mc.meterInMercatorCoordinateUnits();
         this._count = count;
+        this._pointBbox = computeBbox(positions);
 
         const gl = this._gl;
         if (!gl) return;
@@ -1064,6 +1086,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
     clear(): void {
         this._count = 0;
+        this._pointBbox = null;
         this._map?.triggerRepaint();
     }
 
@@ -1089,6 +1112,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._mpu = mc.meterInMercatorCoordinateUnits();
         this._meshIndexCount = indices.length;
         this._meshBbox = computeBbox(positions);
+        this._shadowDirty = true;
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
@@ -1106,6 +1130,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
     clearMesh(): void {
         this._meshIndexCount = 0;
+        this._shadowDirty = true;
         this._map?.triggerRepaint();
     }
 
@@ -1118,6 +1143,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     setMeshVisible(visible: boolean): void {
         if (this._meshVisible === visible) return;
         this._meshVisible = visible;
+        this._shadowDirty = true;
         this._map?.triggerRepaint();
     }
 
@@ -1165,7 +1191,22 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     setConfig(config: Partial<LidarWebGLLayerConfig>): void {
+        // Only the light direction, the lighting mode and the shadow-map size
+        // affect the cached shadow depth pass; flag it dirty solely when one of
+        // those actually changes so unrelated tweaks (opacity, point size, …)
+        // don't force a needless full mesh re-render.
+        const prev = this.config;
+        const sunChanged = config.sunDir !== undefined && (
+            config.sunDir[0] !== prev.sunDir[0]
+            || config.sunDir[1] !== prev.sunDir[1]
+            || config.sunDir[2] !== prev.sunDir[2]
+        );
+        const lightModeChanged = config.sunLightingEnabled !== undefined
+            && config.sunLightingEnabled !== prev.sunLightingEnabled;
+        const sizeChanged = config.shadowMapSize !== undefined
+            && config.shadowMapSize !== prev.shadowMapSize;
         Object.assign(this.config, config);
+        if (sunChanged || lightModeChanged || sizeChanged) this._shadowDirty = true;
         this._map?.triggerRepaint();
     }
 
@@ -1250,6 +1291,62 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     /**
+     * Union of the active point + mesh bounding boxes (same meter-offset
+     * frame), or null when there's nothing drawable to bound.
+     */
+    private _combinedBbox(): Bbox | null {
+        const pb = this._count > 0 ? this._pointBbox : null;
+        const mb = this._meshVisible && this._meshIndexCount > 0 ? this._meshBbox : null;
+        if (!pb) return mb;
+        if (!mb) return pb;
+        return {
+            min: [Math.min(pb.min[0], mb.min[0]), Math.min(pb.min[1], mb.min[1]), Math.min(pb.min[2], mb.min[2])],
+            max: [Math.max(pb.max[0], mb.max[0]), Math.max(pb.max[1], mb.max[1]), Math.max(pb.max[2], mb.max[2])],
+        };
+    }
+
+    /**
+     * Conservative AABB view-frustum test. Returns true only when the combined
+     * point+mesh bounding box is provably outside the camera frustum, so it is
+     * always safe to skip drawing. Transforms the 8 corners exactly like the
+     * vertex shaders (`clip = M * vec4(dx*mpu, -dy*mpu, dz*mpu, 1)`) and culls
+     * when all corners fall outside the same clip-space side plane.
+     */
+    private _isOutsideFrustum(translatedMatrix: Float32Array): boolean {
+        const bb = this._combinedBbox();
+        if (!bb) return false; // nothing to cull (don't skip)
+        const xs = [bb.min[0], bb.max[0]];
+        const ys = [bb.min[1], bb.max[1]];
+        const zs = [bb.min[2], bb.max[2]];
+        // Bitwise-AND the per-corner out-codes: a bit that survives across all
+        // 8 corners means every corner is beyond that one clip plane ⇒ the box
+        // is fully outside the frustum on that side.
+        let andCode = 0b1111;
+        for (let i = 0; i < 8 && andCode !== 0; i++) {
+            andCode &= this._cornerOutCode(translatedMatrix, xs[i & 1], ys[(i >> 1) & 1], zs[(i >> 2) & 1]);
+        }
+        return andCode !== 0;
+    }
+
+    /**
+     * Out-code (4 bits: left/right/bottom/top) for one bbox corner given in the
+     * meter-offset frame, using the exact vertex-shader transform.
+     */
+    private _cornerOutCode(m: Float32Array, dx: number, dy: number, dz: number): number {
+        const mpu = this._mpu;
+        const px = dx * mpu, py = -dy * mpu, pz = dz * mpu;
+        const cx = m[0] * px + m[4] * py + m[8] * pz + m[12];
+        const cy = m[1] * px + m[5] * py + m[9] * pz + m[13];
+        const cw = m[3] * px + m[7] * py + m[11] * pz + m[15];
+        let code = 0;
+        if (cx < -cw) code |= 0b0001;
+        if (cx > cw) code |= 0b0010;
+        if (cy < -cw) code |= 0b0100;
+        if (cy > cw) code |= 0b1000;
+        return code;
+    }
+
+    /**
      * True iff we have a mesh, a positive sun, and shadow casting is on.
      * When false, the shadow pass is skipped and the receiver shaders
      * fall back to no-shadow rendering (u_shadowEnabled = 0).
@@ -1274,12 +1371,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      */
     private _renderShadowPass(gl: WebGL2RenderingContext, prevFBO: WebGLFramebuffer | null): boolean {
         if (!this._shadowsActive() || !this._meshBbox) return false;
+        this._ensureShadowMap(gl, this.config.shadowMapSize);
+        // Camera-only frames (orbit / pan) reuse the cached shadow map: its
+        // depth render depends only on the mesh + light direction, so the
+        // already-computed `_lightMatrix` and `_shadowTex` stay valid.
+        if (!this._shadowDirty) return true;
         // With sun lighting on, shadows follow the sun; otherwise they follow
         // the fixed neutral light direction so they match the flat hillshade.
         const lightDir = this.config.sunLightingEnabled ? this.config.sunDir : FLAT_LIGHT_DIR;
         const m = buildLightMatrix(lightDir, this._meshBbox);
         this._lightMatrix.set(m);
-        this._ensureShadowMap(gl, this.config.shadowMapSize);
         gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFbo);
         gl.viewport(0, 0, this._shadowSize, this._shadowSize);
         gl.clearDepth(1);
@@ -1300,6 +1401,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.cullFace(gl.BACK);
         gl.disable(gl.CULL_FACE);
         gl.bindFramebuffer(gl.FRAMEBUFFER, prevFBO);
+        this._shadowDirty = false;
         return true;
     }
 
