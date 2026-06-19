@@ -937,6 +937,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.bindVertexArray(this._vao);
             this._drawPointsChunked(gl2);
 
+            // Export the cloud/mesh depth into MapLibre's framebuffer so later
+            // draped layers (route line, contours) don't trigger a terrain
+            // re-draw that overdraws the mesh with distant hazy relief.
+            this._exportDepthToMapLibre(gl2, prevFBO, translatedMatrix, effectivePointSize);
+
             // ─── Pass 2: Apply EDL and render to screen ───
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
             gl2.viewport(0, 0, w, h);
@@ -984,6 +989,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
             gl2.bindVertexArray(this._vao);
             this._drawPointsChunked(gl2);
+
+            // Export depth (see EDL path above) before compositing.
+            this._exportDepthToMapLibre(gl2, prevFBO, translatedMatrix, effectivePointSize);
 
             // Composite FBO color back to MapLibre framebuffer (strength=0 ⇒ no EDL).
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
@@ -1431,6 +1439,48 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.activeTexture(gl.TEXTURE2);
         gl.bindTexture(gl.TEXTURE_2D, this._shadowTex);
         gl.uniform1i(loc.shadowMap, 2);
+    }
+
+    /**
+     * Re-draw the cloud/mesh depth (no colour) directly into the framebuffer
+     * MapLibre is compositing into (`destFbo`). Our geometry uses the SAME
+     * projection matrix MapLibre uses, so the written depth is directly
+     * comparable to MapLibre's terrain depth. This means the mesh now occupies
+     * MapLibre's shared depth buffer; when MapLibre later re-draws the terrain
+     * mesh to flush a draped layer (route line, contour lines) sitting above us
+     * in the layer order, those distant terrain fragments fail the LEQUAL depth
+     * test where the nearer lidar mesh is, so the hazy far relief no longer
+     * overdraws the mesh silhouette (the "fog band crossing the mesh" artefact).
+     *
+     * A direct depth-only pass is used rather than `blitFramebuffer` because
+     * MapLibre's default framebuffer is multisampled (antialias), and blitting
+     * into a multisampled draw framebuffer is a GL_INVALID_OPERATION.
+     */
+    private _exportDepthToMapLibre(
+        gl: WebGL2RenderingContext,
+        destFbo: WebGLFramebuffer | null,
+        translatedMatrix: Float32Array,
+        effectivePointSize: number,
+    ): void {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, destFbo);
+        const prevRange = gl.getParameter(gl.DEPTH_RANGE) as Float32Array;
+        // Match the depth range MapLibre uses for the terrain mesh ([0,1]); the
+        // 3D custom-layer pass may have narrowed it, which would bias the test.
+        gl.depthRange(0, 1);
+        gl.colorMask(false, false, false, false);
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+
+        this._drawMesh(gl, translatedMatrix);
+
+        this._bindPointsUniforms(gl, translatedMatrix, effectivePointSize);
+        gl.bindVertexArray(this._vao);
+        this._drawPointsChunked(gl);
+
+        gl.colorMask(true, true, true, true);
+        gl.depthRange(prevRange[0], prevRange[1]);
     }
 
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
