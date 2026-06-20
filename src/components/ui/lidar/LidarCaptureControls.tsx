@@ -1,3 +1,4 @@
+import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { POISSON_MAX_RADIUS, useMapStore } from '@/stores/mapStore';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
@@ -18,32 +19,11 @@ function strideToIndex(stride: number): number {
 
 type LidarMode = 'shaded' | 'delaunay' | 'poisson';
 
-function ModeButton({
-    mode,
-    current,
-    onClick,
-    label,
-    title,
-    rounded,
-}: Readonly<{
-    mode: LidarMode;
-    current: LidarMode;
-    onClick: () => void;
-    label: string;
-    title: string;
-    rounded: 'l' | 'r' | '';
-}>) {
-    const ROUND_CLS: Record<'l' | 'r' | '', string> = { l: 'rounded-l-md', r: 'rounded-r-md', '': '' };
-    const roundCls = ROUND_CLS[rounded];
-    const activeCls = mode === current
-        ? 'bg-green-600 text-white'
-        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700';
-    return (
-        <button type="button" onClick={onClick} title={title} className={`${roundCls} px-2.5 py-1 text-xs ${activeCls}`}>
-            {label}
-        </button>
-    );
-}
+const MODE_OPTIONS = [
+    { value: 'shaded', label: 'Points', title: 'Nuage de points ombré (normales par k-PPV)' },
+    { value: 'delaunay', label: 'Delaunay', title: 'Sol en mesh Delaunay 2.5D + végétation/bâti en nuage' },
+    { value: 'poisson', label: 'Poisson', title: 'Reconstruction Poisson du sol (octree adaptatif) + nuage végétation/bâti' },
+] as const satisfies ReadonlyArray<{ value: LidarMode; label: string; title: string }>;
 
 function PoissonControls() {
     const poissonDepth = useMapStore((s) => s.lidarCloudPoissonDepth);
@@ -136,11 +116,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                 {/* Mode */}
                 <div data-tutorial="capture-modes" className="flex items-center justify-between">
                     <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
-                    <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                        <ModeButton mode="shaded" current={mode} onClick={() => setMode('shaded')} label="Points" rounded="l" title="Nuage de points ombré (normales par k-PPV)" />
-                        <ModeButton mode="delaunay" current={mode} onClick={() => setMode('delaunay')} label="Delaunay" rounded="" title="Sol en mesh Delaunay 2.5D + végétation/bâti en nuage" />
-                        <ModeButton mode="poisson" current={mode} onClick={() => setMode('poisson')} label="Poisson" rounded="r" title="Reconstruction Poisson du sol (octree adaptatif) + nuage végétation/bâti" />
-                    </fieldset>
+                    <SegmentedControl value={mode} options={MODE_OPTIONS} onChange={setMode} />
                 </div>
 
                 {mode === 'poisson' && <PoissonControls />}

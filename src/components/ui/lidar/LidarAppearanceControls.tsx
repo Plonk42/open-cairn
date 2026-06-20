@@ -1,4 +1,5 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
+import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS } from '@/lib/lidarCloud';
 import { useMapStore } from '@/stores/mapStore';
@@ -12,31 +13,11 @@ const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((c
     label: LAS_CLASS_LABELS[cls] ?? `Classe ${cls}`,
 }));
 
-function ShaderButton({
-    preset,
-    current,
-    onClick,
-    label,
-    title,
-    rounded,
-}: Readonly<{
-    preset: ShaderPreset;
-    current: ShaderPreset;
-    onClick: () => void;
-    label: string;
-    title: string;
-    rounded: 'l' | 'r' | '';
-}>) {
-    const ROUND_CLS: Record<'l' | 'r' | '', string> = { l: 'rounded-l-md', r: 'rounded-r-md', '': '' };
-    const activeCls = preset === current
-        ? 'bg-green-600 text-white'
-        : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700';
-    return (
-        <button type="button" onClick={onClick} title={title} className={`${ROUND_CLS[rounded]} px-2.5 py-1 text-xs ${activeCls}`}>
-            {label}
-        </button>
-    );
-}
+const SHADER_OPTIONS = [
+    { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
+    { value: 'cliff', label: 'Été', title: 'Rupture nette herbe/calcaire gris avec texture rocheuse' },
+    { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
+] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 
 export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -167,11 +148,7 @@ export function ShaderControls() {
     return (
         <div className="flex items-center justify-between">
             <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
-            <fieldset className="inline-flex rounded-md ring-1 ring-slate-200 dark:ring-slate-600">
-                <ShaderButton preset="base" current={shader} onClick={() => setShader('base')} label="Mono" rounded="l" title="Dégradé chaud sable / brun" />
-                <ShaderButton preset="cliff" current={shader} onClick={() => setShader('cliff')} label="Été" rounded="" title="Rupture nette herbe/calcaire gris avec texture rocheuse" />
-                <ShaderButton preset="winter" current={shader} onClick={() => setShader('winter')} label="Hiver" rounded="r" title="Neige sur pentes douces/expositions nord, falaise brun rocheux" />
-            </fieldset>
+            <SegmentedControl value={shader} options={SHADER_OPTIONS} onChange={setShader} />
         </div>
     );
 }
