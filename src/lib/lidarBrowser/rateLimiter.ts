@@ -1,9 +1,8 @@
-]633;E;echo "/**";e6fd7438-80f4-4448-b030-4719ad0de016]633;C/**
+/**
  * Client-side throttle for HTTP Range requests against IGN's LiDAR HD COPC
  * service: a global in-flight cap + a proactive sliding-window rate limiter
  * with a reactive 429 cooldown safety net.
  */
-
 
 // Global throttle for HTTP range requests against data.geopf.fr's LiDAR
 // COPC service.

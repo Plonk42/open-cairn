@@ -1,9 +1,10 @@
-]633;E;sed -n '1,6p' src/components/map/LidarWebGLLayer.ts;e6fd7438-80f4-4448-b030-4719ad0de016]633;C/**
+/**
  * MapLibre CustomLayerInterface — WebGL2 point cloud with optional EDL.
  * Properly saves and restores GL state.
  */
 
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
+import { MercatorCoordinate } from 'maplibre-gl';
 import {
     FS_EDL, FS_MESH, FS_POINTS, FS_SHADOW,
     linkProgram,

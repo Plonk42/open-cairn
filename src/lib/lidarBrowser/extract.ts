@@ -1,4 +1,4 @@
-]633;E;sed -n '1,12p' src/lib/lidarBrowser/extract.ts;e6fd7438-80f4-4448-b030-4719ad0de016]633;C/**
+/**
  * COPC reader: walks the octree of an IGN LiDAR HD `.copc.laz` tile served
  * over HTTP Range, decodes only the nodes intersecting the requested
  * Lambert-93 bbox, applies stride decimation and optional class filtering.

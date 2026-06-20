@@ -1,7 +1,8 @@
 import type { BlendMode } from '@/lib/compositeProtocol';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { BaseLayerId } from '@/lib/mapStyle';
-import type { HillshadeSource, RenderQuality, TerrainDemSource, UiTheme } from './slices/settingsSlice';
+import type { RenderQuality, UiTheme } from './slices/settingsSlice';
+import type { HillshadeSource, TerrainDemSource } from './slices/terrainSlice';
 import type { LidarMode } from './slices/lidarSlice';
 import type { MapView } from './slices/viewSlice';
 
