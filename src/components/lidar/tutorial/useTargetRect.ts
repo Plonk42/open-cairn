@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 
 /**
  * Resolves a `data-tutorial` CSS selector to the live bounding rect of its
@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 export function useTargetRect(selector: string | null, tick = 0): DOMRect | null {
     const [rect, setRect] = useState<DOMRect | null>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!selector) {
             setRect(null);
             return;
@@ -34,8 +34,11 @@ export function useTargetRect(selector: string | null, tick = 0): DOMRect | null
             if (attempts++ < 20) frame = requestAnimationFrame(measure);
         };
 
-        // Measure on the next frame so freshly-mounted targets have laid out.
-        frame = requestAnimationFrame(measure);
+        // Measure synchronously before paint so the card never flashes at the
+        // previous step's position when advancing. Targets already in the DOM
+        // (the common case) latch immediately; ones that appear a frame later
+        // (e.g. a menu the step just opened) are picked up by the rAF retry.
+        measure();
 
         globalThis.addEventListener('resize', measure);
         globalThis.addEventListener('scroll', measure, true);

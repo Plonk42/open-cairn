@@ -3,13 +3,13 @@
  * Properly saves and restores GL state.
  */
 
-import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
-import { MercatorCoordinate } from 'maplibre-gl';
 import {
     FS_EDL, FS_MESH, FS_POINTS, FS_SHADOW,
     linkProgram,
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
+import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
+import { MercatorCoordinate } from 'maplibre-gl';
 
 
 type Bbox = { min: [number, number, number]; max: [number, number, number] };
@@ -141,8 +141,8 @@ export interface LidarWebGLLayerConfig {
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
     /**
-     * Force du drapage de l'orthophoto IGN sur le mesh (modes delaunay/poisson).
-     * 0 = palette de relief pure, 1 = photo opaque. Sans effet sur les points.
+     * Force du drapage de l'orthophoto IGN sur la géométrie (points et mesh).
+     * 0 = palette de relief pure, 1 = photo opaque.
      */
     photoOpacity: number;
     /** Unit direction vector pointing TOWARDS the sun (x=east, y=north, z=up). */

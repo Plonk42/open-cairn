@@ -1,15 +1,15 @@
 import {
+    applyScene,
+    type GalleryEntry,
+    loadGalleryEntries,
+} from '@/components/lidar/gallery/sceneData';
+import {
     GalleryBody,
     GalleryIcon,
     LocalGalleryBody,
     RecentGalleryBody,
     TabButton,
 } from '@/components/lidar/gallery/tiles';
-import {
-    applyScene,
-    type GalleryEntry,
-    loadGalleryEntries,
-} from '@/components/lidar/gallery/sceneData';
 import {
     clearAllSavedClouds,
     deleteSavedCloud,

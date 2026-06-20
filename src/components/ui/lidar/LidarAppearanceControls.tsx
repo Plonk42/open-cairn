@@ -47,9 +47,8 @@ export function ClassFilterSection() {
     );
 }
 
-/** Layer opacity slider + (mesh modes only) draped photo-texture opacity. */
+/** Layer opacity slider + draped photo-texture opacity (all render modes). */
 export function OpacityControls() {
-    const mode = useMapStore((s) => s.lidarMode);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
@@ -120,22 +119,20 @@ export function OpacityControls() {
                 />
             </label>
 
-            {/* Texture photo (orthophoto IGN drapée sur le mesh) */}
-            {(mode === 'delaunay' || mode === 'poisson') && (
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Texture photo</span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacity * 100)}%</span>
-                    </div>
-                    <input
-                        aria-label="Opacité de la texture photo (orthophoto IGN)"
-                        type="range" min={0} max={1} step={0.05}
-                        value={photoOpacity}
-                        onChange={(e) => setPhotoOpacity(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-            )}
+            {/* Texture photo (orthophoto IGN drapée sur le nuage / le mesh) */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Texture photo</span>
+                    <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacity * 100)}%</span>
+                </div>
+                <input
+                    aria-label="Opacité de la texture photo (orthophoto IGN)"
+                    type="range" min={0} max={1} step={0.05}
+                    value={photoOpacity}
+                    onChange={(e) => setPhotoOpacity(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
         </div>
     );
 }
