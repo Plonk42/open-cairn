@@ -62,9 +62,9 @@ function StudioTopBar({
                     <span>Studio LiDAR</span>
                 </div>
 
-                {/* Showcase : galerie et export (desktop uniquement). */}
-                <div className="mx-0.5 hidden h-6 w-px bg-white/15 md:block" />
-                <div className="hidden items-center gap-1.5 md:flex">
+                {/* Showcase : galerie et export. */}
+                <div className="mx-0.5 h-6 w-px bg-white/15" />
+                <div className="flex items-center gap-1.5">
                     <OrbitTopBarButton />
                     <ShowcaseExport />
                     <ShowcaseGallery />
@@ -209,7 +209,7 @@ function StudioCloudLocator() {
     };
 
     return (
-        <div className="pointer-events-none absolute bottom-6 right-24 z-30 flex justify-end">
+        <div className="pointer-events-none absolute bottom-20 right-4 z-30 flex justify-end">
             <div
                 className={`pointer-events-auto inline-flex items-center gap-1 rounded-full py-1 pl-1 pr-1 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${onScreen
                     ? 'bg-slate-950/80 text-slate-200 ring-white/15'
