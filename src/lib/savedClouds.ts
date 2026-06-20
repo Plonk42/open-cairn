@@ -15,6 +15,7 @@
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
+import { createSavedStore, useSavedStore } from '@/lib/savedStore';
 
 const SAVED_CLOUDS_KEY = 'open-cairn-saved-clouds';
 const cloudStore = createStore('open-cairn-saved-clouds-db', 'data');
@@ -84,11 +85,18 @@ function writeAll(clouds: SavedCloud[]): void {
     try {
         localStorage.setItem(SAVED_CLOUDS_KEY, JSON.stringify(clouds));
     } catch { /* ignore quota */ }
-    globalThis.dispatchEvent(new CustomEvent('open-cairn-saved-clouds-changed'));
+    savedCloudsStore.notify();
 }
 
 export function listSavedClouds(): SavedCloud[] {
     return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+const savedCloudsStore = createSavedStore(listSavedClouds);
+
+/** Reactive hook returning the current saved clouds, sorted newest-first. */
+export function useSavedClouds(): SavedCloud[] {
+    return useSavedStore(savedCloudsStore);
 }
 
 function makeKey(p: SavedCloudParams): string {

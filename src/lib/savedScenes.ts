@@ -16,6 +16,7 @@ import { unzipSync } from 'fflate';
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
+import { createSavedStore, useSavedStore } from '@/lib/savedStore';
 import { decodeShowcaseGeometry, parseShowcaseManifest, type ShowcaseAmbiance, type ShowcaseCamera } from '@/lib/showcaseScene';
 
 const SAVED_SCENES_KEY = 'open-cairn-saved-scenes';
@@ -59,11 +60,18 @@ function writeAll(scenes: SavedScene[]): void {
     try {
         localStorage.setItem(SAVED_SCENES_KEY, JSON.stringify(scenes));
     } catch { /* ignore quota */ }
-    globalThis.dispatchEvent(new CustomEvent('open-cairn-saved-scenes-changed'));
+    savedScenesStore.notify();
 }
 
 export function listSavedScenes(): SavedScene[] {
     return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+const savedScenesStore = createSavedStore(listSavedScenes);
+
+/** Reactive hook returning the current saved scenes, sorted newest-first. */
+export function useSavedScenes(): SavedScene[] {
+    return useSavedStore(savedScenesStore);
 }
 
 /**

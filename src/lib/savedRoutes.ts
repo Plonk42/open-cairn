@@ -1,4 +1,5 @@
 import type { LngLatTuple } from '@/lib/geo';
+import { createSavedStore, useSavedStore } from '@/lib/savedStore';
 import type { RouteSegment, RouteStats, RouteWaypoint } from '@/stores/routeStore';
 
 const SAVED_ROUTES_KEY = 'open-cairn-saved-routes';
@@ -41,11 +42,18 @@ function writeAll(routes: SavedRoute[]): void {
     try {
         localStorage.setItem(SAVED_ROUTES_KEY, JSON.stringify(routes));
     } catch { /* ignore quota */ }
-    globalThis.dispatchEvent(new CustomEvent('open-cairn-saved-routes-changed'));
+    savedRoutesStore.notify();
 }
 
 export function listSavedRoutes(): SavedRoute[] {
     return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+const savedRoutesStore = createSavedStore(listSavedRoutes);
+
+/** Reactive hook returning the current saved routes, sorted newest-first. */
+export function useSavedRoutes(): SavedRoute[] {
+    return useSavedStore(savedRoutesStore);
 }
 
 export function getSavedRouteById(id: string): SavedRoute | null {

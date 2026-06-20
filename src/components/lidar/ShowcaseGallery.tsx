@@ -13,16 +13,16 @@ import {
 import {
     clearAllSavedClouds,
     deleteSavedCloud,
-    listSavedClouds,
     loadSavedCloudData,
     type SavedCloud,
+    useSavedClouds,
 } from '@/lib/savedClouds';
 import {
     deleteSavedScene,
     importSceneFromZip,
-    listSavedScenes,
     loadSavedSceneData,
     type SavedScene,
+    useSavedScenes,
 } from '@/lib/savedScenes';
 import { loadShowcaseScene } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
@@ -42,8 +42,8 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
-    const [localScenes, setLocalScenes] = useState<SavedScene[]>(() => listSavedScenes());
-    const [recentClouds, setRecentClouds] = useState<SavedCloud[]>(() => listSavedClouds());
+    const localScenes = useSavedScenes();
+    const recentClouds = useSavedClouds();
     const [confirmClearRecent, setConfirmClearRecent] = useState(false);
     const [importing, setImporting] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
@@ -67,18 +67,6 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             cancelled = true;
         };
     }, [isOpen, entries.length]);
-
-    useEffect(() => {
-        const refresh = () => setLocalScenes(listSavedScenes());
-        globalThis.addEventListener('open-cairn-saved-scenes-changed', refresh);
-        return () => globalThis.removeEventListener('open-cairn-saved-scenes-changed', refresh);
-    }, []);
-
-    useEffect(() => {
-        const refresh = () => setRecentClouds(listSavedClouds());
-        globalThis.addEventListener('open-cairn-saved-clouds-changed', refresh);
-        return () => globalThis.removeEventListener('open-cairn-saved-clouds-changed', refresh);
-    }, []);
 
     const onSelect = async (entry: GalleryEntry) => {
         setError(null);

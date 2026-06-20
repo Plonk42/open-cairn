@@ -1,14 +1,14 @@
 import { formatDistance, formatElevation, type LngLatTuple } from '@/lib/geo';
 import {
     deleteSavedRoute,
-    listSavedRoutes,
     renameSavedRoute,
     type SavedRoute,
     type SavedRoutePreview,
+    useSavedRoutes,
 } from '@/lib/savedRoutes';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 
 function formatDate(iso: string): string {
     try {
@@ -115,7 +115,7 @@ function PreviewThumb({ preview }: Readonly<{ preview: SavedRoutePreview }>) {
 }
 
 export function SavedRoutesPanel() {
-    const [routes, setRoutes] = useState<SavedRoute[]>(() => listSavedRoutes());
+    const routes = useSavedRoutes();
     const [renaming, setRenaming] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -124,12 +124,6 @@ export function SavedRoutesPanel() {
     const setRouteActive = useRouteStore((s) => s.setActive);
     const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
     const fitBounds = useMapStore((s) => s.fitBounds);
-
-    useEffect(() => {
-        const refresh = () => setRoutes(listSavedRoutes());
-        globalThis.addEventListener('open-cairn-saved-routes-changed', refresh);
-        return () => globalThis.removeEventListener('open-cairn-saved-routes-changed', refresh);
-    }, []);
 
     const handleLoad = (r: SavedRoute) => {
         importRoute(r.waypoints, r.segments);
