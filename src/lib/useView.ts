@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Top-level application view, selected via the `?view=` search param.
@@ -35,30 +35,33 @@ function buildUrl(view: AppView): string {
  */
 const VIEW_CHANGE_EVENT = 'open-cairn-viewchange';
 
+/** Subscribe to both browser navigation and our own `setView` history pushes. */
+function subscribe(onChange: () => void): () => void {
+    globalThis.addEventListener('popstate', onChange);
+    globalThis.addEventListener(VIEW_CHANGE_EVENT, onChange);
+    return () => {
+        globalThis.removeEventListener('popstate', onChange);
+        globalThis.removeEventListener(VIEW_CHANGE_EVENT, onChange);
+    };
+}
+
 /**
  * Hook exposing the current top-level view and a setter that updates the
  * `?view=` search param via the History API (no full reload), keeping the
  * hash intact so the map position / share link survive view switches.
+ *
+ * The URL is the single source of truth; we subscribe to it through
+ * `useSyncExternalStore` (mirroring the saved-store pattern) instead of
+ * mirroring it into local component state.
  */
 export function useView(): { view: AppView; setView: (next: AppView) => void } {
-    const [currentView, setCurrentView] = useState<AppView>(() => readView());
-
-    useEffect(() => {
-        const sync = () => setCurrentView(readView());
-        globalThis.addEventListener('popstate', sync);
-        globalThis.addEventListener(VIEW_CHANGE_EVENT, sync);
-        return () => {
-            globalThis.removeEventListener('popstate', sync);
-            globalThis.removeEventListener(VIEW_CHANGE_EVENT, sync);
-        };
-    }, []);
+    const view = useSyncExternalStore(subscribe, readView, readView);
 
     const setView = useCallback((next: AppView) => {
         if (next === readView()) return;
         history.pushState(null, '', buildUrl(next));
         globalThis.dispatchEvent(new Event(VIEW_CHANGE_EVENT));
-        setCurrentView(next);
     }, []);
 
-    return { view: currentView, setView };
+    return { view, setView };
 }
