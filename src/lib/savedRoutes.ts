@@ -1,5 +1,5 @@
 import type { LngLatTuple } from '@/lib/geo';
-import { createSavedStore, useSavedStore } from '@/lib/savedStore';
+import { createSavedCollection } from '@/lib/savedStore';
 import type { RouteSegment, RouteStats, RouteWaypoint } from '@/stores/routeStore';
 
 const SAVED_ROUTES_KEY = 'open-cairn-saved-routes';
@@ -27,34 +27,14 @@ export interface SavedRoute {
     preview: SavedRoutePreview;
 }
 
-function readAll(): SavedRoute[] {
-    try {
-        const raw = localStorage.getItem(SAVED_ROUTES_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? (parsed as SavedRoute[]) : [];
-    } catch {
-        return [];
-    }
-}
+const routes = createSavedCollection<SavedRoute>(SAVED_ROUTES_KEY);
+const readAll = routes.readAll;
+const writeAll = routes.writeAll;
 
-function writeAll(routes: SavedRoute[]): void {
-    try {
-        localStorage.setItem(SAVED_ROUTES_KEY, JSON.stringify(routes));
-    } catch { /* ignore quota */ }
-    savedRoutesStore.notify();
-}
-
-export function listSavedRoutes(): SavedRoute[] {
-    return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-}
-
-const savedRoutesStore = createSavedStore(listSavedRoutes);
+export const listSavedRoutes = routes.list;
 
 /** Reactive hook returning the current saved routes, sorted newest-first. */
-export function useSavedRoutes(): SavedRoute[] {
-    return useSavedStore(savedRoutesStore);
-}
+export const useSavedRoutes = routes.useItems;
 
 export function getSavedRouteById(id: string): SavedRoute | null {
     return readAll().find((r) => r.id === id) ?? null;

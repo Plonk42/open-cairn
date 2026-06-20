@@ -16,7 +16,7 @@ import { unzipSync } from 'fflate';
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
-import { createSavedStore, useSavedStore } from '@/lib/savedStore';
+import { createSavedCollection } from '@/lib/savedStore';
 import { decodeShowcaseGeometry, parseShowcaseManifest, type ShowcaseAmbiance, type ShowcaseCamera } from '@/lib/showcaseScene';
 
 const SAVED_SCENES_KEY = 'open-cairn-saved-scenes';
@@ -45,34 +45,14 @@ export interface SavedSceneData {
     mesh: LidarMeshData | null;
 }
 
-function readAll(): SavedScene[] {
-    try {
-        const raw = localStorage.getItem(SAVED_SCENES_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? (parsed as SavedScene[]) : [];
-    } catch {
-        return [];
-    }
-}
+const scenes = createSavedCollection<SavedScene>(SAVED_SCENES_KEY);
+const readAll = scenes.readAll;
+const writeAll = scenes.writeAll;
 
-function writeAll(scenes: SavedScene[]): void {
-    try {
-        localStorage.setItem(SAVED_SCENES_KEY, JSON.stringify(scenes));
-    } catch { /* ignore quota */ }
-    savedScenesStore.notify();
-}
-
-export function listSavedScenes(): SavedScene[] {
-    return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-}
-
-const savedScenesStore = createSavedStore(listSavedScenes);
+export const listSavedScenes = scenes.list;
 
 /** Reactive hook returning the current saved scenes, sorted newest-first. */
-export function useSavedScenes(): SavedScene[] {
-    return useSavedStore(savedScenesStore);
-}
+export const useSavedScenes = scenes.useItems;
 
 /**
  * Persist an exported scene as a local entry. The heavy geometry goes to
