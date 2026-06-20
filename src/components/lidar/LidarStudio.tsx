@@ -283,7 +283,7 @@ export function LidarStudio() {
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">
-            <MapContainer />
+            <MapContainer studio />
 
             <StudioTopBar onExit={() => setView('map')} onHelp={() => setTutorialOpen(true)} />
 
