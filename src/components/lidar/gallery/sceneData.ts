@@ -1,7 +1,7 @@
+import { applyAmbiance } from '@/lib/showcaseAmbiance';
 import {
     fetchShowcaseManifest,
     showcaseScenePaths,
-    type ShowcaseAmbiance,
     type ShowcaseCamera,
     type ShowcaseManifest,
     type ShowcaseScene,
@@ -67,28 +67,6 @@ export async function loadGalleryEntries(): Promise<GalleryEntry[]> {
         else console.warn('showcase: scène ignorée', r.reason);
     }
     return entries;
-}
-
-function applyAmbiance(a: ShowcaseAmbiance) {
-    const st = useMapStore.getState();
-    st.setLidarMode(a.lidarMode);
-    st.setLidarShader(a.lidarShader);
-    st.setLidarSunDate(a.lidarSunDate);
-    st.setLidarSunEnabled(a.lidarSunEnabled);
-    st.setLidarShadows(a.lidarShadows);
-    st.setLidarShadowStrength(a.lidarShadowStrength);
-    st.setLidarCloudEdl(a.lidarCloudEdl);
-    st.setLidarCloudEdlStrength(a.lidarCloudEdlStrength);
-    st.setLidarCloudEdlRadius(a.lidarCloudEdlRadius);
-    st.setLidarCloudEdlFarPlane(a.lidarCloudEdlFarPlane);
-    st.setLidarCloudPointSize(a.lidarCloudPointSize);
-    st.setLidarCloudSizeCompensation(a.lidarCloudSizeCompensation);
-    st.setLidarCloudOpacity(a.lidarCloudOpacity);
-    st.setLidarCloudPhotoOpacity(a.lidarCloudPhotoOpacity);
-    st.setLidarCloudBasemapOpacity(a.lidarCloudBasemapOpacity);
-    st.setLidarCloudClasses(a.lidarCloudClasses);
-    st.setContourLinesEnabled(a.contourLinesEnabled);
-    st.setContourLinesOpacity(a.contourLinesOpacity);
 }
 
 export function applyScene(scene: ShowcaseScene) {

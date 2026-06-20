@@ -1,5 +1,6 @@
 import { ExportDialog, type ExportTarget } from '@/components/lidar/ExportDialog';
 import { saveScene } from '@/lib/savedScenes';
+import { extractAmbiance } from '@/lib/showcaseAmbiance';
 import { encodeShowcaseGeometry, serializeShowcaseManifest, type ShowcaseScene } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
 import { zipSync, type Zippable } from 'fflate';
@@ -96,26 +97,7 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
             bearing: map ? map.getBearing() : st.view.bearing,
             centerElevation: map ? map.getCenterElevation() : undefined,
         },
-        ambiance: {
-            lidarMode: st.lidarMode,
-            lidarShader: st.lidarShader,
-            lidarSunDate: st.lidarSunDate,
-            lidarSunEnabled: st.lidarSunEnabled,
-            lidarShadows: st.lidarShadows,
-            lidarShadowStrength: st.lidarShadowStrength,
-            lidarCloudEdl: st.lidarCloudEdl,
-            lidarCloudEdlStrength: st.lidarCloudEdlStrength,
-            lidarCloudEdlRadius: st.lidarCloudEdlRadius,
-            lidarCloudEdlFarPlane: st.lidarCloudEdlFarPlane,
-            lidarCloudPointSize: st.lidarCloudPointSize,
-            lidarCloudSizeCompensation: st.lidarCloudSizeCompensation,
-            lidarCloudOpacity: st.lidarCloudOpacity,
-            lidarCloudPhotoOpacity: st.lidarCloudPhotoOpacity,
-            lidarCloudBasemapOpacity: st.lidarCloudBasemapOpacity,
-            lidarCloudClasses: st.lidarCloudClasses,
-            contourLinesEnabled: st.contourLinesEnabled,
-            contourLinesOpacity: st.contourLinesOpacity,
-        },
+        ambiance: extractAmbiance(st),
         shaded: st.lidarShaded,
         mesh: st.lidarMesh,
     };
