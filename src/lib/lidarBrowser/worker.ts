@@ -16,13 +16,9 @@
  * across the worker boundary.
  */
 /// <reference lib="webworker" />
-import { fetchLidarDelaunay, fetchLidarPoisson, fetchLidarShaded, type BrowserFetchParams } from './pipeline';
+import { fetchLidarDelaunay, fetchLidarPoisson, fetchLidarShaded } from './pipeline';
 import type { LidarProgress } from './progress';
-
-type RequestMessage =
-    | { id: number; kind: 'shaded'; params: BrowserFetchParams }
-    | { id: number; kind: 'delaunay'; params: BrowserFetchParams }
-    | { id: number; kind: 'poisson'; params: BrowserFetchParams };
+import type { WorkerRequest, WorkerResponse } from './workerProtocol';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -47,11 +43,11 @@ function collectTransferables(obj: Record<string, unknown>): ArrayBuffer[] {
     return out;
 }
 
-self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
+self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     const { id, kind, params } = ev.data;
     // Create a progress callback that sends progress to the main thread
     const onProgress = (progress: LidarProgress) => {
-        self.postMessage({ id, type: 'progress', progress });
+        self.postMessage({ id, type: 'progress', progress } satisfies WorkerResponse);
     };
     const paramsWithProgress = { ...params, onProgress };
     try {
@@ -62,9 +58,9 @@ self.onmessage = async (ev: MessageEvent<RequestMessage>) => {
             case 'poisson': data = await fetchLidarPoisson(paramsWithProgress) as unknown as Record<string, unknown>; break;
         }
         const transferables = collectTransferables(data);
-        self.postMessage({ id, type: 'ok', data }, transferables);
+        self.postMessage({ id, type: 'ok', data } satisfies WorkerResponse, transferables);
     } catch (err) {
         const e = err as Error & { code?: string };
-        self.postMessage({ id, type: 'err', error: { message: e.message ?? String(err), code: e.code } });
+        self.postMessage({ id, type: 'err', error: { message: e.message ?? String(err), code: e.code } } satisfies WorkerResponse);
     }
 };
