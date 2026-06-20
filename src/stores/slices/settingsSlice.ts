@@ -1,6 +1,6 @@
 import { setTileCacheMaxSize } from '@/lib/compositeProtocol';
 import type { StateCreator } from 'zustand';
-import { persisted } from '../persistence';
+import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
 
 export type RenderQuality = 'balanced' | 'sharp';
@@ -60,3 +60,25 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     ignDemApiKey: persisted.ignDemApiKey ?? '',
     setIgnDemApiKey: (ignDemApiKey) => set({ ignDemApiKey }),
 });
+
+/** Persisted keys owned by the settings slice. */
+export function selectSettingsPersisted(
+    s: SettingsSlice,
+): Pick<
+    PersistedSettings,
+    | 'uiTheme'
+    | 'studioTutorialSeen'
+    | 'renderQuality'
+    | 'tileCacheSize'
+    | 'ignScanApiKey'
+    | 'ignDemApiKey'
+> {
+    return {
+        uiTheme: s.uiTheme,
+        studioTutorialSeen: s.studioTutorialSeen,
+        renderQuality: s.renderQuality,
+        tileCacheSize: s.tileCacheSize,
+        ignScanApiKey: s.ignScanApiKey,
+        ignDemApiKey: s.ignDemApiKey,
+    };
+}

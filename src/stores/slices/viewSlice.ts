@@ -1,7 +1,7 @@
 import type maplibregl from 'maplibre-gl';
 import type { StateCreator } from 'zustand';
 import type { BaseLayerId } from '@/lib/mapStyle';
-import { persisted } from '../persistence';
+import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
 
 export interface MapView {
@@ -54,3 +54,11 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
         );
     },
 });
+
+/** Persisted keys owned by the view slice. */
+export function selectViewPersisted(s: ViewSlice): Pick<PersistedSettings, 'view' | 'baseLayer'> {
+    return {
+        view: s.view,
+        baseLayer: s.baseLayer,
+    };
+}

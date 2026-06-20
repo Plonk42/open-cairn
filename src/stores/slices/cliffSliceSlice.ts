@@ -1,7 +1,7 @@
 import type { CliffStation } from '@/lib/cliffSlice';
 import type { LngLatTuple } from '@/lib/geo';
 import type { StateCreator } from 'zustand';
-import { persisted } from '../persistence';
+import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
 
 export interface CliffSliceSlice {
@@ -92,3 +92,23 @@ export const createCliffSliceSlice: StateCreator<MapState, [], [], CliffSliceSli
         cliffSliceActive: true,
     }),
 });
+
+/** Persisted keys owned by the cliff-slice slice. */
+export function selectCliffSlicePersisted(
+    s: CliffSliceSlice,
+): Pick<
+    PersistedSettings,
+    | 'cliffSliceCorridor'
+    | 'cliffSliceColorClass'
+    | 'cliffSliceColorDepth'
+    | 'cliffSliceClasses'
+    | 'cliffSliceRopeSafety'
+> {
+    return {
+        cliffSliceCorridor: s.cliffSliceCorridor,
+        cliffSliceColorClass: s.cliffSliceColorClass,
+        cliffSliceColorDepth: s.cliffSliceColorDepth,
+        cliffSliceClasses: s.cliffSliceClasses,
+        cliffSliceRopeSafety: s.cliffSliceRopeSafety,
+    };
+}

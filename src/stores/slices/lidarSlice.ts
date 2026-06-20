@@ -9,7 +9,7 @@ import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import { saveLoadedCloud } from '@/lib/savedClouds';
 import { formatSunDate, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
-import { persisted } from '../persistence';
+import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
 
 /** Maximum capture radius (metres) allowed in Poisson mode (WASM heap / octree limit). */
@@ -302,3 +302,55 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarCloudProgress: null,
     }),
 });
+
+/** Persisted keys owned by the lidar slice. */
+export function selectLidarPersisted(
+    s: LidarSlice,
+): Pick<
+    PersistedSettings,
+    | 'lidarMode'
+    | 'lidarShader'
+    | 'lidarCloudRadius'
+    | 'lidarCloudStride'
+    | 'lidarCloudPointSize'
+    | 'lidarCloudSizeCompensation'
+    | 'lidarCloudEdl'
+    | 'lidarCloudEdlStrength'
+    | 'lidarCloudEdlRadius'
+    | 'lidarCloudEdlFarPlane'
+    | 'lidarCloudOpacity'
+    | 'lidarCloudPhotoOpacity'
+    | 'lidarCloudBasemapOpacity'
+    | 'lidarCloudClasses'
+    | 'lidarCloudPoissonDepth'
+    | 'lidarCloudPoissonSamplesPerNode'
+    | 'lidarCloudPoissonPointWeight'
+    | 'lidarSunDate'
+    | 'lidarSunEnabled'
+    | 'lidarShadows'
+    | 'lidarShadowStrength'
+> {
+    return {
+        lidarMode: s.lidarMode,
+        lidarShader: s.lidarShader,
+        lidarCloudRadius: s.lidarCloudRadius,
+        lidarCloudStride: s.lidarCloudStride,
+        lidarCloudPointSize: s.lidarCloudPointSize,
+        lidarCloudSizeCompensation: s.lidarCloudSizeCompensation,
+        lidarCloudEdl: s.lidarCloudEdl,
+        lidarCloudEdlStrength: s.lidarCloudEdlStrength,
+        lidarCloudEdlRadius: s.lidarCloudEdlRadius,
+        lidarCloudEdlFarPlane: s.lidarCloudEdlFarPlane,
+        lidarCloudOpacity: s.lidarCloudOpacity,
+        lidarCloudPhotoOpacity: s.lidarCloudPhotoOpacity,
+        lidarCloudBasemapOpacity: s.lidarCloudBasemapOpacity,
+        lidarCloudClasses: s.lidarCloudClasses,
+        lidarCloudPoissonDepth: s.lidarCloudPoissonDepth,
+        lidarCloudPoissonSamplesPerNode: s.lidarCloudPoissonSamplesPerNode,
+        lidarCloudPoissonPointWeight: s.lidarCloudPoissonPointWeight,
+        lidarSunDate: s.lidarSunDate,
+        lidarSunEnabled: s.lidarSunEnabled,
+        lidarShadows: s.lidarShadows,
+        lidarShadowStrength: s.lidarShadowStrength,
+    };
+}

@@ -1,6 +1,6 @@
 import { type BlendMode } from '@/lib/compositeProtocol';
 import type { StateCreator } from 'zustand';
-import { persisted } from '../persistence';
+import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
 
 /** IGN LiDAR HD shadow product used as hillshade source. */
@@ -101,3 +101,33 @@ export const createTerrainSlice: StateCreator<MapState, [], [], TerrainSlice> = 
     terrainDemSource: persisted.terrainDemSource ?? 'auto',
     setTerrainDemSource: (terrainDemSource) => set({ terrainDemSource }),
 });
+
+/** Persisted keys owned by the terrain slice. */
+export function selectTerrainPersisted(
+    s: TerrainSlice,
+): Pick<
+    PersistedSettings,
+    | 'hillshadeEnabled'
+    | 'hillshadeSource'
+    | 'hillshadeBlend'
+    | 'hillshadeIntensity'
+    | 'sunHillshadeEnabled'
+    | 'terrainEnabled'
+    | 'terrainExaggeration'
+    | 'terrainDemSource'
+    | 'contourLinesEnabled'
+    | 'contourLinesOpacity'
+> {
+    return {
+        hillshadeEnabled: s.hillshadeEnabled,
+        hillshadeSource: s.hillshadeSource,
+        hillshadeBlend: s.hillshadeBlend,
+        hillshadeIntensity: s.hillshadeIntensity,
+        sunHillshadeEnabled: s.sunHillshadeEnabled,
+        terrainEnabled: s.terrainEnabled,
+        terrainExaggeration: s.terrainExaggeration,
+        terrainDemSource: s.terrainDemSource,
+        contourLinesEnabled: s.contourLinesEnabled,
+        contourLinesOpacity: s.contourLinesOpacity,
+    };
+}
