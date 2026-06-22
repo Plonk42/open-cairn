@@ -177,6 +177,12 @@ export interface LidarWebGLLayerConfig {
     vegSizeBoost: number;
     /** Flat-shade vegetation (skip normal/jitter modulation) so the EDL alone carves relief. */
     vegFlatShade: boolean;
+    /** Foliage palette blend strength (0 = flat class colour, 1 = full palette). */
+    vegIntensity: number;
+    /** Height (m) mapped to the top of the foliage palette. */
+    vegHeightScale: number;
+    /** Foliage palette: 0 = natural ramp, 1 = viridis height colormap. */
+    vegColorMode: number;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -194,6 +200,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _norBuf: WebGLBuffer | null = null;
     private _colBuf: WebGLBuffer | null = null;
     private _clsBuf: WebGLBuffer | null = null;
+    private _hgtBuf: WebGLBuffer | null = null;
     private _locPoints: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -218,7 +225,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         vegJitter: WebGLUniformLocation | null;
         vegSizeBoost: WebGLUniformLocation | null;
         vegFlatShade: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null };
+        vegIntensity: WebGLUniformLocation | null;
+        vegHeightScale: WebGLUniformLocation | null;
+        vegColorMode: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -344,6 +354,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         vegJitter: 0.3,
         vegSizeBoost: 1.3,
         vegFlatShade: false,
+        vegIntensity: 0.7,
+        vegHeightScale: 25,
+        vegColorMode: 0,
     };
 
     constructor(id: string) {
@@ -377,6 +390,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.vegJitter, this.config.vegEnhance ? this.config.vegJitter : 0);
         gl.uniform1f(this._locPoints.vegSizeBoost, this.config.vegEnhance ? this.config.vegSizeBoost : 1);
         gl.uniform1f(this._locPoints.vegFlatShade, this.config.vegEnhance && this.config.vegFlatShade ? 1 : 0);
+        // Coloration du feuillage (calculée dans le VS) : intensité du dégradé,
+        // hauteur de référence et palette — de simples uniforms (sliders instantanés).
+        gl.uniform1f(this._locPoints.vegIntensity, this.config.vegEnhance ? this.config.vegIntensity : 0);
+        gl.uniform1f(this._locPoints.vegHeightScale, this.config.vegHeightScale);
+        gl.uniform1f(this._locPoints.vegColorMode, this.config.vegColorMode);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
@@ -584,7 +602,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         normals: Float32Array,
         colors: Uint8Array,
         classifications: Uint8Array,
-        count: number,
+        heights: Float32Array,
         originLng: number,
         originLat: number,
     ): void {
@@ -592,7 +610,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._ox = mc.x;
         this._oy = mc.y;
         this._mpu = mc.meterInMercatorCoordinateUnits();
-        this._count = count;
+        this._count = positions.length / 3;
         this._pointBbox = computeBbox(positions);
 
         const gl = this._gl;
@@ -608,6 +626,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._clsBuf);
         gl.bufferData(gl.ARRAY_BUFFER, classifications, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._hgtBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, heights, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
         gl.bindVertexArray(prevVAO);
@@ -1055,6 +1075,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             vegJitter: gl.getUniformLocation(this._progPoints, 'u_vegJitter'),
             vegSizeBoost: gl.getUniformLocation(this._progPoints, 'u_vegSizeBoost'),
             vegFlatShade: gl.getUniformLocation(this._progPoints, 'u_vegFlatShade'),
+            vegIntensity: gl.getUniformLocation(this._progPoints, 'u_vegIntensity'),
+            vegHeightScale: gl.getUniformLocation(this._progPoints, 'u_vegHeightScale'),
+            vegColorMode: gl.getUniformLocation(this._progPoints, 'u_vegColorMode'),
         };
 
         // ─── Point buffers & VAO ───
@@ -1062,6 +1085,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._norBuf = gl.createBuffer();
         this._colBuf = gl.createBuffer();
         this._clsBuf = gl.createBuffer();
+        this._hgtBuf = gl.createBuffer();
 
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         this._vao = gl.createVertexArray();
@@ -1079,6 +1103,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._clsBuf);
         gl.enableVertexAttribArray(3);
         gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, 0, 0);
+        // a_height: per-point height above local ground (m), pre-sanitized CPU-side.
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._hgtBuf);
+        gl.enableVertexAttribArray(4);
+        gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
         gl.bindVertexArray(prevVAO);
 
         // ─── Mesh shader (mixed mode) ───
@@ -1238,6 +1266,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._norBuf); this._norBuf = null;
         delBuf(this._colBuf); this._colBuf = null;
         delBuf(this._clsBuf); this._clsBuf = null;
+        delBuf(this._hgtBuf); this._hgtBuf = null;
         delBuf(this._meshPosBuf); this._meshPosBuf = null;
         delBuf(this._meshNorBuf); this._meshNorBuf = null;
         delBuf(this._meshColBuf); this._meshColBuf = null;

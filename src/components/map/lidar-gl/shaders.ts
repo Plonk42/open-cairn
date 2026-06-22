@@ -20,6 +20,7 @@ layout(location = 0) in vec3 a_pos;      // (x, y, z) in meters: x=east, y=north
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec4 a_color;
 layout(location = 3) in float a_class;   // LAS classification (0..255), unnormalized
+layout(location = 4) in float a_height;  // height above local ground (m), pre-sanitized
 
 uniform mat4 u_matrix;     // Pre-translated matrix (includes origin translation)
 uniform float u_mpu;       // meters per Mercator unit
@@ -31,6 +32,9 @@ uniform mat4 u_lightMatrix;   // world-meters → light-clip space
 uniform vec4 u_uvRect;        // (eMin, nMin, eMax, nMax) en mètres-offset
 uniform float u_vegSizeBoost; // point-size multiplier for vegetation
 uniform float u_vegEnhance;   // 1 = vegetation enhancements on
+uniform float u_vegIntensity;   // 0 = flat class colour, 1 = full palette
+uniform float u_vegHeightScale; // height (m) mapped to the top of the palette
+uniform float u_vegColorMode;   // 0 = natural ramp, 1 = viridis height colormap
 
 out vec3 v_albedo;
 out float v_diff;
@@ -50,6 +54,37 @@ const vec3 FLAT_LIGHT_DIR = vec3(-0.5, 0.5, 0.7071);
 // Hash 3D → [0,1) pour le jitter par-feuille (stable par position).
 float vegHash(vec3 p) {
     return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+// Dégradé feuillage « naturel » : tronc/litière brun → sous-bois → canopée
+// vive → cime jaune-vert. "scale" étire l'axe hauteur (sommet atteint à
+// "scale" m au lieu de 15) — copie GPU de vegRamp() (lidarCloud.ts).
+vec3 vegRampColor(float h, float scale) {
+    float hh = h * (15.0 / max(1.0, scale));
+    vec3 c0 = vec3(82.0, 64.0, 44.0) / 255.0;
+    vec3 c1 = vec3(60.0, 104.0, 50.0) / 255.0;
+    vec3 c2 = vec3(96.0, 158.0, 66.0) / 255.0;
+    vec3 c3 = vec3(170.0, 200.0, 116.0) / 255.0;
+    if (hh <= 0.0) return c0;
+    if (hh <= 1.5) return mix(c0, c1, hh / 1.5);
+    if (hh <= 6.0) return mix(c1, c2, (hh - 1.5) / 4.5);
+    if (hh <= 15.0) return mix(c2, c3, (hh - 6.0) / 9.0);
+    return c3;
+}
+
+// Colormap viridis (matplotlib / IGN LiDAR HD), 11 paliers — copie GPU de
+// viridis() (lidarCloud.ts).
+vec3 viridisColor(float t) {
+    vec3 v[11] = vec3[11](
+        vec3(68.0, 1.0, 84.0), vec3(72.0, 33.0, 115.0), vec3(64.0, 67.0, 135.0),
+        vec3(52.0, 94.0, 141.0), vec3(41.0, 120.0, 142.0), vec3(32.0, 144.0, 140.0),
+        vec3(34.0, 167.0, 132.0), vec3(68.0, 190.0, 112.0), vec3(121.0, 209.0, 81.0),
+        vec3(189.0, 222.0, 38.0), vec3(253.0, 231.0, 37.0)
+    );
+    float x = clamp(t, 0.0, 1.0) * 10.0;
+    float fi = floor(x);
+    int i = int(min(fi, 9.0));
+    return mix(v[i], v[i + 1], x - fi) / 255.0;
 }
 
 void main() {
@@ -91,7 +126,17 @@ void main() {
     // Éclairage neutre : wrap-lighting doux (le terme négatif est replié pour
     // que les faces opposées restent éclairées) → relief lisible sans dureté.
     v_flatDiff = dot(nrm, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
-    v_albedo = a_color.rgb;
+    // Coloration du feuillage calculée sur le GPU : « Dégradé feuillage »
+    // (intensité) et « Hauteur max » (échelle) sont de simples uniforms → les
+    // sliders sont instantanés, sans recalcul CPU ni ré-upload du nuage.
+    vec3 baseCol = a_color.rgb;
+    if (v_isVeg > 0.5) {
+        vec3 pal = (u_vegColorMode > 0.5)
+            ? viridisColor(a_height / max(1.0, u_vegHeightScale))
+            : vegRampColor(a_height, u_vegHeightScale);
+        baseCol = mix(baseCol, pal, clamp(u_vegIntensity, 0.0, 1.0));
+    }
+    v_albedo = baseCol;
     v_alpha = a_color.a;
     // Projection planaire nadir (vue de dessus) identique au mesh : permet de
     // draper l'orthophoto sur les points (végétation, bâti, …).

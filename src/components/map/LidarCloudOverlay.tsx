@@ -1,5 +1,5 @@
 import { fetchOrthoMosaic } from '@/lib/lidarBrowser/orthoTexture';
-import { isVegetationClass, LAS_CLASS_COLORS, vegetationColor } from '@/lib/lidarCloud';
+import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -86,32 +86,25 @@ export function LidarCloudOverlay() {
         };
     }, [mapInstance]);
 
-    // ── Compute final colour buffer for the WebGL shaded cloud ────────────────
-    // Always use 'mixed' coloring: ground (class 2) uses slope palette,
-    // other classes use classification colors.
+    // ── Compute base colour buffer for the WebGL shaded cloud ─────────────────
+    // Ground (class 2) uses the server slope palette; every other class uses its
+    // classification colour. Vegetation foliage colouring (palette + intensity +
+    // height scale) is applied on the GPU in the vertex shader, so this buffer is
+    // independent of the foliage sliders and never rebuilt when they move.
     const shadedColors = useMemo(() => {
         if (!lidarShaded) return null;
-        const { pointCount, colors, classifications, heightAboveGround } = lidarShaded;
+        const { pointCount, colors, classifications } = lidarShaded;
         const out = new Uint8Array(pointCount * 4);
         for (let i = 0; i < pointCount; i++) {
             const cls = classifications[i] ?? 0;
             let r: number, g: number, b: number;
-            // Mixed mode: ground (class 2) uses slope colors, others use classification
             if (cls === 2) {
                 // Slope palette from the server
                 r = colors[i * 4];
                 g = colors[i * 4 + 1];
                 b = colors[i * 4 + 2];
-            } else if (vegEnhance && isVegetationClass(cls)) {
-                // Foliage colouring driven by the per-point height above the
-                // local ground. Both modes share the same controls — only the
-                // palette differs (natural trunk→canopy green ramp, or the
-                // viridis height colormap / IGN LiDAR HD canopy look).
-                const h = heightAboveGround ? heightAboveGround[i] : Number.NaN;
-                const base = LAS_CLASS_COLORS[cls] ?? [200, 200, 200];
-                [r, g, b] = vegetationColor(vegColorMode, h, base, vegIntensity, vegHeightScale);
             } else {
-                // Classification palette
+                // Classification palette (also the base the GPU foliage ramp blends from)
                 [r, g, b] = LAS_CLASS_COLORS[cls] ?? [200, 200, 200];
             }
             out[i * 4] = r;
@@ -120,26 +113,40 @@ export function LidarCloudOverlay() {
             out[i * 4 + 3] = 255;
         }
         return out;
-    }, [lidarShaded, vegEnhance, vegColorMode, vegHeightScale, vegIntensity]);
+    }, [lidarShaded]);
+
+    // ── Per-point height above local ground, for the GPU foliage ramp ─────────
+    // Sanitised so the shader gets a finite value (non-finite → 15 m, the ramp's
+    // authored top — matches the old CPU fallback). Independent of the sliders.
+    const heights = useMemo(() => {
+        if (!lidarShaded) return null;
+        const { pointCount, heightAboveGround } = lidarShaded;
+        const out = new Float32Array(pointCount);
+        for (let i = 0; i < pointCount; i++) {
+            const h = heightAboveGround ? heightAboveGround[i] : Number.NaN;
+            out[i] = Number.isFinite(h) ? h : 15;
+        }
+        return out;
+    }, [lidarShaded]);
 
     // ── Push shaded data + mesh + config to WebGL layer ─────────────────────
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return;
-        if (lidarShaded && shadedColors) {
+        if (lidarShaded && shadedColors && heights) {
             layer.setData(
                 lidarShaded.positions,
                 lidarShaded.normals,
                 shadedColors,
                 lidarShaded.classifications,
-                lidarShaded.pointCount,
+                heights,
                 lidarShaded.centerLng,
                 lidarShaded.centerLat,
             );
         } else {
             layer.clear();
         }
-    }, [lidarShaded, shadedColors, styleEpoch]);
+    }, [lidarShaded, shadedColors, heights, styleEpoch]);
 
     // ── Push mesh data for mixed mode ─────────────────────────────────────────
     useEffect(() => {
@@ -202,8 +209,11 @@ export function LidarCloudOverlay() {
             vegJitter,
             vegSizeBoost,
             vegFlatShade: !vegNormalShade,
+            vegIntensity,
+            vegHeightScale,
+            vegColorMode: vegColorMode === 'height' ? 1 : 0,
         });
-    }, [vegEnhance, vegRound, vegJitter, vegSizeBoost, vegNormalShade, styleEpoch]);
+    }, [vegEnhance, vegRound, vegJitter, vegSizeBoost, vegNormalShade, vegIntensity, vegHeightScale, vegColorMode, styleEpoch]);
 
     // ── Drapage orthophoto IGN sur le nuage / le mesh ─────────────────────────
     // Récupère une mosaïque orthophoto couvrant l'emprise de la géométrie chargée
