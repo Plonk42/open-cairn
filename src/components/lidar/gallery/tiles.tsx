@@ -1,8 +1,42 @@
+import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
 import { ignStaticMapUrl } from '@/lib/ign';
 import { CLOUD_MODE_LABELS, type SavedCloud } from '@/lib/savedClouds';
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
+import type { SceneLoadProgress } from '@/lib/showcaseScene';
 import { useEffect, useState } from 'react';
-import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
+
+/** Overlay rendered on a tile while it is being loaded (download + decode). */
+function SceneProgressOverlay({ progress }: Readonly<{ progress: SceneLoadProgress | null }>) {
+    const isDownload = progress?.phase === 'download';
+    const total = progress?.total ?? 0;
+    const loaded = progress?.loaded ?? 0;
+    const pct = isDownload && total > 0 ? Math.round((loaded / total) * 100) : null;
+    let label: string;
+    if (progress?.phase === 'decode') label = 'Décodage…';
+    else if (pct === null) label = 'Téléchargement…';
+    else label = `${pct} %`;
+
+    return (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-[2px]">
+            {pct === null ? (
+                <div className="flex flex-col items-center gap-1.5">
+                    <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
+                    <p className="text-xs font-medium text-white">{label}</p>
+                </div>
+            ) : (
+                <div className="w-3/4">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-700">
+                        <div
+                            className="h-full rounded-full bg-emerald-400 transition-all duration-150"
+                            style={{ width: `${pct}%` }}
+                        />
+                    </div>
+                    <p className="mt-1.5 text-center text-xs font-medium text-white">{label}</p>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export function GalleryIcon({ className }: Readonly<{ className?: string }>) {
     return (
@@ -21,22 +55,24 @@ const TrashGlyph = () => (
 function GalleryTile({
     entry,
     busy,
+    progress,
     onSelect,
-}: Readonly<{ entry: GalleryEntry; busy: boolean; onSelect: () => void }>) {
+}: Readonly<{ entry: GalleryEntry; busy: boolean; progress: SceneLoadProgress | null; onSelect: () => void }>) {
     return (
         <button
             type="button"
             onClick={onSelect}
             disabled={busy}
-            className="group relative overflow-hidden rounded-lg bg-slate-50 text-left ring-1 ring-slate-200 transition hover:ring-emerald-400/60 disabled:opacity-50 dark:bg-slate-800 dark:ring-white/10"
+            className="group relative overflow-hidden rounded-lg bg-slate-50 text-left ring-1 ring-slate-200 transition hover:ring-emerald-400/60 disabled:cursor-wait dark:bg-slate-800 dark:ring-white/10"
         >
-            <div className="aspect-video w-full bg-slate-100 dark:bg-slate-700">
+            <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-700">
                 <img
                     src={entry.thumbUrl}
                     alt={entry.title}
                     loading="lazy"
-                    className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+                    className={`h-full w-full object-cover transition ${busy ? '' : 'group-hover:scale-[1.03]'}`}
                 />
+                {busy && <SceneProgressOverlay progress={progress} />}
             </div>
             <div className="p-2.5">
                 <div className="text-sm font-semibold text-slate-900 dark:text-white">{entry.title}</div>
@@ -51,12 +87,14 @@ export function GalleryBody({
     loading,
     error,
     busyId,
+    progress,
     onSelect,
 }: Readonly<{
     entries: GalleryEntry[];
     loading: boolean;
     error: string | null;
     busyId: string | null;
+    progress: SceneLoadProgress | null;
     onSelect: (e: GalleryEntry) => void;
 }>) {
     if (loading) return <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Chargement de la galerie…</p>;
@@ -71,7 +109,13 @@ export function GalleryBody({
     return (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {entries.map((e) => (
-                <GalleryTile key={e.id} entry={e} busy={busyId !== null} onSelect={() => onSelect(e)} />
+                <GalleryTile
+                    key={e.id}
+                    entry={e}
+                    busy={busyId === e.id}
+                    progress={busyId === e.id ? progress : null}
+                    onSelect={() => onSelect(e)}
+                />
             ))}
         </div>
     );
@@ -111,13 +155,17 @@ function LocalThumb({ id, alt }: Readonly<{ id: string; alt: string }>) {
 function LocalTile({
     scene,
     busy,
+    progress,
     onSelect,
     onDelete,
-}: Readonly<{ scene: SavedScene; busy: boolean; onSelect: () => void; onDelete: () => void }>) {
+}: Readonly<{ scene: SavedScene; busy: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onDelete: () => void }>) {
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
-            <button type="button" onClick={onSelect} disabled={busy} className="block w-full text-left disabled:opacity-50">
-                <LocalThumb id={scene.id} alt={scene.title} />
+            <button type="button" onClick={onSelect} disabled={busy} className="block w-full cursor-pointer text-left disabled:cursor-wait">
+                <div className="relative">
+                    <LocalThumb id={scene.id} alt={scene.title} />
+                    {busy && <SceneProgressOverlay progress={progress} />}
+                </div>
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{scene.title}</div>
                     {scene.description && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{scene.description}</p>}
@@ -138,11 +186,13 @@ function LocalTile({
 export function LocalGalleryBody({
     scenes,
     busyId,
+    progress,
     onSelect,
     onDelete,
 }: Readonly<{
     scenes: SavedScene[];
     busyId: string | null;
+    progress: SceneLoadProgress | null;
     onSelect: (s: SavedScene) => void;
     onDelete: (s: SavedScene) => void;
 }>) {
@@ -159,7 +209,8 @@ export function LocalGalleryBody({
                 <LocalTile
                     key={s.id}
                     scene={s}
-                    busy={busyId !== null}
+                    busy={busyId === s.id}
+                    progress={busyId === s.id ? progress : null}
                     onSelect={() => onSelect(s)}
                     onDelete={() => onDelete(s)}
                 />

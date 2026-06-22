@@ -487,10 +487,57 @@ export function showcaseScenePaths(id: string): { geometry: string; manifest: st
     };
 }
 
-async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-    const res = await fetch(url);
+/**
+ * Progress update emitted during a scene fetch + decode sequence.
+ * - `phase: 'download'` — network transfer in progress.
+ *   `loaded` and `total` are byte counts; `total === 0` means indeterminate
+ *   (server did not send `Content-Length` or streaming is unavailable).
+ * - `phase: 'decode'` — download finished, meshoptimizer decompression running.
+ */
+export type SceneLoadProgress = {
+    phase: 'download' | 'decode';
+    loaded?: number;
+    total?: number;
+};
+
+/**
+ * Fetch a binary URL with optional streaming download-progress callbacks.
+ * Falls back to a single `arrayBuffer()` call when `response.body` is absent
+ * or `Content-Length` is missing (emits one indeterminate tick in that case).
+ */
+export async function fetchArrayBufferWithProgress(
+    url: string,
+    onProgress?: (p: SceneLoadProgress) => void,
+): Promise<ArrayBuffer> {
+    const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) throw new Error(`showcase scene: fetch failed (${res.status})`);
-    return res.arrayBuffer();
+
+    const lengthHeader = res.headers.get('Content-Length');
+    const total = lengthHeader ? Number.parseInt(lengthHeader, 10) : 0;
+
+    if (!res.body || total === 0) {
+        onProgress?.({ phase: 'download', loaded: 0, total: 0 });
+        return res.arrayBuffer();
+    }
+
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    for (; ;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress?.({ phase: 'download', loaded, total });
+    }
+
+    const result = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return result.buffer;
 }
 
 /** Fetch and parse a scene's sidecar manifest (title + description + camera + ambiance). */
@@ -503,13 +550,17 @@ export async function fetchShowcaseManifest(url: string): Promise<ShowcaseManife
 /**
  * Assemble a full showcase scene from an already-loaded manifest plus the
  * geometry fetched and decoded from its `.bin`.
+ *
+ * Pass `onProgress` to receive download-percentage and decode-phase updates
+ * (used by the gallery to render a progress bar on the tile).
  */
-export async function loadShowcaseScene(args: {
-    id: string;
-    geometryUrl: string;
-    manifest: ShowcaseManifest;
-}): Promise<ShowcaseScene> {
-    const geometry = await fetchArrayBuffer(args.geometryUrl).then(decodeShowcaseGeometry);
+export async function loadShowcaseScene(
+    args: { id: string; geometryUrl: string; manifest: ShowcaseManifest },
+    onProgress?: (p: SceneLoadProgress) => void,
+): Promise<ShowcaseScene> {
+    const buf = await fetchArrayBufferWithProgress(args.geometryUrl, onProgress);
+    onProgress?.({ phase: 'decode' });
+    const geometry = await decodeShowcaseGeometry(buf);
     return {
         id: args.id,
         title: args.manifest.title,

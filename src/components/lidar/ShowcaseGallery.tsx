@@ -19,12 +19,13 @@ import {
 } from '@/lib/savedClouds';
 import {
     deleteSavedScene,
+    importSceneFromUrl,
     importSceneFromZip,
     loadSavedSceneData,
     type SavedScene,
     useSavedScenes,
 } from '@/lib/savedScenes';
-import { loadShowcaseScene } from '@/lib/showcaseScene';
+import { loadShowcaseScene, type SceneLoadProgress } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -42,11 +43,14 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
+    const [sceneProgress, setSceneProgress] = useState<SceneLoadProgress | null>(null);
     const localScenes = useSavedScenes();
     const recentClouds = useSavedClouds();
     const [confirmClearRecent, setConfirmClearRecent] = useState(false);
     const [importing, setImporting] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
+    const [urlImportOpen, setUrlImportOpen] = useState(false);
+    const [urlValue, setUrlValue] = useState('');
 
     useEffect(() => {
         if (!isOpen || entries.length > 0) return;
@@ -71,24 +75,26 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const onSelect = async (entry: GalleryEntry) => {
         setError(null);
         setBusyId(entry.id);
+        setSceneProgress(null);
         try {
-            const scene = await loadShowcaseScene({
-                id: entry.id,
-                geometryUrl: entry.geometryUrl,
-                manifest: entry.manifest,
-            });
+            const scene = await loadShowcaseScene(
+                { id: entry.id, geometryUrl: entry.geometryUrl, manifest: entry.manifest },
+                (p) => setSceneProgress(p),
+            );
             applyScene(scene);
             setOpen(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la scène.');
         } finally {
             setBusyId(null);
+            setSceneProgress(null);
         }
     };
 
     const onSelectLocal = async (saved: SavedScene) => {
         setError(null);
         setBusyId(saved.id);
+        setSceneProgress(null);
         try {
             const data = await loadSavedSceneData(saved.id);
             if (!data) {
@@ -109,6 +115,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             setError(e instanceof Error ? e.message : 'Impossible de charger la vue.');
         } finally {
             setBusyId(null);
+            setSceneProgress(null);
         }
     };
 
@@ -156,6 +163,26 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         }
     };
 
+    const onImportUrl = async () => {
+        const url = urlValue.trim();
+        if (!url) return;
+        setError(null);
+        setImporting(true);
+        setSceneProgress(null);
+        try {
+            const saved = await importSceneFromUrl(url, (p) => setSceneProgress(p));
+            if (!saved) throw new Error('Import impossible (géométrie vide ?).');
+            setUrlValue('');
+            setUrlImportOpen(false);
+            setTab('mine');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Import impossible.');
+        } finally {
+            setImporting(false);
+            setSceneProgress(null);
+        }
+    };
+
     const galleryPanel = (
         <>
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10">
@@ -191,6 +218,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         loading={loading}
                         error={error}
                         busyId={busyId}
+                        progress={sceneProgress}
                         onSelect={(e) => { onSelect(e); }}
                     />
                 )}
@@ -200,23 +228,83 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Vues stockées dans ce navigateur.
                             </p>
-                            <button
-                                type="button"
-                                onClick={() => importInputRef.current?.click()}
-                                disabled={importing}
-                                className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-200 disabled:opacity-50 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                                    <path d="M10 1a.75.75 0 01.75.75v7.69l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 011.06-1.06l2.22 2.22V1.75A.75.75 0 0110 1z" />
-                                    <path d="M3.5 12.75a.75.75 0 01.75.75v2.5c0 .138.112.25.25.25h11a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0115.5 17.75h-11A1.75 1.75 0 012.75 16v-2.5a.75.75 0 01.75-.75z" />
-                                </svg>
-                                {importing ? 'Import…' : 'Importer un .zip'}
-                            </button>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => { setUrlImportOpen((v) => !v); }}
+                                    disabled={importing}
+                                    className="flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-200 disabled:opacity-50 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                        <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 00.025 1.06l4.146 3.958H6.375a5.375 5.375 0 000 10.75H9.75a.75.75 0 000-1.5H6.375a3.875 3.875 0 010-7.75h10.003l-4.146 3.957a.75.75 0 001.036 1.085l5.5-5.25a.75.75 0 000-1.085l-5.5-5.25a.75.75 0 00-1.061.025z" clipRule="evenodd" />
+                                    </svg>
+                                    URL
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => importInputRef.current?.click()}
+                                    disabled={importing}
+                                    className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-200 disabled:opacity-50 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                        <path d="M10 1a.75.75 0 01.75.75v7.69l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 011.06-1.06l2.22 2.22V1.75A.75.75 0 0110 1z" />
+                                        <path d="M3.5 12.75a.75.75 0 01.75.75v2.5c0 .138.112.25.25.25h11a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0115.5 17.75h-11A1.75 1.75 0 012.75 16v-2.5a.75.75 0 01.75-.75z" />
+                                    </svg>
+                                    {importing ? 'Import…' : 'Importer un .zip'}
+                                </button>
+                            </div>
                         </div>
+                        {urlImportOpen && (
+                            <div className="mb-3">
+                                {importing && sceneProgress ? (
+                                    <div className="rounded-md bg-slate-100 p-2.5 dark:bg-white/5">
+                                        {sceneProgress.phase === 'download' && (sceneProgress.total ?? 0) > 0 ? (
+                                            <>
+                                                <div className="h-1.5 overflow-hidden rounded-full bg-slate-300 dark:bg-slate-700">
+                                                    <div
+                                                        className="h-full rounded-full bg-emerald-500 transition-all duration-150"
+                                                        style={{ width: `${Math.round(((sceneProgress.loaded ?? 0) / (sceneProgress.total ?? 1)) * 100)}%` }}
+                                                    />
+                                                </div>
+                                                <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
+                                                    Téléchargement… {Math.round(((sceneProgress.loaded ?? 0) / (sceneProgress.total ?? 1)) * 100)} %
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <p className="flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                                <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                                                {sceneProgress.phase === 'decode' ? 'Décodage…' : 'Téléchargement…'}
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="url"
+                                            value={urlValue}
+                                            onChange={(e) => setUrlValue(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') { onImportUrl(); } }}
+                                            placeholder="https://…/scene.zip"
+                                            disabled={importing}
+                                            className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:opacity-50 dark:border-white/15 dark:bg-white/5 dark:text-slate-100 dark:placeholder-slate-500"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => { onImportUrl(); }}
+                                            disabled={importing || !urlValue.trim()}
+                                            className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                                        >
+                                            Importer
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         {error && <p className="mb-3 text-center text-sm text-rose-300">{error}</p>}
                         <LocalGalleryBody
                             scenes={localScenes}
                             busyId={busyId}
+                            progress={sceneProgress}
                             onSelect={(s) => { onSelectLocal(s); }}
                             onDelete={(s) => deleteSavedScene(s.id)}
                         />

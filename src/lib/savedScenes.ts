@@ -17,7 +17,7 @@ import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-ke
 
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import { createSavedCollection } from '@/lib/savedStore';
-import { decodeShowcaseGeometry, parseShowcaseManifest, type ShowcaseAmbiance, type ShowcaseCamera } from '@/lib/showcaseScene';
+import { decodeShowcaseGeometry, fetchArrayBufferWithProgress, parseShowcaseManifest, type SceneLoadProgress, type ShowcaseAmbiance, type ShowcaseCamera } from '@/lib/showcaseScene';
 
 const SAVED_SCENES_KEY = 'open-cairn-saved-scenes';
 const sceneStore = createStore('open-cairn-saved-scenes-db', 'data');
@@ -135,15 +135,14 @@ function findEntry(files: Record<string, Uint8Array>, ext: string): Uint8Array |
 }
 
 /**
- * Import a `.zip` exported by another user/computer into "Mes vues". The archive
- * bundles `<id>.bin` (geometry), `<id>.json` (manifest), and optionally
- * `<id>.webp` (thumbnail). The scene is decoded and stored locally; a fresh id
- * is generated so re-importing never clobbers an existing entry.
+ * Decode an already-unzipped archive (the three `<id>.bin`/`.json`/`.webp` files
+ * unpacked into a Record) and persist the result as a new local entry. Called by
+ * both `importSceneFromZip` (local file) and `importSceneFromUrl` (remote fetch).
  */
-export async function importSceneFromZip(file: File): Promise<SavedScene | null> {
-    const buffer = new Uint8Array(await file.arrayBuffer());
-    const files = unzipSync(buffer);
-
+async function importSceneFromArchive(
+    files: Record<string, Uint8Array>,
+    fallbackName: string,
+): Promise<SavedScene | null> {
     const binBytes = findEntry(files, '.bin');
     const jsonBytes = findEntry(files, '.json');
     if (!binBytes || !jsonBytes) {
@@ -160,8 +159,56 @@ export async function importSceneFromZip(file: File): Promise<SavedScene | null>
 
     const id = `scene-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return saveScene(
-        { id, title: manifest.title || file.name.replace(/\.zip$/i, ''), description: manifest.description },
+        { id, title: manifest.title || fallbackName, description: manifest.description },
         { camera: manifest.camera, ambiance: manifest.ambiance, shaded: geometry.shaded, mesh: geometry.mesh },
         thumbBytes ?? null,
     );
+}
+
+/**
+ * Import a `.zip` exported by another user/computer into "Mes vues". The archive
+ * bundles `<id>.bin` (geometry), `<id>.json` (manifest), and optionally
+ * `<id>.webp` (thumbnail). The scene is decoded and stored locally; a fresh id
+ * is generated so re-importing never clobbers an existing entry.
+ */
+export async function importSceneFromZip(file: File): Promise<SavedScene | null> {
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const files = unzipSync(buffer);
+    return importSceneFromArchive(files, file.name.replace(/\.zip$/i, ''));
+}
+
+/**
+* Download a `.zip` from a remote URL and import it into "Mes vues".
+*
+* The host must serve `Access-Control-Allow-Origin` headers (CORS). Google Drive
+* is rejected immediately with an explicit message. Dropbox viewer links
+* (`?dl=0`) are automatically rewritten to direct-download links (`?dl=1`).
+*
+* Pass `onProgress` to receive download-percentage updates, followed by a
+* `'decode'` tick once the network transfer is complete.
+*/
+export async function importSceneFromUrl(
+    url: string,
+    onProgress?: (p: SceneLoadProgress) => void,
+): Promise<SavedScene | null> {
+    if (!/^https?:\/\//i.test(url)) {
+        throw new Error('URL invalide : seules les adresses http/https sont supportées.');
+    }
+
+    onProgress?.({ phase: 'download', loaded: 0, total: 0 });
+
+    let buf: ArrayBuffer;
+    try {
+        buf = await fetchArrayBufferWithProgress(url, onProgress);
+    } catch (e) {
+        if (e instanceof TypeError) {
+            // Opaque network error — most likely CORS or no internet
+            throw new Error(`Téléchargement bloqué (CORS ou réseau). Assurez-vous que l'URL est correcte et que le serveur autorise les requêtes depuis ce site.`);
+        }
+        throw e;
+    }
+
+    onProgress?.({ phase: 'decode' });
+    const fallbackName = url.split('/').pop()?.replace(/\.zip$/i, '') ?? 'scène importée';
+    return importSceneFromArchive(unzipSync(new Uint8Array(buf)), fallbackName);
 }
