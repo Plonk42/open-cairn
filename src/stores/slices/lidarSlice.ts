@@ -152,10 +152,45 @@ function defaultSunDate(): string {
     return formatSunDate(todaySunDatePart(), 12 * 60);
 }
 
+/**
+ * Single source of truth for the LiDAR render-setting defaults.
+ *
+ * Consumed both by `createLidarSlice` (as the `?? fallback` when nothing is
+ * persisted) and by `resetLidarRenderSettings`, so "reset" always restores
+ * exactly the values a fresh user gets — no copy-paste drift between the two.
+ * Only render settings live here; capture parameters (radius, stride, poisson
+ * depth…) are deliberately excluded since reset does not touch them.
+ */
+export const LIDAR_RENDER_DEFAULTS = {
+    lidarMode: 'shaded' as LidarMode,
+    lidarShader: 'cliff' as ShaderPreset,
+    lidarCloudPointSize: 2,
+    lidarCloudSizeCompensation: true,
+    lidarCloudEdl: true,
+    lidarCloudEdlStrength: 40,
+    lidarCloudEdlRadius: 0.7,
+    lidarCloudEdlFarPlane: 350,
+    lidarCloudOpacity: 1,
+    lidarCloudPhotoOpacity: 0,
+    lidarCloudBasemapOpacity: 1,
+    lidarCloudClasses: [2, 9] as number[],
+    lidarSunEnabled: false,
+    lidarShadows: true,
+    lidarShadowStrength: 0.7,
+    lidarVegEnhance: true,
+    lidarVegColorMode: 'natural' as VegColorMode,
+    lidarVegHeightScale: 25,
+    lidarVegIntensity: 0.85,
+    lidarVegJitter: 0.3,
+    lidarVegNormalShade: true,
+    lidarVegSizeBoost: 1.3,
+    lidarVegRound: true,
+};
+
 export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => ({
-    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : 'shaded',
+    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
     setLidarMode: (lidarMode) => set({ lidarMode }),
-    lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : 'cliff',
+    lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
     setLidarShader: (shader) => {
         set({ lidarShader: shader });
         const { lidarShaded, lidarMesh } = get();
@@ -177,25 +212,25 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarCloudRadius: (lidarCloudRadius) => set({ lidarCloudRadius }),
     lidarCloudStride: persisted.lidarCloudStride ?? 10,
     setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
-    lidarCloudPointSize: persisted.lidarCloudPointSize ?? 2,
+    lidarCloudPointSize: persisted.lidarCloudPointSize ?? LIDAR_RENDER_DEFAULTS.lidarCloudPointSize,
     setLidarCloudPointSize: (lidarCloudPointSize) => set({ lidarCloudPointSize }),
-    lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? true,
+    lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? LIDAR_RENDER_DEFAULTS.lidarCloudSizeCompensation,
     setLidarCloudSizeCompensation: (lidarCloudSizeCompensation) => set({ lidarCloudSizeCompensation }),
-    lidarCloudEdl: persisted.lidarCloudEdl ?? true,
+    lidarCloudEdl: persisted.lidarCloudEdl ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdl,
     setLidarCloudEdl: (lidarCloudEdl) => set({ lidarCloudEdl }),
-    lidarCloudEdlStrength: persisted.lidarCloudEdlStrength ?? 8,
+    lidarCloudEdlStrength: persisted.lidarCloudEdlStrength ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlStrength,
     setLidarCloudEdlStrength: (lidarCloudEdlStrength) => set({ lidarCloudEdlStrength }),
-    lidarCloudEdlRadius: persisted.lidarCloudEdlRadius ?? 1,
+    lidarCloudEdlRadius: persisted.lidarCloudEdlRadius ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlRadius,
     setLidarCloudEdlRadius: (lidarCloudEdlRadius) => set({ lidarCloudEdlRadius }),
-    lidarCloudEdlFarPlane: persisted.lidarCloudEdlFarPlane ?? 1500,
+    lidarCloudEdlFarPlane: persisted.lidarCloudEdlFarPlane ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlFarPlane,
     setLidarCloudEdlFarPlane: (lidarCloudEdlFarPlane) => set({ lidarCloudEdlFarPlane }),
-    lidarCloudOpacity: persisted.lidarCloudOpacity ?? 1,
+    lidarCloudOpacity: persisted.lidarCloudOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudOpacity,
     setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
-    lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? 0,
+    lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacity,
     setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
-    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? 1,
+    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudBasemapOpacity,
     setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
-    lidarCloudClasses: persisted.lidarCloudClasses ?? [2, 9],
+    lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
     setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
     lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
     setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
@@ -205,27 +240,27 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
     lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
     setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
-    lidarSunEnabled: persisted.lidarSunEnabled ?? false,
+    lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
     setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
-    lidarShadows: persisted.lidarShadows ?? true,
+    lidarShadows: persisted.lidarShadows ?? LIDAR_RENDER_DEFAULTS.lidarShadows,
     setLidarShadows: (lidarShadows) => set({ lidarShadows }),
-    lidarShadowStrength: persisted.lidarShadowStrength ?? 0.7,
+    lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
     setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
-    lidarVegEnhance: persisted.lidarVegEnhance ?? true,
+    lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
     setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
-    lidarVegColorMode: (persisted.lidarVegColorMode === 'height' ? 'height' : 'natural'),
+    lidarVegColorMode: (persisted.lidarVegColorMode === 'height' ? 'height' : LIDAR_RENDER_DEFAULTS.lidarVegColorMode),
     setLidarVegColorMode: (lidarVegColorMode) => set({ lidarVegColorMode }),
-    lidarVegHeightScale: persisted.lidarVegHeightScale ?? 25,
+    lidarVegHeightScale: persisted.lidarVegHeightScale ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightScale,
     setLidarVegHeightScale: (lidarVegHeightScale) => set({ lidarVegHeightScale }),
-    lidarVegIntensity: persisted.lidarVegIntensity ?? 0.85,
+    lidarVegIntensity: persisted.lidarVegIntensity ?? LIDAR_RENDER_DEFAULTS.lidarVegIntensity,
     setLidarVegIntensity: (lidarVegIntensity) => set({ lidarVegIntensity }),
-    lidarVegJitter: persisted.lidarVegJitter ?? 0.3,
+    lidarVegJitter: persisted.lidarVegJitter ?? LIDAR_RENDER_DEFAULTS.lidarVegJitter,
     setLidarVegJitter: (lidarVegJitter) => set({ lidarVegJitter }),
-    lidarVegNormalShade: persisted.lidarVegNormalShade ?? true,
+    lidarVegNormalShade: persisted.lidarVegNormalShade ?? LIDAR_RENDER_DEFAULTS.lidarVegNormalShade,
     setLidarVegNormalShade: (lidarVegNormalShade) => set({ lidarVegNormalShade }),
-    lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? 1.3,
+    lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? LIDAR_RENDER_DEFAULTS.lidarVegSizeBoost,
     setLidarVegSizeBoost: (lidarVegSizeBoost) => set({ lidarVegSizeBoost }),
-    lidarVegRound: persisted.lidarVegRound ?? true,
+    lidarVegRound: persisted.lidarVegRound ?? LIDAR_RENDER_DEFAULTS.lidarVegRound,
     setLidarVegRound: (lidarVegRound) => set({ lidarVegRound }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
@@ -322,33 +357,13 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
 
     resetLidarRenderSettings: () => {
         set({
-            lidarMode: 'shaded',
-            lidarCloudPointSize: 2,
-            lidarCloudSizeCompensation: true,
-            lidarCloudEdl: true,
-            lidarCloudEdlStrength: 8,
-            lidarCloudEdlRadius: 1,
-            lidarCloudEdlFarPlane: 1500,
-            lidarCloudOpacity: 1,
-            lidarCloudPhotoOpacity: 0,
-            lidarCloudBasemapOpacity: 1,
-            lidarCloudClasses: [2, 9],
-            lidarSunEnabled: false,
-            lidarShadows: true,
-            lidarShadowStrength: 0.7,
-            lidarVegEnhance: true,
-            lidarVegColorMode: 'natural',
-            lidarVegHeightScale: 25,
-            lidarVegIntensity: 0.85,
-            lidarVegJitter: 0.3,
-            lidarVegNormalShade: true,
-            lidarVegSizeBoost: 1.3,
-            lidarVegRound: true,
+            ...LIDAR_RENDER_DEFAULTS,
+            // Contour lines belong to terrainSlice but are part of the render reset.
             contourLinesEnabled: false,
             contourLinesOpacity: 0.4,
         });
         // Go through the shader setter so the loaded geometry is recolored.
-        get().setLidarShader('cliff');
+        get().setLidarShader(LIDAR_RENDER_DEFAULTS.lidarShader);
     },
 
     showLidarCloudSnapshot: (data) => set({
