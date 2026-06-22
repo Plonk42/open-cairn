@@ -62,9 +62,12 @@ export interface LidarSlice {
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     lidarCloudOpacity: number;
     setLidarCloudOpacity: (v: number) => void;
-    /** Drapage orthophoto IGN sur le mesh 0..1 (0 = palette, 1 = photo). */
+    /** Drapage orthophoto IGN sur le SOL (points classes 2 sol + 9 eau + mesh) 0..1 (0 = palette, 1 = photo). */
     lidarCloudPhotoOpacity: number;
     setLidarCloudPhotoOpacity: (v: number) => void;
+    /** Drapage orthophoto IGN sur le HORS-SOL (végétation, bâti, …) 0..1 (0 = palette, 1 = photo). */
+    lidarCloudPhotoOpacityNonGround: number;
+    setLidarCloudPhotoOpacityNonGround: (v: number) => void;
     /** Underlying basemap opacity 0..1 when the cloud is visible (1 = full, lower = "estompé"). */
     lidarCloudBasemapOpacity: number;
     setLidarCloudBasemapOpacity: (v: number) => void;
@@ -172,6 +175,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarCloudEdlFarPlane: 350,
     lidarCloudOpacity: 1,
     lidarCloudPhotoOpacity: 0,
+    lidarCloudPhotoOpacityNonGround: 0,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [2, 9] as number[],
     lidarSunEnabled: false,
@@ -228,6 +232,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
     lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacity,
     setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
+    lidarCloudPhotoOpacityNonGround: persisted.lidarCloudPhotoOpacityNonGround ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacityNonGround,
+    setLidarCloudPhotoOpacityNonGround: (lidarCloudPhotoOpacityNonGround) => set({ lidarCloudPhotoOpacityNonGround }),
     lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudBasemapOpacity,
     setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
     lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
@@ -392,6 +398,7 @@ export function selectLidarPersisted(
     | 'lidarCloudEdlFarPlane'
     | 'lidarCloudOpacity'
     | 'lidarCloudPhotoOpacity'
+    | 'lidarCloudPhotoOpacityNonGround'
     | 'lidarCloudBasemapOpacity'
     | 'lidarCloudClasses'
     | 'lidarCloudPoissonDepth'
@@ -423,6 +430,7 @@ export function selectLidarPersisted(
         lidarCloudEdlFarPlane: s.lidarCloudEdlFarPlane,
         lidarCloudOpacity: s.lidarCloudOpacity,
         lidarCloudPhotoOpacity: s.lidarCloudPhotoOpacity,
+        lidarCloudPhotoOpacityNonGround: s.lidarCloudPhotoOpacityNonGround,
         lidarCloudBasemapOpacity: s.lidarCloudBasemapOpacity,
         lidarCloudClasses: s.lidarCloudClasses,
         lidarCloudPoissonDepth: s.lidarCloudPoissonDepth,

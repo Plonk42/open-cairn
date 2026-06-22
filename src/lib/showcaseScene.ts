@@ -80,6 +80,7 @@ export interface ShowcaseAmbiance {
     lidarCloudSizeCompensation: boolean;
     lidarCloudOpacity: number;
     lidarCloudPhotoOpacity: number;
+    lidarCloudPhotoOpacityNonGround: number;
     lidarCloudBasemapOpacity: number;
     lidarCloudClasses: number[];
     contourLinesEnabled: boolean;
@@ -135,6 +136,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarCloudSizeCompensation: true,
     lidarCloudOpacity: 1,
     lidarCloudPhotoOpacity: 0,
+    lidarCloudPhotoOpacityNonGround: 0,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [],
     contourLinesEnabled: false,

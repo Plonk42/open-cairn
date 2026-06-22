@@ -141,10 +141,13 @@ export interface LidarWebGLLayerConfig {
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
     /**
-     * Force du drapage de l'orthophoto IGN sur la géométrie (points et mesh).
-     * 0 = palette de relief pure, 1 = photo opaque.
+     * Force du drapage de l'orthophoto IGN sur la géométrie, séparée en deux :
+     * `photoOpacityGround` s'applique au sol (points classes 2 sol + 9 eau + mesh reconstruit)
+     * et `photoOpacityNonGround` au hors-sol (végétation, bâti, …). 0 = palette
+     * de relief pure, 1 = photo opaque.
      */
-    photoOpacity: number;
+    photoOpacityGround: number;
+    photoOpacityNonGround: number;
     /** Unit direction vector pointing TOWARDS the sun (x=east, y=north, z=up). */
     sunDir: [number, number, number];
     /** 0 = no diffuse (night), 1 = full daylight. */
@@ -218,7 +221,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowStrength: WebGLUniformLocation | null;
         uvRect: WebGLUniformLocation | null;
         ortho: WebGLUniformLocation | null;
-        photoOpacity: WebGLUniformLocation | null;
+        photoOpacityGround: WebGLUniformLocation | null;
+        photoOpacityNonGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
         vegEnhance: WebGLUniformLocation | null;
         vegRound: WebGLUniformLocation | null;
@@ -228,7 +232,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         vegIntensity: WebGLUniformLocation | null;
         vegHeightScale: WebGLUniformLocation | null;
         vegColorMode: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null };
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -261,9 +265,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowStrength: WebGLUniformLocation | null;
         uvRect: WebGLUniformLocation | null;
         ortho: WebGLUniformLocation | null;
-        photoOpacity: WebGLUniformLocation | null;
+        photoOpacityGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -332,13 +336,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         adaptiveSize: true,
         referenceZoom: 19,
         edlEnabled: false,
-        edlStrength: 8,
-        edlRadius: 1,
-        edlFarPlane: 1500,
+        edlStrength: 40,
+        edlRadius: 0.7,
+        edlFarPlane: 350,
         aoStrength: 0,
         aoRadius: 3,
         opacity: 1,
-        photoOpacity: 0,
+        photoOpacityGround: 0,
+        photoOpacityNonGround: 0,
         // Default sun: SSE bearing (~150°), 45° above horizon — same flavour as the
         // old hard-coded SUN constant. Overwritten as soon as setConfig() is called.
         sunDir: [0.4472, 0.5367, 0.7155],
@@ -396,10 +401,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.vegHeightScale, this.config.vegHeightScale);
         gl.uniform1f(this._locPoints.vegColorMode, this.config.vegColorMode);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
-        const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
+        const photoOn = this._hasPhoto && (this.config.photoOpacityGround > 0 || this.config.photoOpacityNonGround > 0);
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
         gl.uniform1f(this._locPoints.hasPhoto, photoOn ? 1 : 0);
-        gl.uniform1f(this._locPoints.photoOpacity, this.config.photoOpacity);
+        gl.uniform1f(this._locPoints.photoOpacityGround, this.config.photoOpacityGround);
+        gl.uniform1f(this._locPoints.photoOpacityNonGround, this.config.photoOpacityNonGround);
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locPoints.ortho, 3);
@@ -828,10 +834,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
         gl.uniform1f(this._locMesh.flatLight, this.config.sunLightingEnabled ? 0 : 1);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
-        const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
+        const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
         gl.uniform1f(this._locMesh.hasPhoto, photoOn ? 1 : 0);
-        gl.uniform1f(this._locMesh.photoOpacity, this.config.photoOpacity);
+        gl.uniform1f(this._locMesh.photoOpacityGround, this.config.photoOpacityGround);
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locMesh.ortho, 3);
@@ -1068,7 +1074,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowStrength: gl.getUniformLocation(this._progPoints, 'u_shadowStrength'),
             uvRect: gl.getUniformLocation(this._progPoints, 'u_uvRect'),
             ortho: gl.getUniformLocation(this._progPoints, 'u_ortho'),
-            photoOpacity: gl.getUniformLocation(this._progPoints, 'u_photoOpacity'),
+            photoOpacityGround: gl.getUniformLocation(this._progPoints, 'u_photoOpacityGround'),
+            photoOpacityNonGround: gl.getUniformLocation(this._progPoints, 'u_photoOpacityNonGround'),
             hasPhoto: gl.getUniformLocation(this._progPoints, 'u_hasPhoto'),
             vegEnhance: gl.getUniformLocation(this._progPoints, 'u_vegEnhance'),
             vegRound: gl.getUniformLocation(this._progPoints, 'u_vegRound'),
@@ -1126,7 +1133,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowStrength: gl.getUniformLocation(this._progMesh, 'u_shadowStrength'),
             uvRect: gl.getUniformLocation(this._progMesh, 'u_uvRect'),
             ortho: gl.getUniformLocation(this._progMesh, 'u_ortho'),
-            photoOpacity: gl.getUniformLocation(this._progMesh, 'u_photoOpacity'),
+            photoOpacityGround: gl.getUniformLocation(this._progMesh, 'u_photoOpacityGround'),
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
         };
 

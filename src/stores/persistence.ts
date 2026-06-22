@@ -40,6 +40,7 @@ export type PersistedSettings = {
     lidarCloudEdlFarPlane?: number;
     lidarCloudOpacity?: number;
     lidarCloudPhotoOpacity?: number;
+    lidarCloudPhotoOpacityNonGround?: number;
     lidarCloudBasemapOpacity?: number;
     lidarCloudClasses?: number[];
     lidarCloudPoissonDepth?: number;

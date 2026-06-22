@@ -44,6 +44,7 @@ out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
 out float v_isVeg;
+out float v_isGround;
 out float v_jitter;
 
 // Direction fixe (vers la lumière) de l'éclairage neutre : nord-ouest, 45°
@@ -102,10 +103,13 @@ void main() {
         v_depth = 0.0;
         v_alpha = 0.0;
         v_isVeg = 0.0;
+        v_isGround = 0.0;
         v_jitter = 0.0;
         return;
     }
 
+    // Sol = classes ASPRS 2 (sol) et 9 (eau) — drapage photo « sol » vs « non-sol ».
+    v_isGround = (c == 2u || c == 9u) ? 1.0 : 0.0;
     // Végétation = classes ASPRS 3/4/5 (basse/moyenne/haute).
     bool isVeg = (c == 3u || c == 4u || c == 5u);
     v_isVeg = (u_vegEnhance > 0.5 && isVeg) ? 1.0 : 0.0;
@@ -159,6 +163,7 @@ in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
 in float v_isVeg;
+in float v_isGround;
 in float v_jitter;
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
@@ -168,7 +173,8 @@ uniform float u_shadowBias;
 uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
 uniform float u_shadowStrength;  // 0..1, how dark cast shadows are
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
-uniform float u_photoOpacity;    // 0..1, force du drapage photo
+uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (classe 2)
+uniform float u_photoOpacityNonGround; // 0..1, drapage photo hors-sol (végét./bâti/…)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 uniform float u_vegRound;        // 1 = round vegetation splats
 uniform float u_vegJitter;       // per-leaf brightness jitter amount
@@ -215,7 +221,8 @@ void main() {
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
         && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
         vec3 photo = texture(u_ortho, v_uv).rgb;
-        albedo = mix(v_albedo, photo, u_photoOpacity);
+        float op = (v_isGround > 0.5) ? u_photoOpacityGround : u_photoOpacityNonGround;
+        albedo = mix(v_albedo, photo, op);
     }
     // Jitter de luminosité par-feuille : casse l'aplat uniforme du feuillage.
     // Appliqué dans tous les modes (réglé par le slider « Variation feuilles »).
@@ -316,7 +323,7 @@ uniform float u_shadowBias;
 uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
 uniform float u_shadowStrength;  // 0..1
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
-uniform float u_photoOpacity;    // 0..1, force du drapage photo
+uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth;
@@ -356,7 +363,7 @@ void main() {
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
         && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
         vec3 photo = texture(u_ortho, v_uv).rgb;
-        albedo = mix(v_albedo, photo, u_photoOpacity * photoFacing);
+        albedo = mix(v_albedo, photo, u_photoOpacityGround * photoFacing);
     }
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;

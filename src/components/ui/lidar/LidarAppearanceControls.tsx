@@ -37,7 +37,7 @@ export function ClassFilterSection() {
                 <span className="text-sm text-slate-700 dark:text-slate-300">Classes</span>
                 <div className="flex gap-1 text-[10px]">
                     <button type="button" onClick={() => setClasses([...AVAILABLE_CLASSES])} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Tout</button>
-                    <button type="button" onClick={() => setClasses([2])} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
+                    <button type="button" onClick={() => setClasses([2, 9])} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Sol</button>
                     <button type="button" onClick={() => setClasses([3, 4, 5])} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Végétation</button>
                     <button type="button" onClick={() => setClasses([6, 17, 64, 66])} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Bâti</button>
                 </div>
@@ -58,6 +58,8 @@ export function OpacityControls() {
     const setOpacity = useMapStore((s) => s.setLidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const setPhotoOpacity = useMapStore((s) => s.setLidarCloudPhotoOpacity);
+    const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
+    const setPhotoOpacityNonGround = useMapStore((s) => s.setLidarCloudPhotoOpacityNonGround);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
     const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
     const contourEnabled = useMapStore((s) => s.contourLinesEnabled);
@@ -124,17 +126,32 @@ export function OpacityControls() {
                 />
             </label>
 
-            {/* Texture photo (orthophoto IGN drapée sur le nuage / le mesh) */}
+            {/* Texture photo — drapage orthophoto IGN, séparé sol / hors-sol */}
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Texture photo</span>
+                    <span>Texture photo (sol)</span>
                     <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacity * 100)}%</span>
                 </div>
                 <input
-                    aria-label="Opacité de la texture photo (orthophoto IGN)"
+                    aria-label="Opacité de la texture photo sur le sol (orthophoto IGN)"
                     type="range" min={0} max={1} step={0.05}
                     value={photoOpacity}
                     onChange={(e) => setPhotoOpacity(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Texture photo hors-sol (végétation, bâti, …) */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Texture photo (non-sol)</span>
+                    <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacityNonGround * 100)}%</span>
+                </div>
+                <input
+                    aria-label="Opacité de la texture photo hors-sol (orthophoto IGN)"
+                    type="range" min={0} max={1} step={0.05}
+                    value={photoOpacityNonGround}
+                    onChange={(e) => setPhotoOpacityNonGround(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { applyAmbiance, extractAmbiance } from '@/lib/showcaseAmbiance';
 import { useMapStore } from '@/stores/mapStore';
+import { describe, expect, it } from 'vitest';
 
 describe('showcaseAmbiance', () => {
     it('round-trips every render setting through the store (extract → apply → extract)', () => {
@@ -21,6 +21,7 @@ describe('showcaseAmbiance', () => {
         st.setLidarCloudSizeCompensation(false);
         st.setLidarCloudOpacity(0.6);
         st.setLidarCloudPhotoOpacity(0.4);
+        st.setLidarCloudPhotoOpacityNonGround(0.7);
         st.setLidarCloudBasemapOpacity(0.2);
         st.setLidarCloudClasses([3, 4, 5]);
         st.setContourLinesEnabled(true);

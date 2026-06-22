@@ -24,6 +24,7 @@ export function LidarCloudOverlay() {
     const edlFarPlane = useMapStore((s) => s.lidarCloudEdlFarPlane);
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
+    const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
@@ -172,11 +173,11 @@ export function LidarCloudOverlay() {
         webglRef.current?.setClassMask(classes);
     }, [classes, styleEpoch]);
 
-    // In Delaunay/Poisson modes the ground (class 2) is a reconstructed mesh,
-    // not points, so the class mask above can't toggle it. Mirror the "Sol"
-    // chip onto the mesh: it's shown iff class 2 is selected.
+    // In Delaunay/Poisson modes the ground (classes 2 sol + 9 eau) is a
+    // reconstructed mesh, not points, so the class mask above can't toggle it.
+    // Mirror the "Sol" chip onto the mesh: it's shown iff sol or eau is selected.
     useEffect(() => {
-        webglRef.current?.setMeshVisible(classes.includes(2));
+        webglRef.current?.setMeshVisible(classes.includes(2) || classes.includes(9));
     }, [classes, lidarMesh, styleEpoch]);
 
     useEffect(() => {
@@ -190,9 +191,10 @@ export function LidarCloudOverlay() {
             aoStrength: 0, // AO disabled
             aoRadius: 0,
             opacity,
-            photoOpacity,
+            photoOpacityGround: photoOpacity,
+            photoOpacityNonGround,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({
@@ -233,7 +235,7 @@ export function LidarCloudOverlay() {
             orthoRef.current = null;
             return undefined;
         }
-        if (photoOpacity <= 0) return undefined;
+        if (photoOpacity <= 0 && photoOpacityNonGround <= 0) return undefined;
         const already = orthoRef.current;
         if (already?.source === orthoSource && already?.epoch === styleEpoch) return undefined;
         orthoRef.current = { source: orthoSource, epoch: styleEpoch };
@@ -246,7 +248,7 @@ export function LidarCloudOverlay() {
             })
             .catch(() => { /* couverture orthophoto indisponible : on ignore */ });
         return () => { cancelled = true; controller.abort(); };
-    }, [orthoSource, photoOpacity, styleEpoch]);
+    }, [orthoSource, photoOpacity, photoOpacityNonGround, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
     // Recompute the sun direction whenever the user picks a different date/time
