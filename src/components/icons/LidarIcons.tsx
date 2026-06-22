@@ -58,6 +58,14 @@ export function ShadowIcon({ className }: IconProps): ReactElement {
     );
 }
 
+export function TreeIcon({ className }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path d="M10 1.5 4.5 9h2.2l-3 4.5h4.05V18h2.5v-4.5h4.05l-3-4.5h2.2L10 1.5Z" />
+        </svg>
+    );
+}
+
 export function EffectsIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">

@@ -1,9 +1,9 @@
 import type { BlendMode } from '@/lib/compositeProtocol';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { BaseLayerId } from '@/lib/mapStyle';
+import type { LidarMode } from './slices/lidarSlice';
 import type { RenderQuality, UiTheme } from './slices/settingsSlice';
 import type { HillshadeSource, TerrainDemSource } from './slices/terrainSlice';
-import type { LidarMode } from './slices/lidarSlice';
 import type { MapView } from './slices/viewSlice';
 
 export const STORAGE_KEY = 'open-cairn-settings';
@@ -49,6 +49,14 @@ export type PersistedSettings = {
     lidarSunEnabled?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
+    lidarVegEnhance?: boolean;
+    lidarVegColorMode?: 'natural' | 'height';
+    lidarVegHeightScale?: number;
+    lidarVegIntensity?: number;
+    lidarVegJitter?: number;
+    lidarVegNormalShade?: boolean;
+    lidarVegSizeBoost?: number;
+    lidarVegRound?: boolean;
     cliffSliceCorridor?: number;
     cliffSliceColorClass?: boolean;
     cliffSliceColorDepth?: boolean;

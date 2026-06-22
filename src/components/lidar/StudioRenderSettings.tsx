@@ -1,12 +1,4 @@
 import {
-    ClassFilterSection,
-    OpacityControls,
-    PointSizeControls,
-    ShaderControls,
-} from '@/components/ui/lidar/LidarAppearanceControls';
-import { LidarEffectsControls } from '@/components/ui/lidar/LidarEffectsControls';
-import { BoundShadowControls, SunControls } from '@/components/ui/lidar/LidarLightingControls';
-import {
     ClassesIcon,
     EffectsIcon,
     type IconProps,
@@ -16,7 +8,17 @@ import {
     ShaderIcon,
     ShadowIcon,
     SizeIcon,
+    TreeIcon,
 } from '@/components/icons/LidarIcons';
+import {
+    ClassFilterSection,
+    OpacityControls,
+    PointSizeControls,
+    ShaderControls,
+    VegetationControls,
+} from '@/components/ui/lidar/LidarAppearanceControls';
+import { LidarEffectsControls } from '@/components/ui/lidar/LidarEffectsControls';
+import { BoundShadowControls, SunControls } from '@/components/ui/lidar/LidarLightingControls';
 import { useMapStore } from '@/stores/mapStore';
 import type { ReactElement, ReactNode } from 'react';
 
@@ -25,6 +27,7 @@ export type StudioRenderSettingId =
     | 'classes'
     | 'points'
     | 'shader'
+    | 'vegetation'
     | 'lumiere'
     | 'ombres'
     | 'edl';
@@ -42,6 +45,7 @@ export const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
     { id: 'classes', label: 'Classes', Icon: ClassesIcon, render: () => <ClassFilterSection /> },
     { id: 'points', label: 'Points', Icon: SizeIcon, render: () => <PointSizeControls /> },
     { id: 'shader', label: 'Shader', Icon: ShaderIcon, render: () => <ShaderControls /> },
+    { id: 'vegetation', label: 'Végétation', Icon: TreeIcon, render: () => <VegetationControls /> },
     { id: 'lumiere', label: 'Lumière', Icon: LightIcon, render: () => <SunControls /> },
     { id: 'ombres', label: 'Ombres', Icon: ShadowIcon, render: () => <BoundShadowControls /> },
     { id: 'edl', label: 'EDL', Icon: EffectsIcon, render: () => <LidarEffectsControls /> },

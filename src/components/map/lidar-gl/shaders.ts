@@ -29,6 +29,8 @@ uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
 uniform mat4 u_lightMatrix;   // world-meters → light-clip space
 uniform vec4 u_uvRect;        // (eMin, nMin, eMax, nMax) en mètres-offset
+uniform float u_vegSizeBoost; // point-size multiplier for vegetation
+uniform float u_vegEnhance;   // 1 = vegetation enhancements on
 
 out vec3 v_albedo;
 out float v_diff;
@@ -37,11 +39,18 @@ out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
+out float v_isVeg;
+out float v_jitter;
 
 // Direction fixe (vers la lumière) de l'éclairage neutre : nord-ouest, 45°
 // au-dessus de l'horizon (frame est/nord/up). Convention cartographique
 // classique d'ombrage de relief — indépendante de la position du soleil.
 const vec3 FLAT_LIGHT_DIR = vec3(-0.5, 0.5, 0.7071);
+
+// Hash 3D → [0,1) pour le jitter par-feuille (stable par position).
+float vegHash(vec3 p) {
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
 
 void main() {
     uint c = uint(a_class);
@@ -57,8 +66,15 @@ void main() {
         v_lightPos = vec4(0.0);
         v_depth = 0.0;
         v_alpha = 0.0;
+        v_isVeg = 0.0;
+        v_jitter = 0.0;
         return;
     }
+
+    // Végétation = classes ASPRS 3/4/5 (basse/moyenne/haute).
+    bool isVeg = (c == 3u || c == 4u || c == 5u);
+    v_isVeg = (u_vegEnhance > 0.5 && isVeg) ? 1.0 : 0.0;
+    v_jitter = vegHash(a_pos);
 
     vec3 pos = vec3(
         a_pos.x * u_mpu,
@@ -66,7 +82,8 @@ void main() {
         a_pos.z * u_mpu
     );
     gl_Position = u_matrix * vec4(pos, 1.0);
-    gl_PointSize = max(u_ps, 1.0);
+    float ps = (v_isVeg > 0.5) ? u_ps * u_vegSizeBoost : u_ps;
+    gl_PointSize = max(ps, 1.0);
     v_depth = gl_Position.w;
 
     vec3 nrm = normalize(a_normal);
@@ -96,6 +113,8 @@ in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
+in float v_isVeg;
+in float v_jitter;
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform sampler2D u_shadowMap;
@@ -106,6 +125,9 @@ uniform float u_shadowStrength;  // 0..1, how dark cast shadows are
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacity;    // 0..1, force du drapage photo
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
+uniform float u_vegRound;        // 1 = round vegetation splats
+uniform float u_vegJitter;       // per-leaf brightness jitter amount
+uniform float u_vegFlatShade;    // 1 = flat-shade vegetation (EDL carves relief)
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth;
 
@@ -135,6 +157,12 @@ float sampleShadow() {
 }
 
 void main() {
+    // Splats ronds opaques pour la végétation : on découpe le carré du point
+    // en disque (alpha-test, pas de blending) → feuillage organique tout en
+    // gardant une écriture de profondeur propre pour l'EDL.
+    if (u_vegRound > 0.5 && v_isVeg > 0.5) {
+        if (length(gl_PointCoord - 0.5) > 0.5) discard;
+    }
     float s = sampleShadow();
     vec3 albedo = v_albedo;
     // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque.
@@ -144,13 +172,22 @@ void main() {
         vec3 photo = texture(u_ortho, v_uv).rgb;
         albedo = mix(v_albedo, photo, u_photoOpacity);
     }
+    // Jitter de luminosité par-feuille : casse l'aplat uniforme du feuillage.
+    // Appliqué dans tous les modes (réglé par le slider « Variation feuilles »).
+    bool vegFlat = (v_isVeg > 0.5 && u_vegFlatShade > 0.5);
+    if (v_isVeg > 0.5 && u_vegJitter > 0.0) {
+        albedo *= 1.0 + u_vegJitter * (v_jitter - 0.5);
+        albedo = clamp(albedo, 0.0, 1.0);
+    }
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
     // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
     // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
     // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
-    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
+    // En mode aplati, on neutralise la modulation par la normale (flat = 1).
+    float flatMod = vegFlat ? 1.0 : v_flatDiff;
+    vec3 neutral = albedo * (0.2 + 0.8 * flatMod * s);
     fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
     fragDepth = v_depth;
 }`;

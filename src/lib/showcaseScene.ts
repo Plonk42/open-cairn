@@ -24,7 +24,7 @@
  */
 
 import type { ShaderPreset } from './lidarBrowser/slope';
-import type { LidarMeshData, LidarShadedCloudData } from './lidarCloud';
+import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 
 const MAGIC = 0x4f435353; // "OCSS"
 const VERSION = 1;
@@ -64,6 +64,14 @@ export interface ShowcaseAmbiance {
     lidarSunEnabled: boolean;
     lidarShadows: boolean;
     lidarShadowStrength: number;
+    lidarVegEnhance: boolean;
+    lidarVegColorMode: VegColorMode;
+    lidarVegHeightScale: number;
+    lidarVegIntensity: number;
+    lidarVegJitter: number;
+    lidarVegNormalShade: boolean;
+    lidarVegSizeBoost: number;
+    lidarVegRound: boolean;
     lidarCloudEdl: boolean;
     lidarCloudEdlStrength: number;
     lidarCloudEdlRadius: number;
@@ -111,6 +119,14 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarSunEnabled: false,
     lidarShadows: false,
     lidarShadowStrength: 0.5,
+    lidarVegEnhance: true,
+    lidarVegColorMode: 'natural',
+    lidarVegHeightScale: 25,
+    lidarVegIntensity: 0.85,
+    lidarVegJitter: 0.3,
+    lidarVegNormalShade: true,
+    lidarVegSizeBoost: 1.3,
+    lidarVegRound: true,
     lidarCloudEdl: true,
     lidarCloudEdlStrength: 1000,
     lidarCloudEdlRadius: 1.4,

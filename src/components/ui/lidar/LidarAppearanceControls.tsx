@@ -1,7 +1,7 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
-import { LAS_CLASS_LABELS } from '@/lib/lidarCloud';
+import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import { useMapStore } from '@/stores/mapStore';
 
 /** LAS classes available for filtering in the UI. */
@@ -18,6 +18,11 @@ const SHADER_OPTIONS = [
     { value: 'cliff', label: 'Été', title: 'Rupture nette herbe/calcaire gris avec texture rocheuse' },
     { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
+
+const VEG_COLOR_OPTIONS = [
+    { value: 'natural', label: 'Naturel', title: 'Tons verts naturels, dégradé tronc → cime' },
+    { value: 'height', label: 'Hauteur', title: 'Colormap viridis par hauteur (rendu IGN LiDAR HD), relief par EDL' },
+] as const satisfies ReadonlyArray<{ value: VegColorMode; label: string; title: string }>;
 
 export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -186,6 +191,150 @@ export function PointSizeControls() {
                     className="h-4 w-4 accent-green-600"
                 />
             </label>
+        </div>
+    );
+}
+
+/**
+ * Enhanced vegetation rendering controls: master toggle + height-ramp intensity,
+ * round leaf splats, per-leaf jitter and a canopy-filling size boost. When the
+ * master toggle is off, vegetation falls back to flat per-class colours and
+ * square splats and the detail sliders are disabled.
+ */
+export function VegetationControls() {
+    const enhance = useMapStore((s) => s.lidarVegEnhance);
+    const setEnhance = useMapStore((s) => s.setLidarVegEnhance);
+    const colorMode = useMapStore((s) => s.lidarVegColorMode);
+    const setColorMode = useMapStore((s) => s.setLidarVegColorMode);
+    const heightScale = useMapStore((s) => s.lidarVegHeightScale);
+    const setHeightScale = useMapStore((s) => s.setLidarVegHeightScale);
+    const intensity = useMapStore((s) => s.lidarVegIntensity);
+    const setIntensity = useMapStore((s) => s.setLidarVegIntensity);
+    const round = useMapStore((s) => s.lidarVegRound);
+    const setRound = useMapStore((s) => s.setLidarVegRound);
+    const jitter = useMapStore((s) => s.lidarVegJitter);
+    const setJitter = useMapStore((s) => s.setLidarVegJitter);
+    const normalShade = useMapStore((s) => s.lidarVegNormalShade);
+    const setNormalShade = useMapStore((s) => s.setLidarVegNormalShade);
+    const sizeBoost = useMapStore((s) => s.lidarVegSizeBoost);
+    const setSizeBoost = useMapStore((s) => s.setLidarVegSizeBoost);
+
+    return (
+        <div className="space-y-3">
+            {/* Master toggle */}
+            <label className="flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300" title="Coloration par hauteur, feuilles rondes, variation et grossissement du feuillage">
+                    Végétation enrichie
+                </span>
+                <input
+                    type="checkbox"
+                    checked={enhance}
+                    onChange={(e) => setEnhance(e.target.checked)}
+                    className="h-4 w-4 accent-green-600"
+                />
+            </label>
+
+            <fieldset disabled={!enhance} className="space-y-3 disabled:opacity-40">
+                {/* Mode de coloration : naturel (vert tronc→cime) ou hauteur (viridis IGN) */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Coloration du feuillage : tons verts naturels ou colormap viridis par hauteur (rendu IGN LiDAR HD)">
+                        Coloration
+                    </span>
+                    <SegmentedControl
+                        value={colorMode}
+                        options={VEG_COLOR_OPTIONS}
+                        onChange={setColorMode}
+                    />
+                </div>
+
+                {/* Intensité du dégradé : mélange palette ↔ couleur de classe (les deux modes). */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Dégradé feuillage</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(intensity * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Intensité du dégradé par hauteur"
+                        type="range" min={0} max={1} step={0.05}
+                        value={intensity}
+                        onChange={(e) => setIntensity(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Hauteur de référence du dégradé (les deux modes) : étire la palette
+                    sur des feuillages plus hauts → moins d'aplat uniforme. */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Hauteur max</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(heightScale)} m</span>
+                    </div>
+                    <input
+                        aria-label="Hauteur mappée au sommet du dégradé"
+                        type="range" min={5} max={40} step={1}
+                        value={heightScale}
+                        onChange={(e) => setHeightScale(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Variation par feuille */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Variation feuilles</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(jitter * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Variation de luminosité par feuille"
+                        type="range" min={0} max={1} step={0.05}
+                        value={jitter}
+                        onChange={(e) => setJitter(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Grossissement du feuillage */}
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Densité feuillage</span>
+                        <span className="font-mono text-xs text-slate-400">×{sizeBoost.toFixed(1)}</span>
+                    </div>
+                    <input
+                        aria-label="Grossissement des points de végétation"
+                        type="range" min={1} max={3} step={0.1}
+                        value={sizeBoost}
+                        onChange={(e) => setSizeBoost(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+
+                {/* Feuilles rondes */}
+                <label className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Découpe les points en disques pour un feuillage organique">
+                        Feuilles rondes
+                    </span>
+                    <input
+                        type="checkbox"
+                        checked={round}
+                        onChange={(e) => setRound(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+
+                {/* Ombrage par normale (les deux modes) : ajoute un relief calculé
+                    sur la normale en plus de l'EDL. Décocher = aplat (EDL seul). */}
+                <label className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Ajoute un ombrage calculé sur la normale des feuilles (en plus du relief EDL). Décocher pour un rendu plus plat.">
+                        Ombrage par normale
+                    </span>
+                    <input
+                        type="checkbox"
+                        checked={normalShade}
+                        onChange={(e) => setNormalShade(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+            </fieldset>
         </div>
     );
 }

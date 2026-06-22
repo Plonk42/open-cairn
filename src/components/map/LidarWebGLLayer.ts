@@ -167,6 +167,16 @@ export interface LidarWebGLLayerConfig {
     shadowStrength: number;
     /** Constant depth bias applied when sampling the shadow map. */
     shadowBias: number;
+    /** Master toggle for the enhanced vegetation rendering (round splats, jitter, size boost). */
+    vegEnhance: boolean;
+    /** Render vegetation points as round (vs square) splats. */
+    vegRound: boolean;
+    /** Per-leaf brightness jitter amount (0..1). */
+    vegJitter: number;
+    /** Point-size multiplier applied to vegetation points. */
+    vegSizeBoost: number;
+    /** Flat-shade vegetation (skip normal/jitter modulation) so the EDL alone carves relief. */
+    vegFlatShade: boolean;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -203,7 +213,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         ortho: WebGLUniformLocation | null;
         photoOpacity: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null };
+        vegEnhance: WebGLUniformLocation | null;
+        vegRound: WebGLUniformLocation | null;
+        vegJitter: WebGLUniformLocation | null;
+        vegSizeBoost: WebGLUniformLocation | null;
+        vegFlatShade: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacity: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -324,6 +339,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowMapSize: 2048,
         shadowStrength: 0.7,
         shadowBias: 0.0015,
+        vegEnhance: true,
+        vegRound: true,
+        vegJitter: 0.3,
+        vegSizeBoost: 1.3,
+        vegFlatShade: false,
     };
 
     constructor(id: string) {
@@ -351,6 +371,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
         gl.uniform1f(this._locPoints.flatLight, this.config.sunLightingEnabled ? 0 : 1);
+        // Végétation enrichie : splats ronds, jitter par-feuille, boost de taille.
+        gl.uniform1f(this._locPoints.vegEnhance, this.config.vegEnhance ? 1 : 0);
+        gl.uniform1f(this._locPoints.vegRound, this.config.vegEnhance && this.config.vegRound ? 1 : 0);
+        gl.uniform1f(this._locPoints.vegJitter, this.config.vegEnhance ? this.config.vegJitter : 0);
+        gl.uniform1f(this._locPoints.vegSizeBoost, this.config.vegEnhance ? this.config.vegSizeBoost : 1);
+        gl.uniform1f(this._locPoints.vegFlatShade, this.config.vegEnhance && this.config.vegFlatShade ? 1 : 0);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacity > 0;
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
@@ -1024,6 +1050,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             ortho: gl.getUniformLocation(this._progPoints, 'u_ortho'),
             photoOpacity: gl.getUniformLocation(this._progPoints, 'u_photoOpacity'),
             hasPhoto: gl.getUniformLocation(this._progPoints, 'u_hasPhoto'),
+            vegEnhance: gl.getUniformLocation(this._progPoints, 'u_vegEnhance'),
+            vegRound: gl.getUniformLocation(this._progPoints, 'u_vegRound'),
+            vegJitter: gl.getUniformLocation(this._progPoints, 'u_vegJitter'),
+            vegSizeBoost: gl.getUniformLocation(this._progPoints, 'u_vegSizeBoost'),
+            vegFlatShade: gl.getUniformLocation(this._progPoints, 'u_vegFlatShade'),
         };
 
         // ─── Point buffers & VAO ───

@@ -5,12 +5,12 @@ import {
     type LidarProgress,
 } from '@/lib/lidarBrowser';
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
-import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
+import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import { saveLoadedCloud } from '@/lib/savedClouds';
 import { formatSunDate, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
-import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
+import { persisted, type PersistedSettings } from '../persistence';
 
 /** Maximum capture radius (metres) allowed in Poisson mode (WASM heap / octree limit). */
 export const POISSON_MAX_RADIUS = 500;
@@ -101,6 +101,39 @@ export interface LidarSlice {
     /** Strength of cast shadows on the LiDAR cloud (0..1). */
     lidarShadowStrength: number;
     setLidarShadowStrength: (v: number) => void;
+    /**
+     * Enhanced vegetation rendering: height-ramped foliage colours (trunk →
+     * canopy), round opaque leaf splats, per-leaf colour jitter and a small
+     * point-size boost. On by default; toggling off restores flat per-class
+     * colours and square splats for vegetation.
+     */
+    lidarVegEnhance: boolean;
+    setLidarVegEnhance: (v: boolean) => void;
+    /**
+     * Vegetation colouring strategy: 'natural' = trunk→canopy green ramp,
+     * 'height' = viridis height colormap (IGN LiDAR HD canopy look, flat-shaded
+     * so the EDL alone carves the relief).
+     */
+    lidarVegColorMode: VegColorMode;
+    setLidarVegColorMode: (v: VegColorMode) => void;
+    /** Height (m above ground) mapped to the top of the viridis ramp in 'height' mode. */
+    lidarVegHeightScale: number;
+    setLidarVegHeightScale: (v: number) => void;
+    /** Strength of the height-ramp foliage colouring (0 = flat class colour, 1 = full ramp). */
+    lidarVegIntensity: number;
+    setLidarVegIntensity: (v: number) => void;
+    /** Per-leaf brightness jitter amount (0 = uniform, 1 = strong speckle). */
+    lidarVegJitter: number;
+    setLidarVegJitter: (v: number) => void;
+    /** Apply normal-driven relief shading on vegetation (off = flat, EDL-only relief). */
+    lidarVegNormalShade: boolean;
+    setLidarVegNormalShade: (v: boolean) => void;
+    /** Point-size multiplier applied to vegetation points (fills canopy gaps). */
+    lidarVegSizeBoost: number;
+    setLidarVegSizeBoost: (v: number) => void;
+    /** Render vegetation points as round (vs square) splats. */
+    lidarVegRound: boolean;
+    setLidarVegRound: (v: boolean) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -178,6 +211,22 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarShadows: (lidarShadows) => set({ lidarShadows }),
     lidarShadowStrength: persisted.lidarShadowStrength ?? 0.7,
     setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
+    lidarVegEnhance: persisted.lidarVegEnhance ?? true,
+    setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
+    lidarVegColorMode: (persisted.lidarVegColorMode === 'height' ? 'height' : 'natural'),
+    setLidarVegColorMode: (lidarVegColorMode) => set({ lidarVegColorMode }),
+    lidarVegHeightScale: persisted.lidarVegHeightScale ?? 25,
+    setLidarVegHeightScale: (lidarVegHeightScale) => set({ lidarVegHeightScale }),
+    lidarVegIntensity: persisted.lidarVegIntensity ?? 0.85,
+    setLidarVegIntensity: (lidarVegIntensity) => set({ lidarVegIntensity }),
+    lidarVegJitter: persisted.lidarVegJitter ?? 0.3,
+    setLidarVegJitter: (lidarVegJitter) => set({ lidarVegJitter }),
+    lidarVegNormalShade: persisted.lidarVegNormalShade ?? true,
+    setLidarVegNormalShade: (lidarVegNormalShade) => set({ lidarVegNormalShade }),
+    lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? 1.3,
+    setLidarVegSizeBoost: (lidarVegSizeBoost) => set({ lidarVegSizeBoost }),
+    lidarVegRound: persisted.lidarVegRound ?? true,
+    setLidarVegRound: (lidarVegRound) => set({ lidarVegRound }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -287,6 +336,14 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             lidarSunEnabled: false,
             lidarShadows: true,
             lidarShadowStrength: 0.7,
+            lidarVegEnhance: true,
+            lidarVegColorMode: 'natural',
+            lidarVegHeightScale: 25,
+            lidarVegIntensity: 0.85,
+            lidarVegJitter: 0.3,
+            lidarVegNormalShade: true,
+            lidarVegSizeBoost: 1.3,
+            lidarVegRound: true,
             contourLinesEnabled: false,
             contourLinesOpacity: 0.4,
         });
@@ -329,6 +386,14 @@ export function selectLidarPersisted(
     | 'lidarSunEnabled'
     | 'lidarShadows'
     | 'lidarShadowStrength'
+    | 'lidarVegEnhance'
+    | 'lidarVegColorMode'
+    | 'lidarVegHeightScale'
+    | 'lidarVegIntensity'
+    | 'lidarVegJitter'
+    | 'lidarVegNormalShade'
+    | 'lidarVegSizeBoost'
+    | 'lidarVegRound'
 > {
     return {
         lidarMode: s.lidarMode,
@@ -352,5 +417,13 @@ export function selectLidarPersisted(
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,
         lidarShadowStrength: s.lidarShadowStrength,
+        lidarVegEnhance: s.lidarVegEnhance,
+        lidarVegColorMode: s.lidarVegColorMode,
+        lidarVegHeightScale: s.lidarVegHeightScale,
+        lidarVegIntensity: s.lidarVegIntensity,
+        lidarVegJitter: s.lidarVegJitter,
+        lidarVegNormalShade: s.lidarVegNormalShade,
+        lidarVegSizeBoost: s.lidarVegSizeBoost,
+        lidarVegRound: s.lidarVegRound,
     };
 }

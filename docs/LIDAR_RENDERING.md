@@ -31,6 +31,12 @@ Le panneau **LiDAR** offre trois modes de rendu :
   spectaculaire. Réglages : *strength* (1000–3000), *radius* (1.5 par défaut), *farPlane*
 - **Préset shader** : `base` (gradient chaud), `cliff` (vert → calcaire → falaise sombre),
   `winter` (neige + aspect)
+- **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
+  (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
+  clair selon la hauteur au-dessus du sol), *variation feuilles* (jitter de luminosité
+  par point), *densité feuillage* (grossissement des points), *feuilles rondes* (splats
+  ronds opaques découpés au disque). Le toggle maître rétablit la couleur de classe à
+  plat et les splats carrés.
 - **Filtre par classe** : cocher / décocher chaque classe LAS (sol, végétation basse,
   moyenne, haute, bâtiments, etc.)
 - **Date pour le soleil** : modifie la direction d'éclairage (ombrage Lambert)
@@ -57,7 +63,7 @@ Le panneau **LiDAR** offre trois modes de rendu :
 |---------|------|
 | [src/components/map/LidarCloudOverlay.tsx](../src/components/map/LidarCloudOverlay.tsx) | Wrapper React, lazy-loaded, monte / démonte la `CustomLayer` |
 | [src/components/map/LidarWebGLLayer.ts](../src/components/map/LidarWebGLLayer.ts) | ~970 lignes : `CustomLayerInterface` MapLibre, shaders, FBO, EDL post-process |
-| [src/lib/edlEffect.ts](../src/lib/edlEffect.ts) | Module shader Eye-Dome Lighting réutilisable |
+| [src/lib/lidarBrowser/groundHeight.ts](../src/lib/lidarBrowser/groundHeight.ts) | Grille min-Z du sol + hauteur au-dessus du sol par point (coloration végétation) |
 | [src/components/ui/LidarCloudPanel.tsx](../src/components/ui/LidarCloudPanel.tsx) | UI tous les réglages |
 
 ### Architecture du rendu

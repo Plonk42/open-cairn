@@ -8,8 +8,9 @@
  */
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { extractPoints } from './extract';
+import { buildGroundHeightGrid, computeHeightAboveGround, sampleHeightAboveGround } from './groundHeight';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN, orientNormalsForPoisson } from './normals';
+import { computeNormalsKNN, computeNormalsVegAware, orientNormalsForPoisson } from './normals';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { lngLatToL93 } from './proj';
@@ -288,11 +289,12 @@ export async function fetchLidarShaded(
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
     const tNormals = startTimer();
-    const normals = computeNormalsKNN(c.positions, 12, 2);
+    const normals = computeNormalsVegAware(c.positions, c.classifications, c.pointCount);
     logStage('normals', tNormals(), `${c.pointCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const tColors = startTimer();
     const colors = colorsFromNormals(normals, shader, c.positions);
+    const heightAboveGround = computeHeightAboveGround(c.positions, c.classifications, c.pointCount) ?? undefined;
     logStage('colors', tColors());
     logStage('TOTAL (shaded)', total());
     onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
@@ -304,6 +306,7 @@ export async function fetchLidarShaded(
         normals,
         colors,
         classifications: c.classifications,
+        heightAboveGround,
         pointCount: c.pointCount,
         radius: c.radius,
     };
@@ -374,11 +377,15 @@ export async function fetchLidarDelaunay(
     //    vegetation normals are noisy, they're what the WebGL layer wants.
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const tNg = startTimer();
-    const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
     logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const tNgCol = startTimer();
     const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
+    // Height above ground from the FULL cloud's ground field, sampled at the
+    // non-ground points (the mesh already represents the ground itself).
+    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
+    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount) : undefined;
     logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
@@ -388,6 +395,7 @@ export async function fetchLidarDelaunay(
         normals: ngNormals,
         colors: ngColors,
         classifications: ngCls,
+        heightAboveGround: ngHeight,
         pointCount: nonGroundCount,
         radius: c.radius,
     };
@@ -578,11 +586,13 @@ export async function fetchLidarPoisson(
     // 2. Non-ground shaded cloud overlay.
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const tNgNrm = startTimer();
-    const ngNormals = computeNormalsKNN(ngPos, 12, 2);
+    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
     logStage('normals (non-sol)', tNgNrm(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
     const tNgCol = startTimer();
     const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
+    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
+    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount) : undefined;
     logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
@@ -592,6 +602,7 @@ export async function fetchLidarPoisson(
         normals: ngNormals,
         colors: ngColors,
         classifications: ngCls,
+        heightAboveGround: ngHeight,
         pointCount: nonGroundCount,
         radius: c.radius,
     };

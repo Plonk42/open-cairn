@@ -561,3 +561,66 @@ export function orientNormalsForPoisson(
 
     weightByQuality(normals, quality, state);
 }
+
+/** ASPRS vegetation classes (low / medium / high). */
+const VEG_CLASSES = new Set([3, 4, 5]);
+
+/**
+ * Per-point normals tuned per class: vegetation (3/4/5) uses a smaller
+ * neighbourhood and a tighter grid with NO upward forcing — tree canopies are
+ * spiky and faceted, so a large planar fit smears them and forcing nz≥0 flattens
+ * the foliage. Everything else keeps the default ground/building-friendly fit.
+ *
+ * Points are split by class, each subset gets its own k-NN PCA pass, then the
+ * normals are scattered back into a single buffer aligned with `positions`.
+ */
+export function computeNormalsVegAware(
+    positions: Float32Array,
+    classifications: Uint8Array,
+    pointCount: number,
+): Float32Array {
+    let vegCount = 0;
+    for (let i = 0; i < pointCount; i++) if (VEG_CLASSES.has(classifications[i])) vegCount++;
+    // No vegetation (or nothing but vegetation) → a single default pass is fine.
+    if (vegCount === 0) return computeNormalsKNN(positions, 12, 2);
+
+    const restCount = pointCount - vegCount;
+    const vegPos = new Float32Array(vegCount * 3);
+    const restPos = new Float32Array(restCount * 3);
+    const vegSrc = new Int32Array(vegCount);
+    const restSrc = new Int32Array(restCount);
+    let vi = 0, ri = 0;
+    for (let i = 0; i < pointCount; i++) {
+        if (VEG_CLASSES.has(classifications[i])) {
+            vegPos[vi * 3] = positions[i * 3];
+            vegPos[vi * 3 + 1] = positions[i * 3 + 1];
+            vegPos[vi * 3 + 2] = positions[i * 3 + 2];
+            vegSrc[vi] = i;
+            vi++;
+        } else {
+            restPos[ri * 3] = positions[i * 3];
+            restPos[ri * 3 + 1] = positions[i * 3 + 1];
+            restPos[ri * 3 + 2] = positions[i * 3 + 2];
+            restSrc[ri] = i;
+            ri++;
+        }
+    }
+
+    const vegN = computeNormalsKNN(vegPos, 8, 1.5, true);
+    const restN = computeNormalsKNN(restPos, 12, 2, true);
+
+    const out = new Float32Array(pointCount * 3);
+    scatterNormals(out, vegN, vegSrc);
+    scatterNormals(out, restN, restSrc);
+    return out;
+}
+
+/** Copy `src` normals into `dst` at the original point indices in `srcIdx`. */
+function scatterNormals(dst: Float32Array, src: Float32Array, srcIdx: Int32Array): void {
+    for (let j = 0; j < srcIdx.length; j++) {
+        const i = srcIdx[j];
+        dst[i * 3] = src[j * 3];
+        dst[i * 3 + 1] = src[j * 3 + 1];
+        dst[i * 3 + 2] = src[j * 3 + 2];
+    }
+}
