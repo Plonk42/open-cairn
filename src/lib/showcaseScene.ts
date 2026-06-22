@@ -501,6 +501,25 @@ export type SceneLoadProgress = {
 };
 
 /**
+ * Recover the *uncompressed* byte size from an nginx-style ETag.
+ *
+ * nginx (and GitHub Pages) emit `"<mtime-hex>-<size-hex>"` derived from the
+ * original file. Under gzip the ETag is only marked weak (`W/`); the size
+ * segment still reflects the decompressed length, which matches the bytes a
+ * streaming reader yields. Returns 0 when absent or not in that format.
+ */
+export function uncompressedSizeFromETag(etag: string | null): number {
+    if (etag === null) return 0;
+    const cleaned = etag.replace(/^W\//, '').replaceAll('"', '').trim();
+    const dash = cleaned.lastIndexOf('-');
+    if (dash < 0) return 0;
+    const hex = cleaned.slice(dash + 1);
+    if (!/^[0-9a-f]+$/i.test(hex)) return 0;
+    const size = Number.parseInt(hex, 16);
+    return Number.isFinite(size) && size > 0 ? size : 0;
+}
+
+/**
  * Fetch a binary URL with optional streaming download-progress callbacks.
  * Falls back to a single `arrayBuffer()` call when `response.body` is absent
  * or `Content-Length` is missing (emits one indeterminate tick in that case).
@@ -512,8 +531,21 @@ export async function fetchArrayBufferWithProgress(
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) throw new Error(`showcase scene: fetch failed (${res.status})`);
 
+    // When the server compresses the transfer (gzip/br/deflate), `Content-Length`
+    // is the COMPRESSED size while the reader yields DECOMPRESSED bytes — the two
+    // never match, so the percentage would overshoot 100%. In that case we can't
+    // trust Content-Length and try to recover the original size from the ETag.
+    const encoding = res.headers.get('Content-Encoding');
+    const compressed = encoding !== null && encoding.trim().toLowerCase() !== 'identity';
     const lengthHeader = res.headers.get('Content-Length');
-    const total = lengthHeader ? Number.parseInt(lengthHeader, 10) : 0;
+    let total = compressed || !lengthHeader ? 0 : Number.parseInt(lengthHeader, 10);
+    if (total === 0) {
+        // nginx / GitHub Pages emit an ETag of the form `"<mtime-hex>-<size-hex>"`
+        // computed from the *original* file; gzip only weakens it (`W/`) and keeps
+        // the uncompressed size — which is exactly what the reader yields. Only
+        // readable same-origin or when the server exposes ETag via CORS.
+        total = uncompressedSizeFromETag(res.headers.get('ETag'));
+    }
 
     if (!res.body || total === 0) {
         onProgress?.({ phase: 'download', loaded: 0, total: 0 });
@@ -523,12 +555,17 @@ export async function fetchArrayBufferWithProgress(
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
     let loaded = 0;
+    let trustTotal = true;
     for (; ;) {
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value);
         loaded += value.byteLength;
-        onProgress?.({ phase: 'download', loaded, total });
+        // Some browsers decompress transparently yet hide `Content-Encoding`, so
+        // the byte count can still exceed the advertised total. Once that happens
+        // the total is provably wrong — drop to an indeterminate bar.
+        if (loaded > total) trustTotal = false;
+        onProgress?.({ phase: 'download', loaded, total: trustTotal ? total : 0 });
     }
 
     const result = new Uint8Array(loaded);
