@@ -8,6 +8,7 @@ export type LidarProgressStage =
     | 'normals'   // Computing k-NN normals
     | 'mesh'      // Building Delaunay mesh
     | 'colors'    // Computing slope colors
+    | 'forest'    // Typing vegetation from BD Forêt
     | 'done';     // Finished
 
 export interface LidarProgress {
@@ -32,5 +33,6 @@ export const STAGE_LABELS: Record<LidarProgressStage, string> = {
     normals: 'Calcul des normales…',
     mesh: 'Construction du maillage…',
     colors: 'Calcul des couleurs…',
+    forest: 'Typage de la végétation…',
     done: 'Terminé',
 };

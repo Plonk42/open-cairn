@@ -5,6 +5,8 @@ export interface ClassChoice {
     id: number;
     label: string;
     hint?: string;
+    /** Explicit dot colour (RGB 0–255). Falls back to the LAS class palette. */
+    color?: readonly [number, number, number];
 }
 
 function rgbCss([r, g, b]: readonly [number, number, number]): string {
@@ -32,7 +34,7 @@ export function ClassFilterChips({
         <div className="flex flex-wrap gap-1">
             {choices.map((c) => {
                 const on = sel.has(c.id);
-                const color = LAS_CLASS_COLORS[c.id] ?? [180, 180, 180];
+                const color = c.color ?? LAS_CLASS_COLORS[c.id] ?? [180, 180, 180];
                 let chipCls: string;
                 if (disabled) {
                     chipCls = 'cursor-not-allowed bg-slate-50 text-slate-300 ring-slate-100 dark:bg-slate-900 dark:text-slate-600 dark:ring-slate-800';

@@ -7,8 +7,9 @@
  * Returns the same data shapes as `src/lib/lidarCloud.ts` types.
  */
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
 import { extractPoints } from './extract';
-import { buildGroundHeightGrid, computeHeightAboveGround, sampleHeightAboveGround } from './groundHeight';
+import { buildGroundHeightGrid, computeHeightAboveGround, sampleHeightAboveGround, sanitizeVegHeights } from './groundHeight';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN, computeNormalsVegAware, orientNormalsForPoisson } from './normals';
 import { reconstructPoisson } from './poissonRecon';
@@ -16,6 +17,7 @@ import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
 import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
+import { detectTreetops } from './treetops';
 import { findTiles } from './wfs';
 
 export interface BrowserFetchParams {
@@ -134,15 +136,15 @@ function copyScanPoint(c: CommonCloud, dst: ScanData | null, gi: number, i: numb
 }
 
 /**
- * Split the merged cloud into ground (class 2) + water (class 9, fed to
- * PoissonRecon) and everything else (kept as a shaded overlay), in a single
- * pass. Water points lie on the terrain surface and must be included so
+ * Split the merged cloud into ground (class 2) + water (class 9, fed to the
+ * mesh reconstruction) and everything else (kept as a shaded overlay), in a
+ * single pass. Water points lie on the terrain surface and must be included so
  * ponds/lakes are reconstructed rather than leaving holes in the mesh.
  * The ground subset's ScanAngle / PointSourceId / GpsTime are carried
- * alongside so the flight-line orientation operates on exactly the Poisson
- * input points.
+ * alongside so Poisson's flight-line orientation operates on exactly the mesh
+ * input points (null in Delaunay mode, which decodes no scan dimensions).
  */
-function splitGroundForPoisson(c: CommonCloud): GroundSplit {
+function splitGround(c: CommonCloud): GroundSplit {
     let groundCount = 0;
     for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2 || c.classifications[i] === 9) groundCount++;
     const groundPos = new Float32Array(groundCount * 3);
@@ -279,6 +281,108 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     };
 }
 
+/**
+ * Enrich a shaded cloud with IGN BD Forêt® species typing (`forestTfv`) and
+ * per-tree seeds (`treeSeed`) for species-accurate vegetation rendering.
+ *
+ * Both are best-effort: treetop seeds need a height-above-ground field, and the
+ * BD Forêt query is a network call that may fail or return no stands. In every
+ * fallback case the cloud is returned unchanged and vegetation simply renders
+ * with the generic ramp — never blocking a capture.
+ */
+async function enrichForest(
+    shaded: LidarShadedCloudData,
+    onProgress: ProgressCallback,
+    signal?: AbortSignal,
+): Promise<void> {
+    if (shaded.heightAboveGround) {
+        const tTops = startTimer();
+        shaded.treeSeed = detectTreetops(
+            shaded.positions, shaded.heightAboveGround, shaded.classifications, shaded.pointCount,
+        ) ?? undefined;
+        logStage('treetops (cimes)', tTops());
+    }
+    onProgress({ stage: 'forest', message: STAGE_LABELS.forest });
+    const tForest = startTimer();
+    try {
+        const polygons = await fetchForestPolygons(
+            shaded.centerLng, shaded.centerLat, shaded.radius, signal,
+        );
+        const tClassify = startTimer();
+        if (polygons.length > 0) {
+            // Rasterise once and keep it on the cloud, then label the points with
+            // sharp edges as a baseline. The overlay re-runs the labelling live
+            // (sharp / feather / scatter) from this raster, no re-fetch needed.
+            const raster = buildForestRaster(
+                shaded.positions, shaded.pointCount, shaded.classifications,
+                shaded.centerLng, shaded.centerLat, polygons,
+            );
+            if (raster) {
+                shaded.forestRaster = raster;
+                shaded.forestTfv = labelForestPoints(
+                    shaded.positions, shaded.pointCount, shaded.classifications,
+                    shaded.centerLng, shaded.centerLat, raster,
+                );
+            }
+        }
+        logStage('forest classify', tClassify(), `${polygons.length} peuplement${polygons.length > 1 ? 's' : ''}`);
+        logStage('forest (BD Forêt)', tForest(), `${polygons.length} peuplement${polygons.length > 1 ? 's' : ''}`);
+    } catch (err) {
+        if ((err as Error)?.name === 'AbortError') throw err;
+        console.warn('[lidar] BD Forêt typing skipped:', (err as Error)?.message ?? err);
+    }
+}
+
+/**
+ * Build the non-ground shaded point-cloud overlay shared by the Delaunay and
+ * Poisson mesh modes: vegetation-aware normals, slope colours, height above
+ * ground (sampled from the FULL cloud's ground field, since the mesh itself
+ * represents the ground), the robust "tallest tree" foliage scale that drives
+ * the "Hauteur max · Auto" control, and best-effort BD Forêt species typing.
+ */
+async function buildNonGroundShaded(
+    c: { positions: Float32Array; classifications: Uint8Array; pointCount: number; centerLng: number; centerLat: number; radius: number },
+    ngPos: Float32Array,
+    ngCls: Uint8Array,
+    nonGroundCount: number,
+    shader: ShaderPreset,
+    onProgress: ProgressCallback,
+    signal?: AbortSignal,
+): Promise<LidarShadedCloudData> {
+    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
+    const tNg = startTimer();
+    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
+    logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
+    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
+    const tNgCol = startTimer();
+    const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
+    // Height above ground from the FULL cloud's ground field, sampled at the
+    // non-ground points (the mesh already represents the ground itself).
+    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
+    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount, ngCls) : undefined;
+    // Robust canopy top (drives the "Hauteur max · Auto" foliage scale). Mutates
+    // ngHeight in place to clamp cliff-edge artefacts, mirroring the shaded path.
+    const ngVegHeightAuto = ngHeight
+        ? sanitizeVegHeights(ngHeight, ngCls, nonGroundCount) ?? undefined
+        : undefined;
+    logStage('colors (non-sol)', tNgCol());
+    const shadedData: LidarShadedCloudData = {
+        kind: 'shaded',
+        centerLng: c.centerLng,
+        centerLat: c.centerLat,
+        positions: ngPos,
+        normals: ngNormals,
+        colors: ngColors,
+        classifications: ngCls,
+        heightAboveGround: ngHeight,
+        vegHeightAuto: ngVegHeightAuto,
+        pointCount: nonGroundCount,
+        radius: c.radius,
+    };
+    await enrichForest(shadedData, onProgress, signal);
+    return shadedData;
+}
+
 /** Shaded point cloud (per-point normals + slope coloring). */
 export async function fetchLidarShaded(
     params: BrowserFetchParams,
@@ -295,10 +399,13 @@ export async function fetchLidarShaded(
     const tColors = startTimer();
     const colors = colorsFromNormals(normals, shader, c.positions);
     const heightAboveGround = computeHeightAboveGround(c.positions, c.classifications, c.pointCount) ?? undefined;
+    // Clamp cliff-edge height artefacts and derive the robust "tallest tree"
+    // height (drives the automatic foliage colour scale).
+    const vegHeightAuto = heightAboveGround
+        ? sanitizeVegHeights(heightAboveGround, c.classifications, c.pointCount) ?? undefined
+        : undefined;
     logStage('colors', tColors());
-    logStage('TOTAL (shaded)', total());
-    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
-    return {
+    const shaded: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
         centerLat: c.centerLat,
@@ -307,9 +414,14 @@ export async function fetchLidarShaded(
         colors,
         classifications: c.classifications,
         heightAboveGround,
+        vegHeightAuto,
         pointCount: c.pointCount,
         radius: c.radius,
     };
+    await enrichForest(shaded, onProgress, params.signal);
+    logStage('TOTAL (shaded)', total());
+    onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
+    return shaded;
 }
 
 /**
@@ -330,28 +442,9 @@ export async function fetchLidarDelaunay(
 
     // Split into ground (class 2) + water (class 9) and the rest. Water
     // points lie on the terrain surface and must be in the mesh to avoid holes
-    // over ponds and lakes. We keep `nonGround` in a single pass.
-    let groundCount = 0;
-    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2 || c.classifications[i] === 9) groundCount++;
-    const nonGroundCount = c.pointCount - groundCount;
-    const groundPos = new Float32Array(groundCount * 3);
-    const ngPos = new Float32Array(nonGroundCount * 3);
-    const ngCls = new Uint8Array(nonGroundCount);
-    let gi = 0; let ni = 0;
-    for (let i = 0; i < c.pointCount; i++) {
-        const cls = c.classifications[i];
-        const x = c.positions[i * 3];
-        const y = c.positions[i * 3 + 1];
-        const z = c.positions[i * 3 + 2];
-        if (cls === 2 || cls === 9) {
-            groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
-            gi++;
-        } else {
-            ngPos[ni * 3] = x; ngPos[ni * 3 + 1] = y; ngPos[ni * 3 + 2] = z;
-            ngCls[ni] = cls;
-            ni++;
-        }
-    }
+    // over ponds and lakes.
+    const { groundPos, groundCount, ngPos, ngCls } = splitGround(c);
+    const nonGroundCount = ngCls.length;
 
     // 1. Ground mesh — Delaunay (cheapest, best with 2.5D ground class).
     onProgress({ stage: 'mesh', message: STAGE_LABELS.mesh, detail: `${groundCount.toLocaleString()} pts sol+eau` });
@@ -375,30 +468,9 @@ export async function fetchLidarDelaunay(
 
     // 2. Non-ground shaded cloud — normals + slope colors. Even though
     //    vegetation normals are noisy, they're what the WebGL layer wants.
-    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
-    const tNg = startTimer();
-    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
-    logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
-    const tNgCol = startTimer();
-    const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
-    // Height above ground from the FULL cloud's ground field, sampled at the
-    // non-ground points (the mesh already represents the ground itself).
-    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
-    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount) : undefined;
-    logStage('colors (non-sol)', tNgCol());
-    const shadedData: LidarShadedCloudData = {
-        kind: 'shaded',
-        centerLng: c.centerLng,
-        centerLat: c.centerLat,
-        positions: ngPos,
-        normals: ngNormals,
-        colors: ngColors,
-        classifications: ngCls,
-        heightAboveGround: ngHeight,
-        pointCount: nonGroundCount,
-        radius: c.radius,
-    };
+    const shadedData = await buildNonGroundShaded(
+        c, ngPos, ngCls, nonGroundCount, shader, onProgress, params.signal,
+    );
 
     logStage('TOTAL (delaunay)', total());
     onProgress({
@@ -514,7 +586,7 @@ export async function fetchLidarPoisson(
     const c = await fetchCommon({ ...params, classes: undefined }, { needScan: true });
 
     // Split ground (class 2) from the rest (with the ground scan subset).
-    const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGroundForPoisson(c);
+    const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGround(c);
     const nonGroundCount = ngCls.length;
 
     // 1. Ground mesh via PoissonRecon.
@@ -584,28 +656,9 @@ export async function fetchLidarPoisson(
     };
 
     // 2. Non-ground shaded cloud overlay.
-    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
-    const tNgNrm = startTimer();
-    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
-    logStage('normals (non-sol)', tNgNrm(), `${nonGroundCount.toLocaleString()} pts`);
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
-    const tNgCol = startTimer();
-    const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
-    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
-    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount) : undefined;
-    logStage('colors (non-sol)', tNgCol());
-    const shadedData: LidarShadedCloudData = {
-        kind: 'shaded',
-        centerLng: c.centerLng,
-        centerLat: c.centerLat,
-        positions: ngPos,
-        normals: ngNormals,
-        colors: ngColors,
-        classifications: ngCls,
-        heightAboveGround: ngHeight,
-        pointCount: nonGroundCount,
-        radius: c.radius,
-    };
+    const shadedData = await buildNonGroundShaded(
+        c, ngPos, ngCls, nonGroundCount, shader, onProgress, params.signal,
+    );
 
     logStage('TOTAL (poisson)', total());
     onProgress({

@@ -1,4 +1,6 @@
+import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
 import { fetchOrthoMosaic } from '@/lib/lidarBrowser/orthoTexture';
+import { detectTreetops } from '@/lib/lidarBrowser/treetops';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
@@ -33,11 +35,18 @@ export function LidarCloudOverlay() {
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
     const vegHeightScale = useMapStore((s) => s.lidarVegHeightScale);
+    const vegHeightAuto = useMapStore((s) => s.lidarVegHeightAuto);
+    const setVegHeightScale = useMapStore((s) => s.setLidarVegHeightScale);
     const vegIntensity = useMapStore((s) => s.lidarVegIntensity);
-    const vegJitter = useMapStore((s) => s.lidarVegJitter);
     const vegNormalShade = useMapStore((s) => s.lidarVegNormalShade);
     const vegSizeBoost = useMapStore((s) => s.lidarVegSizeBoost);
-    const vegRound = useMapStore((s) => s.lidarVegRound);
+    const forestGrouping = useMapStore((s) => s.lidarForestGrouping);
+    const forestMixCellSize = useMapStore((s) => s.lidarForestMixCellSize);
+    const forestHiddenLegend = useMapStore((s) => s.lidarForestHiddenLegend);
+    const forestSpeciesFilterOn = useMapStore((s) => s.lidarForestSpeciesFilterOn);
+    const forestTreetopSensitivity = useMapStore((s) => s.lidarForestTreetopSensitivity);
+    const forestEdgeBlend = useMapStore((s) => s.lidarForestEdgeBlend);
+    const forestEdgeBandM = useMapStore((s) => s.lidarForestEdgeBandM);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
     // Geometry + style-epoch for which the orthophoto mosaic was last fetched, so
@@ -130,20 +139,34 @@ export function LidarCloudOverlay() {
         return out;
     }, [lidarShaded]);
 
+    // ── Auto foliage height scale: follow the loaded cloud's tallest tree ─────
+    // When "Hauteur auto" is on, snap the height-scale value to the cloud's
+    // robust canopy top (cliff-edge artefacts already clamped in the pipeline),
+    // so the colour ramp spans the real tree heights without a manual slider.
+    useEffect(() => {
+        if (!vegHeightAuto) return;
+        const auto = lidarShaded?.vegHeightAuto;
+        if (auto && Math.round(auto) !== Math.round(vegHeightScale)) {
+            setVegHeightScale(Math.round(auto));
+        }
+    }, [lidarShaded, vegHeightAuto, vegHeightScale, setVegHeightScale]);
+
     // ── Push shaded data + mesh + config to WebGL layer ─────────────────────
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return;
         if (lidarShaded && shadedColors && heights) {
-            layer.setData(
-                lidarShaded.positions,
-                lidarShaded.normals,
-                shadedColors,
-                lidarShaded.classifications,
+            layer.setData({
+                positions: lidarShaded.positions,
+                normals: lidarShaded.normals,
+                colors: shadedColors,
+                classifications: lidarShaded.classifications,
                 heights,
-                lidarShaded.centerLng,
-                lidarShaded.centerLat,
-            );
+                originLng: lidarShaded.centerLng,
+                originLat: lidarShaded.centerLat,
+                forestTfv: lidarShaded.forestTfv,
+                treeSeed: lidarShaded.treeSeed,
+            });
         } else {
             layer.clear();
         }
@@ -205,17 +228,71 @@ export function LidarCloudOverlay() {
     }, [sunEnabled, shadows, shadowStrength, styleEpoch]);
 
     useEffect(() => {
+        let vegColorModeId = 0;
+        if (vegColorMode === 'species') vegColorModeId = 2;
+        else if (vegColorMode === 'height') vegColorModeId = 1;
         webglRef.current?.setConfig({
             vegEnhance,
-            vegRound,
-            vegJitter,
             vegSizeBoost,
-            vegFlatShade: !vegNormalShade,
+            vegNormalShade,
             vegIntensity,
             vegHeightScale,
-            vegColorMode: vegColorMode === 'height' ? 1 : 0,
+            vegColorMode: vegColorModeId,
+            forestGrouping,
+            forestMixCellSize,
+            forestSpeciesFilterOn,
         });
-    }, [vegEnhance, vegRound, vegJitter, vegSizeBoost, vegNormalShade, vegIntensity, vegHeightScale, vegColorMode, styleEpoch]);
+    }, [vegEnhance, vegSizeBoost, vegNormalShade, vegIntensity, vegHeightScale, vegColorMode, forestGrouping, forestMixCellSize, forestSpeciesFilterOn, styleEpoch]);
+
+    // ── Legend-as-filter: per-legend-id visibility mask (GPU-side) ────────────
+    // The legend doubles as the filter: unchecking an essence/formation hides
+    // its points without a re-fetch (the mask is a tiny GPU uniform). The number
+    // of legend ids depends on the grouping; ids absent from `forestHiddenLegend`
+    // stay visible.
+    useEffect(() => {
+        const mask = new Uint32Array(8).fill(0xffffffff);
+        for (const id of forestHiddenLegend) {
+            if (id >= 0 && id < 256) mask[id >>> 5] &= ~(1 << (id & 31));
+        }
+        webglRef.current?.setSpeciesMask(mask);
+    }, [forestHiddenLegend, forestGrouping, styleEpoch]);
+
+    // ── Treetop detection sensitivity → re-seed the species mix mosaic ────────
+    // The per-tree seed drives which essence each treetop gets inside mixed
+    // stands. Recompute it (debounced) when the sensitivity slider moves, and
+    // re-upload just the seed buffer — no full cloud re-upload, no re-fetch.
+    useEffect(() => {
+        const shaded = lidarShaded;
+        const hag = shaded?.heightAboveGround;
+        if (!shaded || !hag) return undefined;
+        const handle = globalThis.setTimeout(() => {
+            const seed = detectTreetops(shaded.positions, hag, shaded.classifications, shaded.pointCount, {
+                sensitivity: forestTreetopSensitivity,
+            });
+            if (seed) webglRef.current?.setTreeSeed(seed);
+        }, 200);
+        return () => globalThis.clearTimeout(handle);
+    }, [forestTreetopSensitivity, lidarShaded, styleEpoch]);
+
+    // ── Essence-boundary blend (sharp / feather / scatter) → re-label points ──
+    // Stand membership is decided on the CPU (the GPU only knows each point's own
+    // category), so changing the blend means re-labelling from the stored coarse
+    // raster and re-uploading just the `a_tfv` attribute — no re-fetch, no full
+    // cloud upload. Debounced so dragging the band-width slider stays smooth.
+    useEffect(() => {
+        const shaded = lidarShaded;
+        const raster = shaded?.forestRaster;
+        if (!shaded || !raster) return undefined;
+        const handle = globalThis.setTimeout(() => {
+            const tfv = labelForestPoints(
+                shaded.positions, shaded.pointCount, shaded.classifications,
+                shaded.centerLng, shaded.centerLat, raster,
+                { blend: forestEdgeBlend, bandM: forestEdgeBandM },
+            );
+            webglRef.current?.setForestTfv(tfv);
+        }, 150);
+        return () => globalThis.clearTimeout(handle);
+    }, [forestEdgeBlend, forestEdgeBandM, lidarShaded, styleEpoch]);
 
     // ── Drapage orthophoto IGN sur le nuage / le mesh ─────────────────────────
     // Récupère une mosaïque orthophoto couvrant l'emprise de la géométrie chargée

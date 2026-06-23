@@ -1,5 +1,6 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
+import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import { useMapStore } from '@/stores/mapStore';
@@ -22,7 +23,19 @@ const SHADER_OPTIONS = [
 const VEG_COLOR_OPTIONS = [
     { value: 'natural', label: 'Naturel', title: 'Tons verts naturels, dégradé tronc → cime' },
     { value: 'height', label: 'Hauteur', title: 'Colormap viridis par hauteur (rendu IGN LiDAR HD), relief par EDL' },
+    { value: 'species', label: 'Essence', title: 'Coloration par essence réelle (IGN BD Forêt® v2) : feuillus, conifères, chêne, hêtre, pin, douglas…' },
 ] as const satisfies ReadonlyArray<{ value: VegColorMode; label: string; title: string }>;
+
+const FOREST_GROUPING_OPTIONS = [
+    { value: 'group', label: 'Groupes', title: 'Colorer par grande formation : feuillus, conifères, mixte, peupleraie, milieu ouvert' },
+    { value: 'species', label: 'Essences', title: 'Colorer par essence dominante : chêne, hêtre, châtaignier, pin sylvestre, douglas… (mosaïque procédurale dans les peuplements mixtes)' },
+] as const satisfies ReadonlyArray<{ value: ForestGrouping; label: string; title: string }>;
+
+const FOREST_EDGE_OPTIONS = [
+    { value: 'sharp', label: 'Net', title: 'Limites de peuplement brutes (contour exact des polygones BD Forêt)' },
+    { value: 'feather', label: 'Feutré', title: 'Lisière douce : la limite ondule de façon cohérente sur la largeur choisie (les couronnes voisines basculent ensemble)' },
+    { value: 'scatter', label: 'Dispersé', title: 'Les essences s’entremêlent point par point de part et d’autre de la limite sur la largeur choisie' },
+] as const satisfies ReadonlyArray<{ value: ForestEdgeBlend; label: string; title: string }>;
 
 export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -213,6 +226,170 @@ export function PointSizeControls() {
 }
 
 /**
+ * IGN BD Forêt® species rendering controls, shown only when the foliage
+ * coloration is set to "Essence". The legend doubles as the filter: unchecking
+ * an essence/formation hides its points (GPU-side, no re-fetch). An "Avancé"
+ * section exposes the treetop-detection sensitivity and the mix-mosaic cell
+ * size used to paint plausible species inside mixed stands.
+ */
+export function ForestSpeciesControls() {
+    const grouping = useMapStore((s) => s.lidarForestGrouping);
+    const setGrouping = useMapStore((s) => s.setLidarForestGrouping);
+    const hidden = useMapStore((s) => s.lidarForestHiddenLegend);
+    const setHidden = useMapStore((s) => s.setLidarForestHiddenLegend);
+    const setFilterOn = useMapStore((s) => s.setLidarForestSpeciesFilterOn);
+    const mixCell = useMapStore((s) => s.lidarForestMixCellSize);
+    const setMixCell = useMapStore((s) => s.setLidarForestMixCellSize);
+    const sensitivity = useMapStore((s) => s.lidarForestTreetopSensitivity);
+    const setSensitivity = useMapStore((s) => s.setLidarForestTreetopSensitivity);
+    const edgeBlend = useMapStore((s) => s.lidarForestEdgeBlend);
+    const setEdgeBlend = useMapStore((s) => s.setLidarForestEdgeBlend);
+    const edgeBandM = useMapStore((s) => s.lidarForestEdgeBandM);
+    const setEdgeBandM = useMapStore((s) => s.setLidarForestEdgeBandM);
+
+    const legend = forestLegendEntries(grouping);
+    const choices: ReadonlyArray<ClassChoice> = legend.map((e) => ({ id: e.id, label: e.label, color: e.color }));
+    // "Legend IS the filter": a chip is selected when its id is NOT hidden.
+    const selected = legend.filter((e) => !hidden.includes(e.id)).map((e) => e.id);
+
+    const toggleLegend = (id: number) => {
+        const next = hidden.includes(id) ? hidden.filter((h) => h !== id) : [...hidden, id];
+        setHidden(next);
+        setFilterOn(next.length > 0);
+    };
+    const showAll = () => { setHidden([]); setFilterOn(false); };
+
+    // Changing the grouping switches legend-id space (6 groups ↔ 16 essences),
+    // so a stale hidden list would hide the wrong entries — reset it.
+    const onGroupingChange = (g: ForestGrouping) => {
+        setGrouping(g);
+        setHidden([]);
+        setFilterOn(false);
+    };
+
+    return (
+        <div className="space-y-2 rounded-lg bg-emerald-50/60 p-2 ring-1 ring-emerald-100 dark:bg-emerald-950/30 dark:ring-emerald-900/40">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300" title="Niveau de détail de la légende BD Forêt : grandes formations ou essences dominantes">
+                    Détail
+                </span>
+                <SegmentedControl
+                    value={grouping}
+                    options={FOREST_GROUPING_OPTIONS}
+                    onChange={onGroupingChange}
+                />
+            </div>
+
+            {/* Légende-filtre : décocher une essence la masque (GPU, sans recalcul) */}
+            <div>
+                <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">Légende · cliquer pour filtrer</span>
+                    {hidden.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={showAll}
+                            className="rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                        >
+                            Tout afficher
+                        </button>
+                    )}
+                </div>
+                <ClassFilterChips choices={choices} selected={selected} onToggle={toggleLegend} />
+            </div>
+
+            <details className="group">
+                <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                    Avancé
+                </summary>
+                <div className="mt-2 space-y-3">
+                    {/* Mélange des limites d'essence : net / feutré / dispersé */}
+                    <div>
+                        <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                            <span title="Comment traiter les limites entre peuplements d'essences différentes : net (contour brut), feutré (lisière ondulée cohérente) ou dispersé (essences entremêlées point par point).">Limites d'essence</span>
+                            <SegmentedControl
+                                value={edgeBlend}
+                                options={FOREST_EDGE_OPTIONS}
+                                onChange={setEdgeBlend}
+                            />
+                        </div>
+                        {edgeBlend !== 'sharp' && (
+                            <label className="mt-2 block">
+                                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                    <span title="Largeur de la bande de transition de part et d'autre de la limite.">Largeur de transition</span>
+                                    <span className="font-mono text-xs text-slate-400">{Math.round(edgeBandM)} m</span>
+                                </div>
+                                <input
+                                    aria-label="Largeur de la bande de transition entre essences"
+                                    type="range" min={1} max={30} step={1}
+                                    value={edgeBandM}
+                                    onChange={(e) => setEdgeBandM(Number(e.target.value))}
+                                    className="mt-1 w-full accent-emerald-600"
+                                />
+                                <p className="mt-1 text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+                                    {edgeBlend === 'feather'
+                                        ? 'La limite ondule de façon cohérente : des couronnes entières basculent d’une essence à l’autre.'
+                                        : 'Les points changent d’essence individuellement, créant un dégradé poivre-et-sel autour de la limite.'}
+                                </p>
+                            </label>
+                        )}
+                    </div>
+
+                    {/* Mosaïque d'essences : ne s'applique qu'en mode « Essences »,
+                       et seulement dans les peuplements mélangés. En mode
+                       « Groupes » la couleur est plate par peuplement, donc ces
+                       deux réglages n'ont aucun effet → on les désactive. */}
+                    <fieldset
+                        disabled={grouping !== 'species'}
+                        className="space-y-3 border-0 p-0 transition-opacity disabled:opacity-40"
+                    >
+                        {grouping !== 'species' && (
+                            <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+                                Réglages de la mosaïque d'essences — disponibles en mode « Essences ».
+                            </p>
+                        )}
+                        {/* Sensibilité de détection des cimes (CHM) — pilote la mosaïque mixte */}
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span title="Dans un peuplement mélangé, chaque cime d'arbre reçoit une essence tirée au sort parmi celles du peuplement. Ce curseur règle la sensibilité de la détection des cimes (sur le modèle de hauteur de canopée) : plus il est haut, plus on détecte d'arbres et plus les couronnes colorées sont fines.">Détection des cimes</span>
+                                <span className="font-mono text-xs text-slate-400">{Math.round(sensitivity * 100)}%</span>
+                            </div>
+                            <input
+                                aria-label="Sensibilité de détection des cimes"
+                                type="range" min={0} max={1} step={0.05}
+                                value={sensitivity}
+                                onChange={(e) => setSensitivity(Number(e.target.value))}
+                                className="mt-1 w-full accent-emerald-600"
+                            />
+                            <p className="mt-1 text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+                                Taille des couronnes colorées par essence dans les peuplements mélangés (plus haut = arbres plus nombreux et plus fins).
+                            </p>
+                        </label>
+
+                        {/* Taille des taches d'essence dans les peuplements mixtes */}
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span title="Repli quand aucune cime n'est détectée : les essences sont alors réparties par une mosaïque procédurale régulière. Ce curseur fixe la taille des taches de cette mosaïque.">Taille des taches</span>
+                                <span className="font-mono text-xs text-slate-400">{Math.round(mixCell)} m</span>
+                            </div>
+                            <input
+                                aria-label="Taille des taches d'essence en peuplement mixte"
+                                type="range" min={2} max={20} step={1}
+                                value={mixCell}
+                                onChange={(e) => setMixCell(Number(e.target.value))}
+                                className="mt-1 w-full accent-emerald-600"
+                            />
+                            <p className="mt-1 text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+                                Taille des taches d'essence du repli procédural, utilisé seulement là où aucune cime n'a été détectée.
+                            </p>
+                        </label>
+                    </fieldset>
+                </div>
+            </details>
+        </div>
+    );
+}
+
+/**
  * Enhanced vegetation rendering controls: master toggle + height-ramp intensity,
  * round leaf splats, per-leaf jitter and a canopy-filling size boost. When the
  * master toggle is off, vegetation falls back to flat per-class colours and
@@ -225,12 +402,10 @@ export function VegetationControls() {
     const setColorMode = useMapStore((s) => s.setLidarVegColorMode);
     const heightScale = useMapStore((s) => s.lidarVegHeightScale);
     const setHeightScale = useMapStore((s) => s.setLidarVegHeightScale);
+    const heightAuto = useMapStore((s) => s.lidarVegHeightAuto);
+    const setHeightAuto = useMapStore((s) => s.setLidarVegHeightAuto);
     const intensity = useMapStore((s) => s.lidarVegIntensity);
     const setIntensity = useMapStore((s) => s.setLidarVegIntensity);
-    const round = useMapStore((s) => s.lidarVegRound);
-    const setRound = useMapStore((s) => s.setLidarVegRound);
-    const jitter = useMapStore((s) => s.lidarVegJitter);
-    const setJitter = useMapStore((s) => s.setLidarVegJitter);
     const normalShade = useMapStore((s) => s.lidarVegNormalShade);
     const setNormalShade = useMapStore((s) => s.setLidarVegNormalShade);
     const sizeBoost = useMapStore((s) => s.lidarVegSizeBoost);
@@ -264,10 +439,16 @@ export function VegetationControls() {
                     />
                 </div>
 
-                {/* Intensité du dégradé : mélange palette ↔ couleur de classe (les deux modes). */}
+                {/* Légende + filtre + réglages BD Forêt, uniquement en mode « Essence » */}
+                {colorMode === 'species' && <ForestSpeciesControls />}
+
+                {/* Intensité du dégradé de hauteur. En mode « essence » la couleur
+                    d'essence reste toujours visible : le slider ne pilote que le
+                    dégradé tronc→cime ajouté par-dessus. En naturel/hauteur il
+                    mélange le dégradé avec la couleur de classe. */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Dégradé feuillage</span>
+                        <span title="Amplitude du dégradé de hauteur (tronc sombre → cime claire). En mode « essence », n'affecte pas la coloration par essence, seulement le dégradé.">Dégradé feuillage</span>
                         <span className="font-mono text-xs text-slate-400">{Math.round(intensity * 100)}%</span>
                     </div>
                     <input
@@ -280,32 +461,48 @@ export function VegetationControls() {
                 </label>
 
                 {/* Hauteur de référence du dégradé (les deux modes) : étire la palette
-                    sur des feuillages plus hauts → moins d'aplat uniforme. */}
+                    sur des feuillages plus hauts → moins d'aplat uniforme. En mode
+                    « auto », elle suit l'arbre le plus haut du nuage chargé. */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                         <span>Hauteur max</span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(heightScale)} m</span>
+                        <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400" title="Caler automatiquement l'échelle de hauteur sur l'arbre le plus haut du nuage">
+                            <input
+                                type="checkbox"
+                                checked={heightAuto}
+                                onChange={(e) => setHeightAuto(e.target.checked)}
+                                className="h-3.5 w-3.5 accent-green-600"
+                            />
+                            <span>Auto</span>
+                            <span className="font-mono text-slate-400">{Math.round(heightScale)} m</span>
+                        </label>
                     </div>
                     <input
                         aria-label="Hauteur mappée au sommet du dégradé"
                         type="range" min={5} max={40} step={1}
                         value={heightScale}
-                        onChange={(e) => setHeightScale(Number(e.target.value))}
+                        onChange={(e) => {
+                            // Régler la hauteur la passe d'office en manuel : décoche
+                            // « Auto » pour éviter un clic supplémentaire.
+                            if (heightAuto) setHeightAuto(false);
+                            setHeightScale(Number(e.target.value));
+                        }}
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>
 
-                {/* Variation par feuille */}
+                {/* Ombrage par normale : intensité du relief calculé sur la normale
+                    des feuilles (en plus de l'EDL). 0 % = aplat (EDL seul). */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Variation feuilles</span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(jitter * 100)}%</span>
+                        <span>Ombrage par normale</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(normalShade * 100)}%</span>
                     </div>
                     <input
-                        aria-label="Variation de luminosité par feuille"
+                        aria-label="Intensité de l'ombrage par normale"
                         type="range" min={0} max={1} step={0.05}
-                        value={jitter}
-                        onChange={(e) => setJitter(Number(e.target.value))}
+                        value={normalShade}
+                        onChange={(e) => setNormalShade(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>
@@ -322,33 +519,6 @@ export function VegetationControls() {
                         value={sizeBoost}
                         onChange={(e) => setSizeBoost(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
-                    />
-                </label>
-
-                {/* Feuilles rondes */}
-                <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Découpe les points en disques pour un feuillage organique">
-                        Feuilles rondes
-                    </span>
-                    <input
-                        type="checkbox"
-                        checked={round}
-                        onChange={(e) => setRound(e.target.checked)}
-                        className="h-4 w-4 accent-green-600"
-                    />
-                </label>
-
-                {/* Ombrage par normale (les deux modes) : ajoute un relief calculé
-                    sur la normale en plus de l'EDL. Décocher = aplat (EDL seul). */}
-                <label className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Ajoute un ombrage calculé sur la normale des feuilles (en plus du relief EDL). Décocher pour un rendu plus plat.">
-                        Ombrage par normale
-                    </span>
-                    <input
-                        type="checkbox"
-                        checked={normalShade}
-                        onChange={(e) => setNormalShade(e.target.checked)}
-                        className="h-4 w-4 accent-green-600"
                     />
                 </label>
             </fieldset>

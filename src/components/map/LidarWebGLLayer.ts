@@ -8,6 +8,7 @@ import {
     linkProgram,
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
+import { buildForestGpuTables, buildForestPalette, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
 import { MercatorCoordinate } from 'maplibre-gl';
 
@@ -170,22 +171,24 @@ export interface LidarWebGLLayerConfig {
     shadowStrength: number;
     /** Constant depth bias applied when sampling the shadow map. */
     shadowBias: number;
-    /** Master toggle for the enhanced vegetation rendering (round splats, jitter, size boost). */
+    /** Master toggle for the enhanced vegetation rendering (round splats, size boost). */
     vegEnhance: boolean;
-    /** Render vegetation points as round (vs square) splats. */
-    vegRound: boolean;
-    /** Per-leaf brightness jitter amount (0..1). */
-    vegJitter: number;
     /** Point-size multiplier applied to vegetation points. */
     vegSizeBoost: number;
-    /** Flat-shade vegetation (skip normal/jitter modulation) so the EDL alone carves relief. */
-    vegFlatShade: boolean;
+    /** Strength of normal-driven relief shading on vegetation (0 = flat/EDL only, 1 = full). */
+    vegNormalShade: number;
     /** Foliage palette blend strength (0 = flat class colour, 1 = full palette). */
     vegIntensity: number;
     /** Height (m) mapped to the top of the foliage palette. */
     vegHeightScale: number;
-    /** Foliage palette: 0 = natural ramp, 1 = viridis height colormap. */
+    /** Foliage palette: 0 = natural ramp, 1 = viridis height colormap, 2 = species. */
     vegColorMode: number;
+    /** BD Forêt detail: 'group' (coarse) or 'species' (concrete leaf). */
+    forestGrouping: ForestGrouping;
+    /** Grid-hash cell size (m) for the mix fallback when no treeSeed is present. */
+    forestMixCellSize: number;
+    /** Whether the legend filter hides unmasked species/groups. */
+    forestSpeciesFilterOn: boolean;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -204,6 +207,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _colBuf: WebGLBuffer | null = null;
     private _clsBuf: WebGLBuffer | null = null;
     private _hgtBuf: WebGLBuffer | null = null;
+    private _tfvBuf: WebGLBuffer | null = null;
+    private _seedBuf: WebGLBuffer | null = null;
     private _locPoints: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -225,17 +230,38 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         photoOpacityNonGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
         vegEnhance: WebGLUniformLocation | null;
-        vegRound: WebGLUniformLocation | null;
-        vegJitter: WebGLUniformLocation | null;
         vegSizeBoost: WebGLUniformLocation | null;
-        vegFlatShade: WebGLUniformLocation | null;
+        vegNormalShade: WebGLUniformLocation | null;
         vegIntensity: WebGLUniformLocation | null;
         vegHeightScale: WebGLUniformLocation | null;
         vegColorMode: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegRound: null, vegJitter: null, vegSizeBoost: null, vegFlatShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null };
+        forestGrouping: WebGLUniformLocation | null;
+        forestMixCellSize: WebGLUniformLocation | null;
+        forestSpeciesFilterOn: WebGLUniformLocation | null;
+        forestPalette: WebGLUniformLocation | null;
+        catGroup: WebGLUniformLocation | null;
+        catSpecies: WebGLUniformLocation | null;
+        catMixBase: WebGLUniformLocation | null;
+        catMixCount: WebGLUniformLocation | null;
+        mixSpecies: WebGLUniformLocation | null;
+        speciesMask: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
+
+    // ── IGN BD Forêt® species rendering state ──
+    /** Static category→group/species/mix lookup tables (Int32, 255 = sentinel). */
+    private readonly _forestCatGroup = new Int32Array(32).fill(255);
+    private readonly _forestCatSpecies = new Int32Array(32).fill(255);
+    private readonly _forestCatMixBase = new Int32Array(32);
+    private readonly _forestCatMixCount = new Int32Array(32);
+    private readonly _forestMixSpecies = new Int32Array(32);
+    /** Active legend palette (16 × RGB), recomputed when the grouping changes. */
+    private _forestPalette = buildForestPalette('group');
+    private _forestPaletteGrouping: ForestGrouping = 'group';
+    /** 256-bit legend-id visibility mask (8 × uint32). */
+    private readonly _speciesMask = new Uint32Array(8).fill(0xffffffff);
 
     // Mesh rendering (mixed mode): drawn into the same FBO before points.
     // Origin (centerLng/centerLat) is guaranteed to match the point cloud's,
@@ -355,13 +381,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowStrength: 0.7,
         shadowBias: 0.0015,
         vegEnhance: true,
-        vegRound: true,
-        vegJitter: 0.3,
         vegSizeBoost: 1.3,
-        vegFlatShade: false,
+        vegNormalShade: 1,
         vegIntensity: 0.7,
         vegHeightScale: 25,
         vegColorMode: 0,
+        forestGrouping: 'group',
+        forestMixCellSize: 6,
+        forestSpeciesFilterOn: false,
     };
 
     constructor(id: string) {
@@ -389,17 +416,29 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
         gl.uniform1f(this._locPoints.flatLight, this.config.sunLightingEnabled ? 0 : 1);
-        // Végétation enrichie : splats ronds, jitter par-feuille, boost de taille.
+        // Végétation enrichie : splats ronds, boost de taille, ombrage par normale.
         gl.uniform1f(this._locPoints.vegEnhance, this.config.vegEnhance ? 1 : 0);
-        gl.uniform1f(this._locPoints.vegRound, this.config.vegEnhance && this.config.vegRound ? 1 : 0);
-        gl.uniform1f(this._locPoints.vegJitter, this.config.vegEnhance ? this.config.vegJitter : 0);
         gl.uniform1f(this._locPoints.vegSizeBoost, this.config.vegEnhance ? this.config.vegSizeBoost : 1);
-        gl.uniform1f(this._locPoints.vegFlatShade, this.config.vegEnhance && this.config.vegFlatShade ? 1 : 0);
+        gl.uniform1f(this._locPoints.vegNormalShade, this.config.vegEnhance ? this.config.vegNormalShade : 1);
         // Coloration du feuillage (calculée dans le VS) : intensité du dégradé,
         // hauteur de référence et palette — de simples uniforms (sliders instantanés).
         gl.uniform1f(this._locPoints.vegIntensity, this.config.vegEnhance ? this.config.vegIntensity : 0);
         gl.uniform1f(this._locPoints.vegHeightScale, this.config.vegHeightScale);
         gl.uniform1f(this._locPoints.vegColorMode, this.config.vegColorMode);
+        // IGN BD Forêt species rendering: static category LUTs + the active
+        // grouping palette + the legend filter mask. All small uniforms, so the
+        // grouping/filter controls are instantaneous (no re-upload of the cloud).
+        this._ensureForestPalette();
+        gl.uniform1f(this._locPoints.forestGrouping, this.config.forestGrouping === 'species' ? 1 : 0);
+        gl.uniform1f(this._locPoints.forestMixCellSize, this.config.forestMixCellSize);
+        gl.uniform1f(this._locPoints.forestSpeciesFilterOn, this.config.forestSpeciesFilterOn ? 1 : 0);
+        gl.uniform3fv(this._locPoints.forestPalette, this._forestPalette);
+        gl.uniform1iv(this._locPoints.catGroup, this._forestCatGroup);
+        gl.uniform1iv(this._locPoints.catSpecies, this._forestCatSpecies);
+        gl.uniform1iv(this._locPoints.catMixBase, this._forestCatMixBase);
+        gl.uniform1iv(this._locPoints.catMixCount, this._forestCatMixCount);
+        gl.uniform1iv(this._locPoints.mixSpecies, this._forestMixSpecies);
+        gl.uniform1uiv(this._locPoints.speciesMask, this._speciesMask);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && (this.config.photoOpacityGround > 0 || this.config.photoOpacityNonGround > 0);
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
@@ -410,6 +449,62 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locPoints.ortho, 3);
         this._bindShadowToProgram(gl, this._locPoints);
+    }
+
+    /** Populate the static category→group/species/mix lookup tables (once). */
+    private _initForestTables(): void {
+        const t = buildForestGpuTables();
+        this._forestCatGroup.set(t.catGroup.subarray(0, 32));
+        this._forestCatSpecies.set(t.catSpecies.subarray(0, 32));
+        this._forestCatMixBase.set(t.catMixBase.subarray(0, 32));
+        this._forestCatMixCount.set(t.catMixCount.subarray(0, 32));
+        this._forestMixSpecies.fill(0);
+        this._forestMixSpecies.set(t.mixSpecies.subarray(0, Math.min(32, t.mixSpecies.length)));
+    }
+
+    /** Rebuild the active palette when the grouping mode changes. */
+    private _ensureForestPalette(): void {
+        if (this._forestPaletteGrouping === this.config.forestGrouping) return;
+        this._forestPaletteGrouping = this.config.forestGrouping;
+        this._forestPalette = buildForestPalette(this.config.forestGrouping);
+    }
+
+    /**
+     * Set the 256-bit legend-id visibility mask used by the species filter.
+     * Bit `i` set ⇒ legend id `i` is shown. Mirrors {@link setClassMask}.
+     */
+    setSpeciesMask(mask: Uint32Array): void {
+        this._speciesMask.set(mask.subarray(0, 8));
+        this._map?.triggerRepaint();
+    }
+
+    /**
+     * Re-upload only the per-tree seed buffer (BD Forêt mix mosaic). Used when
+     * the treetop-detection sensitivity changes, so we don't re-upload the whole
+     * cloud. `seed.length` must equal the current point count.
+     */
+    setTreeSeed(seed: Uint8Array): void {
+        const gl = this._gl;
+        if (!gl || seed.length !== this._count) return;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, seed, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this._map?.triggerRepaint();
+    }
+
+    /**
+     * Re-upload only the per-point BD Forêt category buffer (`a_tfv`). Used when
+     * the essence-boundary blend mode (sharp / feather / scatter) changes, so we
+     * re-label points on the CPU and push just this attribute instead of the
+     * whole cloud. `tfv.length` must equal the current point count.
+     */
+    setForestTfv(tfv: Uint8Array): void {
+        const gl = this._gl;
+        if (!gl || tfv.length !== this._count) return;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._tfvBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, tfv, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this._map?.triggerRepaint();
     }
 
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, _args: CustomRenderMethodInput): void {
@@ -603,15 +698,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         return Math.min(16, Math.max(1, base * scale));
     }
 
-    setData(
-        positions: Float32Array,
-        normals: Float32Array,
-        colors: Uint8Array,
-        classifications: Uint8Array,
-        heights: Float32Array,
-        originLng: number,
-        originLat: number,
-    ): void {
+    setData(data: {
+        positions: Float32Array;
+        normals: Float32Array;
+        colors: Uint8Array;
+        classifications: Uint8Array;
+        heights: Float32Array;
+        originLng: number;
+        originLat: number;
+        forestTfv?: Uint8Array;
+        treeSeed?: Uint8Array;
+    }): void {
+        const { positions, normals, colors, classifications, heights, originLng, originLat } = data;
         const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
         this._ox = mc.x;
         this._oy = mc.y;
@@ -634,6 +732,15 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bufferData(gl.ARRAY_BUFFER, classifications, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._hgtBuf);
         gl.bufferData(gl.ARRAY_BUFFER, heights, gl.STATIC_DRAW);
+        // BD Forêt category + per-tree seed. Default to 255 (no forest data) when
+        // the pipeline could not type the vegetation — the shader then falls back
+        // to the generic height ramp.
+        const tfv = data.forestTfv ?? new Uint8Array(this._count).fill(255);
+        const seed = data.treeSeed ?? new Uint8Array(this._count).fill(255);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._tfvBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, tfv, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, seed, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
         gl.bindVertexArray(prevVAO);
@@ -1078,14 +1185,23 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             photoOpacityNonGround: gl.getUniformLocation(this._progPoints, 'u_photoOpacityNonGround'),
             hasPhoto: gl.getUniformLocation(this._progPoints, 'u_hasPhoto'),
             vegEnhance: gl.getUniformLocation(this._progPoints, 'u_vegEnhance'),
-            vegRound: gl.getUniformLocation(this._progPoints, 'u_vegRound'),
-            vegJitter: gl.getUniformLocation(this._progPoints, 'u_vegJitter'),
             vegSizeBoost: gl.getUniformLocation(this._progPoints, 'u_vegSizeBoost'),
-            vegFlatShade: gl.getUniformLocation(this._progPoints, 'u_vegFlatShade'),
+            vegNormalShade: gl.getUniformLocation(this._progPoints, 'u_vegNormalShade'),
             vegIntensity: gl.getUniformLocation(this._progPoints, 'u_vegIntensity'),
             vegHeightScale: gl.getUniformLocation(this._progPoints, 'u_vegHeightScale'),
             vegColorMode: gl.getUniformLocation(this._progPoints, 'u_vegColorMode'),
+            forestGrouping: gl.getUniformLocation(this._progPoints, 'u_forestGrouping'),
+            forestMixCellSize: gl.getUniformLocation(this._progPoints, 'u_forestMixCellSize'),
+            forestSpeciesFilterOn: gl.getUniformLocation(this._progPoints, 'u_speciesFilterOn'),
+            forestPalette: gl.getUniformLocation(this._progPoints, 'u_forestPalette[0]'),
+            catGroup: gl.getUniformLocation(this._progPoints, 'u_catGroup[0]'),
+            catSpecies: gl.getUniformLocation(this._progPoints, 'u_catSpecies[0]'),
+            catMixBase: gl.getUniformLocation(this._progPoints, 'u_catMixBase[0]'),
+            catMixCount: gl.getUniformLocation(this._progPoints, 'u_catMixCount[0]'),
+            mixSpecies: gl.getUniformLocation(this._progPoints, 'u_mixSpecies[0]'),
+            speciesMask: gl.getUniformLocation(this._progPoints, 'u_speciesMask[0]'),
         };
+        this._initForestTables();
 
         // ─── Point buffers & VAO ───
         this._posBuf = gl.createBuffer();
@@ -1093,6 +1209,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._colBuf = gl.createBuffer();
         this._clsBuf = gl.createBuffer();
         this._hgtBuf = gl.createBuffer();
+        this._tfvBuf = gl.createBuffer();
+        this._seedBuf = gl.createBuffer();
 
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         this._vao = gl.createVertexArray();
@@ -1114,6 +1232,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._hgtBuf);
         gl.enableVertexAttribArray(4);
         gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+        // a_tfv: BD Forêt category (uint8, un-normalized 0..255 float in shader).
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._tfvBuf);
+        gl.enableVertexAttribArray(5);
+        gl.vertexAttribPointer(5, 1, gl.UNSIGNED_BYTE, false, 0, 0);
+        // a_treeSeed: per-tree seed (uint8, un-normalized 0..255 float in shader).
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
+        gl.enableVertexAttribArray(6);
+        gl.vertexAttribPointer(6, 1, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindVertexArray(prevVAO);
 
         // ─── Mesh shader (mixed mode) ───

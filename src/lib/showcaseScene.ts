@@ -23,6 +23,8 @@
  * versions are accepted with a console warning rather than rejected.
  */
 
+import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
+import { buildGroundHeightGrid, sampleHeightAboveGround, sanitizeVegHeights } from './lidarBrowser/groundHeight';
 import type { ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 
@@ -42,6 +44,8 @@ const TAG = {
     meshColors: 6,
     meshIndices: 7,
     meshRoughness: 8,
+    shadedForestTfv: 9,
+    shadedTreeSeed: 10,
 } as const;
 
 export interface ShowcaseCamera {
@@ -68,10 +72,15 @@ export interface ShowcaseAmbiance {
     lidarVegColorMode: VegColorMode;
     lidarVegHeightScale: number;
     lidarVegIntensity: number;
-    lidarVegJitter: number;
-    lidarVegNormalShade: boolean;
+    lidarVegNormalShade: number;
     lidarVegSizeBoost: number;
-    lidarVegRound: boolean;
+    lidarForestGrouping: ForestGrouping;
+    lidarForestMixCellSize: number;
+    lidarForestEdgeBlend: ForestEdgeBlend;
+    lidarForestEdgeBandM: number;
+    lidarForestTreetopSensitivity: number;
+    lidarForestHiddenLegend: number[];
+    lidarForestSpeciesFilterOn: boolean;
     lidarCloudEdl: boolean;
     lidarCloudEdlStrength: number;
     lidarCloudEdlRadius: number;
@@ -124,10 +133,15 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarVegColorMode: 'natural',
     lidarVegHeightScale: 25,
     lidarVegIntensity: 0.85,
-    lidarVegJitter: 0.3,
-    lidarVegNormalShade: true,
+    lidarVegNormalShade: 1,
     lidarVegSizeBoost: 1.3,
-    lidarVegRound: true,
+    lidarForestGrouping: 'group',
+    lidarForestMixCellSize: 6,
+    lidarForestEdgeBlend: 'scatter',
+    lidarForestEdgeBandM: 8,
+    lidarForestTreetopSensitivity: 0.5,
+    lidarForestHiddenLegend: [],
+    lidarForestSpeciesFilterOn: false,
     lidarCloudEdl: true,
     lidarCloudEdlStrength: 1000,
     lidarCloudEdlRadius: 1.4,
@@ -148,6 +162,10 @@ interface ShadedMeta {
     centerLat: number;
     radius: number;
     pointCount: number;
+    /** Whether the binary carries the BD Forêt® category buffer (tag 9). */
+    hasForestTfv?: boolean;
+    /** Whether the binary carries the per-tree seed buffer (tag 10). */
+    hasTreeSeed?: boolean;
 }
 
 interface MeshMeta {
@@ -245,6 +263,12 @@ function collectDescriptors(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Buff
             vertexDescriptor(TAG.shadedColors, shaded.colors, 4),
             vertexDescriptor(TAG.shadedClass, shaded.classifications, 1),
         );
+        if (shaded.forestTfv) {
+            descriptors.push(vertexDescriptor(TAG.shadedForestTfv, shaded.forestTfv, 1));
+        }
+        if (shaded.treeSeed) {
+            descriptors.push(vertexDescriptor(TAG.shadedTreeSeed, shaded.treeSeed, 1));
+        }
     }
     if (mesh) {
         descriptors.push(
@@ -269,6 +293,8 @@ function buildGeometryBlob(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Geome
                 centerLat: shaded.centerLat,
                 radius: shaded.radius,
                 pointCount: shaded.pointCount,
+                hasForestTfv: Boolean(shaded.forestTfv),
+                hasTreeSeed: Boolean(shaded.treeSeed),
             }
             : null,
         mesh: mesh
@@ -431,6 +457,8 @@ function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>): LidarS
         normals: floatView(buffers, TAG.shadedNormals, n * 3),
         colors: byteView(buffers, TAG.shadedColors, n * 4),
         classifications: byteView(buffers, TAG.shadedClass, n),
+        forestTfv: meta.hasForestTfv ? byteView(buffers, TAG.shadedForestTfv, n) : undefined,
+        treeSeed: meta.hasTreeSeed ? byteView(buffers, TAG.shadedTreeSeed, n) : undefined,
     };
 }
 
@@ -457,6 +485,38 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>): LidarMeshD
 export interface DecodedGeometry {
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
+}
+
+/**
+ * Re-derive per-point height-above-ground (and the robust canopy top that
+ * drives the "Hauteur max · Auto" foliage scale) for a restored scene.
+ *
+ * The .bin format doesn't persist heights — they're derived, not authored — so
+ * the GPU foliage ramp and the auto-height snap have nothing to work from after
+ * a reload. We rebuild a ground height-field and sample the shaded points: from
+ * the cloud's own ground points when it has them (pure-shaded scenes), or from
+ * the reconstructed ground mesh's vertices when the ground lives in the mesh
+ * (Delaunay/Poisson scenes, where the shaded cloud is non-ground only). Mutates
+ * `shaded` to attach `heightAboveGround` + `vegHeightAuto`.
+ */
+function reconstructShadedHeights(shaded: LidarShadedCloudData, mesh: LidarMeshData | null): void {
+    if (shaded.heightAboveGround) return;
+    // Prefer the cloud's own ground points; fall back to the ground mesh surface.
+    let grid = buildGroundHeightGrid(shaded.positions, shaded.classifications, shaded.pointCount);
+    if (!grid && mesh) {
+        // Every mesh vertex lies on the reconstructed ground, so treat them all
+        // as class-2 ground when building the height-field.
+        const groundClass = new Uint8Array(mesh.vertexCount).fill(2);
+        grid = buildGroundHeightGrid(mesh.positions, groundClass, mesh.vertexCount);
+    }
+    if (!grid) return;
+    const heightAboveGround = sampleHeightAboveGround(
+        grid, shaded.positions, shaded.pointCount, shaded.classifications,
+    );
+    shaded.heightAboveGround = heightAboveGround;
+    shaded.vegHeightAuto = sanitizeVegHeights(
+        heightAboveGround, shaded.classifications, shaded.pointCount,
+    ) ?? undefined;
 }
 
 /** Parse a compressed binary blob into geometry buffers (point cloud / mesh). */
@@ -486,10 +546,11 @@ export async function decodeShowcaseGeometry(data: ArrayBuffer): Promise<Decoded
     const buffers = new Map<number, Uint8Array>();
     for (const b of rawBuffers) buffers.set(b.tag, b.bytes);
 
-    return {
-        shaded: settings.shaded ? buildShaded(settings.shaded, buffers) : null,
-        mesh: settings.mesh ? buildMesh(settings.mesh, buffers) : null,
-    };
+    const shaded = settings.shaded ? buildShaded(settings.shaded, buffers) : null;
+    const mesh = settings.mesh ? buildMesh(settings.mesh, buffers) : null;
+    if (shaded) reconstructShadedHeights(shaded, mesh);
+
+    return { shaded, mesh };
 }
 
 /**

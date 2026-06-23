@@ -4,6 +4,7 @@ import {
     fetchLidarShaded,
     type LidarProgress,
 } from '@/lib/lidarBrowser';
+import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import { saveLoadedCloud } from '@/lib/savedClouds';
@@ -106,9 +107,9 @@ export interface LidarSlice {
     setLidarShadowStrength: (v: number) => void;
     /**
      * Enhanced vegetation rendering: height-ramped foliage colours (trunk →
-     * canopy), round opaque leaf splats, per-leaf colour jitter and a small
+     * canopy), per-leaf colour jitter and a small
      * point-size boost. On by default; toggling off restores flat per-class
-     * colours and square splats for vegetation.
+     * colours for vegetation.
      */
     lidarVegEnhance: boolean;
     setLidarVegEnhance: (v: boolean) => void;
@@ -122,21 +123,48 @@ export interface LidarSlice {
     /** Height (m above ground) mapped to the top of the viridis ramp in 'height' mode. */
     lidarVegHeightScale: number;
     setLidarVegHeightScale: (v: number) => void;
+    /** When true, the foliage colour scale follows the tallest tree of the loaded cloud (slider disabled). */
+    lidarVegHeightAuto: boolean;
+    setLidarVegHeightAuto: (v: boolean) => void;
     /** Strength of the height-ramp foliage colouring (0 = flat class colour, 1 = full ramp). */
     lidarVegIntensity: number;
     setLidarVegIntensity: (v: number) => void;
-    /** Per-leaf brightness jitter amount (0 = uniform, 1 = strong speckle). */
-    lidarVegJitter: number;
-    setLidarVegJitter: (v: number) => void;
-    /** Apply normal-driven relief shading on vegetation (off = flat, EDL-only relief). */
-    lidarVegNormalShade: boolean;
-    setLidarVegNormalShade: (v: boolean) => void;
+    /** Strength of normal-driven relief shading on vegetation (0 = flat/EDL-only, 1 = full). */
+    lidarVegNormalShade: number;
+    setLidarVegNormalShade: (v: number) => void;
     /** Point-size multiplier applied to vegetation points (fills canopy gaps). */
     lidarVegSizeBoost: number;
     setLidarVegSizeBoost: (v: number) => void;
-    /** Render vegetation points as round (vs square) splats. */
-    lidarVegRound: boolean;
-    setLidarVegRound: (v: boolean) => void;
+    /**
+     * IGN BD Forêt® species rendering — legend grouping. 'group' colours by the
+     * 6 broad formations (feuillus / conifères / mixte / …), 'species' by the
+     * dominant essence (chêne, hêtre, pin sylvestre, douglas, …) with a
+     * procedural mosaic inside mixed stands. Toggling is instant (GPU uniform).
+     */
+    lidarForestGrouping: ForestGrouping;
+    setLidarForestGrouping: (v: ForestGrouping) => void;
+    /** GPU mix-cell size (m) for the procedural species mosaic inside mixed stands. */
+    lidarForestMixCellSize: number;
+    setLidarForestMixCellSize: (v: number) => void;
+    /**
+     * How stand boundaries are blended when labelling points by essence:
+     * 'sharp' (raw polygon edges), 'feather' (smooth coherent ecotone) or
+     * 'scatter' (species intermingle point-by-point across the band).
+     */
+    lidarForestEdgeBlend: ForestEdgeBlend;
+    setLidarForestEdgeBlend: (v: ForestEdgeBlend) => void;
+    /** Width (m) of the essence-boundary transition band (feather/scatter). */
+    lidarForestEdgeBandM: number;
+    setLidarForestEdgeBandM: (v: number) => void;
+    /** CHM treetop detection sensitivity 0..1 (higher = more, smaller crowns). */
+    lidarForestTreetopSensitivity: number;
+    setLidarForestTreetopSensitivity: (v: number) => void;
+    /** Legend-as-filter: hidden legend ids for the active grouping (empty = all). */
+    lidarForestHiddenLegend: number[];
+    setLidarForestHiddenLegend: (v: number[]) => void;
+    /** Whether the species legend filter is active. */
+    lidarForestSpeciesFilterOn: boolean;
+    setLidarForestSpeciesFilterOn: (v: boolean) => void;
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
@@ -184,11 +212,17 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
     lidarVegHeightScale: 25,
+    lidarVegHeightAuto: true,
     lidarVegIntensity: 0.85,
-    lidarVegJitter: 0.3,
-    lidarVegNormalShade: true,
+    lidarVegNormalShade: 1,
     lidarVegSizeBoost: 1.3,
-    lidarVegRound: true,
+    lidarForestGrouping: 'group' as ForestGrouping,
+    lidarForestMixCellSize: 6,
+    lidarForestEdgeBlend: 'scatter' as ForestEdgeBlend,
+    lidarForestEdgeBandM: 8,
+    lidarForestTreetopSensitivity: 0.5,
+    lidarForestHiddenLegend: [] as number[],
+    lidarForestSpeciesFilterOn: false,
 };
 
 export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => ({
@@ -254,20 +288,38 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
     lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
     setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
-    lidarVegColorMode: (persisted.lidarVegColorMode === 'height' ? 'height' : LIDAR_RENDER_DEFAULTS.lidarVegColorMode),
+    lidarVegColorMode: ((): VegColorMode => {
+        const m = persisted.lidarVegColorMode;
+        return m === 'height' || m === 'species' ? m : LIDAR_RENDER_DEFAULTS.lidarVegColorMode;
+    })(),
     setLidarVegColorMode: (lidarVegColorMode) => set({ lidarVegColorMode }),
     lidarVegHeightScale: persisted.lidarVegHeightScale ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightScale,
     setLidarVegHeightScale: (lidarVegHeightScale) => set({ lidarVegHeightScale }),
+    lidarVegHeightAuto: persisted.lidarVegHeightAuto ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightAuto,
+    setLidarVegHeightAuto: (lidarVegHeightAuto) => set({ lidarVegHeightAuto }),
     lidarVegIntensity: persisted.lidarVegIntensity ?? LIDAR_RENDER_DEFAULTS.lidarVegIntensity,
     setLidarVegIntensity: (lidarVegIntensity) => set({ lidarVegIntensity }),
-    lidarVegJitter: persisted.lidarVegJitter ?? LIDAR_RENDER_DEFAULTS.lidarVegJitter,
-    setLidarVegJitter: (lidarVegJitter) => set({ lidarVegJitter }),
     lidarVegNormalShade: persisted.lidarVegNormalShade ?? LIDAR_RENDER_DEFAULTS.lidarVegNormalShade,
     setLidarVegNormalShade: (lidarVegNormalShade) => set({ lidarVegNormalShade }),
     lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? LIDAR_RENDER_DEFAULTS.lidarVegSizeBoost,
     setLidarVegSizeBoost: (lidarVegSizeBoost) => set({ lidarVegSizeBoost }),
-    lidarVegRound: persisted.lidarVegRound ?? LIDAR_RENDER_DEFAULTS.lidarVegRound,
-    setLidarVegRound: (lidarVegRound) => set({ lidarVegRound }),
+    lidarForestGrouping: (persisted.lidarForestGrouping === 'species' ? 'species' : LIDAR_RENDER_DEFAULTS.lidarForestGrouping),
+    setLidarForestGrouping: (lidarForestGrouping) => set({ lidarForestGrouping }),
+    lidarForestMixCellSize: persisted.lidarForestMixCellSize ?? LIDAR_RENDER_DEFAULTS.lidarForestMixCellSize,
+    setLidarForestMixCellSize: (lidarForestMixCellSize) => set({ lidarForestMixCellSize }),
+    lidarForestEdgeBlend: ((): ForestEdgeBlend => {
+        const b = persisted.lidarForestEdgeBlend;
+        return b === 'sharp' || b === 'feather' || b === 'scatter' ? b : LIDAR_RENDER_DEFAULTS.lidarForestEdgeBlend;
+    })(),
+    setLidarForestEdgeBlend: (lidarForestEdgeBlend) => set({ lidarForestEdgeBlend }),
+    lidarForestEdgeBandM: persisted.lidarForestEdgeBandM ?? LIDAR_RENDER_DEFAULTS.lidarForestEdgeBandM,
+    setLidarForestEdgeBandM: (lidarForestEdgeBandM) => set({ lidarForestEdgeBandM }),
+    lidarForestTreetopSensitivity: persisted.lidarForestTreetopSensitivity ?? LIDAR_RENDER_DEFAULTS.lidarForestTreetopSensitivity,
+    setLidarForestTreetopSensitivity: (lidarForestTreetopSensitivity) => set({ lidarForestTreetopSensitivity }),
+    lidarForestHiddenLegend: persisted.lidarForestHiddenLegend ?? LIDAR_RENDER_DEFAULTS.lidarForestHiddenLegend,
+    setLidarForestHiddenLegend: (lidarForestHiddenLegend) => set({ lidarForestHiddenLegend }),
+    lidarForestSpeciesFilterOn: persisted.lidarForestSpeciesFilterOn ?? LIDAR_RENDER_DEFAULTS.lidarForestSpeciesFilterOn,
+    setLidarForestSpeciesFilterOn: (lidarForestSpeciesFilterOn) => set({ lidarForestSpeciesFilterOn }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
     loadLidarCloud: async () => {
@@ -411,11 +463,17 @@ export function selectLidarPersisted(
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
     | 'lidarVegHeightScale'
+    | 'lidarVegHeightAuto'
     | 'lidarVegIntensity'
-    | 'lidarVegJitter'
     | 'lidarVegNormalShade'
     | 'lidarVegSizeBoost'
-    | 'lidarVegRound'
+    | 'lidarForestGrouping'
+    | 'lidarForestMixCellSize'
+    | 'lidarForestEdgeBlend'
+    | 'lidarForestEdgeBandM'
+    | 'lidarForestTreetopSensitivity'
+    | 'lidarForestHiddenLegend'
+    | 'lidarForestSpeciesFilterOn'
 > {
     return {
         lidarMode: s.lidarMode,
@@ -443,10 +501,16 @@ export function selectLidarPersisted(
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,
         lidarVegHeightScale: s.lidarVegHeightScale,
+        lidarVegHeightAuto: s.lidarVegHeightAuto,
         lidarVegIntensity: s.lidarVegIntensity,
-        lidarVegJitter: s.lidarVegJitter,
         lidarVegNormalShade: s.lidarVegNormalShade,
         lidarVegSizeBoost: s.lidarVegSizeBoost,
-        lidarVegRound: s.lidarVegRound,
+        lidarForestGrouping: s.lidarForestGrouping,
+        lidarForestMixCellSize: s.lidarForestMixCellSize,
+        lidarForestEdgeBlend: s.lidarForestEdgeBlend,
+        lidarForestEdgeBandM: s.lidarForestEdgeBandM,
+        lidarForestTreetopSensitivity: s.lidarForestTreetopSensitivity,
+        lidarForestHiddenLegend: s.lidarForestHiddenLegend,
+        lidarForestSpeciesFilterOn: s.lidarForestSpeciesFilterOn,
     };
 }

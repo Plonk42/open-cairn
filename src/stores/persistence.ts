@@ -51,13 +51,26 @@ export type PersistedSettings = {
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
     lidarVegEnhance?: boolean;
-    lidarVegColorMode?: 'natural' | 'height';
+    lidarVegColorMode?: 'natural' | 'height' | 'species';
     lidarVegHeightScale?: number;
+    lidarVegHeightAuto?: boolean;
     lidarVegIntensity?: number;
-    lidarVegJitter?: number;
-    lidarVegNormalShade?: boolean;
+    lidarVegNormalShade?: number;
     lidarVegSizeBoost?: number;
-    lidarVegRound?: boolean;
+    /** IGN BD Forêt® species rendering: legend grouping ('group' families / 'species'). */
+    lidarForestGrouping?: 'group' | 'species';
+    /** GPU mix-cell size (m) for the procedural species mosaic inside mixed stands. */
+    lidarForestMixCellSize?: number;
+    /** Essence-boundary blend mode: 'sharp' | 'feather' | 'scatter'. */
+    lidarForestEdgeBlend?: 'sharp' | 'feather' | 'scatter';
+    /** Width (m) of the essence-boundary transition band (feather/scatter). */
+    lidarForestEdgeBandM?: number;
+    /** CHM treetop detection sensitivity 0..1 (higher = more, smaller crowns). */
+    lidarForestTreetopSensitivity?: number;
+    /** Legend-as-filter: hidden legend ids (empty = all visible). */
+    lidarForestHiddenLegend?: number[];
+    /** Whether the species legend filter is active. */
+    lidarForestSpeciesFilterOn?: boolean;
     cliffSliceCorridor?: number;
     cliffSliceColorClass?: boolean;
     cliffSliceColorDepth?: boolean;

@@ -3,6 +3,8 @@
  * All fetching is done via the browser-only pipeline in `@/lib/lidarBrowser`.
  */
 
+import type { ForestRaster } from './lidarBrowser/bdforet';
+
 export interface LidarCloudData {
     /** WGS84 longitude of the request center (origin for `positions`). */
     centerLng: number;
@@ -60,6 +62,31 @@ export interface LidarShadedCloudData {
      * Undefined when no ground points were available to anchor the field.
      */
     heightAboveGround?: Float32Array;
+    /**
+     * Robust tallest-tree height (m) — the 99th percentile of the vegetation
+     * heights, with cliff-edge artefacts already clamped out. Drives the
+     * automatic foliage colour scale. Undefined when no vegetation was measured.
+     */
+    vegHeightAuto?: number;
+    /**
+     * IGN BD Forêt® v2 category per point (index into FOREST_CATEGORIES), or
+     * 255 for non-vegetation / outside any forest stand. Drives species-accurate
+     * vegetation coloring. Undefined when the BD Forêt query failed.
+     */
+    forestTfv?: Uint8Array;
+    /**
+     * Coarse BD Forêt category raster covering the capture (one category id per
+     * cell). Kept so the per-point `forestTfv` labelling — and its boundary
+     * edge-blend (sharp / feather / scatter) — can be recomputed live without a
+     * re-fetch. Undefined when the BD Forêt query failed or returned no stands.
+     */
+    forestRaster?: ForestRaster;
+    /**
+     * Per-tree seed (0–254, 255 = none) from CHM treetop detection. Lets the GPU
+     * pick one species per tree inside a mixed stand. Undefined when no
+     * height-above-ground field was available to detect treetops.
+     */
+    treeSeed?: Uint8Array;
     pointCount: number;
     radius: number;
 }
@@ -121,9 +148,10 @@ export function colorForClass(c: number): [number, number, number] {
 }
 
 /**
- * Vegetation colouring strategy: natural foliage tones, or a height colormap.
- * The actual ramp/colormap and palette blending now run on the GPU (vertex
- * shader in lidar-gl/shaders.ts) so the foliage sliders are instantaneous —
- * this type is the only thing the rest of the app still needs from here.
+ * Vegetation colouring strategy: natural foliage tones, a height colormap, or
+ * real species from IGN BD Forêt® v2. The actual ramp/colormap and palette
+ * blending now run on the GPU (vertex shader in lidar-gl/shaders.ts) so the
+ * foliage sliders are instantaneous — this type is the only thing the rest of
+ * the app still needs from here.
  */
-export type VegColorMode = 'natural' | 'height';
+export type VegColorMode = 'natural' | 'height' | 'species';

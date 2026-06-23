@@ -33,8 +33,9 @@ Le panneau **LiDAR** offre trois modes de rendu :
   `winter` (neige + aspect)
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
-  clair selon la hauteur au-dessus du sol), *variation feuilles* (jitter de luminosité
-  par point), *densité feuillage* (grossissement des points), *feuilles rondes* (splats
+  clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief
+  calculé sur la normale des feuilles, 0 % = aplat EDL seul), *densité feuillage*
+  (grossissement des points), *feuilles rondes* (splats
   ronds opaques découpés au disque). Le toggle maître rétablit la couleur de classe à
   plat et les splats carrés.
 - **Filtre par classe** : cocher / décocher chaque classe LAS (sol, végétation basse,
