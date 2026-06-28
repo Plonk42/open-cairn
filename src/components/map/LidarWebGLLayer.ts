@@ -209,6 +209,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _hgtBuf: WebGLBuffer | null = null;
     private _tfvBuf: WebGLBuffer | null = null;
     private _seedBuf: WebGLBuffer | null = null;
+    private _diagBuf: WebGLBuffer | null = null;
     private _locPoints: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -507,6 +508,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._map?.triggerRepaint();
     }
 
+    /**
+     * Re-upload only the per-point height-decision diagnostics buffer
+     * (`a_vegDiag`, 4 bytes/point). Used after a live veg-height recompute so the
+     * « Analyse hauteur » false-colour modes refresh without re-pushing the whole
+     * cloud. `diag.length` must equal 4 × the current point count.
+     */
+    setVegDiag(diag: Uint8Array): void {
+        const gl = this._gl;
+        if (!gl || diag.length !== this._count * 4) return;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._diagBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, diag, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this._map?.triggerRepaint();
+    }
+
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, _args: CustomRenderMethodInput): void {
         if ((!this._count && !this._meshIndexCount) || !this._progPoints || !this._vao) {
             return;
@@ -708,6 +724,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         originLat: number;
         forestTfv?: Uint8Array;
         treeSeed?: Uint8Array;
+        vegDiag?: Uint8Array;
     }): void {
         const { positions, normals, colors, classifications, heights, originLng, originLat } = data;
         const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
@@ -741,6 +758,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bufferData(gl.ARRAY_BUFFER, tfv, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
         gl.bufferData(gl.ARRAY_BUFFER, seed, gl.STATIC_DRAW);
+        // Per-point height-decision diagnostics (4 bytes/point). Zeros when the
+        // cloud predates the diagnostics (restored scene) — the shader then never
+        // enters a diagnostic mode for it.
+        const diag = data.vegDiag ?? new Uint8Array(this._count * 4);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._diagBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, diag, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
         gl.bindVertexArray(prevVAO);
@@ -1211,6 +1234,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._hgtBuf = gl.createBuffer();
         this._tfvBuf = gl.createBuffer();
         this._seedBuf = gl.createBuffer();
+        this._diagBuf = gl.createBuffer();
 
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         this._vao = gl.createVertexArray();
@@ -1240,6 +1264,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
         gl.enableVertexAttribArray(6);
         gl.vertexAttribPointer(6, 1, gl.UNSIGNED_BYTE, false, 0, 0);
+        // a_vegDiag: height-decision diagnostics RGBA (uint8, un-normalized 0..255
+        // floats in shader): [blendW, cluster, flags, rough].
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._diagBuf);
+        gl.enableVertexAttribArray(7);
+        gl.vertexAttribPointer(7, 4, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindVertexArray(prevVAO);
 
         // ─── Mesh shader (mixed mode) ───

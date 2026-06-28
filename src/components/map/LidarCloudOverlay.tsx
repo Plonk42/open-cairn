@@ -47,6 +47,21 @@ export function LidarCloudOverlay() {
     const forestTreetopSensitivity = useMapStore((s) => s.lidarForestTreetopSensitivity);
     const forestEdgeBlend = useMapStore((s) => s.lidarForestEdgeBlend);
     const forestEdgeBandM = useMapStore((s) => s.lidarForestEdgeBandM);
+    const groundGap = useMapStore((s) => s.lidarVegGroundGap);
+    const groundRough = useMapStore((s) => s.lidarVegGroundRough);
+    const vegColumnCell = useMapStore((s) => s.lidarVegColumnCell);
+    const vegGroundCell = useMapStore((s) => s.lidarVegGroundCell);
+    const vegRoughLowFrac = useMapStore((s) => s.lidarVegRoughLowFrac);
+    const vegOverhangReach = useMapStore((s) => s.lidarVegOverhangReach);
+    const vegPoolMinPts = useMapStore((s) => s.lidarVegPoolMinPts);
+    const vegPoolMaxRadius = useMapStore((s) => s.lidarVegPoolMaxRadius);
+    const vegCliffDistMode = useMapStore((s) => s.lidarVegCliffDistMode);
+    const vegColorSmooth = useMapStore((s) => s.lidarVegColorSmooth);
+    const vegCliffSparseFallback = useMapStore((s) => s.lidarVegCliffSparseFallback);
+    const vegHeightCeiling = useMapStore((s) => s.lidarVegHeightCeiling);
+    const vegHeightFloor = useMapStore((s) => s.lidarVegHeightFloor);
+    const vegDiagMode = useMapStore((s) => s.lidarVegDiagMode);
+    const recomputeVegHeights = useMapStore((s) => s.recomputeVegHeights);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
     // Geometry + style-epoch for which the orthophoto mosaic was last fetched, so
@@ -151,6 +166,23 @@ export function LidarCloudOverlay() {
         }
     }, [lidarShaded, vegHeightAuto, vegHeightScale, setVegHeightScale]);
 
+    // ── Live recompute of vegetation heights when the height sliders move ─────
+    // The gap and ground-relief knobs are baked at capture time, but
+    // re-clustering the loaded columns (and re-blending the cached ground grid)
+    // is cheap (~200 ms), so a slider change re-derives heights in place without
+    // a re-capture. Debounced; the first mount is skipped so a freshly loaded
+    // cloud keeps its already-correct heights.
+    const gapMountRef = useRef(true);
+    useEffect(() => {
+        if (gapMountRef.current) { gapMountRef.current = false; return undefined; }
+        const t = setTimeout(() => recomputeVegHeights(), 150);
+        return () => clearTimeout(t);
+    }, [
+        groundGap, groundRough, vegColumnCell, vegGroundCell, vegRoughLowFrac,
+        vegOverhangReach, vegHeightCeiling, vegHeightFloor, vegPoolMinPts,
+        vegPoolMaxRadius, vegCliffDistMode, vegColorSmooth, vegCliffSparseFallback, recomputeVegHeights,
+    ]);
+
     // ── Push shaded data + mesh + config to WebGL layer ─────────────────────
     useEffect(() => {
         const layer = webglRef.current;
@@ -166,6 +198,7 @@ export function LidarCloudOverlay() {
                 originLat: lidarShaded.centerLat,
                 forestTfv: lidarShaded.forestTfv,
                 treeSeed: lidarShaded.treeSeed,
+                vegDiag: lidarShaded.vegDiag,
             });
         } else {
             layer.clear();
@@ -231,6 +264,12 @@ export function LidarCloudOverlay() {
         let vegColorModeId = 0;
         if (vegColorMode === 'species') vegColorModeId = 2;
         else if (vegColorMode === 'height') vegColorModeId = 1;
+        // « Analyse hauteur » overloads the same uniform with 3..6 to paint the
+        // height-decision diagnostics; when active it overrides the normal mode.
+        if (vegDiagMode === 'decision') vegColorModeId = 3;
+        else if (vegDiagMode === 'clusters') vegColorModeId = 4;
+        else if (vegDiagMode === 'roughness') vegColorModeId = 5;
+        else if (vegDiagMode === 'flags') vegColorModeId = 6;
         webglRef.current?.setConfig({
             vegEnhance,
             vegSizeBoost,
@@ -242,7 +281,7 @@ export function LidarCloudOverlay() {
             forestMixCellSize,
             forestSpeciesFilterOn,
         });
-    }, [vegEnhance, vegSizeBoost, vegNormalShade, vegIntensity, vegHeightScale, vegColorMode, forestGrouping, forestMixCellSize, forestSpeciesFilterOn, styleEpoch]);
+    }, [vegEnhance, vegSizeBoost, vegNormalShade, vegIntensity, vegHeightScale, vegColorMode, vegDiagMode, forestGrouping, forestMixCellSize, forestSpeciesFilterOn, styleEpoch]);
 
     // ── Legend-as-filter: per-legend-id visibility mask (GPU-side) ────────────
     // The legend doubles as the filter: unchecking an essence/formation hides

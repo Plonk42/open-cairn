@@ -15,6 +15,7 @@ layout(location = 3) in float a_class;   // LAS classification (0..255), unnorma
 layout(location = 4) in float a_height;  // height above local ground (m), pre-sanitized
 layout(location = 5) in float a_tfv;     // BD Forêt category (0..n, 255 = none), unnormalized
 layout(location = 6) in float a_treeSeed;// per-tree seed (0..254, 255 = none), unnormalized
+layout(location = 7) in vec4 a_vegDiag;  // height-decision diagnostics [blendW, cluster, flags, rough·10], 0..255
 
 uniform mat4 u_matrix;     // Pre-translated matrix (includes origin translation)
 uniform float u_mpu;       // meters per Mercator unit
@@ -28,7 +29,8 @@ uniform float u_vegSizeBoost; // point-size multiplier for vegetation
 uniform float u_vegEnhance;   // 1 = vegetation enhancements on
 uniform float u_vegIntensity;   // 0 = flat class colour, 1 = full palette
 uniform float u_vegHeightScale; // height (m) mapped to the top of the palette
-uniform float u_vegColorMode;   // 0 = natural ramp, 1 = viridis height colormap, 2 = species
+uniform float u_vegColorMode;   // 0 = natural ramp, 1 = viridis height colormap, 2 = species,
+                                // 3..6 = « Analyse hauteur » diagnostics (decision/clusters/roughness/flags)
 
 // ── IGN BD Forêt® species rendering ──────────────────────────────────────────
 uniform float u_forestGrouping;    // 0 = coarse group, 1 = concrete species
@@ -51,6 +53,7 @@ out float v_depth;
 out float v_alpha;
 out float v_isVeg;
 out float v_isGround;
+out float v_emissive;   // 1 = flat/emissive diagnostic colour (bypass shading)
 
 #include ./lib/flatLight.glsl;
 
@@ -97,6 +100,45 @@ vec3 viridisColor(float t) {
     float fi = floor(x);
     int i = int(min(fi, 9.0));
     return mix(v[i], v[i + 1], x - fi) / 255.0;
+}
+
+// HSV→RGB (teinte arc-en-ciel pour distinguer les clusters stacked voisins).
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+// Fausses couleurs « Analyse hauteur » : traduit le diagnostic par point en une
+// couleur plate qui révèle la décision de l'algo de hauteur. `mode` ∈ [3,6] :
+//   3 décision  : rouge=falaise (stacked) → vert=pente (vertical-au-sol),
+//                 bleu=surplomb ancré au sommet de falaise, gris=aucun sol
+//   4 clusters  : teinte stable par cluster vertical (colonne stacked)
+//   5 rugosité  : viridis du relief local du sol (0..20 m)
+//   6 drapeaux  : gris=aucun sol / magenta=surplomb / orange=flottant / vert=appuyé
+vec3 vegDiagColor(vec4 diag, float mode) {
+    float dBlend = diag.x / 255.0;
+    int dFlags = int(diag.z + 0.5);
+    float dRough = diag.w / 10.0;
+    bool hasGround = (dFlags & 2) != 0;
+    bool floating = (dFlags & 4) != 0;
+    bool cliff = (dFlags & 8) != 0;
+    if (mode < 3.5) {
+        if (!hasGround) return vec3(0.5);
+        if (cliff) return vec3(0.2, 0.45, 1.0);
+        return mix(vec3(0.92, 0.22, 0.20), vec3(0.22, 0.85, 0.32), dBlend);
+    }
+    if (mode < 4.5) {
+        float hue = fract(diag.y * 0.61803399);
+        return hsv2rgb(vec3(hue, 0.65, 0.95));
+    }
+    if (mode < 5.5) {
+        return viridisColor(clamp(dRough / 20.0, 0.0, 1.0));
+    }
+    if (!hasGround) return vec3(0.5);
+    if (cliff) return vec3(1.0, 0.0, 0.8);
+    if (floating) return vec3(1.0, 0.55, 0.0);
+    return vec3(0.2, 0.8, 0.3);
 }
 
 // Le bit 'legend' est-il visible dans le masque de filtre de la légende ?
@@ -152,6 +194,7 @@ void main() {
         v_alpha = 0.0;
         v_isVeg = 0.0;
         v_isGround = 0.0;
+        v_emissive = 0.0;
         return;
     }
 
@@ -180,7 +223,14 @@ void main() {
     // (intensité) et « Hauteur max » (échelle) sont de simples uniforms → les
     // sliders sont instantanés, sans recalcul CPU ni ré-upload du nuage.
     vec3 baseCol = a_color.rgb;
-    if (v_isVeg > 0.5) {
+    v_emissive = 0.0;
+    if (u_vegColorMode > 2.5 && isVeg) {
+        // « Analyse hauteur » : fausses couleurs plates révélant la décision de
+        // l'algo de hauteur (mode de calcul, clusters, rugosité, drapeaux).
+        // Indépendant de « Améliorations végétation » (v_isVeg) — toujours actif.
+        baseCol = vegDiagColor(a_vegDiag, u_vegColorMode);
+        v_emissive = 1.0;
+    } else if (v_isVeg > 0.5) {
         float gradAmt = clamp(u_vegIntensity, 0.0, 1.0);
         if (u_vegColorMode > 1.5) {
             // Mode « essence » : couleur réelle issue de la BD Forêt.

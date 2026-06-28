@@ -9,6 +9,7 @@ in float v_depth;
 in float v_alpha;
 in float v_isVeg;
 in float v_isGround;
+in float v_emissive;
 
 #include ./lib/sampleShadow.glsl;
 
@@ -28,6 +29,13 @@ void main() {
     // gardant une écriture de profondeur propre pour l'EDL.
     if (v_isVeg > 0.5) {
         if (length(gl_PointCoord - 0.5) > 0.5) discard;
+    }
+    // Mode diagnostic « Analyse hauteur » : couleur plate émissive — on bypasse
+    // l'ombrage, l'EDL via la profondeur restant écrite pour garder le relief.
+    if (v_emissive > 0.5) {
+        fragColor = vec4(v_albedo, v_alpha);
+        fragDepth = v_depth;
+        return;
     }
     float s = sampleShadow();
     vec3 albedo = v_albedo;

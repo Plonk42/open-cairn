@@ -9,7 +9,10 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
 import { extractPoints } from './extract';
-import { buildGroundHeightGrid, computeHeightAboveGround, sampleHeightAboveGround, sanitizeVegHeights } from './groundHeight';
+import {
+    buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH,
+    sanitizeVegHeights, type VegGroundGrid,
+} from './groundHeight';
 import { buildMesh } from './mesh';
 import { computeNormalsKNN, computeNormalsVegAware, orientNormalsForPoisson } from './normals';
 import { reconstructPoisson } from './poissonRecon';
@@ -34,6 +37,13 @@ export interface BrowserFetchParams {
     poissonPointWeight?: number;
     /** Colour shader preset applied to all geometry. */
     shader?: ShaderPreset;
+    /** Vertical gap (m) above which stacked vegetation masses are counted
+     *  separately for the height-above-ground metric. Default 3. */
+    groundGapM?: number;
+    /** Local ground relief (m) above which the hybrid height keeps the stacked
+     *  metric; below it trusts the vertical-to-ground height. 0 disables the
+     *  hybrid (pure stacked). Default 12. */
+    groundRoughM?: number;
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
@@ -336,19 +346,20 @@ async function enrichForest(
 /**
  * Build the non-ground shaded point-cloud overlay shared by the Delaunay and
  * Poisson mesh modes: vegetation-aware normals, slope colours, height above
- * ground (sampled from the FULL cloud's ground field, since the mesh itself
- * represents the ground), the robust "tallest tree" foliage scale that drives
- * the "Hauteur max · Auto" control, and best-effort BD Forêt species typing.
+ * ground (stacked-ground per-column clustering, so a tree leaning on a cliff
+ * keeps its full height and trees on different ledges each keep their own), the
+ * robust "tallest tree" foliage scale that drives the "Hauteur max · Auto"
+ * control, and best-effort BD Forêt species typing.
  */
 async function buildNonGroundShaded(
     c: { positions: Float32Array; classifications: Uint8Array; pointCount: number; centerLng: number; centerLat: number; radius: number },
-    ngPos: Float32Array,
-    ngCls: Uint8Array,
-    nonGroundCount: number,
+    nonGround: { pos: Float32Array; cls: Uint8Array; count: number },
     shader: ShaderPreset,
+    veg: { gapM: number; grid: VegGroundGrid | null; roughM: number },
     onProgress: ProgressCallback,
     signal?: AbortSignal,
 ): Promise<LidarShadedCloudData> {
+    const { pos: ngPos, cls: ngCls, count: nonGroundCount } = nonGround;
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const tNg = startTimer();
     const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
@@ -356,15 +367,16 @@ async function buildNonGroundShaded(
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
     const tNgCol = startTimer();
     const ngColors = colorsFromNormals(ngNormals, shader, ngPos);
-    // Height above ground from the FULL cloud's ground field, sampled at the
-    // non-ground points (the mesh already represents the ground itself).
-    const ngGrid = buildGroundHeightGrid(c.positions, c.classifications, c.pointCount);
-    const ngHeight = ngGrid ? sampleHeightAboveGround(ngGrid, ngPos, nonGroundCount, ngCls) : undefined;
+    // Height above ground via per-column vertical clustering, blended with the
+    // plain vertical-to-ground height over trustworthy (low-relief) ground so
+    // spreading broadleaf crowns recover their full height (see computeVegHeights).
+    const ngVegDiag = new Uint8Array(nonGroundCount * 4);
+    const ngHeight = computeVegHeights(
+        ngPos, ngCls, nonGroundCount, veg.gapM, veg.grid, veg.roughM, { diag: ngVegDiag },
+    );
     // Robust canopy top (drives the "Hauteur max · Auto" foliage scale). Mutates
     // ngHeight in place to clamp cliff-edge artefacts, mirroring the shaded path.
-    const ngVegHeightAuto = ngHeight
-        ? sanitizeVegHeights(ngHeight, ngCls, nonGroundCount) ?? undefined
-        : undefined;
+    const ngVegHeightAuto = sanitizeVegHeights(ngHeight, ngCls, nonGroundCount) ?? undefined;
     logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
@@ -376,6 +388,8 @@ async function buildNonGroundShaded(
         classifications: ngCls,
         heightAboveGround: ngHeight,
         vegHeightAuto: ngVegHeightAuto,
+        vegDiag: ngVegDiag,
+        vegGroundGrid: veg.grid ?? undefined,
         pointCount: nonGroundCount,
         radius: c.radius,
     };
@@ -398,7 +412,15 @@ export async function fetchLidarShaded(
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const tColors = startTimer();
     const colors = colorsFromNormals(normals, shader, c.positions);
-    const heightAboveGround = computeHeightAboveGround(c.positions, c.classifications, c.pointCount) ?? undefined;
+    // Bare-earth reference from the ground/water returns, then the hybrid height
+    // (stacked, blended with vertical-to-ground over low-relief terrain).
+    const groundGrid = buildVegGroundGrid(c.positions, c.pointCount, c.classifications);
+    const vegDiag = new Uint8Array(c.pointCount * 4);
+    const heightAboveGround = computeVegHeights(
+        c.positions, c.classifications, c.pointCount,
+        params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
+        groundGrid, params.groundRoughM ?? DEFAULT_VEG_GROUND_ROUGH, { diag: vegDiag },
+    );
     // Clamp cliff-edge height artefacts and derive the robust "tallest tree"
     // height (drives the automatic foliage colour scale).
     const vegHeightAuto = heightAboveGround
@@ -415,6 +437,8 @@ export async function fetchLidarShaded(
         classifications: c.classifications,
         heightAboveGround,
         vegHeightAuto,
+        vegDiag,
+        vegGroundGrid: groundGrid ?? undefined,
         pointCount: c.pointCount,
         radius: c.radius,
     };
@@ -468,8 +492,17 @@ export async function fetchLidarDelaunay(
 
     // 2. Non-ground shaded cloud — normals + slope colors. Even though
     //    vegetation normals are noisy, they're what the WebGL layer wants.
+    //    Height above ground uses per-column stacked clustering blended with the
+    //    vertical height over the flat-ground reference built from the mesh's
+    //    ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, ngPos, ngCls, nonGroundCount, shader, onProgress, params.signal,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, shader,
+        {
+            gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
+            grid: buildVegGroundGrid(groundPos, groundCount),
+            roughM: params.groundRoughM ?? DEFAULT_VEG_GROUND_ROUGH,
+        },
+        onProgress, params.signal,
     );
 
     logStage('TOTAL (delaunay)', total());
@@ -655,9 +688,17 @@ export async function fetchLidarPoisson(
         radius: c.radius,
     };
 
-    // 2. Non-ground shaded cloud overlay.
+    // 2. Non-ground shaded cloud overlay. Height above ground uses per-column
+    //    stacked clustering blended with the vertical height over the flat-ground
+    //    reference built from the Poisson ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, ngPos, ngCls, nonGroundCount, shader, onProgress, params.signal,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, shader,
+        {
+            gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
+            grid: buildVegGroundGrid(groundPos, groundCount),
+            roughM: params.groundRoughM ?? DEFAULT_VEG_GROUND_ROUGH,
+        },
+        onProgress, params.signal,
     );
 
     logStage('TOTAL (poisson)', total());

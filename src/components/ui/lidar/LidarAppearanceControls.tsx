@@ -1,9 +1,11 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
+import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import { useMapStore } from '@/stores/mapStore';
+import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
 
 /** LAS classes available for filtering in the UI. */
 const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
@@ -389,6 +391,230 @@ export function ForestSpeciesControls() {
     );
 }
 
+const VEG_DIAG_OPTIONS = [
+    { value: 'off', label: 'Off', title: 'Coloration normale du feuillage' },
+    { value: 'decision', label: 'Mode', title: 'Mode de calcul de la hauteur : rouge = falaise (colonne) → vert = pente (vertical au sol), bleu = surplomb ancré au sommet de falaise, gris = aucun sol' },
+    { value: 'clusters', label: 'Clusters', title: 'Couleur par cluster vertical (méthode colonne) : étages/arbres séparés par un vide vertical' },
+    { value: 'roughness', label: 'Rugosité', title: 'Relief local du sol 3×3 (viridis 0 → 20 m) : ce qui discrimine pente et falaise' },
+    { value: 'flags', label: 'Drapeaux', title: 'gris = sans sol / magenta = surplomb ancré / orange = flottant sur vide / vert = appuyé sur sol fiable' },
+] as const satisfies ReadonlyArray<{ value: LidarVegDiagMode; label: string; title: string }>;
+
+/** Cliff vegetation height mode selector (experimental). Each non-`column`
+ *  option swaps the noisy per-column stacked height for a distance metric, only
+ *  on points classified falaise. */
+const VEG_CLIFF_DIST_OPTIONS = [
+    { value: 'column', label: 'Colonne', title: 'Défaut : hauteur empilée par colonne (altitude au-dessus de la base du cluster). Le rendu falaise reste inchangé.' },
+    { value: 'rimDepth', label: 'Sous crête', title: 'Profondeur verticale sous le sommet de falaise (rimMax − z) : lisse et toujours définie, 0 au sommet.' },
+    { value: 'surface3d', label: 'Sol 3D', title: 'Distance 3D au point de sol/rocher (classes 2/9) le plus proche. ⚠ sur une paroi sans retour sol la distance sature au plafond.' },
+    { value: 'wallHoriz', label: 'Mur', title: 'Distance horizontale à la paroi rocheuse à l’altitude du point : met en valeur ce qui dépasse du mur.' },
+] as const satisfies ReadonlyArray<{ value: VegCliffDistMode; label: string; title: string }>;
+
+/** Discrete-colour legends mirroring the diagnostic shader (decision / flags). */
+const DIAG_LEGENDS: Partial<Record<LidarVegDiagMode, ReadonlyArray<{ c: string; t: string }>>> = {
+    decision: [
+        { c: 'rgb(235,56,51)', t: 'Falaise (colonne)' },
+        { c: 'rgb(56,217,82)', t: 'Pente (vertical sol)' },
+        { c: 'rgb(51,115,255)', t: 'Surplomb ancré' },
+        { c: 'rgb(128,128,128)', t: 'Aucun sol' },
+    ],
+    flags: [
+        { c: 'rgb(128,128,128)', t: 'Aucun sol' },
+        { c: 'rgb(255,0,204)', t: 'Surplomb ancré' },
+        { c: 'rgb(255,140,0)', t: 'Flottant sur vide' },
+        { c: 'rgb(51,204,77)', t: 'Appuyé sur sol' },
+    ],
+};
+
+/** Free-text note for the continuous diagnostic modes (clusters / roughness). */
+const DIAG_NOTES: Partial<Record<LidarVegDiagMode, string>> = {
+    clusters: 'Teinte arc-en-ciel stable par cluster vertical : des couleurs voisines très différentes signalent des étages/arbres séparés par un vide.',
+    roughness: 'Relief local du sol (3×3) en viridis, 0 (violet) → 20 m (jaune). C’est ce relief qui bascule le calcul de « pente » vers « falaise ».',
+};
+
+/**
+ * One labelled range slider with a formatted value readout. Factored out to keep
+ * {@link HeightAnalysisControls} flat (many near-identical sliders).
+ */
+function DiagSlider(props: Readonly<{
+    label: string; title: string; value: number;
+    min: number; max: number; step: number;
+    format: (v: number) => string; onChange: (v: number) => void;
+}>) {
+    const { label, title, value, min, max, step, format, onChange } = props;
+    return (
+        <label className="block">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                <span title={title}>{label}</span>
+                <span className="font-mono text-xs text-slate-400">{format(value)}</span>
+            </div>
+            <input
+                aria-label={label}
+                type="range" min={min} max={max} step={step}
+                value={value}
+                onChange={(e) => onChange(Number(e.target.value))}
+                className="mt-1 w-full accent-green-600"
+            />
+        </label>
+    );
+}
+
+/** Legend swatches / note for the active diagnostic mode. */
+function DiagLegend({ mode }: Readonly<{ mode: LidarVegDiagMode }>) {
+    const swatches = DIAG_LEGENDS[mode];
+    const note = DIAG_NOTES[mode];
+    if (!swatches && !note) return null;
+    return (
+        <div className="space-y-1 rounded-md bg-slate-100 p-2 dark:bg-slate-800/60">
+            {swatches && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {swatches.map((s) => (
+                        <span key={s.t} className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                            <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: s.c }} />
+                            {s.t}
+                        </span>
+                    ))}
+                </div>
+            )}
+            {note && <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">{note}</p>}
+        </div>
+    );
+}
+
+/**
+ * « Analyse hauteur » — exposes every threshold of the vegetation-height
+ * decision (stacked vs vertical-to-ground blend) as live sliders plus a
+ * false-colour diagnostic render that reveals which branch, cluster, relief and
+ * flags drove each point. All settings recompute the loaded cloud in place (no
+ * re-capture). Lives outside the « Végétation enrichie » fieldset so it stays
+ * usable for raw diagnostics.
+ */
+function HeightAnalysisControls() {
+    const diagMode = useMapStore((s) => s.lidarVegDiagMode);
+    const setDiagMode = useMapStore((s) => s.setLidarVegDiagMode);
+    const groundGap = useMapStore((s) => s.lidarVegGroundGap);
+    const setGroundGap = useMapStore((s) => s.setLidarVegGroundGap);
+    const groundRough = useMapStore((s) => s.lidarVegGroundRough);
+    const setGroundRough = useMapStore((s) => s.setLidarVegGroundRough);
+    const columnCell = useMapStore((s) => s.lidarVegColumnCell);
+    const setColumnCell = useMapStore((s) => s.setLidarVegColumnCell);
+    const groundCell = useMapStore((s) => s.lidarVegGroundCell);
+    const setGroundCell = useMapStore((s) => s.setLidarVegGroundCell);
+    const roughLowFrac = useMapStore((s) => s.lidarVegRoughLowFrac);
+    const setRoughLowFrac = useMapStore((s) => s.setLidarVegRoughLowFrac);
+    const overhangReach = useMapStore((s) => s.lidarVegOverhangReach);
+    const setOverhangReach = useMapStore((s) => s.setLidarVegOverhangReach);
+    const poolMinPts = useMapStore((s) => s.lidarVegPoolMinPts);
+    const setPoolMinPts = useMapStore((s) => s.setLidarVegPoolMinPts);
+    const poolMaxRadius = useMapStore((s) => s.lidarVegPoolMaxRadius);
+    const setPoolMaxRadius = useMapStore((s) => s.setLidarVegPoolMaxRadius);
+    const cliffDistMode = useMapStore((s) => s.lidarVegCliffDistMode);
+    const setCliffDistMode = useMapStore((s) => s.setLidarVegCliffDistMode);
+    const colorSmooth = useMapStore((s) => s.lidarVegColorSmooth);
+    const setColorSmooth = useMapStore((s) => s.setLidarVegColorSmooth);
+    const cliffSparse = useMapStore((s) => s.lidarVegCliffSparseFallback);
+    const setCliffSparse = useMapStore((s) => s.setLidarVegCliffSparseFallback);
+    const heightCeiling = useMapStore((s) => s.lidarVegHeightCeiling);
+    const setHeightCeiling = useMapStore((s) => s.setLidarVegHeightCeiling);
+    const heightFloor = useMapStore((s) => s.lidarVegHeightFloor);
+    const setHeightFloor = useMapStore((s) => s.setLidarVegHeightFloor);
+
+    return (
+        <details className="group border-t border-slate-200 pt-3 dark:border-slate-700" open>
+            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">
+                Analyse hauteur
+            </summary>
+            <div className="mt-3 space-y-3">
+                {/* Rendu diagnostic en fausses couleurs : révèle la décision de l'algo. */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Colorer le feuillage selon la décision de l'algorithme de hauteur, pour comprendre quel mode de calcul et quels seuils s'appliquent où.">
+                        Diagnostic
+                    </span>
+                    <SegmentedControl
+                        value={diagMode}
+                        options={VEG_DIAG_OPTIONS}
+                        onChange={setDiagMode}
+                    />
+                </div>
+                <DiagLegend mode={diagMode} />
+
+                {/* Seuils de décision — recalcul instantané sur le nuage chargé. */}
+                <DiagSlider
+                    label="Étagement falaise" title="Écart vertical (m) au-delà duquel deux masses de végétation empilées (arbres sur des vires différentes d'une falaise) sont comptées séparément. Plus petit = sépare davantage les étages ; plus grand = fusionne tronc et cime."
+                    value={groundGap} min={1} max={8} step={0.5}
+                    format={(v) => `${v.toFixed(1)} m`} onChange={setGroundGap}
+                />
+                <DiagSlider
+                    label="Relief sol max" title="Relief local du sol (m, 3×3) au-delà duquel la hauteur reste mesurée par colonne (falaises). En dessous elle est mesurée verticalement au sol — rendant leur vraie hauteur aux houppiers larges. 0 = colonnes seules."
+                    value={groundRough} min={0} max={20} step={1}
+                    format={(v) => (v <= 0 ? 'off' : `${v.toFixed(0)} m`)} onChange={setGroundRough}
+                />
+                <DiagSlider
+                    label="Transition relief" title="Bord bas de la transition de mélange, en fraction du « Relief sol max » : en dessous, la hauteur fait pleinement confiance au vertical-au-sol."
+                    value={roughLowFrac} min={0} max={1} step={0.05}
+                    format={(v) => `${Math.round(v * 100)} %`} onChange={setRoughLowFrac}
+                />
+                <DiagSlider
+                    label="Maille colonne" title="Empreinte XY (m) des colonnes du regroupement vertical. Plus petit sépare davantage les troncs voisins ; plus grand les fusionne."
+                    value={columnCell} min={0.5} max={4} step={0.5}
+                    format={(v) => `${v.toFixed(1)} m`} onChange={setColumnCell}
+                />
+                <DiagSlider
+                    label="Maille sol" title="Taille de cellule (m) de la grille de référence du sol nu. Ne se ré-applique en direct qu'en mode Points (le nuage garde son sol classé) ; en mode maillage une nouvelle capture est nécessaire."
+                    value={groundCell} min={1} max={6} step={0.5}
+                    format={(v) => `${v.toFixed(1)} m`} onChange={setGroundCell}
+                />
+                <DiagSlider
+                    label="Portée surplomb" title="Distance (m) sur laquelle un point de houppier en surplomb peut être rattaché au sol plus haut du sommet de falaise voisin."
+                    value={overhangReach} min={0} max={20} step={1}
+                    format={(v) => `${v.toFixed(0)} m`} onChange={setOverhangReach}
+                />
+                <DiagSlider
+                    label="Fusion colonnes" title="Pooling adaptatif (« sphère variable ») : nombre minimum de points que le voisinage doit réunir avant de figer la base d'une colonne. Une colonne trop clairsemée grandit son rayon et fusionne avec ses voisines, adoucissant les coutures de base par colonne sur une paroi. 0 = off (lissage 3×3 classique)."
+                    value={poolMinPts} min={0} max={60} step={1}
+                    format={(v) => (v <= 0 ? 'off' : `${v.toFixed(0)} pts`)} onChange={setPoolMinPts}
+                />
+                <DiagSlider
+                    label="Rayon fusion max" title="Rayon maximal (m) que la « sphère » de fusion peut atteindre dans les zones clairsemées. Sans effet si « Fusion colonnes » = off."
+                    value={poolMaxRadius} min={2} max={16} step={1}
+                    format={(v) => `${v.toFixed(0)} m`} onChange={setPoolMaxRadius}
+                />
+                {/* Mode hauteur des points falaise : remplace (sur la falaise
+                    uniquement) la hauteur par colonne par une distance. */}
+                <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-slate-700 dark:text-slate-300" title="Sur les points classés falaise uniquement : abandonne le raisonnement en colonne et colore selon une distance à la falaise. Le reste de la végétation garde sa hauteur normale.">
+                        Falaise : distance
+                    </span>
+                    <SegmentedControl
+                        value={cliffDistMode}
+                        options={VEG_CLIFF_DIST_OPTIONS}
+                        onChange={setCliffDistMode}
+                    />
+                </div>
+                <DiagSlider
+                    label="Lissage couleur" title="Sur la végétation des falaises uniquement : supprime les petites tâches isolées très contrastées (souvent marron = hauteur très basse) en les ramenant vers leur voisinage, sans aplatir les transitions normales entre colonnes (un point à peine différent reste quasi intact même à fond). 0 = off ; plus haut = ramène plus fort les points aberrants."
+                    value={colorSmooth} min={0} max={1} step={0.05}
+                    format={(v) => (v <= 0 ? 'off' : `${Math.round(v * 100)} %`)} onChange={setColorSmooth}
+                />
+                <DiagSlider
+                    label="Repli épars (Mur)" title="Sur les falaises (mode Colonne) : un point seul dans un cluster vertical d'au plus N retours — typiquement un point qui a volé au-dessus du vide — prend la distance horizontale à la paroi au lieu d'une hauteur de colonne nulle (la tâche marron sombre). N'affecte que ces clusters épars ; le reste reste identique. 0 = off ; plus haut = rattrape des clusters un peu plus gros."
+                    value={cliffSparse} min={0} max={16} step={1}
+                    format={(v) => (v <= 0 ? 'off' : `≤ ${v.toFixed(0)} pts`)} onChange={setCliffSparse}
+                />
+                <DiagSlider
+                    label="Plafond hauteur" title="Plafond dur (m) écrêtant les artefacts de hauteur des bords de falaise / vides."
+                    value={heightCeiling} min={20} max={100} step={5}
+                    format={(v) => `${v.toFixed(0)} m`} onChange={setHeightCeiling}
+                />
+                <DiagSlider
+                    label="Plancher échelle" title="Plancher (m) gardant l'échelle de couleur auto utilisable sur les broussailles éparses."
+                    value={heightFloor} min={1} max={20} step={1}
+                    format={(v) => `${v.toFixed(0)} m`} onChange={setHeightFloor}
+                />
+            </div>
+        </details>
+    );
+}
+
 /**
  * Enhanced vegetation rendering controls: master toggle + height-ramp intensity,
  * round leaf splats, per-leaf jitter and a canopy-filling size boost. When the
@@ -491,6 +717,10 @@ export function VegetationControls() {
                     />
                 </label>
 
+                {/* Étagement falaise, relief sol et tous les seuils de décision
+                    de hauteur sont regroupés dans « Analyse hauteur » ci-dessous,
+                    hors du fieldset (actifs même sans végétation enrichie). */}
+
                 {/* Ombrage par normale : intensité du relief calculé sur la normale
                     des feuilles (en plus de l'EDL). 0 % = aplat (EDL seul). */}
                 <label className="block">
@@ -522,6 +752,10 @@ export function VegetationControls() {
                     />
                 </label>
             </fieldset>
+
+            {/* Analyse hauteur — hors fieldset : les seuils de décision et le
+                rendu diagnostic restent actifs même sans « Végétation enrichie ». */}
+            <HeightAnalysisControls />
         </div>
     );
 }

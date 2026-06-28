@@ -5,6 +5,7 @@ import {
     type LidarProgress,
 } from '@/lib/lidarBrowser';
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
+import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_HEIGHT_CEILING, DEFAULT_VEG_HEIGHT_FLOOR, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_POOL_MAX_RADIUS_M, DEFAULT_VEG_ROUGH_LOW_FRAC, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import { saveLoadedCloud } from '@/lib/savedClouds';
@@ -18,6 +19,11 @@ export const POISSON_MAX_RADIUS = 500;
 
 /** Rendering mode: shaded point cloud, delaunay (2.5D ground mesh + points), or poisson (WASM ground mesh + points). */
 export type LidarMode = 'shaded' | 'delaunay' | 'poisson';
+
+/** Vegetation height-decision diagnostic render mode. 'off' uses the normal
+ *  foliage colouring; the others paint a false-colour map driven by the
+ *  per-point `vegDiag` buffer (see « Analyse hauteur »). */
+export type LidarVegDiagMode = 'off' | 'decision' | 'clusters' | 'roughness' | 'flags';
 
 export interface LidarSlice {
     /** Rendering mode: shaded point cloud, delaunay (Delaunay 2.5D ground mesh + points), or poisson (PoissonRecon WASM ground mesh + points). */
@@ -42,6 +48,73 @@ export interface LidarSlice {
     /** Decimation factor (1 = full density, N = keep 1/N points). */
     lidarCloudStride: number;
     setLidarCloudStride: (v: number) => void;
+    /** Vertical gap (m) above which stacked vegetation masses (trees on different
+     *  cliff ledges, or a tree leaning on the face) are counted separately when
+     *  measuring height above ground. Drives the foliage colour ramp. */
+    lidarVegGroundGap: number;
+    setLidarVegGroundGap: (v: number) => void;
+    /** Local ground relief (m) above which the hybrid height keeps the
+     *  cliff-correct stacked metric; below it trusts the vertical-to-ground
+     *  height so spreading broadleaf crowns recover their full height. 0 = pure
+     *  stacked. Drives the foliage colour ramp. */
+    lidarVegGroundRough: number;
+    setLidarVegGroundRough: (v: number) => void;
+    /** XY column footprint (m) for the stacked clustering metric. Smaller
+     *  separates neighbouring trunks more eagerly; larger merges them. */
+    lidarVegColumnCell: number;
+    setLidarVegColumnCell: (v: number) => void;
+    /** Bare-earth reference grid cell size (m). Only re-applies live in Points
+     *  mode (the shaded cloud keeps its class 2/9 ground); mesh modes need a
+     *  re-capture. */
+    lidarVegGroundCell: number;
+    setLidarVegGroundCell: (v: number) => void;
+    /** Lower edge of the relief blend transition as a fraction of the rough
+     *  threshold (below it the height fully trusts vertical-to-ground). */
+    lidarVegRoughLowFrac: number;
+    setLidarVegRoughLowFrac: (v: number) => void;
+    /** Crown overhang reach (m): how far a floating crown point may be anchored
+     *  to nearby higher cliff-top ground. */
+    lidarVegOverhangReach: number;
+    setLidarVegOverhangReach: (v: number) => void;
+    /** Adaptive base-pooling ("variable sphere"): minimum vegetation points the
+     *  growing neighbourhood must gather before its column base is frozen. A
+     *  sparse column expands its radius and merges with populated neighbours,
+     *  smoothing the per-column base seams on a cliff face. 0 = off (legacy 3×3
+     *  base smoothing). */
+    lidarVegPoolMinPts: number;
+    setLidarVegPoolMinPts: (v: number) => void;
+    /** Cap (m) on the adaptive base-pooling radius (only used when min-pts > 0). */
+    lidarVegPoolMaxRadius: number;
+    setLidarVegPoolMaxRadius: (v: number) => void;
+    /** Cliff vegetation height mode (experimental): on points classified falaise,
+     *  replace the per-column stacked height with a distance metric — `column`
+     *  (default, unchanged), `rimDepth`, `surface3d` or `wallHoriz`. Only cliff
+     *  points are affected; pente/surplomb keep their normal height. */
+    lidarVegCliffDistMode: VegCliffDistMode;
+    setLidarVegCliffDistMode: (v: VegCliffDistMode) => void;
+    /** Final colour-smoothing strength (0..1): spatially low-passes the rendered
+     *  height so adjacent columns blend into a continuous gradient, hiding the
+     *  sharp "camouflage" patchwork of sparse cliff LiDAR. 0 = off. */
+    lidarVegColorSmooth: number;
+    setLidarVegColorSmooth: (v: number) => void;
+    /** Sparse-cluster fallback (points): falaise points alone in a vertical
+     *  cluster of at most this many returns fall back to the horizontal wall
+     *  distance instead of the stacked height that pins a lone return to 0 (a
+     *  dark brown speck). 0 = off. Only acts in `column` cliff mode. */
+    lidarVegCliffSparseFallback: number;
+    setLidarVegCliffSparseFallback: (v: number) => void;
+    /** Hard ceiling (m) clamping cliff/void height artefacts. */
+    lidarVegHeightCeiling: number;
+    setLidarVegHeightCeiling: (v: number) => void;
+    /** Floor (m) keeping the auto colour scale usable over sparse scrub. */
+    lidarVegHeightFloor: number;
+    setLidarVegHeightFloor: (v: number) => void;
+    /** Height-decision diagnostic render mode (false-colour over the canopy). */
+    lidarVegDiagMode: LidarVegDiagMode;
+    setLidarVegDiagMode: (v: LidarVegDiagMode) => void;
+    /** Recompute the loaded cloud's vegetation heights from the current gap
+     *  without re-capturing (instant slider feedback). */
+    recomputeVegHeights: () => void;
     /** Point size in screen pixels. */
     lidarCloudPointSize: number;
     setLidarCloudPointSize: (v: number) => void;
@@ -184,6 +257,26 @@ function defaultSunDate(): string {
 }
 
 /**
+ * Rebuild the bare-earth reference grid for a live veg-height recompute when the
+ * requested cell size differs from the cached grid's, but only when the shaded
+ * cloud still carries ground/water returns (class 2/9) to anchor it — i.e. in
+ * Points mode. In mesh modes the ground is consumed into the surface, so there
+ * is nothing to rebuild from and we keep the cached grid (a re-capture is needed
+ * to apply a new cell there). Returns the cached grid otherwise.
+ */
+function rebuildVegGrid(cloud: LidarShadedCloudData, cellM: number): VegGroundGrid | null {
+    const cached = cloud.vegGroundGrid ?? null;
+    if (cached && Math.abs(cached.cell - cellM) < 1e-3) return cached;
+    const cls = cloud.classifications;
+    let hasGround = false;
+    for (let i = 0; i < cloud.pointCount; i++) {
+        if (cls[i] === 2 || cls[i] === 9) { hasGround = true; break; }
+    }
+    if (!hasGround) return cached;
+    return buildVegGroundGrid(cloud.positions, cloud.pointCount, cloud.classifications, cellM);
+}
+
+/**
  * Single source of truth for the LiDAR render-setting defaults.
  *
  * Consumed both by `createLidarSlice` (as the `?? fallback` when nothing is
@@ -250,6 +343,74 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarCloudRadius: (lidarCloudRadius) => set({ lidarCloudRadius }),
     lidarCloudStride: persisted.lidarCloudStride ?? 10,
     setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
+    lidarVegGroundGap: persisted.lidarVegGroundGap ?? DEFAULT_VEG_GROUND_GAP,
+    setLidarVegGroundGap: (lidarVegGroundGap) => set({ lidarVegGroundGap }),
+    lidarVegGroundRough: persisted.lidarVegGroundRough ?? DEFAULT_VEG_GROUND_ROUGH,
+    setLidarVegGroundRough: (lidarVegGroundRough) => set({ lidarVegGroundRough }),
+    lidarVegColumnCell: persisted.lidarVegColumnCell ?? DEFAULT_VEG_COLUMN_CELL_M,
+    setLidarVegColumnCell: (lidarVegColumnCell) => set({ lidarVegColumnCell }),
+    lidarVegGroundCell: persisted.lidarVegGroundCell ?? DEFAULT_VEG_GROUND_CELL_M,
+    setLidarVegGroundCell: (lidarVegGroundCell) => set({ lidarVegGroundCell }),
+    lidarVegRoughLowFrac: persisted.lidarVegRoughLowFrac ?? DEFAULT_VEG_ROUGH_LOW_FRAC,
+    setLidarVegRoughLowFrac: (lidarVegRoughLowFrac) => set({ lidarVegRoughLowFrac }),
+    lidarVegOverhangReach: persisted.lidarVegOverhangReach ?? DEFAULT_VEG_OVERHANG_REACH_M,
+    setLidarVegOverhangReach: (lidarVegOverhangReach) => set({ lidarVegOverhangReach }),
+    lidarVegPoolMinPts: persisted.lidarVegPoolMinPts ?? 0,
+    setLidarVegPoolMinPts: (lidarVegPoolMinPts) => set({ lidarVegPoolMinPts }),
+    lidarVegPoolMaxRadius: persisted.lidarVegPoolMaxRadius ?? DEFAULT_VEG_POOL_MAX_RADIUS_M,
+    setLidarVegPoolMaxRadius: (lidarVegPoolMaxRadius) => set({ lidarVegPoolMaxRadius }),
+    lidarVegCliffDistMode: persisted.lidarVegCliffDistMode ?? 'column',
+    setLidarVegCliffDistMode: (lidarVegCliffDistMode) => set({ lidarVegCliffDistMode }),
+    lidarVegColorSmooth: persisted.lidarVegColorSmooth ?? 0,
+    setLidarVegColorSmooth: (lidarVegColorSmooth) => set({ lidarVegColorSmooth }),
+    lidarVegCliffSparseFallback: persisted.lidarVegCliffSparseFallback ?? 0,
+    setLidarVegCliffSparseFallback: (lidarVegCliffSparseFallback) => set({ lidarVegCliffSparseFallback }),
+    lidarVegHeightCeiling: persisted.lidarVegHeightCeiling ?? DEFAULT_VEG_HEIGHT_CEILING,
+    setLidarVegHeightCeiling: (lidarVegHeightCeiling) => set({ lidarVegHeightCeiling }),
+    lidarVegHeightFloor: persisted.lidarVegHeightFloor ?? DEFAULT_VEG_HEIGHT_FLOOR,
+    setLidarVegHeightFloor: (lidarVegHeightFloor) => set({ lidarVegHeightFloor }),
+    lidarVegDiagMode: persisted.lidarVegDiagMode ?? 'off',
+    setLidarVegDiagMode: (lidarVegDiagMode) => set({ lidarVegDiagMode }),
+    recomputeVegHeights: () => {
+        const {
+            lidarShaded, lidarVegGroundGap, lidarVegGroundRough, lidarVegColumnCell,
+            lidarVegGroundCell, lidarVegRoughLowFrac, lidarVegOverhangReach,
+            lidarVegHeightCeiling, lidarVegHeightFloor,
+            lidarVegPoolMinPts, lidarVegPoolMaxRadius,
+            lidarVegCliffDistMode, lidarVegColorSmooth, lidarVegCliffSparseFallback,
+        } = get();
+        if (!lidarShaded) return;
+        // Rebuild the bare-earth grid only when its cell size changed AND ground
+        // refs (class 2/9) survive in the shaded cloud (Points mode). Mesh modes
+        // strip the ground into the surface, so we reuse the cached grid there.
+        const grid = rebuildVegGrid(lidarShaded, lidarVegGroundCell);
+        const vegDiag = new Uint8Array(lidarShaded.pointCount * 4);
+        const heightAboveGround = computeVegHeights(
+            lidarShaded.positions, lidarShaded.classifications, lidarShaded.pointCount,
+            lidarVegGroundGap, grid, lidarVegGroundRough,
+            {
+                columnCellM: lidarVegColumnCell,
+                roughLowFrac: lidarVegRoughLowFrac,
+                overhangReachM: lidarVegOverhangReach,
+                poolMinPts: lidarVegPoolMinPts,
+                poolMaxRadiusM: lidarVegPoolMaxRadius,
+                cliffDistMode: lidarVegCliffDistMode,
+                vegColorSmooth: lidarVegColorSmooth,
+                cliffSparseMaxPts: lidarVegCliffSparseFallback,
+                diag: vegDiag,
+            },
+        );
+        const vegHeightAuto = sanitizeVegHeights(
+            heightAboveGround, lidarShaded.classifications, lidarShaded.pointCount,
+            lidarVegHeightCeiling, lidarVegHeightFloor,
+        ) ?? undefined;
+        set({
+            lidarShaded: {
+                ...lidarShaded, heightAboveGround, vegHeightAuto, vegDiag,
+                vegGroundGrid: grid ?? lidarShaded.vegGroundGrid,
+            },
+        });
+    },
     lidarCloudPointSize: persisted.lidarCloudPointSize ?? LIDAR_RENDER_DEFAULTS.lidarCloudPointSize,
     setLidarCloudPointSize: (lidarCloudPointSize) => set({ lidarCloudPointSize }),
     lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? LIDAR_RENDER_DEFAULTS.lidarCloudSizeCompensation,
@@ -344,6 +505,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
+                    groundGapM: state.lidarVegGroundGap,
+                    groundRoughM: state.lidarVegGroundRough,
                     shader: state.lidarShader,
                     onProgress,
                 });
@@ -367,6 +530,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     poissonDepth: state.lidarCloudPoissonDepth,
                     poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
                     poissonPointWeight: state.lidarCloudPoissonPointWeight,
+                    groundGapM: state.lidarVegGroundGap,
+                    groundRoughM: state.lidarVegGroundRough,
                     shader: state.lidarShader,
                     onProgress,
                 });
@@ -384,6 +549,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     lat: center.lat,
                     radius: state.lidarCloudRadius,
                     stride: state.lidarCloudStride,
+                    groundGapM: state.lidarVegGroundGap,
+                    groundRoughM: state.lidarVegGroundRough,
                     shader: state.lidarShader,
                     onProgress,
                 });
@@ -442,6 +609,20 @@ export function selectLidarPersisted(
     | 'lidarShader'
     | 'lidarCloudRadius'
     | 'lidarCloudStride'
+    | 'lidarVegGroundGap'
+    | 'lidarVegGroundRough'
+    | 'lidarVegColumnCell'
+    | 'lidarVegGroundCell'
+    | 'lidarVegRoughLowFrac'
+    | 'lidarVegOverhangReach'
+    | 'lidarVegPoolMinPts'
+    | 'lidarVegPoolMaxRadius'
+    | 'lidarVegCliffDistMode'
+    | 'lidarVegColorSmooth'
+    | 'lidarVegCliffSparseFallback'
+    | 'lidarVegHeightCeiling'
+    | 'lidarVegHeightFloor'
+    | 'lidarVegDiagMode'
     | 'lidarCloudPointSize'
     | 'lidarCloudSizeCompensation'
     | 'lidarCloudEdl'
@@ -480,6 +661,20 @@ export function selectLidarPersisted(
         lidarShader: s.lidarShader,
         lidarCloudRadius: s.lidarCloudRadius,
         lidarCloudStride: s.lidarCloudStride,
+        lidarVegGroundGap: s.lidarVegGroundGap,
+        lidarVegGroundRough: s.lidarVegGroundRough,
+        lidarVegColumnCell: s.lidarVegColumnCell,
+        lidarVegGroundCell: s.lidarVegGroundCell,
+        lidarVegRoughLowFrac: s.lidarVegRoughLowFrac,
+        lidarVegOverhangReach: s.lidarVegOverhangReach,
+        lidarVegPoolMinPts: s.lidarVegPoolMinPts,
+        lidarVegPoolMaxRadius: s.lidarVegPoolMaxRadius,
+        lidarVegCliffDistMode: s.lidarVegCliffDistMode,
+        lidarVegColorSmooth: s.lidarVegColorSmooth,
+        lidarVegCliffSparseFallback: s.lidarVegCliffSparseFallback,
+        lidarVegHeightCeiling: s.lidarVegHeightCeiling,
+        lidarVegHeightFloor: s.lidarVegHeightFloor,
+        lidarVegDiagMode: s.lidarVegDiagMode,
         lidarCloudPointSize: s.lidarCloudPointSize,
         lidarCloudSizeCompensation: s.lidarCloudSizeCompensation,
         lidarCloudEdl: s.lidarCloudEdl,

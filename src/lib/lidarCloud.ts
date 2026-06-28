@@ -4,6 +4,7 @@
  */
 
 import type { ForestRaster } from './lidarBrowser/bdforet';
+import type { VegGroundGrid } from './lidarBrowser/groundHeight';
 
 export interface LidarCloudData {
     /** WGS84 longitude of the request center (origin for `positions`). */
@@ -57,9 +58,11 @@ export interface LidarShadedCloudData {
     /** ASPRS LAS classification per point. */
     classifications: Uint8Array;
     /**
-     * Height above the local terrain (metres), per point. Built from a coarse
-     * min-Z ground field (class 2/9). Drives vegetation height coloring.
-     * Undefined when no ground points were available to anchor the field.
+     * Height above the local terrain (metres), per point. In mesh modes
+     * (Delaunay/Poisson) it is sampled from the reconstructed ground surface
+     * directly beneath each point (cliff-correct); in pure-shaded mode from a
+     * coarse min-Z ground field (class 2/9). Drives vegetation height coloring.
+     * Undefined when no ground was available to anchor the height.
      */
     heightAboveGround?: Float32Array;
     /**
@@ -68,6 +71,14 @@ export interface LidarShadedCloudData {
      * automatic foliage colour scale. Undefined when no vegetation was measured.
      */
     vegHeightAuto?: number;
+    /**
+     * Per-point vegetation height-decision diagnostics (4 bytes / point, see
+     * VEG_DIAG_STRIDE in groundHeight.ts): blend weight (pente↔falaise), stacked
+     * cluster id, decision flags and local ground relief. Drives the
+     * « Analyse hauteur » false-colour render modes. Undefined for restored
+     * scenes captured before the diagnostics existed (the GPU uploads zeros).
+     */
+    vegDiag?: Uint8Array;
     /**
      * IGN BD Forêt® v2 category per point (index into FOREST_CATEGORIES), or
      * 255 for non-vegetation / outside any forest stand. Drives species-accurate
@@ -81,6 +92,14 @@ export interface LidarShadedCloudData {
      * re-fetch. Undefined when the BD Forêt query failed or returned no stands.
      */
     forestRaster?: ForestRaster;
+    /**
+     * Coarse bare-earth reference (min-Z ground field + local relief) used by
+     * the hybrid vegetation-height metric to recover spreading broadleaf crowns
+     * over flat ground while staying cliff-correct. Cached so the height can be
+     * re-blended live when the gap/relief sliders move without a re-fetch.
+     * Undefined when no ground was available (e.g. restored saved scenes).
+     */
+    vegGroundGrid?: VegGroundGrid;
     /**
      * Per-tree seed (0–254, 255 = none) from CHM treetop detection. Lets the GPU
      * pick one species per tree inside a mixed stand. Undefined when no

@@ -24,7 +24,7 @@
  */
 
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
-import { buildGroundHeightGrid, sampleHeightAboveGround, sanitizeVegHeights } from './lidarBrowser/groundHeight';
+import { computeVegHeightStacked, DEFAULT_VEG_GROUND_GAP, sanitizeVegHeights } from './lidarBrowser/groundHeight';
 import type { ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 
@@ -493,25 +493,15 @@ export interface DecodedGeometry {
  *
  * The .bin format doesn't persist heights — they're derived, not authored — so
  * the GPU foliage ramp and the auto-height snap have nothing to work from after
- * a reload. We rebuild a ground height-field and sample the shaded points: from
- * the cloud's own ground points when it has them (pure-shaded scenes), or from
- * the reconstructed ground mesh's vertices when the ground lives in the mesh
- * (Delaunay/Poisson scenes, where the shaded cloud is non-ground only). Mutates
- * `shaded` to attach `heightAboveGround` + `vegHeightAuto`.
+ * a reload. We recompute them with the per-column stacked-ground metric (see
+ * computeVegHeightStacked), using the default gap; the user can re-tune it live
+ * after the scene loads. Mutates `shaded` to attach `heightAboveGround`
+ * + `vegHeightAuto`.
  */
-function reconstructShadedHeights(shaded: LidarShadedCloudData, mesh: LidarMeshData | null): void {
+function reconstructShadedHeights(shaded: LidarShadedCloudData): void {
     if (shaded.heightAboveGround) return;
-    // Prefer the cloud's own ground points; fall back to the ground mesh surface.
-    let grid = buildGroundHeightGrid(shaded.positions, shaded.classifications, shaded.pointCount);
-    if (!grid && mesh) {
-        // Every mesh vertex lies on the reconstructed ground, so treat them all
-        // as class-2 ground when building the height-field.
-        const groundClass = new Uint8Array(mesh.vertexCount).fill(2);
-        grid = buildGroundHeightGrid(mesh.positions, groundClass, mesh.vertexCount);
-    }
-    if (!grid) return;
-    const heightAboveGround = sampleHeightAboveGround(
-        grid, shaded.positions, shaded.pointCount, shaded.classifications,
+    const heightAboveGround = computeVegHeightStacked(
+        shaded.positions, shaded.classifications, shaded.pointCount, DEFAULT_VEG_GROUND_GAP,
     );
     shaded.heightAboveGround = heightAboveGround;
     shaded.vegHeightAuto = sanitizeVegHeights(
@@ -548,7 +538,7 @@ export async function decodeShowcaseGeometry(data: ArrayBuffer): Promise<Decoded
 
     const shaded = settings.shaded ? buildShaded(settings.shaded, buffers) : null;
     const mesh = settings.mesh ? buildMesh(settings.mesh, buffers) : null;
-    if (shaded) reconstructShadedHeights(shaded, mesh);
+    if (shaded) reconstructShadedHeights(shaded);
 
     return { shaded, mesh };
 }
