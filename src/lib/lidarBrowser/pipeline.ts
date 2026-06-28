@@ -376,7 +376,7 @@ async function buildNonGroundShaded(
     );
     // Robust canopy top (drives the "Hauteur max · Auto" foliage scale). Mutates
     // ngHeight in place to clamp cliff-edge artefacts, mirroring the shaded path.
-    const ngVegHeightAuto = sanitizeVegHeights(ngHeight, ngCls, nonGroundCount) ?? undefined;
+    const ngVegHeightAuto = sanitizeVegHeights(ngHeight, ngCls, nonGroundCount, ngVegDiag) ?? undefined;
     logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
@@ -424,7 +424,7 @@ export async function fetchLidarShaded(
     // Clamp cliff-edge height artefacts and derive the robust "tallest tree"
     // height (drives the automatic foliage colour scale).
     const vegHeightAuto = heightAboveGround
-        ? sanitizeVegHeights(heightAboveGround, c.classifications, c.pointCount) ?? undefined
+        ? sanitizeVegHeights(heightAboveGround, c.classifications, c.pointCount, vegDiag) ?? undefined
         : undefined;
     logStage('colors', tColors());
     const shaded: LidarShadedCloudData = {

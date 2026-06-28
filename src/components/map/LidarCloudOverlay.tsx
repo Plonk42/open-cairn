@@ -50,16 +50,14 @@ export function LidarCloudOverlay() {
     const groundGap = useMapStore((s) => s.lidarVegGroundGap);
     const groundRough = useMapStore((s) => s.lidarVegGroundRough);
     const vegColumnCell = useMapStore((s) => s.lidarVegColumnCell);
-    const vegGroundCell = useMapStore((s) => s.lidarVegGroundCell);
     const vegRoughLowFrac = useMapStore((s) => s.lidarVegRoughLowFrac);
     const vegOverhangReach = useMapStore((s) => s.lidarVegOverhangReach);
-    const vegPoolMinPts = useMapStore((s) => s.lidarVegPoolMinPts);
-    const vegPoolMaxRadius = useMapStore((s) => s.lidarVegPoolMaxRadius);
     const vegCliffDistMode = useMapStore((s) => s.lidarVegCliffDistMode);
     const vegColorSmooth = useMapStore((s) => s.lidarVegColorSmooth);
     const vegCliffSparseFallback = useMapStore((s) => s.lidarVegCliffSparseFallback);
-    const vegHeightCeiling = useMapStore((s) => s.lidarVegHeightCeiling);
-    const vegHeightFloor = useMapStore((s) => s.lidarVegHeightFloor);
+    const vegCliffSlopeDeg = useMapStore((s) => s.lidarVegCliffSlopeDeg);
+    const vegCliffSlopeSample = useMapStore((s) => s.lidarVegCliffSlopeSample);
+    const vegCliffSlopeMin = useMapStore((s) => s.lidarVegCliffSlopeMin);
     const vegDiagMode = useMapStore((s) => s.lidarVegDiagMode);
     const recomputeVegHeights = useMapStore((s) => s.recomputeVegHeights);
 
@@ -178,9 +176,11 @@ export function LidarCloudOverlay() {
         const t = setTimeout(() => recomputeVegHeights(), 150);
         return () => clearTimeout(t);
     }, [
-        groundGap, groundRough, vegColumnCell, vegGroundCell, vegRoughLowFrac,
-        vegOverhangReach, vegHeightCeiling, vegHeightFloor, vegPoolMinPts,
-        vegPoolMaxRadius, vegCliffDistMode, vegColorSmooth, vegCliffSparseFallback, recomputeVegHeights,
+        groundGap, groundRough, vegColumnCell, vegRoughLowFrac,
+        vegOverhangReach, vegCliffDistMode, vegColorSmooth, vegCliffSparseFallback, recomputeVegHeights,
+        vegCliffSlopeDeg,
+        vegCliffSlopeSample,
+        vegCliffSlopeMin,
     ]);
 
     // ── Push shaded data + mesh + config to WebGL layer ─────────────────────

@@ -29,9 +29,14 @@ export const DEFAULT_VEG_GROUND_GAP = 3;
 const VEG_GROUND_REF_CLASSES = new Set([2, 9]);
 
 /** XY cell (m) of the coarse min-Z ground field used by the hybrid metric.
- *  The UI « Analyse hauteur » menu can override it live (Points mode only —
- *  mesh scenes keep the cached grid). */
-export const DEFAULT_VEG_GROUND_CELL_M = 2;
+ *  Fixed at 1 m (empirically the best result); not user-tunable. */
+export const DEFAULT_VEG_GROUND_CELL_M = 1;
+
+/** Bilinear ground sampling drops any corner more than this (m) below the
+ *  highest corner: at a cliff top the over-the-rim corners carry the cliff-base
+ *  ground and would otherwise drag a plateau-edge point's reference down into a
+ *  height spike. Above a continuous slope's per-cell drop, below a cliff's. */
+const GROUND_SAMPLE_DROP_TOL_M = 5;
 
 /** Default local-relief ceiling (m) below which the hybrid trusts the
  *  vertical-to-ground height. On terrain whose 3×3 ground relief exceeds it the
@@ -112,13 +117,6 @@ const VEG_COLOR_SMOOTH_TOL_M = 5;
  *  past tol+ramp, is pulled all the way onto the local reference. */
 const VEG_COLOR_SMOOTH_RAMP_M = 6;
 
-/** Default cap (m) for the adaptive base-pooling radius (the "variable sphere").
- *  The pooling neighbourhood grows in sparse zones until it has pooled enough
- *  points, but never past this radius — beyond it a min/average base would start
- *  reaching down a cliff face and invent phantom-tall trees. Harness-tunable via
- *  `--max-radius`; off entirely unless a positive `poolMinPts` is supplied. */
-export const DEFAULT_VEG_POOL_MAX_RADIUS_M = 8;
-
 /** Cliff vegetation height mode. On points classified "falaise" the stacked
  *  column height can look noisy (each return at its own altitude-above-foot).
  *  These alternatives replace that height — only on cliff points — with a
@@ -158,6 +156,19 @@ const VEG_RIM_FAR_FACTOR = 3;
  *  ANY `roughM`. This is why lowering "relief sol max" can no longer hide a real
  *  cliff face behind a false "slope" verdict. Internal constant, not a slider. */
 const VEG_CREST_FRAC = 0.5;
+
+/** Half-width (degrees) of the soft transition band of the "Falaise simple"
+ *  slope mode: around the chosen slope threshold the falaise⇄pente blend ramps
+ *  over `threshold ± this` instead of snapping, so the colour seam stays smooth.
+ *  Internal constant — the mode exposes only the single slope-angle slider. */
+const VEG_SLOPE_BAND_DEG = 5;
+
+/** Default baseline (m) over which the "Falaise simple" mode measures ground
+ *  slope. A larger baseline means the slope is read at a coarser scale, so a
+ *  short steep bank (talus) — steep over one cell but flanked by flat ground —
+ *  averages out to a gentle angle and stays "pente", while only drops that are
+ *  steep over this whole distance (real cliffs) read as falaise. */
+export const DEFAULT_VEG_SLOPE_SAMPLE_M = 4;
 
 // ── Per-point decision diagnostics ───────────────────────────────────────────
 // `computeVegHeights` can fill a compact RGBA-style buffer (4 bytes / point) so
@@ -199,15 +210,6 @@ export interface VegHeightOptions {
      *  the descending green stripe inside a recessed couloir. Defaults to the
      *  module constant; harness-tunable via `--cliff-span`. ≤ 0 disables it. */
     cliffSpanM?: number;
-    /** Minimum vegetation points the adaptive base-pooling "sphere" must gather
-     *  before it stops growing. Sparse columns (too few points to estimate a
-     *  reliable base) expand their radius and merge with well-populated
-     *  neighbours, removing the dominant per-column base noise on a cliff face.
-     *  ≤ 0 (default) keeps the legacy fixed 3×3 base smoothing. */
-    poolMinPts?: number;
-    /** Cap (m) on the adaptive pooling radius. Defaults to
-     *  {@link DEFAULT_VEG_POOL_MAX_RADIUS_M}; only used when `poolMinPts > 0`. */
-    poolMaxRadiusM?: number;
     /** Cliff vegetation height mode (see {@link VegCliffDistMode}). Applies only
      *  to points classified "falaise" — pente/surplomb keep their normal height.
      *  Defaults to `'column'` (stacked height, byte-identical render). */
@@ -229,14 +231,28 @@ export interface VegHeightOptions {
      *  other modes already override every falaise point). Affects only falaise
      *  vegetation. */
     cliffSparseMaxPts?: number;
+    /** **"Falaise simple" mode.** When > 0, the per-cell falaise⇄pente verdict is
+     *  taken PURELY from the local ground slope (degrees), bypassing the crest /
+     *  vegetation-span / rim machinery: a cell steeper than this renders as
+     *  falaise (stacked height), gentler as pente (vertical-to-ground), with a
+     *  `±VEG_SLOPE_BAND_DEG` soft transition. No surplomb anchoring. 0 (default)
+     *  keeps the detailed classifier and is byte-identical. */
+    cliffSlopeDeg?: number;
+    /** Baseline (m) over which the "Falaise simple" mode measures the slope.
+     *  Larger = coarser scale, so short steep banks read gentle and only tall
+     *  drops stay falaise. Defaults to {@link DEFAULT_VEG_SLOPE_SAMPLE_M}; only
+     *  used when `cliffSlopeDeg > 0`. */
+    cliffSlopeSampleM?: number;
+    /** **Slope floor for the detailed classifier** (degrees). When > 0, any cell
+     *  whose local ground slope (measured over {@link DEFAULT_VEG_SLOPE_SAMPLE_M})
+     *  exceeds this is forced toward falaise even when the crest / belowRim
+     *  machinery would green it — catching steep open faces and battered cliffs
+     *  whose top sits beyond the fixed rim reach. It only lowers the
+     *  vertical-to-ground weight (adds falaise, never removes it); surplomb stays
+     *  surplomb. 0 (default) keeps the detailed classifier byte-identical.
+     *  Ignored in "Falaise simple" mode (`cliffSlopeDeg > 0`). */
+    cliffSlopeMinDeg?: number;
 }
-
-/** Adaptive-radius base pooling (the "variable sphere"): grow the neighbourhood
- *  around each vegetation point until `minPts` points are pooled, capped at
- *  `maxRadiusM`. Sparse columns merge into well-populated neighbours, killing the
- *  per-column base noise the fixed 3×3 smooth leaves on a cliff face. Off when
- *  `minPts ≤ 0`. */
-export interface VegPoolOptions { minPts: number; maxRadiusM: number; }
 
 /**
  * Coarse bare-earth reference: a min-Z ground field plus its local relief,
@@ -375,29 +391,54 @@ function gridCell(grid: VegGroundGrid, x: number, y: number): number {
  * grid boundary (the dominant source of the rectilinear colour banding on
  * canopy over moderate terrain). NaN corners are dropped and the remaining
  * weights renormalised; returns NaN only when all four corners are NaN.
+ *
+ * **Edge-aware at a cliff top.** A plateau-edge cell's bilinear neighbourhood
+ * includes one or two corners that already lie *over* the rim, whose ground is
+ * the cliff **base** (tens of m below). Left in, they drag the interpolated
+ * reference down and inflate the last pente points into a spike right before
+ * they switch to surplomb. So any corner more than
+ * {@link GROUND_SAMPLE_DROP_TOL_M} below the highest corner is dropped: a rim
+ * point references the plateau it stands on, not the void. A continuous slope
+ * (corners within a couple of metres) keeps all four and stays smooth.
  */
-function sampleGroundBilinear(grid: VegGroundGrid, x: number, y: number): number {
+export function sampleGroundBilinear(grid: VegGroundGrid, x: number, y: number): number {
     const fx = (x - grid.minX) / grid.cell - 0.5;
     const fy = (y - grid.minY) / grid.cell - 0.5;
     const x0 = Math.floor(fx), y0 = Math.floor(fy);
     const tx = fx - x0, ty = fy - y0;
+    const v00 = cornerGround(grid, x0, y0);
+    const v10 = cornerGround(grid, x0 + 1, y0);
+    const v01 = cornerGround(grid, x0, y0 + 1);
+    const v11 = cornerGround(grid, x0 + 1, y0 + 1);
+    // Highest finite corner = the surface the point actually stands on (NaN fails
+    // every `>` so it is ignored here).
+    let top = -Infinity;
+    if (v00 > top) top = v00;
+    if (v10 > top) top = v10;
+    if (v01 > top) top = v01;
+    if (v11 > top) top = v11;
     const acc = { sum: 0, wsum: 0 };
-    addGroundCorner(grid, x0, y0, (1 - tx) * (1 - ty), acc);
-    addGroundCorner(grid, x0 + 1, y0, tx * (1 - ty), acc);
-    addGroundCorner(grid, x0, y0 + 1, (1 - tx) * ty, acc);
-    addGroundCorner(grid, x0 + 1, y0 + 1, tx * ty, acc);
+    addGroundCorner(v00, (1 - tx) * (1 - ty), top, acc);
+    addGroundCorner(v10, tx * (1 - ty), top, acc);
+    addGroundCorner(v01, (1 - tx) * ty, top, acc);
+    addGroundCorner(v11, tx * ty, top, acc);
     return acc.wsum > 0 ? acc.sum / acc.wsum : Number.NaN;
 }
 
-/** Add one bilinear corner (cell cx, cy weighted by w) to the accumulator,
- *  skipping out-of-grid and NaN cells so the weights renormalise over the
- *  finite corners only. */
+/** Read one ground cell, or NaN when outside the grid. */
+function cornerGround(grid: VegGroundGrid, cx: number, cy: number): number {
+    if (cx < 0 || cy < 0 || cx >= grid.cols || cy >= grid.rows) return Number.NaN;
+    return grid.groundZ[cy * grid.cols + cx];
+}
+
+/** Add one bilinear corner to the accumulator, skipping NaN cells and any corner
+ *  that sits a cliff-drop below `top` so the weights renormalise over the
+ *  same-surface corners only. */
 function addGroundCorner(
-    grid: VegGroundGrid, cx: number, cy: number, w: number, acc: { sum: number; wsum: number },
+    v: number, w: number, top: number, acc: { sum: number; wsum: number },
 ): void {
-    if (cx < 0 || cy < 0 || cx >= grid.cols || cy >= grid.rows) return;
-    const v = grid.groundZ[cy * grid.cols + cx];
     if (!Number.isFinite(v)) return;
+    if (top - v > GROUND_SAMPLE_DROP_TOL_M) return;
     acc.sum += w * v;
     acc.wsum += w;
 }
@@ -439,6 +480,43 @@ function dilateGroundMax(
         for (let cx = 0; cx < cols; cx++) {
             const m = windowMax(groundZ, cols, rows, cx, cy, reachCells);
             if (m > -Infinity) out[cy * cols + cx] = m;
+        }
+    }
+    return out;
+}
+
+/** One axis of the ground gradient at cell (cx, cy), measured over a `radius`-
+ *  cell baseline: a central difference when both neighbours along (dx, dy) are
+ *  finite, a one-sided difference when only one is, 0 when neither — so borders
+ *  and grid holes degrade gracefully. A larger radius reads the slope at a
+ *  coarser scale, so a short steep bank flattens out. */
+function slopeComponent(
+    grid: VegGroundGrid, cx: number, cy: number, dx: number, dy: number, radius: number,
+): number {
+    const fwd = cornerGround(grid, cx + dx * radius, cy + dy * radius);
+    const back = cornerGround(grid, cx - dx * radius, cy - dy * radius);
+    const run = radius * grid.cell;
+    if (Number.isFinite(fwd) && Number.isFinite(back)) return (fwd - back) / (2 * run);
+    const here = grid.groundZ[cy * grid.cols + cx];
+    if (Number.isFinite(fwd)) return (fwd - here) / run;
+    if (Number.isFinite(back)) return (here - back) / run;
+    return 0;
+}
+
+/** Per-cell ground slope (degrees) from the min-Z field, measured over a
+ *  `radius`-cell baseline, NaN where the cell has no finite ground. The
+ *  magnitude of the gradient turned into an angle: the single signal behind the
+ *  "Falaise simple" mode. */
+function groundSlopeField(grid: VegGroundGrid, radius: number): Float32Array {
+    const { groundZ, cols, rows } = grid;
+    const out = new Float32Array(cols * rows).fill(Number.NaN);
+    for (let cy = 0; cy < rows; cy++) {
+        for (let cx = 0; cx < cols; cx++) {
+            const k = cy * cols + cx;
+            if (!Number.isFinite(groundZ[k])) continue;
+            const gx = slopeComponent(grid, cx, cy, 1, 0, radius);
+            const gy = slopeComponent(grid, cx, cy, 0, 1, radius);
+            out[k] = Math.atan(Math.hypot(gx, gy)) * (180 / Math.PI);
         }
     }
     return out;
@@ -510,17 +588,17 @@ function vegSpanField(
  *     transition blends the flat vertical height into the stacked cliff height
  *     to avoid a hard colour seam along the rim.
  */
-interface VegBlendTuning { gapM: number; roughM: number; roughLow: number; dropM: number; spanM: number; }
+interface VegBlendTuning { gapM: number; roughM: number; roughLow: number; dropM: number; spanM: number; slopeMin: number; }
 interface VegBlend { groundRef: number; wVertical: number; floating: boolean; cliffAnchored: boolean; cliff: boolean; }
-/** Per-point rim geometry plus the cell's vegetation vertical span, precomputed
- *  in the loop and handed to {@link blendVegHeight}. */
-interface RimInfo { belowRim: number; overRise: number; rimMax: number; anchorMax: number; vegSpan: number; }
+/** Per-point rim geometry plus the cell's vegetation vertical span and ground
+ *  slope, precomputed in the loop and handed to {@link blendVegHeight}. */
+interface RimInfo { belowRim: number; overRise: number; rimMax: number; anchorMax: number; vegSpan: number; slopeDeg: number; }
 
 /** Assemble the {@link RimInfo} for cell `k` from the raw per-cell rim fields. */
 function rimInfoFor(
     k: number, ground: number,
     rimMax: Float32Array, rimFar: Float32Array, anchorMax: Float32Array,
-    vegSpan: Float32Array,
+    vegSpan: Float32Array, slope: Float32Array | null,
 ): RimInfo {
     return {
         belowRim: Number.isFinite(rimMax[k]) ? rimMax[k] - ground : 0,
@@ -528,6 +606,7 @@ function rimInfoFor(
         rimMax: rimMax[k],
         anchorMax: anchorMax[k],
         vegSpan: vegSpan[k],
+        slopeDeg: slope ? slope[k] : Number.NaN,
     };
 }
 
@@ -537,7 +616,7 @@ function blendVegHeight(
 ): VegBlend {
     // How far this cell's ground sits below the nearby rim — the cliff signal,
     // measured over the FIXED rim reach (never the overhang slider).
-    const { belowRim, overRise, rimMax, anchorMax, vegSpan } = rim;
+    const { belowRim, overRise, rimMax, anchorMax, vegSpan, slopeDeg } = rim;
     // A near-vertical wall scatters returns at every altitude, so the cell spans
     // the whole face. In a recessed couloir the face steps back, the fixed 8 m
     // rim reach under-reads, and the crest test wrongly greens the stripe — this
@@ -547,12 +626,22 @@ function blendVegHeight(
     // Crest test FIRST, relative to the drop and independent of roughM: a slope's
     // far window towers proportionally higher than its near drop and fails it.
     const atCrest = overRise <= belowRim * VEG_CREST_FRAC;
+    // Slope floor: a cell steeper than t.slopeMin is pushed toward falaise even
+    // when the crest / belowRim machinery would green it — catching steep open
+    // faces and battered cliffs whose top sits beyond the fixed rim reach. The
+    // ONLY slope-angle input to the detailed classifier; t.slopeMin ≤ 0 or a cell
+    // with no measured slope caps at 1 → no change. It only lowers wVertical, so
+    // it can add falaise but never remove it.
+    const wSlopeCap = t.slopeMin > 0 && Number.isFinite(slopeDeg)
+        ? 1 - smoothstep(t.slopeMin - VEG_SLOPE_BAND_DEG, t.slopeMin + VEG_SLOPE_BAND_DEG, slopeDeg)
+        : 1;
+    const steep = wSlopeCap < 0.5;
     if (!atCrest && !tallColumn) {
         // Continuous slope / cliff foot: the ground sits right below the point,
-        // so trust the vertical-to-ground height (pente) however steep it looks.
-        // NOT floating — it is not over a void — so the flag stays consistent
-        // with the green it shows in the decision render.
-        return { groundRef: ground, wVertical: 1, floating: false, cliffAnchored: false, cliff: false };
+        // so trust the vertical-to-ground height (pente) however steep it looks —
+        // UNLESS the slope floor forces it to falaise. NOT floating — it is not
+        // over a void — so the flag stays consistent with the decision render.
+        return { groundRef: ground, wVertical: wSlopeCap, floating: false, cliffAnchored: false, cliff: steep };
     }
     // A recessed couloir wall: tall vegetation span, below an out-of-reach rim
     // (the crest test missed it AND it sits a full roughM below the near rim).
@@ -577,9 +666,10 @@ function blendVegHeight(
         return { groundRef: rimMax, wVertical: 1, floating, cliffAnchored: true, cliff: true };
     }
     // 1 + 2b — under a genuine crest, blend vertical-to-ground (flat, trustworthy)
-    // against the stacked column height (cliff, phantom-prone) by below-rim drop.
-    const wVertical = 1 - smoothstep(t.roughLow, t.roughM, belowRim);
-    return { groundRef: ground, wVertical, floating, cliffAnchored: false, cliff };
+    // against the stacked column height (cliff, phantom-prone) by below-rim drop,
+    // capped by the slope floor so a steep sub-crest face cannot stay green.
+    const wVertical = Math.min(1 - smoothstep(t.roughLow, t.roughM, belowRim), wSlopeCap);
+    return { groundRef: ground, wVertical, floating, cliffAnchored: false, cliff: cliff || steep };
 }
 
 /** Final rendered height for one vegetation point: surplomb keeps its
@@ -838,13 +928,24 @@ export function computeVegHeights(
     const overhangReachM = opts?.overhangReachM ?? DEFAULT_VEG_OVERHANG_REACH_M;
     const diag = opts?.diag ?? null;
     const cluster = diag ? new Uint8Array(pointCount) : null;
-    const poolMinPts = opts?.poolMinPts ?? 0;
-    const pool: VegPoolOptions | null = poolMinPts > 0
-        ? { minPts: poolMinPts, maxRadiusM: opts?.poolMaxRadiusM ?? DEFAULT_VEG_POOL_MAX_RADIUS_M }
-        : null;
-    const out = computeVegHeightStacked(positions, classifications, pointCount, gapM, columnCellM, cluster, pool);
+    const out = computeVegHeightStacked(positions, classifications, pointCount, gapM, columnCellM, cluster);
     if (diag) initVegDiag(diag, classifications, pointCount, cluster as Uint8Array);
     if (!grid || roughM <= 0) return out;
+    // "Falaise simple" mode: when the slope-angle slider is set, classify
+    // falaise vs pente PURELY from the local ground slope and skip the whole
+    // crest / vegetation-span / rim machinery below. 0 = off (detailed path).
+    const cliffSlopeDeg = opts?.cliffSlopeDeg ?? 0;
+    if (cliffSlopeDeg > 0) {
+        return computeVegHeightsBySlope(
+            out, positions, classifications, pointCount, grid,
+            {
+                slopeDeg: cliffSlopeDeg,
+                sampleM: opts?.cliffSlopeSampleM ?? DEFAULT_VEG_SLOPE_SAMPLE_M,
+                colorSmooth: opts?.vegColorSmooth ?? 0,
+            },
+            diag,
+        );
+    }
     // Cliff/slope classification uses a FIXED rim reach, fully decoupled from the
     // "Portée surplomb" slider — so the overhang reach can never move the
     // falaise/pente boundary. The slider drives only the overhang-anchor window.
@@ -859,8 +960,16 @@ export function computeVegHeights(
     // fooled by the stepped-back face, would wrongly green it.
     const cliffSpanM = opts?.cliffSpanM ?? DEFAULT_VEG_CLIFF_SPAN_M;
     const vegSpan = vegSpanField(grid, positions, classifications, pointCount);
+    // Slope floor for the detailed classifier: a per-cell slope field on the same
+    // 4 m baseline as "Falaise simple", built only when the slider is on so the
+    // default path pays nothing and stays byte-identical.
+    const cliffSlopeMinDeg = opts?.cliffSlopeMinDeg ?? 0;
+    const slopeField = cliffSlopeMinDeg > 0
+        ? groundSlopeField(grid, Math.max(1, Math.round(DEFAULT_VEG_SLOPE_SAMPLE_M / grid.cell)))
+        : null;
     const tuning: VegBlendTuning = {
-        gapM, roughM, roughLow: roughM * roughLowFrac, dropM: DEFAULT_VEG_OVERHANG_DROP_M, spanM: cliffSpanM,
+        gapM, roughM, roughLow: roughM * roughLowFrac, dropM: DEFAULT_VEG_OVERHANG_DROP_M,
+        spanM: cliffSpanM, slopeMin: cliffSlopeMinDeg,
     };
     // Optional cliff distance override (experimental, falaise points only). The
     // surface3d hash is built only when that mode is active; `column` (default)
@@ -901,7 +1010,7 @@ export function computeVegHeights(
         if (!Number.isFinite(g) || !Number.isFinite(r)) continue;
         const z = positions[i * 3 + 2];
         const stacked = out[i];
-        const rim = rimInfoFor(k, g, rimMax, rimFar, anchorMax, vegSpan);
+        const rim = rimInfoFor(k, g, rimMax, rimFar, anchorMax, vegSpan, slopeField);
         const b = blendVegHeight(z, g, rim, stacked, tuning);
         isCliff[i] = Number(b.cliff);
         // Classification (above) stays on the stable per-cell ground, but the
@@ -912,6 +1021,51 @@ export function computeVegHeights(
         if (diag) writeCellDiag(diag, i, b.wVertical, r, b.floating, b.cliffAnchored);
     }
     return smoothCliffOutliers(out, positions, isCliff, pointCount, opts?.vegColorSmooth ?? 0);
+}
+
+/**
+ * "Falaise simple" mode (see {@link VegHeightOptions.cliffSlopeDeg}). Classify
+ * each vegetation point from the local ground slope alone — steep → falaise
+ * (stacked column height), gentle → pente (vertical-to-ground) — with a
+ * `±VEG_SLOPE_BAND_DEG` smoothstep across the chosen threshold so the colour
+ * seam stays soft. No crest test, no vegetation-span wall test, no surplomb
+ * anchoring: one slider, one decision. The final outlier-smoothing pass still
+ * runs so the "Lissage couleur" slider keeps working in this mode too.
+ */
+function computeVegHeightsBySlope(
+    out: Float32Array, positions: Float32Array, classifications: Uint8Array,
+    pointCount: number, grid: VegGroundGrid,
+    cfg: { slopeDeg: number; sampleM: number; colorSmooth: number }, diag: Uint8Array | null,
+): Float32Array {
+    const radius = Math.max(1, Math.round(cfg.sampleM / grid.cell));
+    const slope = groundSlopeField(grid, radius);
+    const e0 = Math.max(0, cfg.slopeDeg - VEG_SLOPE_BAND_DEG);
+    const e1 = cfg.slopeDeg + VEG_SLOPE_BAND_DEG;
+    const isCliff = new Uint8Array(pointCount);
+    for (let i = 0; i < pointCount; i++) {
+        if (!VEG_HEIGHT_CLASSES.has(classifications[i])) continue;
+        const x = positions[i * 3], y = positions[i * 3 + 1];
+        const k = gridCell(grid, x, y);
+        if (k < 0) continue;
+        const g = grid.groundZ[k];
+        if (!Number.isFinite(g)) continue;
+        const sd = slope[k];
+        // Above the threshold the cell is falaise (wVertical→0, stacked height);
+        // below it is pente (wVertical→1, vertical-to-ground). NaN slope (no
+        // gradient) defaults to pente.
+        const wVertical = Number.isFinite(sd) ? 1 - smoothstep(e0, e1, sd) : 1;
+        const z = positions[i * 3 + 2];
+        const b: VegBlend = {
+            groundRef: g, wVertical, floating: false, cliffAnchored: false, cliff: wVertical < 0.5,
+        };
+        isCliff[i] = Number(b.cliff);
+        out[i] = renderVegHeight(grid, x, y, z, out[i], b);
+        if (diag) {
+            const r = grid.roughness[k];
+            writeCellDiag(diag, i, wVertical, Number.isFinite(r) ? r : 0, false, false);
+        }
+    }
+    return smoothCliffOutliers(out, positions, isCliff, pointCount, cfg.colorSmooth);
 }
 
 /** Per-cell height totals over the cliff vegetation points, used to derive a
@@ -1080,14 +1234,12 @@ export function computeVegHeightStacked(
     gapM: number,
     columnCellM = DEFAULT_VEG_COLUMN_CELL_M,
     clusterOut?: Uint8Array | null,
-    pool?: VegPoolOptions | null,
 ): Float32Array {
     const out = new Float32Array(pointCount);
     const KEY_BIAS = 0x8000;
     // Pass 1 — vertical clustering per XY column. `selfBase` holds each point's
-    // own cluster base; `columnBases` keeps the sorted cluster bases per column
-    // and `columnCount` the point tally per column for the adaptive pooling.
-    const { selfBase, columnBases, columnCount } = clusterVegColumns(
+    // own cluster base; `columnBases` keeps the sorted cluster bases per column.
+    const { selfBase, columnBases } = clusterVegColumns(
         positions, classifications, pointCount, gapM, columnCellM, KEY_BIAS, clusterOut,
     );
     // Pass 2 — smooth the cluster base spatially so the height ramp varies
@@ -1098,19 +1250,11 @@ export function computeVegHeightStacked(
     // a real ledge (`VEG_BASE_SMOOTH_TOL_M`) — makes the colouring organic.
     const inv = 1 / columnCellM;
     const tol = Math.max(gapM, VEG_BASE_SMOOTH_TOL_M);
-    // Adaptive "variable sphere" pooling (opt-in): a sparse column grows its
-    // radius until it has gathered `minPts` points, merging with neighbours. The
-    // fixed 3×3 smooth is the legacy fallback when pooling is off.
-    const poolOn = pool != null && pool.minPts > 0;
-    const maxRadiusCells = poolOn ? Math.max(1, Math.round(pool.maxRadiusM / columnCellM)) : 0;
-    const field: ColumnField = { bases: columnBases, count: columnCount, bias: KEY_BIAS };
     for (let i = 0; i < pointCount; i++) {
         if (!VEG_HEIGHT_CLASSES.has(classifications[i])) continue;
         const z = positions[i * 3 + 2];
         const fx = positions[i * 3] * inv, fy = positions[i * 3 + 1] * inv;
-        const base = poolOn
-            ? adaptivePoolBase(field, fx, fy, selfBase[i], tol, pool.minPts, maxRadiusCells)
-            : smoothColumnBase(columnBases, fx, fy, selfBase[i], tol, KEY_BIAS);
+        const base = smoothColumnBase(columnBases, fx, fy, selfBase[i], tol, KEY_BIAS);
         out[i] = Math.max(0, z - base);
     }
     return out;
@@ -1124,7 +1268,7 @@ export function computeVegHeightStacked(
 function clusterVegColumns(
     positions: Float32Array, classifications: Uint8Array, pointCount: number,
     gapM: number, columnCellM: number, keyBias: number, clusterOut?: Uint8Array | null,
-): { selfBase: Float32Array; columnBases: Map<number, number[]>; columnCount: Map<number, number> } {
+): { selfBase: Float32Array; columnBases: Map<number, number[]> } {
     const columns = new Map<number, number[]>();
     for (let i = 0; i < pointCount; i++) {
         if (!VEG_HEIGHT_CLASSES.has(classifications[i])) continue;
@@ -1137,10 +1281,8 @@ function clusterVegColumns(
     }
     const selfBase = new Float32Array(pointCount);
     const columnBases = new Map<number, number[]>();
-    const columnCount = new Map<number, number>();
     for (const [key, col] of columns) {
         col.sort((a, b) => positions[a * 3 + 2] - positions[b * 3 + 2]);
-        columnCount.set(key, col.length);
         let base = positions[col[0] * 3 + 2];
         let prev = base;
         let clusterIdx = 0;
@@ -1154,7 +1296,7 @@ function clusterVegColumns(
         }
         columnBases.set(key, bases);
     }
-    return { selfBase, columnBases, columnCount };
+    return { selfBase, columnBases };
 }
 
 /** Closest cluster base to `target` within `tol`, else `target` itself. The
@@ -1196,91 +1338,35 @@ function smoothColumnBase(
     return wsum > 0 ? sum / wsum : self;
 }
 
-/** Total vegetation points in the cells on the Chebyshev ring of radius `r`
- *  around (cx, cy) — the increment used to grow the adaptive pooling "sphere". */
-function ringPointCount(field: ColumnField, cx: number, cy: number, r: number): number {
-    const { count, bias } = field;
-    if (r === 0) return count.get((cx + bias) * 0x10000 + (cy + bias)) ?? 0;
-    let total = 0;
-    for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-            total += count.get((cx + dx + bias) * 0x10000 + (cy + dy + bias)) ?? 0;
-        }
-    }
-    return total;
-}
-
-/** Per-column cluster bases + point counts (keyed by the packed cell id) plus
- *  the coordinate bias, bundled so the pooling helpers stay within the param
- *  budget. */
-interface ColumnField { bases: Map<number, number[]>; count: Map<number, number>; bias: number; }
-
-/**
- * Adaptive-radius ("variable sphere") cluster-base estimate. The neighbourhood
- * grows ring by ring until it has pooled `minPts` vegetation points (capped at
- * `maxRadius` cells), so a sparse column — too few points to estimate a stable
- * base — automatically merges with well-populated neighbours, while a dense
- * canopy keeps a tight radius and its detail. Within that radius the base is a
- * distance-weighted average of each column's base, every column weighted by its
- * own point count (the populated neighbour dominates), and the base is picked on
- * the same vertical band (`pickColumnBase` / `tol`) so a real ledge still steps.
- * `fx`/`fy` are positions in cell units.
- */
-function adaptivePoolBase(
-    field: ColumnField, fx: number, fy: number, self: number, tol: number,
-    minPts: number, maxRadius: number,
-): number {
-    const { bases: columnBases, count: columnCount, bias } = field;
-    const cx = Math.floor(fx), cy = Math.floor(fy);
-    // Phase 1 — grow the radius until enough points are pooled (or the cap).
-    let pooled = 0, radius = 0;
-    for (let r = 0; r <= maxRadius; r++) {
-        pooled += ringPointCount(field, cx, cy, r);
-        radius = r;
-        if (pooled >= minPts) break;
-    }
-    // Phase 2 — distance-weighted, point-count-weighted average within that
-    // adaptive radius, evaluated at the point's exact position so the field stays
-    // continuous.
-    const span = radius + 1;
-    let sum = 0, wsum = 0;
-    for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-            const key = (cx + dx + bias) * 0x10000 + (cy + dy + bias);
-            const cellBases = columnBases.get(key);
-            if (!cellBases) continue;
-            const dist = Math.hypot(cx + dx + 0.5 - fx, cy + dy + 0.5 - fy);
-            const w = (1 - dist / (span + 0.5)) * (columnCount.get(key) ?? 0);
-            if (w <= 0) continue;
-            sum += w * pickColumnBase(cellBases, self, tol);
-            wsum += w;
-        }
-    }
-    return wsum > 0 ? sum / wsum : self;
-}
 function clusterHash(key: number, clusterIdx: number): number {
     const h = Math.imul(key * 0x10 + clusterIdx + 1, 2654435761);
     return (h >>> 24) & 0xff;
 }
 
-/** No real tree exceeds this (m); anything above is a cliff/void artefact.
- *  Exposed live in the « Analyse hauteur » menu. */
+/** No real tree exceeds this (m); anything above is a cliff/void artefact. */
 export const DEFAULT_VEG_HEIGHT_CEILING = 60;
-/** Floor for the auto colour scale so sparse scrub keeps a usable ramp (m).
- *  Exposed live in the « Analyse hauteur » menu. */
+/** Floor for the auto colour scale so sparse scrub keeps a usable ramp (m). */
 export const DEFAULT_VEG_HEIGHT_FLOOR = 5;
+/** Min blendW (= round(wVertical×255) in the vegDiag) for a point's height to
+ *  count as a clean, ground-measured tree rather than a cliff/stacked estimate.
+ *  128 ≈ wVertical ≥ 0.5 — the height already leans mostly on real low-relief
+ *  ground, so its canopy top is trustworthy. */
+const VEG_TRUST_MIN_BLENDW = 128;
 /** Histogram bin width for the robust percentile (m). */
 const HIST_BIN_M = 0.5;
 
-/** Bin the positive vegetation heights into a fixed-width histogram. */
+/** Bin the positive vegetation heights into a fixed-width histogram. When
+ *  `diag` is given, only points whose blendW reaches `minBlendW` are counted —
+ *  letting the caller restrict the reference to trustworthy non-cliff trees. */
 function vegHeightHistogram(
     heightAboveGround: Float32Array, classifications: Uint8Array, pointCount: number, ceiling: number,
+    diag?: Uint8Array | null, minBlendW = 0,
 ): { bins: Uint32Array; total: number } {
     const bins = new Uint32Array(Math.ceil(ceiling / HIST_BIN_M) + 1);
     let total = 0;
     for (let i = 0; i < pointCount; i++) {
         if (!VEG_HEIGHT_CLASSES.has(classifications[i])) continue;
+        if (diag && diag[i * VEG_DIAG_STRIDE] < minBlendW) continue;
         const h = heightAboveGround[i];
         if (h <= 0) continue;
         bins[Math.min(bins.length - 1, Math.floor(h / HIST_BIN_M))]++;
@@ -1306,9 +1392,14 @@ function percentileHeight(bins: Uint32Array, total: number, p: number): number {
  * Vegetation points near a cliff edge sit over a grid cell whose min-Z ground is
  * the *base* of the cliff (the void below), so `z - groundZ` balloons to tens of
  * phantom metres — which would both mis-colour those points and, worse, blow up
- * any height-derived colour scale. We take the 99th percentile of the
- * vegetation heights (robust to that <1 % of outliers), clamp every height to
- * it, and return it as the natural "tallest tree" height for an automatic scale.
+ * any height-derived colour scale.
+ *
+ * When the per-point `diag` is supplied we take the reference height from the
+ * **trustworthy, ground-measured trees only** (blendW ≥ {@link VEG_TRUST_MIN_BLENDW},
+ * i.e. not on a cliff) — their 99th-percentile canopy top is clean. Every
+ * vegetation point (cliff trees included) is then clamped to it. A pure-cliff
+ * capture has no such trees, so we fall back to the 99th percentile of the whole
+ * population (robust to the <1 % phantom outliers).
  *
  * Mutates `heightAboveGround` in place. Returns the robust max height (m), or
  * `null` when there is no vegetation to measure.
@@ -1317,14 +1408,20 @@ export function sanitizeVegHeights(
     heightAboveGround: Float32Array,
     classifications: Uint8Array,
     pointCount: number,
+    diag?: Uint8Array | null,
     ceiling = DEFAULT_VEG_HEIGHT_CEILING,
     floor = DEFAULT_VEG_HEIGHT_FLOOR,
 ): number | null {
-    const { bins, total } = vegHeightHistogram(heightAboveGround, classifications, pointCount, ceiling);
-    if (total === 0) return null;
+    const trusted = diag
+        ? vegHeightHistogram(heightAboveGround, classifications, pointCount, ceiling, diag, VEG_TRUST_MIN_BLENDW)
+        : { bins: new Uint32Array(0), total: 0 };
+    const hist = trusted.total > 0
+        ? trusted
+        : vegHeightHistogram(heightAboveGround, classifications, pointCount, ceiling);
+    if (hist.total === 0) return null;
     const robustMax = Math.min(
         ceiling,
-        Math.max(floor, percentileHeight(bins, total, 0.99)),
+        Math.max(floor, percentileHeight(hist.bins, hist.total, 0.99)),
     );
     for (let i = 0; i < pointCount; i++) {
         if (VEG_HEIGHT_CLASSES.has(classifications[i]) && heightAboveGround[i] > robustMax) {

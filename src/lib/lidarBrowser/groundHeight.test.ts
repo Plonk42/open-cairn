@@ -1,7 +1,7 @@
 import {
     buildVegGroundGrid, computeVegHeights, computeVegHeightStacked,
     DIAG_FLAG_CLIFF, DIAG_FLAG_FLOATING, DIAG_FLAG_GROUND, DIAG_FLAG_VEG,
-    sanitizeVegHeights, smoothCliffOutliers, VEG_DIAG_STRIDE,
+    sampleGroundBilinear, sanitizeVegHeights, smoothCliffOutliers, VEG_DIAG_STRIDE,
 } from '@/lib/lidarBrowser/groundHeight';
 import { describe, expect, it } from 'vitest';
 
@@ -526,7 +526,7 @@ describe('computeVegHeights — decision diagnostics (opts.diag)', () => {
         const vegIndex = count - 1;
         const pos = Float32Array.from(positions);
         const cls = Uint8Array.from(classes);
-        const grid = buildVegGroundGrid(pos, count, cls);
+        const grid = buildVegGroundGrid(pos, count, cls, 2);
         const diag = new Uint8Array(count * VEG_DIAG_STRIDE);
         computeVegHeights(pos, cls, count, 3, grid, 12, { diag });
         const d = diagOf(diag, vegIndex);
@@ -753,6 +753,197 @@ describe('computeVegHeights — decision diagnostics (opts.diag)', () => {
     });
 });
 
+describe('computeVegHeights — "falaise simple" slope-only mode (opts.cliffSlopeDeg)', () => {
+    it('marks steep ground as falaise and gentle ground as pente, by slope alone', () => {
+        // A plateau (z=40, x≤8) dropping steeply to a valley (z=0, x≥9): the cells
+        // straddling the rim have a large ground slope, the flat plateau ~0°. With
+        // the slope mode on at 30°, a tree on the flat plateau must read PENTE
+        // (full vertical-to-ground) and a return on the steep rim cell FALAISE.
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, gx <= 8 ? 40 : 0);
+                classes.push(2);
+            }
+        }
+        const flatIdx = positions.length / 3;
+        positions.push(3, 5, 46); // tree on the flat plateau (slope ≈ 0°)
+        classes.push(5);
+        const steepIdx = positions.length / 3;
+        positions.push(8, 5, 44); // return on the steep rim cell (slope ≫ 30°)
+        classes.push(5);
+        const count = classes.length;
+        const pos = Float32Array.from(positions);
+        const cls = Uint8Array.from(classes);
+        const grid = buildVegGroundGrid(pos, count, cls)!;
+        const diag = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeDeg: 30, diag });
+        expect(diagOf(diag, flatIdx).blendW).toBe(255);          // pente (green)
+        expect(diagOf(diag, steepIdx).blendW).toBeLessThan(64);  // falaise (red)
+    });
+
+    it('is byte-identical to the detailed classifier when off (cliffSlopeDeg 0)', () => {
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, gx <= 8 ? 40 : 0);
+                classes.push(2);
+            }
+        }
+        positions.push(3, 5, 46);
+        classes.push(5);
+        const count = classes.length;
+        const pos = Float32Array.from(positions);
+        const cls = Uint8Array.from(classes);
+        const grid = buildVegGroundGrid(pos, count, cls)!;
+        const base = computeVegHeights(pos, cls, count, 3, grid, 12);
+        const off = computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeDeg: 0 });
+        expect(Array.from(off)).toEqual(Array.from(base));
+    });
+
+    it('keeps a short steep talus as pente when measured over a larger baseline', () => {
+        // A 3 m step (talus) between two flats: z=0 for x≤8, z=3 for x≥9. Locally
+        // (±1 cell) the rim cell reads ~56° → falaise, but over a 6 m baseline the
+        // same 3 m rise spreads to ~14° → pente. A tree on the step must flip from
+        // falaise (small sample) to pente (large sample) for the SAME slope angle.
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, gx <= 8 ? 0 : 3);
+                classes.push(2);
+            }
+        }
+        const talusIdx = positions.length / 3;
+        positions.push(8, 5, 5); // tree on the talus cell
+        classes.push(5);
+        const count = classes.length;
+        const pos = Float32Array.from(positions);
+        const cls = Uint8Array.from(classes);
+        const grid = buildVegGroundGrid(pos, count, cls)!;
+
+        const small = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeDeg: 30, cliffSlopeSampleM: 1, diag: small });
+        expect(diagOf(small, talusIdx).blendW).toBeLessThan(64); // falaise at fine scale
+
+        const large = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeDeg: 30, cliffSlopeSampleM: 6, diag: large });
+        expect(diagOf(large, talusIdx).blendW).toBe(255);        // pente at coarse scale
+    });
+});
+
+describe('computeVegHeights — slope floor for the detailed classifier (opts.cliffSlopeMinDeg)', () => {
+    function rampGridWithTree() {
+        // A long CONTINUOUS slope (no flat crest): the ground descends 1.5 m per
+        // cell (≈56°) over x 0..50. An interior point fails the crest test, so the
+        // detailed classifier greens it as "pente" by default — exactly the open
+        // steep face the slope floor must catch. A tree sits mid-ramp at x=30,
+        // far enough from both edges that the rim/far windows stay on the ramp.
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 50; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, (50 - gx) * 1.5);
+                classes.push(2);
+            }
+        }
+        const treeIdx = positions.length / 3;
+        positions.push(30, 5, (50 - 30) * 1.5 + 5); // tree on the ramp
+        classes.push(5);
+        const count = classes.length;
+        const pos = Float32Array.from(positions);
+        const cls = Uint8Array.from(classes);
+        const grid = buildVegGroundGrid(pos, count, cls)!;
+        return { pos, cls, count, grid, treeIdx };
+    }
+
+    it('greens an open steep face by default but reds it with the slope floor on', () => {
+        const { pos, cls, count, grid, treeIdx } = rampGridWithTree();
+        const off = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { diag: off });
+        expect(diagOf(off, treeIdx).blendW).toBe(255);          // pente (green) by default
+
+        const on = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeMinDeg: 30, diag: on });
+        expect(diagOf(on, treeIdx).blendW).toBeLessThan(64);    // forced falaise (red)
+    });
+
+    it('leaves flat-ground vegetation as pente even with the slope floor on', () => {
+        // Flat plateau, slope ≈ 0°: the floor must never touch it.
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, 20);
+                classes.push(2);
+            }
+        }
+        const treeIdx = positions.length / 3;
+        positions.push(8, 5, 26);
+        classes.push(5);
+        const count = classes.length;
+        const pos = Float32Array.from(positions);
+        const cls = Uint8Array.from(classes);
+        const grid = buildVegGroundGrid(pos, count, cls)!;
+        const diag = new Uint8Array(count * VEG_DIAG_STRIDE);
+        computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeMinDeg: 30, diag });
+        expect(diagOf(diag, treeIdx).blendW).toBe(255);         // still pente
+    });
+
+    it('is byte-identical to the detailed classifier when off (cliffSlopeMinDeg 0)', () => {
+        const { pos, cls, count, grid } = rampGridWithTree();
+        const base = computeVegHeights(pos, cls, count, 3, grid, 12);
+        const off = computeVegHeights(pos, cls, count, 3, grid, 12, { cliffSlopeMinDeg: 0 });
+        expect(Array.from(off)).toEqual(Array.from(base));
+    });
+});
+
+describe('sampleGroundBilinear — edge-aware ground reference at a cliff top', () => {
+    it('references the plateau, not the dragged-down void, for a rim point', () => {
+        // Plateau ground z=40 for x≤8, valley floor z=0 for x≥9 (a cliff between).
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, gx <= 8 ? 40 : 0);
+                classes.push(2);
+            }
+        }
+        const count = classes.length;
+        const grid = buildVegGroundGrid(
+            Float32Array.from(positions), count, Uint8Array.from(classes),
+        )!;
+        // A point on the last plateau strip whose bilinear neighbourhood reaches
+        // one cell over the rim (the cliff-base corner at z=0, 40 m below). The
+        // drop-tolerant sampler must drop that void corner and return the plateau
+        // ground (40), not a value pulled down toward the base — which is exactly
+        // what inflated the last pente points into the "marche" before surplomb.
+        expect(sampleGroundBilinear(grid, 8.6, 5)).toBeCloseTo(40, 5);
+    });
+
+    it('still blends across a gentle ground step (keeps de-banding)', () => {
+        // Two adjacent ground levels only 2 m apart (within tolerance): the
+        // sampler must interpolate, not snap, so moderate terrain stays smooth.
+        const positions: number[] = [];
+        const classes: number[] = [];
+        for (let gx = 0; gx <= 16; gx++) {
+            for (let gy = 0; gy <= 10; gy++) {
+                positions.push(gx, gy, gx <= 8 ? 12 : 10);
+                classes.push(2);
+            }
+        }
+        const count = classes.length;
+        const grid = buildVegGroundGrid(
+            Float32Array.from(positions), count, Uint8Array.from(classes),
+        )!;
+        const z = sampleGroundBilinear(grid, 8.6, 5);
+        expect(z).toBeGreaterThan(10);
+        expect(z).toBeLessThan(12);
+    });
+});
+
 describe('sanitizeVegHeights', () => {
     it('clamps cliff-edge outliers to the robust canopy top', () => {
         // 100 canopy points around 20 m plus one absurd 150 m cliff-edge artefact.
@@ -780,5 +971,46 @@ describe('sanitizeVegHeights', () => {
         const ground = Float32Array.from([0, 0, 0]);
         const groundClasses = Uint8Array.from([2, 2, 2]);
         expect(sanitizeVegHeights(ground, groundClasses, 3)).toBeNull();
+    });
+
+    it('takes the reference from trustworthy non-cliff trees when a diag is given', () => {
+        // 100 clean ground-measured trees ~15 m (blendW 255) + 50 cliff trees
+        // inflated to ~45 m with blendW 0 (untrusted). Without the diag that
+        // cliff third would drag the scale up; with it the reference stays on
+        // the clean canopy and the cliff heights are clamped down to it.
+        const trust = 100, cliff = 50, n = trust + cliff;
+        const heights = new Float32Array(n);
+        const classes = new Uint8Array(n).fill(5);
+        const diag = new Uint8Array(n * VEG_DIAG_STRIDE);
+        for (let i = 0; i < trust; i++) {
+            heights[i] = 14 + (i % 3);          // 14..16 m
+            diag[i * VEG_DIAG_STRIDE] = 255;     // trustworthy (wVertical ≈ 1)
+        }
+        for (let i = trust; i < n; i++) {
+            heights[i] = 44 + (i % 3);          // 44..46 m
+            diag[i * VEG_DIAG_STRIDE] = 0;       // cliff / stacked → untrusted
+        }
+        const robustMax = sanitizeVegHeights(heights, classes, n, diag);
+        expect(robustMax).not.toBeNull();
+        expect(robustMax).toBeLessThan(20);     // tracks the clean ~15 m canopy
+        expect(robustMax).toBeGreaterThanOrEqual(15);
+        // Cliff trees are clamped to that trustworthy reference.
+        expect(heights[n - 1]).toBe(robustMax);
+        // Clean trees keep their value.
+        expect(heights[0]).toBe(14);
+    });
+
+    it('falls back to the whole population when no tree is trustworthy', () => {
+        // Pure-cliff capture: every point has blendW 0. The reference is still
+        // derived from the full population rather than collapsing to the floor.
+        const n = 100;
+        const heights = new Float32Array(n);
+        const classes = new Uint8Array(n).fill(5);
+        const diag = new Uint8Array(n * VEG_DIAG_STRIDE); // all blendW 0
+        for (let i = 0; i < n; i++) heights[i] = 18 + (i % 5); // 18..22 m
+        const robustMax = sanitizeVegHeights(heights, classes, n, diag);
+        expect(robustMax).not.toBeNull();
+        expect(robustMax).toBeGreaterThanOrEqual(20);
+        expect(robustMax).toBeLessThan(30);
     });
 });

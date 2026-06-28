@@ -497,26 +497,22 @@ function HeightAnalysisControls() {
     const setGroundRough = useMapStore((s) => s.setLidarVegGroundRough);
     const columnCell = useMapStore((s) => s.lidarVegColumnCell);
     const setColumnCell = useMapStore((s) => s.setLidarVegColumnCell);
-    const groundCell = useMapStore((s) => s.lidarVegGroundCell);
-    const setGroundCell = useMapStore((s) => s.setLidarVegGroundCell);
     const roughLowFrac = useMapStore((s) => s.lidarVegRoughLowFrac);
     const setRoughLowFrac = useMapStore((s) => s.setLidarVegRoughLowFrac);
     const overhangReach = useMapStore((s) => s.lidarVegOverhangReach);
     const setOverhangReach = useMapStore((s) => s.setLidarVegOverhangReach);
-    const poolMinPts = useMapStore((s) => s.lidarVegPoolMinPts);
-    const setPoolMinPts = useMapStore((s) => s.setLidarVegPoolMinPts);
-    const poolMaxRadius = useMapStore((s) => s.lidarVegPoolMaxRadius);
-    const setPoolMaxRadius = useMapStore((s) => s.setLidarVegPoolMaxRadius);
     const cliffDistMode = useMapStore((s) => s.lidarVegCliffDistMode);
     const setCliffDistMode = useMapStore((s) => s.setLidarVegCliffDistMode);
     const colorSmooth = useMapStore((s) => s.lidarVegColorSmooth);
     const setColorSmooth = useMapStore((s) => s.setLidarVegColorSmooth);
     const cliffSparse = useMapStore((s) => s.lidarVegCliffSparseFallback);
     const setCliffSparse = useMapStore((s) => s.setLidarVegCliffSparseFallback);
-    const heightCeiling = useMapStore((s) => s.lidarVegHeightCeiling);
-    const setHeightCeiling = useMapStore((s) => s.setLidarVegHeightCeiling);
-    const heightFloor = useMapStore((s) => s.lidarVegHeightFloor);
-    const setHeightFloor = useMapStore((s) => s.setLidarVegHeightFloor);
+    const cliffSlopeDeg = useMapStore((s) => s.lidarVegCliffSlopeDeg);
+    const setCliffSlopeDeg = useMapStore((s) => s.setLidarVegCliffSlopeDeg);
+    const cliffSlopeSample = useMapStore((s) => s.lidarVegCliffSlopeSample);
+    const setCliffSlopeSample = useMapStore((s) => s.setLidarVegCliffSlopeSample);
+    const cliffSlopeMin = useMapStore((s) => s.lidarVegCliffSlopeMin);
+    const setCliffSlopeMin = useMapStore((s) => s.setLidarVegCliffSlopeMin);
 
     return (
         <details className="group border-t border-slate-200 pt-3 dark:border-slate-700" open>
@@ -537,6 +533,23 @@ function HeightAnalysisControls() {
                 </div>
                 <DiagLegend mode={diagMode} />
 
+                {/* "Falaise simple" : classification basée UNIQUEMENT sur la pente
+                    du sol, qui court-circuite tous les seuils détaillés ci-dessous. */}
+                <DiagSlider
+                    label="Falaise simple (pente)" title="Mode simplifié : au-delà de cet angle de pente du sol, la végétation est traitée en falaise (hauteur par colonne) ; en dessous en pente (hauteur verticale au sol). Court-circuite entièrement la logique détaillée (crête, étalement, surplomb) — un seul réglage. 0 = off (classification détaillée)."
+                    value={cliffSlopeDeg} min={0} max={80} step={5}
+                    format={(v) => (v <= 0 ? 'off' : `≥ ${v.toFixed(0)}°`)} onChange={setCliffSlopeDeg}
+                />
+                {/* Échelle de mesure de la pente : un grand rayon lit la pente de
+                    loin, donc un petit talus raide mais bas reste « pente ». */}
+                {cliffSlopeDeg > 0 && (
+                    <DiagSlider
+                        label="Échelle pente" title="Distance (m) sur laquelle la pente du sol est mesurée en mode falaise simple. Plus grande = pente lue à une échelle plus grossière, donc un petit talus raide mais peu haut reste classé en pente ; seules les ruptures raides sur toute cette distance (vraies falaises) restent en falaise."
+                        value={cliffSlopeSample} min={1} max={20} step={1}
+                        format={(v) => `${v.toFixed(0)} m`} onChange={setCliffSlopeSample}
+                    />
+                )}
+
                 {/* Seuils de décision — recalcul instantané sur le nuage chargé. */}
                 <DiagSlider
                     label="Étagement falaise" title="Écart vertical (m) au-delà duquel deux masses de végétation empilées (arbres sur des vires différentes d'une falaise) sont comptées séparément. Plus petit = sépare davantage les étages ; plus grand = fusionne tronc et cime."
@@ -545,9 +558,18 @@ function HeightAnalysisControls() {
                 />
                 <DiagSlider
                     label="Relief sol max" title="Relief local du sol (m, 3×3) au-delà duquel la hauteur reste mesurée par colonne (falaises). En dessous elle est mesurée verticalement au sol — rendant leur vraie hauteur aux houppiers larges. 0 = colonnes seules."
-                    value={groundRough} min={0} max={20} step={1}
+                    value={groundRough} min={0} max={50} step={1}
                     format={(v) => (v <= 0 ? 'off' : `${v.toFixed(0)} m`)} onChange={setGroundRough}
                 />
+                {/* Plancher de pente du mode DÉTAILLÉ : force la falaise sur les
+                    faces raides ouvertes que la logique crête/rebord reverdit. */}
+                {cliffSlopeDeg <= 0 && (
+                    <DiagSlider
+                        label="Pente min falaise" title="Mode détaillé : au-delà de cet angle de pente du sol (mesuré sur 4 m), une cellule est forcée en falaise même quand la logique crête/rebord la classerait en pente — rattrape les faces raides ouvertes et les falaises talutées dont le sommet est à plus de 8 m horizontal de la base. S'ajoute à la logique existante (le surplomb reste surplomb). 0 = off (inchangé). Attention : trop bas sur un terrain globalement pentu, rougit aussi de la forêt légitime."
+                        value={cliffSlopeMin} min={0} max={80} step={5}
+                        format={(v) => (v <= 0 ? 'off' : `≥ ${v.toFixed(0)}°`)} onChange={setCliffSlopeMin}
+                    />
+                )}
                 <DiagSlider
                     label="Transition relief" title="Bord bas de la transition de mélange, en fraction du « Relief sol max » : en dessous, la hauteur fait pleinement confiance au vertical-au-sol."
                     value={roughLowFrac} min={0} max={1} step={0.05}
@@ -559,24 +581,9 @@ function HeightAnalysisControls() {
                     format={(v) => `${v.toFixed(1)} m`} onChange={setColumnCell}
                 />
                 <DiagSlider
-                    label="Maille sol" title="Taille de cellule (m) de la grille de référence du sol nu. Ne se ré-applique en direct qu'en mode Points (le nuage garde son sol classé) ; en mode maillage une nouvelle capture est nécessaire."
-                    value={groundCell} min={1} max={6} step={0.5}
-                    format={(v) => `${v.toFixed(1)} m`} onChange={setGroundCell}
-                />
-                <DiagSlider
                     label="Portée surplomb" title="Distance (m) sur laquelle un point de houppier en surplomb peut être rattaché au sol plus haut du sommet de falaise voisin."
                     value={overhangReach} min={0} max={20} step={1}
                     format={(v) => `${v.toFixed(0)} m`} onChange={setOverhangReach}
-                />
-                <DiagSlider
-                    label="Fusion colonnes" title="Pooling adaptatif (« sphère variable ») : nombre minimum de points que le voisinage doit réunir avant de figer la base d'une colonne. Une colonne trop clairsemée grandit son rayon et fusionne avec ses voisines, adoucissant les coutures de base par colonne sur une paroi. 0 = off (lissage 3×3 classique)."
-                    value={poolMinPts} min={0} max={60} step={1}
-                    format={(v) => (v <= 0 ? 'off' : `${v.toFixed(0)} pts`)} onChange={setPoolMinPts}
-                />
-                <DiagSlider
-                    label="Rayon fusion max" title="Rayon maximal (m) que la « sphère » de fusion peut atteindre dans les zones clairsemées. Sans effet si « Fusion colonnes » = off."
-                    value={poolMaxRadius} min={2} max={16} step={1}
-                    format={(v) => `${v.toFixed(0)} m`} onChange={setPoolMaxRadius}
                 />
                 {/* Mode hauteur des points falaise : remplace (sur la falaise
                     uniquement) la hauteur par colonne par une distance. */}
@@ -599,16 +606,6 @@ function HeightAnalysisControls() {
                     label="Repli épars (Mur)" title="Sur les falaises (mode Colonne) : un point seul dans un cluster vertical d'au plus N retours — typiquement un point qui a volé au-dessus du vide — prend la distance horizontale à la paroi au lieu d'une hauteur de colonne nulle (la tâche marron sombre). N'affecte que ces clusters épars ; le reste reste identique. 0 = off ; plus haut = rattrape des clusters un peu plus gros."
                     value={cliffSparse} min={0} max={16} step={1}
                     format={(v) => (v <= 0 ? 'off' : `≤ ${v.toFixed(0)} pts`)} onChange={setCliffSparse}
-                />
-                <DiagSlider
-                    label="Plafond hauteur" title="Plafond dur (m) écrêtant les artefacts de hauteur des bords de falaise / vides."
-                    value={heightCeiling} min={20} max={100} step={5}
-                    format={(v) => `${v.toFixed(0)} m`} onChange={setHeightCeiling}
-                />
-                <DiagSlider
-                    label="Plancher échelle" title="Plancher (m) gardant l'échelle de couleur auto utilisable sur les broussailles éparses."
-                    value={heightFloor} min={1} max={20} step={1}
-                    format={(v) => `${v.toFixed(0)} m`} onChange={setHeightFloor}
                 />
             </div>
         </details>
