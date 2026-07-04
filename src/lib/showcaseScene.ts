@@ -46,6 +46,7 @@ const TAG = {
     meshRoughness: 8,
     shadedForestTfv: 9,
     shadedTreeSeed: 10,
+    shadedHeight: 11,
 } as const;
 
 export interface ShowcaseCamera {
@@ -166,6 +167,16 @@ interface ShadedMeta {
     hasForestTfv?: boolean;
     /** Whether the binary carries the per-tree seed buffer (tag 10). */
     hasTreeSeed?: boolean;
+    /**
+     * Whether the binary carries the per-point height-above-ground buffer
+     * (tag 11). When absent (legacy scenes) the heights are recomputed on load.
+     */
+    hasHeight?: boolean;
+    /**
+     * Robust tallest-tree height (m) driving the auto foliage scale, baked at
+     * export so it need not be recomputed. Only meaningful when `hasHeight`.
+     */
+    vegHeightAuto?: number;
 }
 
 interface MeshMeta {
@@ -269,6 +280,9 @@ function collectDescriptors(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Buff
         if (shaded.treeSeed) {
             descriptors.push(vertexDescriptor(TAG.shadedTreeSeed, shaded.treeSeed, 1));
         }
+        if (shaded.heightAboveGround) {
+            descriptors.push(vertexDescriptor(TAG.shadedHeight, shaded.heightAboveGround, 4));
+        }
     }
     if (mesh) {
         descriptors.push(
@@ -295,6 +309,8 @@ function buildGeometryBlob(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Geome
                 pointCount: shaded.pointCount,
                 hasForestTfv: Boolean(shaded.forestTfv),
                 hasTreeSeed: Boolean(shaded.treeSeed),
+                hasHeight: Boolean(shaded.heightAboveGround),
+                vegHeightAuto: shaded.vegHeightAuto,
             }
             : null,
         mesh: mesh
@@ -459,6 +475,8 @@ function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>): LidarS
         classifications: byteView(buffers, TAG.shadedClass, n),
         forestTfv: meta.hasForestTfv ? byteView(buffers, TAG.shadedForestTfv, n) : undefined,
         treeSeed: meta.hasTreeSeed ? byteView(buffers, TAG.shadedTreeSeed, n) : undefined,
+        heightAboveGround: meta.hasHeight ? floatView(buffers, TAG.shadedHeight, n) : undefined,
+        vegHeightAuto: meta.hasHeight ? meta.vegHeightAuto : undefined,
     };
 }
 
@@ -491,12 +509,12 @@ export interface DecodedGeometry {
  * Re-derive per-point height-above-ground (and the robust canopy top that
  * drives the "Hauteur max · Auto" foliage scale) for a restored scene.
  *
- * The .bin format doesn't persist heights — they're derived, not authored — so
- * the GPU foliage ramp and the auto-height snap have nothing to work from after
- * a reload. We recompute them with the per-column stacked-ground metric (see
- * computeVegHeightStacked), using the default gap; the user can re-tune it live
- * after the scene loads. Mutates `shaded` to attach `heightAboveGround`
- * + `vegHeightAuto`.
+ * Scenes baked with `hasHeight` already carry both buffers (see
+ * {@link buildShaded}) and this is a no-op. It only runs for legacy scenes
+ * saved before heights were persisted: we recompute them with the per-column
+ * stacked-ground metric (see computeVegHeightStacked), using the default gap —
+ * a costly main-thread pass the user can re-tune live afterwards. Mutates
+ * `shaded` to attach `heightAboveGround` + `vegHeightAuto`.
  */
 function reconstructShadedHeights(shaded: LidarShadedCloudData): void {
     if (shaded.heightAboveGround) return;

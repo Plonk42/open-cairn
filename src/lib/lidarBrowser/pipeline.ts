@@ -9,6 +9,7 @@
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
 import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
 import { extractPoints } from './extract';
+import { buildGridMesh } from './gridMesh';
 import {
     buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH,
     sanitizeVegHeights, type VegGroundGrid,
@@ -29,6 +30,12 @@ export interface BrowserFetchParams {
     radius: number;
     stride: number;
     classes?: number[];
+    /** Poisson mode only: target decimation stride for the ground/water points
+     *  fed to the reconstruction. Lets the ground be sampled more coarsely than
+     *  the (vegetation) `stride` so the slow PoissonRecon octree builds faster
+     *  without thinning the non-ground overlay. Absolute, like `stride`; values
+     *  below `stride` have no effect (points were already decimated on extract). */
+    poissonGroundStride?: number;
     /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
     poissonDepth?: number;
     /** Min samples per octree node for PoissonRecon. Default 1.5. */
@@ -37,6 +44,11 @@ export interface BrowserFetchParams {
     poissonPointWeight?: number;
     /** Colour shader preset applied to all geometry. */
     shader?: ShaderPreset;
+    /** Delaunay mode: smooth the ground surface via a regular grid heightfield
+     *  (denoises, kills self-shadow stripes) instead of raw Delaunay. */
+    gridMesh?: boolean;
+    /** Grid cell resolution (m) when gridMesh is on. Default 1. */
+    gridCell?: number;
     /** Vertical gap (m) above which stacked vegetation masses are counted
      *  separately for the height-above-ground metric. Default 3. */
     groundGapM?: number;
@@ -181,6 +193,45 @@ function splitGround(c: CommonCloud): GroundSplit {
         }
     }
     return { groundPos, groundCount, ngPos, ngCls, groundScan };
+}
+
+/** Decimated ground subset for the Poisson reconstruction input. */
+interface DecimatedGround {
+    pos: Float32Array;
+    count: number;
+    scan: ScanData | null;
+}
+
+/**
+ * Keep one ground point in `extra` (uniform stride) for the Poisson input only.
+ * The caller computes `extra` from the absolute ground stride relative to the
+ * extraction stride, so the ground mesh can be reconstructed from far fewer
+ * points than the vegetation overlay. `extra <= 1` returns the input unchanged.
+ */
+function decimateGround(
+    groundPos: Float32Array, groundCount: number, groundScan: ScanData | null, extra: number,
+): DecimatedGround {
+    if (extra <= 1 || groundCount === 0) return { pos: groundPos, count: groundCount, scan: groundScan };
+    const count = Math.ceil(groundCount / extra);
+    const pos = new Float32Array(count * 3);
+    const scan: ScanData | null = groundScan && {
+        scanAngle: new Float32Array(count),
+        sourceId: new Uint16Array(count),
+        gpsTime: new Float64Array(count),
+    };
+    let k = 0;
+    for (let i = 0; i < groundCount; i += extra) {
+        pos[k * 3] = groundPos[i * 3];
+        pos[k * 3 + 1] = groundPos[i * 3 + 1];
+        pos[k * 3 + 2] = groundPos[i * 3 + 2];
+        if (scan && groundScan) {
+            scan.scanAngle[k] = groundScan.scanAngle[i];
+            scan.sourceId[k] = groundScan.sourceId[i];
+            scan.gpsTime[k] = groundScan.gpsTime[i];
+        }
+        k++;
+    }
+    return { pos: pos.subarray(0, k * 3), count: k, scan };
 }
 
 /**
@@ -492,8 +543,11 @@ export async function fetchLidarDelaunay(
     const tMesh = startTimer();
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
-    const groundMesh = buildMesh(groundPos, maxEdge, shader);
-    logStage('delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol+eau → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
+    const groundMesh = params.gridMesh
+        ? buildGridMesh(groundPos, params.gridCell ?? 1, shader)
+        : buildMesh(groundPos, maxEdge, shader);
+    const meshVertexCount = groundMesh.positions.length / 3;
+    logStage(params.gridMesh ? 'grid' : 'delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol+eau → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -502,7 +556,7 @@ export async function fetchLidarDelaunay(
         normals: groundMesh.normals,
         colors: groundMesh.colors,
         indices: groundMesh.indices,
-        vertexCount: groundCount,
+        vertexCount: meshVertexCount,
         triangleCount: groundMesh.indices.length / 3,
         radius: c.radius,
     };
@@ -639,11 +693,21 @@ export async function fetchLidarPoisson(
     const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGround(c);
     const nonGroundCount = ngCls.length;
 
+    // Decimate the ground subset further for the (slow) reconstruction only:
+    // the absolute `poissonGroundStride` lets the ground/water be sampled more
+    // coarsely than the vegetation. The full `groundPos` still feeds the
+    // veg-height ground grid below so foliage heights stay accurate.
+    const extractionStride = Math.max(1, Math.floor(params.stride));
+    const groundStride = Math.max(extractionStride, Math.floor(params.poissonGroundStride ?? extractionStride));
+    const extraGroundStride = Math.max(1, Math.round(groundStride / extractionStride));
+    const ps = decimateGround(groundPos, groundCount, groundScan, extraGroundStride);
+    const psCount = ps.count;
+
     // 1. Ground mesh via PoissonRecon.
     onProgress({
         stage: 'normals',
         message: STAGE_LABELS.normals,
-        detail: `${groundCount.toLocaleString()} pts sol`,
+        detail: `${psCount.toLocaleString()} pts sol`,
     });
     const tGroundNrm = startTimer();
     // Poisson needs a *coherently oriented* gradient field, not an upward one:
@@ -653,16 +717,16 @@ export async function fetchLidarPoisson(
     // cascade a consistent orientation from the strongest cues outward
     // (laser scan-angle → +z prior → quality-weighted propagation) and weight
     // each normal by quality so crisp points drive the isosurface.
-    const groundQuality = new Float32Array(groundCount);
-    const groundNormals = computeNormalsKNN(groundPos, 12, 2, false, groundQuality);
-    orientNormalsForPoisson(groundPos, groundNormals, groundQuality, groundScan);
-    logStage('normals (sol)', tGroundNrm(), `${groundCount.toLocaleString()} pts${groundScan ? ' · scan' : ''}`);
+    const groundQuality = new Float32Array(psCount);
+    const groundNormals = computeNormalsKNN(ps.pos, 12, 2, false, groundQuality);
+    orientNormalsForPoisson(ps.pos, groundNormals, groundQuality, ps.scan);
+    logStage('normals (sol)', tGroundNrm(), `${psCount.toLocaleString()} pts${ps.scan ? ' · scan' : ''}`);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
-    const oriented = new Float32Array(groundCount * 6);
-    for (let i = 0; i < groundCount; i++) {
-        oriented[i * 6] = groundPos[i * 3];
-        oriented[i * 6 + 1] = groundPos[i * 3 + 1];
-        oriented[i * 6 + 2] = groundPos[i * 3 + 2];
+    const oriented = new Float32Array(psCount * 6);
+    for (let i = 0; i < psCount; i++) {
+        oriented[i * 6] = ps.pos[i * 3];
+        oriented[i * 6 + 1] = ps.pos[i * 3 + 1];
+        oriented[i * 6 + 2] = ps.pos[i * 3 + 2];
         oriented[i * 6 + 3] = groundNormals[i * 3];
         oriented[i * 6 + 4] = groundNormals[i * 3 + 1];
         oriented[i * 6 + 5] = groundNormals[i * 3 + 2];

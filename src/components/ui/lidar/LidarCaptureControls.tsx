@@ -162,10 +162,82 @@ function CaptureZoneControls() {
 }
 
 /**
- * Capture controls brick: mode selection, Poisson params, capture zone,
- * density, the load/clear actions, the status line and the loading progress
- * bar. Reads and writes the shared mapStore so the studio dock and the
- * classic launcher stay in sync with zero duplication.
+ * Poisson-only ground/water density slider. Lets the ground be sampled more
+ * coarsely than the vegetation so the slow PoissonRecon mesh build speeds up
+ * without thinning the non-ground overlay.
+ */
+function GroundDensityControl() {
+    const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
+    const setGroundStride = useMapStore((s) => s.setLidarCloudGroundStride);
+    return (
+        <label className="block">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                <span>Densité sol/eau</span>
+                <span className="font-mono text-xs text-slate-400">{groundStride === 1 ? 'max' : `1/${groundStride}`}</span>
+            </div>
+            <input
+                aria-label="Décimation du sol et de l'eau (reconstruction Poisson)"
+                type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
+                list="lidar-density-stops"
+                value={strideToIndex(groundStride)}
+                onChange={(e) => setGroundStride(STRIDE_STOPS[Number(e.target.value)])}
+                className="mt-1 w-full accent-green-600"
+            />
+            <p className="mt-1 text-[10px] text-slate-400">
+                Sol/eau plus grossier = reconstruction plus rapide, sans toucher à la végétation.
+            </p>
+        </label>
+    );
+}
+
+/** Surface sub-mode options for Delaunay capture. */
+const SURFACE_OPTIONS = [
+    { value: 'smooth', label: 'Lissé', title: 'Sol rééchantillonné sur grille régulière — débruité, sans rayures d’ombre' },
+    { value: 'raw', label: 'Brut', title: 'Triangulation Delaunay directe des points sol (fidèle mais bruité)' },
+] as const satisfies ReadonlyArray<{ value: 'smooth' | 'raw'; label: string; title: string }>;
+
+function DelaunayControls() {
+    const smooth = useMapStore((s) => s.lidarMeshSmooth);
+    const setSmooth = useMapStore((s) => s.setLidarMeshSmooth);
+    const cell = useMapStore((s) => s.lidarGridCell);
+    const setCell = useMapStore((s) => s.setLidarGridCell);
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300">Surface</span>
+                <SegmentedControl
+                    value={smooth ? 'smooth' : 'raw'}
+                    options={SURFACE_OPTIONS}
+                    onChange={(v) => setSmooth(v === 'smooth')}
+                />
+            </div>
+            {smooth && (
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span>Résolution</span>
+                        <span className="font-mono text-xs text-slate-400">{cell.toFixed(1)} m</span>
+                    </div>
+                    <input
+                        aria-label="Résolution de la grille du sol lissé"
+                        type="range" min={0.5} max={5} step={0.5}
+                        value={cell}
+                        onChange={(e) => setCell(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                        Maille fine = détail &middot; maille large = plus lissé / léger.
+                    </p>
+                </label>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Capture controls brick: mode selection, Delaunay surface + Poisson params,
+ * capture zone, density, the load/clear actions, the status line and the
+ * loading progress bar. Reads and writes the shared mapStore so the studio
+ * dock and the classic launcher stay in sync with zero duplication.
  */
 export function LidarCaptureControls({ showProgress = true }: Readonly<{ showProgress?: boolean }>) {
     const mode = useMapStore((s) => s.lidarMode);
@@ -193,6 +265,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                     <SegmentedControl value={mode} options={MODE_OPTIONS} onChange={setMode} />
                 </div>
 
+                {mode === 'delaunay' && <DelaunayControls />}
                 {mode === 'poisson' && <PoissonControls />}
 
                 {/* Zone — square (radius) or drawn rectangle */}
@@ -201,7 +274,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                 {/* Densité */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Densité</span>
+                        <span>{mode === 'poisson' ? 'Densité non-sol' : 'Densité'}</span>
                         <span className="font-mono text-xs text-slate-400">{stride === 1 ? 'max' : `1/${stride}`}</span>
                     </div>
                     <input
@@ -218,6 +291,8 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                         ))}
                     </datalist>
                 </label>
+
+                {mode === 'poisson' && <GroundDensityControl />}
             </div>
 
             {/* Pinned action footer — stays visible even when the params scroll */}

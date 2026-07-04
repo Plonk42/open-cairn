@@ -113,6 +113,17 @@ export interface LidarSlice {
     /** Decimation factor (1 = full density, N = keep 1/N points). */
     lidarCloudStride: number;
     setLidarCloudStride: (v: number) => void;
+    /** Poisson mode only: separate (coarser) decimation for the ground/water
+     *  points fed to the reconstruction, so the slow mesh build can be sped up
+     *  without thinning the vegetation overlay. Absolute, like lidarCloudStride. */
+    lidarCloudGroundStride: number;
+    setLidarCloudGroundStride: (v: number) => void;
+    /** Delaunay sub-mode: smooth ground via grid heightfield (true) or raw Delaunay (false). */
+    lidarMeshSmooth: boolean;
+    setLidarMeshSmooth: (v: boolean) => void;
+    /** Grid resolution (m) for the smooth Delaunay surface. */
+    lidarGridCell: number;
+    setLidarGridCell: (v: number) => void;
     /** Vertical gap (m) above which stacked vegetation masses (trees on different
      *  cliff ledges, or a tree leaning on the face) are counted separately when
      *  measuring height above ground. Drives the foliage colour ramp. */
@@ -423,6 +434,12 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     lidarCloudProgress: null,
     lidarCloudStride: persisted.lidarCloudStride ?? 10,
     setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
+    lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? 16,
+    setLidarCloudGroundStride: (lidarCloudGroundStride) => set({ lidarCloudGroundStride }),
+    lidarMeshSmooth: persisted.lidarMeshSmooth ?? true,
+    setLidarMeshSmooth: (lidarMeshSmooth) => set({ lidarMeshSmooth }),
+    lidarGridCell: persisted.lidarGridCell ?? 1,
+    setLidarGridCell: (lidarGridCell) => set({ lidarGridCell }),
     lidarVegGroundGap: persisted.lidarVegGroundGap ?? DEFAULT_VEG_GROUND_GAP,
     setLidarVegGroundGap: (lidarVegGroundGap) => set({ lidarVegGroundGap }),
     lidarVegGroundRough: persisted.lidarVegGroundRough ?? DEFAULT_VEG_GROUND_ROUGH,
@@ -594,6 +611,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     groundGapM: state.lidarVegGroundGap,
                     groundRoughM: state.lidarVegGroundRough,
                     shader: state.lidarShader,
+                    gridMesh: state.lidarMeshSmooth,
+                    gridCell: state.lidarGridCell,
                     onProgress,
                 });
                 // Set both shaded and mesh layers for delaunay mode display
@@ -613,6 +632,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     radius: capture.radius,
                     rect: capture.rect,
                     stride: state.lidarCloudStride,
+                    poissonGroundStride: state.lidarCloudGroundStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
                     poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
                     poissonPointWeight: state.lidarCloudPoissonPointWeight,
@@ -704,6 +724,9 @@ export function selectLidarPersisted(
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
     | 'lidarRectNorthFixed'
+    | 'lidarCloudGroundStride'
+    | 'lidarMeshSmooth'
+    | 'lidarGridCell'
     | 'lidarVegGroundGap'
     | 'lidarVegGroundRough'
     | 'lidarVegColumnCell'
@@ -755,6 +778,9 @@ export function selectLidarPersisted(
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
         lidarRectNorthFixed: s.lidarRectNorthFixed,
+        lidarCloudGroundStride: s.lidarCloudGroundStride,
+        lidarMeshSmooth: s.lidarMeshSmooth,
+        lidarGridCell: s.lidarGridCell,
         lidarVegGroundGap: s.lidarVegGroundGap,
         lidarVegGroundRough: s.lidarVegGroundRough,
         lidarVegColumnCell: s.lidarVegColumnCell,

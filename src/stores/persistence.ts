@@ -34,6 +34,9 @@ export type PersistedSettings = {
     lidarCloudStride?: number;
     lidarCaptureRect?: CaptureRectDims;
     lidarRectNorthFixed?: boolean;
+    lidarCloudGroundStride?: number;
+    lidarMeshSmooth?: boolean;
+    lidarGridCell?: number;
     lidarVegGroundGap?: number;
     lidarVegGroundRough?: number;
     lidarVegColumnCell?: number;

@@ -782,10 +782,12 @@ export function VegetationControls() {
                     hors du fieldset (actifs même sans végétation enrichie). */}
 
                 {/* Ombrage par normale : intensité du relief calculé sur la normale
-                    des feuilles (en plus de l'EDL). 0 % = aplat (EDL seul). */}
+                    des feuilles (en plus de l'EDL). 0 % = aplat (EDL seul). Pilote
+                    aussi la part d'éclairage neutre sur le feuillage quand le soleil
+                    est actif : sous 100 % le rendu est adouci par la lumière neutre. */}
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Ombrage par normale</span>
+                        <span title="Relief de feuillage par normale. Soleil éteint : 0 % = aplat, 100 % = relief complet. Soleil allumé : 100 % = soleil pur, sous 100 % mélange une part d'éclairage neutre pour adoucir.">Ombrage par normale</span>
                         <span className="font-mono text-xs text-slate-400">{Math.round(normalShade * 100)}%</span>
                     </div>
                     <input

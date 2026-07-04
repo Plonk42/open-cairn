@@ -58,6 +58,10 @@ void main() {
     float vegNorm = (v_isVeg > 0.5) ? u_vegNormalShade : 1.0;
     float flatMod = mix(1.0, v_flatDiff, vegNorm);
     vec3 neutral = albedo * (0.2 + 0.8 * flatMod * s);
-    fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
+    // Sur le feuillage, le slider mélange aussi l'éclairage neutre même quand le
+    // soleil est actif : 1 = soleil directionnel pur (inchangé), plus bas = part
+    // croissante d'éclairage neutre/normale pour adoucir le rendu.
+    float flatVeg = (v_isVeg > 0.5) ? max(u_flatLight, 1.0 - u_vegNormalShade) : u_flatLight;
+    fragColor = vec4(mix(lit, neutral, flatVeg), v_alpha);
     fragDepth = v_depth;
 }

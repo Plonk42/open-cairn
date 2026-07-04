@@ -1375,10 +1375,19 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // a wider safe range.
         gl.enable(gl.CULL_FACE);
         gl.cullFace(gl.FRONT);
+        // Slope-scaled depth bias: the Delaunay 2.5D mesh produces near-vertical
+        // stripe triangles on cliffs that, with a constant bias only, self-shadow
+        // the flat ground around them. Polygon offset pushes steep faces back
+        // proportionally to their depth slope, so vertical stripes stop casting
+        // spurious shadows while the smooth Poisson surface is unaffected.
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(6, 24);
         gl.useProgram(this._progShadow);
         gl.uniformMatrix4fv(this._locShadow.lightMatrix, false, this._lightMatrix);
         gl.bindVertexArray(this._vaoMesh);
         this._drawMeshChunked(gl);
+        gl.polygonOffset(0, 0);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
         gl.cullFace(gl.BACK);
         gl.disable(gl.CULL_FACE);
         gl.bindFramebuffer(gl.FRAMEBUFFER, prevFBO);
