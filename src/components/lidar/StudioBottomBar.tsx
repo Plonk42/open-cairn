@@ -1,5 +1,3 @@
-import { LidarCaptureControls } from '@/components/ui/lidar/LidarCaptureControls';
-import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import { CaptureIcon, OrbitIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import {
     BottomBarItem,
@@ -8,6 +6,8 @@ import {
     STUDIO_RENDER_SETTINGS,
     type StudioRenderSettingId,
 } from '@/components/lidar/StudioRenderSettings';
+import { LidarCaptureControls } from '@/components/ui/lidar/LidarCaptureControls';
+import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 
@@ -77,11 +77,11 @@ export function OrbitTopBarButton() {
 
 /**
  * Capture entry point: a large round floating action button pinned to the
- * bottom-right. Pressing it opens the full capture controls (mode, radius,
- * density, load/clear, progress, stats) AND activates the on-map preview
- * footprint of the zone to load — the preview is hidden until it's pressed.
- * The menu stays open while panning so the zone can be positioned, and only
- * closes via the button or its close control.
+ * bottom-right. Pressing it opens the full capture controls (mode, zone
+ * dimensions, density, load/clear, progress, stats) AND activates the on-map
+ * preview footprint of the zone to load — the preview is hidden until it's
+ * pressed. The menu stays open while panning so the zone can be positioned, and
+ * only closes via the button or its close control.
  */
 export function StudioCaptureButton() {
     const [open, setOpen] = useState(false);
@@ -90,7 +90,9 @@ export function StudioCaptureButton() {
     useEffect(() => {
         useMapStore.getState().setLidarPreviewVisible(open);
     }, [open]);
-    useEffect(() => () => useMapStore.getState().setLidarPreviewVisible(false), []);
+    useEffect(() => () => {
+        useMapStore.getState().setLidarPreviewVisible(false);
+    }, []);
 
     // The onboarding tutorial opens this menu (to present the capture modes)
     // and closes it again by dispatching the studio-reveal event.

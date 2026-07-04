@@ -1,10 +1,18 @@
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
-import { POISSON_MAX_RADIUS, useMapStore } from '@/stores/mapStore';
+import {
+    LIDAR_RECT_MAX_AREA_M2, rectAreaHa,
+} from '@/lib/lidarCaptureRect';
+import { POISSON_MAX_AREA_M2, useMapStore } from '@/stores/mapStore';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
 
 /** Allowed density stops, ordered left→right on the slider (coarse → max). */
 const STRIDE_STOPS = [32, 16, 8, 4, 2, 1] as const;
+
+/** Capture rectangle side-length slider bounds (metres). */
+const CAPTURE_SIDE_MIN_M = 50;
+const CAPTURE_SIDE_MAX_M = 2000;
+const CAPTURE_SIDE_STEP_M = 25;
 
 /** Snap a stride value to the nearest allowed stop's index. */
 function strideToIndex(stride: number): number {
@@ -87,10 +95,77 @@ function PoissonControls() {
 }
 
 /**
- * Capture controls brick: mode selection, Poisson params, radius, density, the
- * load/clear actions, the status line and the loading progress bar. Reads and
- * writes the shared mapStore so the studio dock and the classic launcher stay
- * in sync with zero duplication.
+ * Capture-zone control: the centred capture rectangle. Two sliders set its width
+ * and length (a square is just width === length), and a checkbox locks it to a
+ * north-up orientation instead of following the live camera bearing.
+ */
+function CaptureZoneControls() {
+    const mode = useMapStore((s) => s.lidarMode);
+    const rect = useMapStore((s) => s.lidarCaptureRect);
+    const setRect = useMapStore((s) => s.setLidarCaptureRect);
+    const northFixed = useMapStore((s) => s.lidarRectNorthFixed);
+    const setNorthFixed = useMapStore((s) => s.setLidarRectNorthFixed);
+    const maxArea = mode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
+    const overCap = rect.widthM * rect.lengthM > maxArea;
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                <span>Zone</span>
+                <span className="font-mono text-xs text-slate-400">
+                    {Math.round(rect.widthM)} × {Math.round(rect.lengthM)} m
+                    {' · '}{rectAreaHa(rect.widthM, rect.lengthM).toFixed(1)} ha
+                </span>
+            </div>
+            <label className="block">
+                <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                    <span>Largeur</span>
+                    <span className="font-mono text-slate-400">{Math.round(rect.widthM)} m</span>
+                </div>
+                <input
+                    aria-label="Largeur de la zone de capture LiDAR"
+                    type="range" min={CAPTURE_SIDE_MIN_M} max={CAPTURE_SIDE_MAX_M} step={CAPTURE_SIDE_STEP_M}
+                    value={rect.widthM}
+                    onChange={(e) => setRect({ ...rect, widthM: Number(e.target.value) })}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+            <label className="block">
+                <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                    <span>Longueur</span>
+                    <span className="font-mono text-slate-400">{Math.round(rect.lengthM)} m</span>
+                </div>
+                <input
+                    aria-label="Longueur de la zone de capture LiDAR"
+                    type="range" min={CAPTURE_SIDE_MIN_M} max={CAPTURE_SIDE_MAX_M} step={CAPTURE_SIDE_STEP_M}
+                    value={rect.lengthM}
+                    onChange={(e) => setRect({ ...rect, lengthM: Number(e.target.value) })}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+                <input
+                    type="checkbox"
+                    checked={northFixed}
+                    onChange={(e) => setNorthFixed(e.target.checked)}
+                    className="accent-green-600"
+                />
+                <span>Orientation nord fixe</span>
+            </label>
+            {overCap && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                    Zone trop grande — sera réduite à {Math.round(maxArea / 10_000)} ha au chargement.
+                </p>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Capture controls brick: mode selection, Poisson params, capture zone,
+ * density, the load/clear actions, the status line and the loading progress
+ * bar. Reads and writes the shared mapStore so the studio dock and the
+ * classic launcher stay in sync with zero duplication.
  */
 export function LidarCaptureControls({ showProgress = true }: Readonly<{ showProgress?: boolean }>) {
     const mode = useMapStore((s) => s.lidarMode);
@@ -100,8 +175,6 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const error = useMapStore((s) => s.lidarCloudError);
     const progress = useMapStore((s) => s.lidarCloudProgress);
-    const radius = useMapStore((s) => s.lidarCloudRadius);
-    const setRadius = useMapStore((s) => s.setLidarCloudRadius);
     const stride = useMapStore((s) => s.lidarCloudStride);
     const setStride = useMapStore((s) => s.setLidarCloudStride);
     const load = useMapStore((s) => s.loadLidarCloud);
@@ -121,22 +194,8 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
 
                 {mode === 'poisson' && <PoissonControls />}
 
-                {/* Rayon */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>Rayon</span>
-                        <span className="font-mono text-xs text-slate-400">
-                            {radius} m{mode === 'poisson' && radius > POISSON_MAX_RADIUS ? ` → ${POISSON_MAX_RADIUS} m` : ''}
-                        </span>
-                    </div>
-                    <input
-                        aria-label="Rayon de chargement LiDAR"
-                        type="range" min={50} max={1000} step={25}
-                        value={radius}
-                        onChange={(e) => setRadius(Number(e.target.value))}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                </label>
+                {/* Zone — square (radius) or drawn rectangle */}
+                <CaptureZoneControls />
 
                 {/* Densité */}
                 <label className="block">

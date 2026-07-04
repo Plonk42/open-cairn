@@ -1,26 +1,26 @@
 import { create } from 'zustand';
 import { savePersistedSettings } from './persistence';
-import { createViewSlice, selectViewPersisted, type ViewSlice } from './slices/viewSlice';
-import { createTerrainSlice, selectTerrainPersisted, type TerrainSlice } from './slices/terrainSlice';
-import { createSettingsSlice, selectSettingsPersisted, type SettingsSlice } from './slices/settingsSlice';
-import { createLidarSlice, selectLidarPersisted, type LidarSlice } from './slices/lidarSlice';
 import { createCliffSliceSlice, selectCliffSlicePersisted, type CliffSliceSlice } from './slices/cliffSliceSlice';
+import { createLidarSlice, selectLidarPersisted, type LidarSlice } from './slices/lidarSlice';
+import { createSettingsSlice, selectSettingsPersisted, type SettingsSlice } from './slices/settingsSlice';
+import { createTerrainSlice, selectTerrainPersisted, type TerrainSlice } from './slices/terrainSlice';
+import { createViewSlice, selectViewPersisted, type ViewSlice } from './slices/viewSlice';
 
 // Re-export the public store API (types + label maps + constants) so existing
 // imports from '@/stores/mapStore' keep working after the slice split.
-export type { MapView } from './slices/viewSlice';
+export { POISSON_MAX_AREA_M2, type LidarMode } from './slices/lidarSlice';
+export {
+    RENDER_QUALITY_LABELS,
+    type RenderQuality,
+    type UiTheme
+} from './slices/settingsSlice';
 export {
     HILLSHADE_SOURCE_LABELS,
     TERRAIN_DEM_SOURCE_LABELS,
     type HillshadeSource,
-    type TerrainDemSource,
+    type TerrainDemSource
 } from './slices/terrainSlice';
-export {
-    RENDER_QUALITY_LABELS,
-    type RenderQuality,
-    type UiTheme,
-} from './slices/settingsSlice';
-export { POISSON_MAX_RADIUS, type LidarMode } from './slices/lidarSlice';
+export type { MapView } from './slices/viewSlice';
 
 /** Full store shape — the union of every feature slice. */
 export type MapState = ViewSlice & TerrainSlice & SettingsSlice & LidarSlice & CliffSliceSlice;

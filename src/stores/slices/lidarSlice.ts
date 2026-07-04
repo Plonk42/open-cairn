@@ -7,6 +7,10 @@ import {
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import {
+    clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
+    screenUpAzimuthDeg, type CaptureRectDims,
+} from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import { saveLoadedCloud } from '@/lib/savedClouds';
 import { formatSunDate, todaySunDatePart } from '@/lib/sun';
@@ -14,8 +18,32 @@ import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
 
-/** Maximum capture radius (metres) allowed in Poisson mode (WASM heap / octree limit). */
-export const POISSON_MAX_RADIUS = 500;
+/** Maximum capture area (m²) allowed in Poisson mode (WASM heap / octree limit).
+ *  1 000 000 m² = 1 km² = a 1000 × 1000 m zone. */
+export const POISSON_MAX_AREA_M2 = 1_000_000;
+
+/**
+ * Resolve the area to fetch for the next capture: the centred capture rectangle
+ * (clamped to `maxArea`), oriented north when `northFixed` is set, otherwise
+ * along the live camera bearing. `radius` is the enclosing-circle radius so
+ * tile/node selection covers the whole footprint.
+ */
+function captureGeometry(
+    rect: CaptureRectDims,
+    map: MapState['mapInstance'],
+    maxArea: number,
+    northFixed: boolean,
+): { radius: number; rect: { halfWidthM: number; halfLengthM: number; bearingDeg: number } } {
+    const { widthM, lengthM } = clampRectToArea(rect.widthM, rect.lengthM, maxArea);
+    return {
+        radius: rectEnclosingRadiusM(widthM, lengthM),
+        rect: {
+            halfWidthM: widthM / 2,
+            halfLengthM: lengthM / 2,
+            bearingDeg: northFixed || !map ? 0 : screenUpAzimuthDeg(map),
+        },
+    };
+}
 
 /** Rendering mode: shaded point cloud, delaunay (2.5D ground mesh + points), or poisson (WASM ground mesh + points). */
 export type LidarMode = 'shaded' | 'delaunay' | 'poisson';
@@ -42,9 +70,6 @@ export interface LidarSlice {
     lidarCloudError: string | null;
     /** Current loading progress. */
     lidarCloudProgress: LidarProgress | null;
-    /** Half-side of the bbox to load, in meters. */
-    lidarCloudRadius: number;
-    setLidarCloudRadius: (v: number) => void;
     /** Decimation factor (1 = full density, N = keep 1/N points). */
     lidarCloudStride: number;
     setLidarCloudStride: (v: number) => void;
@@ -236,6 +261,16 @@ export interface LidarSlice {
     /** Show a preview rectangle on the map indicating the zone that will be loaded. */
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
+    /**
+     * Centred capture rectangle (width × length in metres). A square is just the
+     * special case width === length. Orientation follows the live camera bearing
+     * unless `lidarRectNorthFixed` is set.
+     */
+    lidarCaptureRect: CaptureRectDims;
+    setLidarCaptureRect: (r: CaptureRectDims) => void;
+    /** Lock the capture rectangle to a north-up orientation (ignore the camera bearing). */
+    lidarRectNorthFixed: boolean;
+    setLidarRectNorthFixed: (v: boolean) => void;
     /** Load the point cloud centered on the current map view. */
     loadLidarCloud: () => Promise<void>;
     /** Instantly re-display a previously saved cloud/mesh snapshot. */
@@ -334,8 +369,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     lidarCloudLoading: false,
     lidarCloudError: null,
     lidarCloudProgress: null,
-    lidarCloudRadius: persisted.lidarCloudRadius ?? 250,
-    setLidarCloudRadius: (lidarCloudRadius) => set({ lidarCloudRadius }),
     lidarCloudStride: persisted.lidarCloudStride ?? 10,
     setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
     lidarVegGroundGap: persisted.lidarVegGroundGap ?? DEFAULT_VEG_GROUND_GAP,
@@ -475,6 +508,10 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarForestSpeciesFilterOn: (lidarForestSpeciesFilterOn) => set({ lidarForestSpeciesFilterOn }),
     lidarPreviewVisible: false,
     setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
+    lidarCaptureRect: persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 },
+    setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
+    lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
+    setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
     loadLidarCloud: async () => {
         const state = get();
         const map = state.mapInstance;
@@ -488,6 +525,10 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         } else {
             center = { lng: state.view.longitude, lat: state.view.latitude };
         }
+        const maxArea = state.lidarMode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
+        const capture = captureGeometry(
+            state.lidarCaptureRect, map, maxArea, state.lidarRectNorthFixed,
+        );
         set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
         try {
             const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
@@ -495,7 +536,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 const composite = await fetchLidarDelaunay({
                     lng: center.lng,
                     lat: center.lat,
-                    radius: state.lidarCloudRadius,
+                    radius: capture.radius,
+                    rect: capture.rect,
                     stride: state.lidarCloudStride,
                     groundGapM: state.lidarVegGroundGap,
                     groundRoughM: state.lidarVegGroundRough,
@@ -513,11 +555,11 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 // PoissonRecon WASM on ground + shaded cloud overlay for the
                 // other classes. Cap radius so the WASM heap (2 GB) and the
                 // depth-12 octree don't explode.
-                const psRadius = Math.min(state.lidarCloudRadius, POISSON_MAX_RADIUS);
                 const composite = await fetchLidarPoisson({
                     lng: center.lng,
                     lat: center.lat,
-                    radius: psRadius,
+                    radius: capture.radius,
+                    rect: capture.rect,
                     stride: state.lidarCloudStride,
                     poissonDepth: state.lidarCloudPoissonDepth,
                     poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
@@ -539,7 +581,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 const shaded = await fetchLidarShaded({
                     lng: center.lng,
                     lat: center.lat,
-                    radius: state.lidarCloudRadius,
+                    radius: capture.radius,
+                    rect: capture.rect,
                     stride: state.lidarCloudStride,
                     groundGapM: state.lidarVegGroundGap,
                     groundRoughM: state.lidarVegGroundRough,
@@ -550,15 +593,12 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             }
             // Persist a "recently loaded" entry so it can be re-opened instantly.
             const after = get();
-            const psRadius = state.lidarMode === 'poisson'
-                ? Math.min(state.lidarCloudRadius, POISSON_MAX_RADIUS)
-                : state.lidarCloudRadius;
             void saveLoadedCloud(
                 {
                     mode: state.lidarMode,
                     centerLng: center.lng,
                     centerLat: center.lat,
-                    radius: psRadius,
+                    radius: capture.radius,
                     stride: state.lidarCloudStride,
                     classes: state.lidarCloudClasses,
                     shader: state.lidarShader,
@@ -599,8 +639,9 @@ export function selectLidarPersisted(
     PersistedSettings,
     | 'lidarMode'
     | 'lidarShader'
-    | 'lidarCloudRadius'
     | 'lidarCloudStride'
+    | 'lidarCaptureRect'
+    | 'lidarRectNorthFixed'
     | 'lidarVegGroundGap'
     | 'lidarVegGroundRough'
     | 'lidarVegColumnCell'
@@ -649,8 +690,9 @@ export function selectLidarPersisted(
     return {
         lidarMode: s.lidarMode,
         lidarShader: s.lidarShader,
-        lidarCloudRadius: s.lidarCloudRadius,
         lidarCloudStride: s.lidarCloudStride,
+        lidarCaptureRect: s.lidarCaptureRect,
+        lidarRectNorthFixed: s.lidarRectNorthFixed,
         lidarVegGroundGap: s.lidarVegGroundGap,
         lidarVegGroundRough: s.lidarVegGroundRough,
         lidarVegColumnCell: s.lidarVegColumnCell,

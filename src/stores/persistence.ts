@@ -1,5 +1,6 @@
 import type { BlendMode } from '@/lib/compositeProtocol';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
+import type { CaptureRectDims } from '@/lib/lidarCaptureRect';
 import type { BaseLayerId } from '@/lib/mapStyle';
 import type { LidarMode } from './slices/lidarSlice';
 import type { RenderQuality, UiTheme } from './slices/settingsSlice';
@@ -30,8 +31,9 @@ export type PersistedSettings = {
     ignDemApiKey?: string;
     lidarMode?: LidarMode;
     lidarShader?: ShaderPreset;
-    lidarCloudRadius?: number;
     lidarCloudStride?: number;
+    lidarCaptureRect?: CaptureRectDims;
+    lidarRectNorthFixed?: boolean;
     lidarVegGroundGap?: number;
     lidarVegGroundRough?: number;
     lidarVegColumnCell?: number;

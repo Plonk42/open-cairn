@@ -17,7 +17,7 @@ import { buildMesh } from './mesh';
 import { computeNormalsKNN, computeNormalsVegAware, orientNormalsForPoisson } from './normals';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
-import { lngLatToL93 } from './proj';
+import { l93RectAxes, lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
 import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
 import { detectTreetops } from './treetops';
@@ -44,11 +44,17 @@ export interface BrowserFetchParams {
      *  metric; below it trusts the vertical-to-ground height. 0 disables the
      *  hybrid (pure stacked). Default 12. */
     groundRoughM?: number;
+    /** Optional oriented capture rectangle. When set, the loaded area is this
+     *  rotated rectangle (centred on lng/lat) instead of the square `radius`
+     *  box; `radius` must be the rect's enclosing-circle radius so tile and node
+     *  selection still bracket the whole footprint. `bearingDeg` is the ground
+     *  azimuth (deg from north, clockwise) of the rectangle's length axis. */
+    rect?: { halfWidthM: number; halfLengthM: number; bearingDeg: number };
     signal?: AbortSignal;
     onProgress?: ProgressCallback;
 }
 
-const MAX_RADIUS_M = 1000;
+const MAX_RADIUS_M = 1500;
 
 function fmtMs(ms: number): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms.toFixed(0)} ms`;
@@ -206,6 +212,16 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     // Lambert-93 center of the request.
     const [x0, y0] = lngLatToL93(params.lng, params.lat);
 
+    // Oriented-rectangle crop (Lambert-93 axes + half-extents), or null for the
+    // default square. The square `radius` AABB still drives tile/node selection.
+    const rectCrop = params.rect
+        ? {
+            ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
+            halfWidthM: params.rect.halfWidthM,
+            halfLengthM: params.rect.halfLengthM,
+        }
+        : null;
+
     // WGS84 bbox big enough to bracket the L93 query box after reprojection
     // (20 % padding to compensate for the grid rotation at extreme latitudes).
     onProgress({ stage: 'wfs', message: STAGE_LABELS.wfs });
@@ -240,6 +256,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
             tileUrl: tile.url,
             x0, y0, radius, stride,
             classFilter,
+            rect: rectCrop,
             needScan,
             signal: params.signal,
         });

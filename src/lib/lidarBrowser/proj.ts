@@ -26,3 +26,25 @@ export function lngLatToL93(lng: number, lat: number): [number, number] {
 export function l93ToLngLat(x: number, y: number): [number, number] {
     return to4326.forward([x, y]) as [number, number];
 }
+
+/**
+ * Unit Lambert-93 direction of the capture rectangle's *length* axis, given the
+ * ground azimuth (deg from north, clockwise) at (lng, lat). A short WGS84 step
+ * along the azimuth is reprojected to L93 and normalised, so the result picks up
+ * the grid's meridian convergence — the L93 axes are not aligned with true north
+ * away from the 3°E central meridian. The width axis is the left-perpendicular
+ * `(-uy, ux)`.
+ */
+export function l93RectAxes(
+    lng: number, lat: number, azimuthDeg: number,
+): { ux: number; uy: number } {
+    const rad = (azimuthDeg * Math.PI) / 180;
+    const stepN = (Math.cos(rad) * 10) / 111_320;
+    const stepE = (Math.sin(rad) * 10) / (111_320 * Math.cos((lat * Math.PI) / 180));
+    const [ax, ay] = lngLatToL93(lng, lat);
+    const [bx, by] = lngLatToL93(lng + stepE, lat + stepN);
+    const ux = bx - ax;
+    const uy = by - ay;
+    const len = Math.hypot(ux, uy) || 1;
+    return { ux: ux / len, uy: uy / len };
+}

@@ -689,8 +689,10 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         });
         mapRef.current = map;
         useMapStore.getState().setMapInstance(map);
-        if (import.meta.env.DEV)
+        if (import.meta.env.DEV) {
             (globalThis as unknown as { __map: maplibregl.Map }).__map = map;
+            (globalThis as unknown as { __store: typeof useMapStore }).__store = useMapStore;
+        }
 
         // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
@@ -1058,7 +1060,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         });
     }, []);
 
-    // LiDAR preview zone — shows a square on the map indicating what area will be loaded.
+    // LiDAR preview zone — shows the footprint on the map of what will be loaded.
     useLidarPreviewOverlay(mapRef);
 
     return (

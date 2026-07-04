@@ -1,33 +1,11 @@
+import {
+    rectPreviewGeoJson, screenCenterLngLat, screenUpAzimuthDeg,
+} from '@/lib/lidarCaptureRect';
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, type RefObject } from 'react';
 
 const LIDAR_PREVIEW_SOURCE = 'open-cairn-lidar-preview';
-
-/**
- * Create a square GeoJSON polygon centered at (lng, lat) with side = 2 * radiusMeters.
- * Uses approximate degree offsets (good enough for France latitudes).
- */
-function lidarPreviewGeoJson(lng: number, lat: number, radiusMeters: number): GeoJSON.FeatureCollection {
-    // Approximate conversion: 1 degree latitude ≈ 111 km, longitude depends on latitude
-    const latOffset = radiusMeters / 111_000;
-    const lngOffset = radiusMeters / (111_000 * Math.cos(lat * Math.PI / 180));
-    const coordinates: GeoJSON.Position[] = [
-        [lng - lngOffset, lat - latOffset],
-        [lng + lngOffset, lat - latOffset],
-        [lng + lngOffset, lat + latOffset],
-        [lng - lngOffset, lat + latOffset],
-        [lng - lngOffset, lat - latOffset],
-    ];
-    return {
-        type: 'FeatureCollection',
-        features: [{
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'Polygon', coordinates: [coordinates] },
-        }],
-    };
-}
 
 function ensureLidarPreviewLayer(map: maplibregl.Map): void {
     if (!map.getSource(LIDAR_PREVIEW_SOURCE)) {
@@ -62,13 +40,17 @@ function ensureLidarPreviewLayer(map: maplibregl.Map): void {
 }
 
 /**
- * Shows a square on the map indicating what area will be loaded by the next
- * LiDAR fetch. The square tracks the screen center (so it stays centered even
- * when the camera is pitched) and follows the camera while visible.
+ * Shows the footprint of the next LiDAR fetch on the map: the centred capture
+ * rectangle sized by `lidarCaptureRect`. Its orientation is north when
+ * `lidarRectNorthFixed` is set, otherwise the live camera bearing (kept
+ * camera-fixed — constant on screen, its ground footprint rotating with the
+ * map — by re-deriving the centre and bearing from the live projection on
+ * every move).
  */
 export function useLidarPreviewOverlay(mapRef: RefObject<maplibregl.Map | null>): void {
     const lidarPreviewVisible = useMapStore((s) => s.lidarPreviewVisible);
-    const lidarCloudRadius = useMapStore((s) => s.lidarCloudRadius);
+    const lidarCaptureRect = useMapStore((s) => s.lidarCaptureRect);
+    const lidarRectNorthFixed = useMapStore((s) => s.lidarRectNorthFixed);
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
@@ -82,11 +64,14 @@ export function useLidarPreviewOverlay(mapRef: RefObject<maplibregl.Map | null>)
                 source.setData({ type: 'FeatureCollection', features: [] });
                 return;
             }
-            // Use screen center (not map.getCenter) so the preview stays centered
+            // Screen center (not map.getCenter) so the preview stays centered
             // even when the camera is pitched.
-            const canvas = map.getCanvas();
-            const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
-            source.setData(lidarPreviewGeoJson(screenCenter.lng, screenCenter.lat, lidarCloudRadius));
+            const center = screenCenterLngLat(map);
+            const azimuth = lidarRectNorthFixed ? 0 : screenUpAzimuthDeg(map);
+            source.setData(rectPreviewGeoJson(
+                center.lng, center.lat, azimuth,
+                lidarCaptureRect.widthM, lidarCaptureRect.lengthM,
+            ));
         };
 
         // Initial update — use 'idle' rather than 'load' so we recover from
@@ -104,5 +89,5 @@ export function useLidarPreviewOverlay(mapRef: RefObject<maplibregl.Map | null>)
             return () => { map.off('move', updatePreview); };
         }
         return undefined;
-    }, [mapRef, lidarPreviewVisible, lidarCloudRadius]);
+    }, [mapRef, lidarPreviewVisible, lidarCaptureRect, lidarRectNorthFixed]);
 }

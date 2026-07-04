@@ -52,7 +52,7 @@ Champs principaux :
   lidarMode: 'shaded' | 'mixed' | 'poisson'
   lidarShaded, lidarMesh, lidarMixed
   lidarCloudLoading, lidarCloudError, lidarCloudProgress
-  lidarCloudRadius, lidarCloudStride, lidarCloudClasses
+  lidarCaptureRect, lidarRectNorthFixed, lidarCloudStride, lidarCloudClasses
   lidarCloudPoissonDepth
 
   // LiDAR (rendu)

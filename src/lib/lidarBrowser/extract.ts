@@ -26,6 +26,14 @@ export interface ExtractParams {
     /** LAS class whitelist (null = keep all). */
     classFilter: Set<number> | null;
     /**
+     * Optional oriented-rectangle crop in Lambert-93. When present it supersedes
+     * the square `radius` bbox for the per-point keep test: a point is kept iff
+     * it falls inside the rotated rectangle. `ux,uy` is the unit L93 direction of
+     * the length axis (the width axis is its left-perpendicular). The square
+     * `radius` AABB is still used to pick intersecting nodes.
+     */
+    rect?: { ux: number; uy: number; halfWidthM: number; halfLengthM: number } | null;
+    /**
      * Also decode per-point ScanAngle / PointSourceId / GpsTime (point
      * format 6+). Used by the Poisson mode for flight-line normal orientation;
      * skipped otherwise to avoid the extra per-point reads.
@@ -217,8 +225,30 @@ async function collectIntersectingNodes(
  * Decode a COPC LAZ tile over HTTP, crop to a Lambert-93 bbox, decimate,
  * and produce METER_OFFSETS-relative positions (dx east, dy north, dz up).
  */
+/** Axis-aligned Lambert-93 bbox used for node selection and the square crop. */
+interface CropBbox { minX: number; maxX: number; minY: number; maxY: number; }
+
+/**
+ * Per-point keep test. With an oriented `rect` a point is kept iff it lies in
+ * the rotated rectangle (projected onto its L93 length/width axes); otherwise
+ * it falls back to the square AABB. `dx,dy` are the point's metre offsets from
+ * the request centre (x0,y0); `x,y` are its absolute L93 coordinates.
+ */
+function isInsideCrop(
+    dx: number, dy: number, x: number, y: number,
+    rect: ExtractParams['rect'], bbox: CropBbox,
+): boolean {
+    if (rect) {
+        const lAxis = dx * rect.ux + dy * rect.uy;
+        const wAxis = -dx * rect.uy + dy * rect.ux;
+        return Math.abs(lAxis) <= rect.halfLengthM && Math.abs(wAxis) <= rect.halfWidthM;
+    }
+    return x >= bbox.minX && x <= bbox.maxX && y >= bbox.minY && y <= bbox.maxY;
+}
+
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
+    const rect = params.rect ?? null;
     const rawGet = Getter.create(tileUrl);
     // Diagnostic wrapper: every byte-range fetch is logged with the size
     // returned. If the IGN server ever responds with 200 (no Range support)
@@ -383,11 +413,13 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         for (let i = 0; i < n; i += safeStride) {
             const x = getX(i);
             const y = getY(i);
-            if (x < bbox.minX || x > bbox.maxX || y < bbox.minY || y > bbox.maxY) continue;
+            const dx = x - x0;
+            const dy = y - y0;
+            if (!isInsideCrop(dx, dy, x, y, rect, bbox)) continue;
             const c = getC ? getC(i) : 0;
             if (classFilter && getC && !classFilter.has(c)) continue;
-            pos[kept * 3] = x - x0;
-            pos[kept * 3 + 1] = y - y0;
+            pos[kept * 3] = dx;
+            pos[kept * 3 + 1] = dy;
             pos[kept * 3 + 2] = getZ(i);
             cls[kept] = c;
             if (scan) {
