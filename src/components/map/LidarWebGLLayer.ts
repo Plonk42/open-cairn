@@ -9,6 +9,7 @@ import {
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
 import { buildForestGpuTables, buildForestPalette, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
+import { requestMeshLods } from '@/lib/lidarBrowser/lodWorkerClient';
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
 import { MercatorCoordinate } from 'maplibre-gl';
 
@@ -21,6 +22,108 @@ type Bbox = { min: [number, number, number]; max: [number, number, number] };
 // truncates the geometry and emits a console warning. We split large draws
 // into chunks comfortably below the cap.
 const MAX_VERT_IDS_PER_DRAW = 24_000_000;
+
+/**
+ * Distance-based level-of-detail (classic video-game LOD): when the camera is
+ * zoomed far out, drawing the full-resolution point cloud / mesh wastes GPU
+ * time on geometry that collapses to a handful of screen pixels anyway.
+ *
+ * Points: each coarser level is an index subset picked by `pointStrideIndices`
+ * — a plain "keep every Nth point" walk, computed synchronously on the main
+ * thread the moment a cloud loads (see that function's doc comment for why
+ * this is both cheap and more accurate than a WASM approach here).
+ *
+ * Mesh: each coarser level is a simplified triangle mesh (`MeshoptSimplifier.
+ * simplify`), precomputed in a dedicated Web Worker (`lodWorkerClient.ts` —
+ * unlike points, triangles can't just be dropped by index without tearing
+ * the surface, so this genuinely needs the WASM simplifier; and it's CPU-heavy
+ * enough on dense gallery scenes that running it on the main thread, even
+ * deferred via `requestIdleCallback`, froze navigation for several seconds
+ * since idle callbacks aren't preemptible).
+ *
+ * Both are swapped in wholesale based on the map zoom relative to `config.
+ * referenceZoom` — the same zoom-vs-referenceZoom heuristic already used by
+ * `_effectivePointSize()`. `ratio` is the fraction of the original element
+ * count kept; `zoomOffset` is how far below `referenceZoom` the level kicks in.
+ * The offsets below are tuned against the default `referenceZoom: 19` (never
+ * overridden elsewhere in the app) to land on absolute zoom breakpoints of
+ * 17.5 / 16 / 15 / 14.
+ */
+interface LodLevel { ratio: number; zoomOffset: number }
+const POINT_LOD_LEVELS: readonly LodLevel[] = [
+    { ratio: 1, zoomOffset: 0 },
+    { ratio: 0.5, zoomOffset: -1.5 },
+    { ratio: 0.25, zoomOffset: -3 },
+    { ratio: 0.10, zoomOffset: -4 },
+    { ratio: 0.05, zoomOffset: -5 },
+];
+const MESH_LOD_LEVELS: readonly LodLevel[] = [
+    { ratio: 1, zoomOffset: 0 },
+    { ratio: 0.6, zoomOffset: -1.5 },
+    { ratio: 0.35, zoomOffset: -3 },
+    { ratio: 0.15, zoomOffset: -4 },
+    { ratio: 0.05, zoomOffset: -5 },
+];
+/** Number of LOD levels (shared by points/mesh); used by the debug override
+ *  slider to size its range. */
+export const LOD_LEVEL_COUNT = POINT_LOD_LEVELS.length;
+
+/** Live LOD snapshot returned by `getLodDebugInfo()` — see that method's doc comment. */
+export interface LodDebugInfo {
+    zoom: number;
+    pointLevel: number;
+    pointRatio: number;
+    pointReady: boolean;
+    meshLevel: number;
+    meshRatio: number;
+    meshReady: boolean;
+    /** Full-res triangle count (level 0), and the triangle count actually drawn at `meshLevel`. */
+    meshTriangleCount: number;
+    meshDisplayedTriangleCount: number;
+}
+/** Hysteresis band (zoom units) around each threshold to avoid flicker when
+ *  the camera hovers/animates right at a level boundary. */
+const LOD_HYSTERESIS = 0.1;
+
+/**
+ * Pick the LOD level for the current zoom. Levels are ordered finest-first
+ * (index 0 = full detail); a level `i > 0` applies once `zoom` drops below
+ * `referenceZoom + levels[i].zoomOffset`. `prevLevel` adds hysteresis: moving
+ * to a coarser level requires crossing the threshold by `LOD_HYSTERESIS`,
+ * and moving back to a finer level requires crossing back by the same
+ * margin — a plain nearest-threshold pick would flicker every frame when the
+ * zoom sits exactly on a boundary (e.g. during a smooth zoom animation).
+ */
+function pickLodLevel(zoom: number, referenceZoom: number, levels: readonly LodLevel[], prevLevel: number): number {
+    let level = 0;
+    for (let i = levels.length - 1; i >= 1; i--) {
+        const threshold = referenceZoom + levels[i].zoomOffset;
+        // Moving further from full detail than prevLevel: cross threshold - margin.
+        // Moving back towards full detail: only cross back at threshold + margin.
+        const margin = i > prevLevel ? -LOD_HYSTERESIS : LOD_HYSTERESIS;
+        if (zoom < threshold + margin) { level = i; break; }
+    }
+    return level;
+}
+
+/**
+ * Pick `target` indices out of `[0, total)`, evenly spread by position (a
+ * plain "keep every Nth point" walk, generalized to non-integer strides so it
+ * lands on an exact count for any ratio). Unlike a triangle mesh, a point
+ * cloud has no connectivity to preserve, so this is all a point-cloud LOD
+ * level needs — no simplification algorithm required, and unlike
+ * `MeshoptSimplifier.simplifyPoints` (a density-based voxel clustering that
+ * assumes a roughly uniform point distribution to estimate its cell size) it
+ * always hits the target exactly, regardless of how uneven the real spatial
+ * density is (dense canopy vs sparse bare ground/water in a LiDAR cloud).
+ */
+function pointStrideIndices(total: number, target: number): Uint32Array {
+    const out = new Uint32Array(Math.max(0, target));
+    if (target <= 0 || total <= 0) return out;
+    const step = total / target;
+    for (let k = 0; k < target; k++) out[k] = Math.min(total - 1, Math.floor(k * step));
+    return out;
+}
 
 function computeBbox(positions: Float32Array): Bbox | null {
     if (positions.length < 3) return null;
@@ -141,6 +244,20 @@ export interface LidarWebGLLayerConfig {
     aoRadius: number;
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
+    /**
+     * Distance-based LOD: decimate the point cloud / simplify the mesh once
+     * the map is zoomed far below `referenceZoom` (see POINT_LOD_LEVELS /
+     * MESH_LOD_LEVELS). Dev-only debug toggle — always true in normal use.
+     */
+    lodEnabled: boolean;
+    /**
+     * Debug-only override: when set (0/1/2), pins both the point and mesh LOD
+     * to this level regardless of the current zoom, so the effect of a level
+     * can be inspected without having to zoom out to reach it. `null` (the
+     * normal/production behaviour) picks the level from zoom vs
+     * `referenceZoom` as usual. Ignored entirely when `lodEnabled` is false.
+     */
+    lodForceLevel: number | null;
     /**
      * Force du drapage de l'orthophoto IGN sur la géométrie, séparée en deux :
      * `photoOpacityGround` s'applique au sol (points classes 2 sol + 9 eau + mesh reconstruit)
@@ -358,6 +475,25 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _mpu = 0;
     private _count = 0;
 
+    // ── Distance-based LOD (points) ──
+    // Level 0 has no dedicated buffer: `_drawPointsChunked` falls back to the
+    // existing drawArrays(0, _count) path unchanged, so the common in-focus
+    // case is byte-identical to before this feature. Levels 1/2 are index
+    // buffers into the SAME position/attribute buffers, selecting an evenly
+    // spaced subset computed synchronously by `pointStrideIndices`.
+    private _pointLodIdxBuf: (WebGLBuffer | null)[] = POINT_LOD_LEVELS.map(() => null);
+    private _pointLodCount: number[] = POINT_LOD_LEVELS.map(() => 0);
+    private _pointLodLevel = 0;
+
+    // ── Distance-based LOD (mesh) ──
+    // Level 0 reuses the existing `_meshIdxBuf` (full-res). Levels 1/2 are
+    // simplified index buffers from MeshoptSimplifier.simplify(), reusing the
+    // same vertex buffers (positions/normals/colors are untouched).
+    private _meshLodIdxBuf: (WebGLBuffer | null)[] = MESH_LOD_LEVELS.map(() => null);
+    private _meshLodCount: number[] = MESH_LOD_LEVELS.map(() => 0);
+    private _meshLodLevel = 0;
+    private _meshGeneration = 0;
+
     config: LidarWebGLLayerConfig = {
         pointSize: 2,
         adaptiveSize: true,
@@ -369,6 +505,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         aoStrength: 0,
         aoRadius: 3,
         opacity: 1,
+        lodEnabled: true,
+        lodForceLevel: null,
         photoOpacityGround: 0,
         photoOpacityNonGround: 0,
         // Default sun: SSE bearing (~150°), 45° above horizon — same flavour as the
@@ -552,6 +690,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // the mesh shadow map every frame was the main cause of the stutter.
         if (this._isOutsideFrustum(translatedMatrix)) return;
 
+        // Distance-based LOD: pick the point/mesh detail level for the current
+        // zoom once per frame (see pickLodLevel doc comment). Disabled ⇒ always
+        // level 0 (full detail, byte-identical to before this feature).
+        this._updateLodLevels();
+
         const canvas = gl2.canvas as HTMLCanvasElement;
         const w = canvas.width;
         const h = canvas.height;
@@ -714,6 +857,33 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         return Math.min(16, Math.max(1, base * scale));
     }
 
+    /**
+     * Refresh `_pointLodLevel`/`_meshLodLevel` for the current zoom. A level is
+     * only actually used by `_drawPointsChunked`/`_drawMeshChunked` once its
+     * buffer has finished computing (`_pointLodCount[level] > 0`), so a cloud
+     * that just loaded keeps drawing at level 0 until the async simplification
+     * catches up — never a stall, only a delayed decimation. `lodForceLevel`
+     * (debug-only) bypasses the zoom heuristic entirely, pinning both levels
+     * so a level's visual effect can be inspected without zooming.
+     */
+    private _updateLodLevels(): void {
+        if (!this.config.lodEnabled || !this._map) {
+            this._pointLodLevel = 0;
+            this._meshLodLevel = 0;
+            return;
+        }
+        if (this.config.lodForceLevel !== null) {
+            const forced = Math.max(0, Math.min(POINT_LOD_LEVELS.length - 1, this.config.lodForceLevel));
+            this._pointLodLevel = forced;
+            this._meshLodLevel = Math.min(forced, MESH_LOD_LEVELS.length - 1);
+            return;
+        }
+        const zoom = this._map.getZoom();
+        const ref = this.config.referenceZoom;
+        this._pointLodLevel = pickLodLevel(zoom, ref, POINT_LOD_LEVELS, this._pointLodLevel);
+        this._meshLodLevel = pickLodLevel(zoom, ref, MESH_LOD_LEVELS, this._meshLodLevel);
+    }
+
     setData(data: {
         positions: Float32Array;
         normals: Float32Array;
@@ -733,6 +903,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._mpu = mc.meterInMercatorCoordinateUnits();
         this._count = positions.length / 3;
         this._pointBbox = computeBbox(positions);
+        this._pointLodCount = POINT_LOD_LEVELS.map(() => 0);
+        this._pointLodLevel = 0;
 
         const gl = this._gl;
         if (!gl) return;
@@ -768,11 +940,42 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
         gl.bindVertexArray(prevVAO);
         this._map?.triggerRepaint();
+        this._computePointLods(positions);
+    }
+
+    /**
+     * Compute the coarser point-cloud LOD levels: unlike a triangle mesh,
+     * dropping points by index can't tear anything (there's no connectivity
+     * to preserve), so each level is just "keep every Nth point" via
+     * `pointStrideIndices` — an O(target) walk, cheap enough (a few ms even
+     * for a multi-million-point gallery scene) to run synchronously right
+     * here, with no worker round-trip and no approximation error (unlike
+     * `MeshoptSimplifier.simplifyPoints`'s density-based clustering, which
+     * can undershoot the target badly on a real LiDAR cloud's very
+     * non-uniform density — dense canopy vs sparse bare ground/water).
+     */
+    private _computePointLods(positions: Float32Array): void {
+        const gl = this._gl;
+        if (!gl) return;
+        const levels = POINT_LOD_LEVELS;
+        const total = positions.length / 3;
+        for (let i = 1; i < levels.length; i++) {
+            const target = Math.max(1, Math.round(total * levels[i].ratio));
+            const indices = pointStrideIndices(total, target);
+            this._pointLodIdxBuf[i] ??= gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._pointLodIdxBuf[i]);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+            this._pointLodCount[i] = indices.length;
+        }
+        this._map?.triggerRepaint();
     }
 
     clear(): void {
         this._count = 0;
         this._pointBbox = null;
+        this._pointLodCount = POINT_LOD_LEVELS.map(() => 0);
+        this._pointLodLevel = 0;
         this._map?.triggerRepaint();
     }
 
@@ -799,6 +1002,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._meshIndexCount = indices.length;
         this._meshBbox = computeBbox(positions);
         this._shadowDirty = true;
+        const generation = ++this._meshGeneration;
+        this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshLodLevel = 0;
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
@@ -812,11 +1018,47 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindVertexArray(prevVAO);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
         this._map?.triggerRepaint();
+        this._computeMeshLods(generation, positions, indices);
+    }
+
+    /**
+     * Compute the coarser mesh LOD levels off the render path: the WASM
+     * simplification runs in a dedicated Web Worker (`lodWorkerClient.ts`) so
+     * it never blocks the main thread, and levels stream back one at a time
+     * so the browser can start using each as soon as it's ready. Guarded by
+     * `generation` so a mesh that's since been replaced (or cleared) can't
+     * have its buffers clobbered by a stale result — unlike point LOD
+     * (`_computePointLods`), this can't just be done synchronously: triangles
+     * can't be dropped by index without tearing the surface, so it genuinely
+     * needs the WASM edge-collapse simplifier, which is slow enough on dense
+     * gallery scenes to require a worker.
+     * `LockBorder` (applied inside the worker) keeps the reconstructed ground
+     * mesh's outer capture-radius edge from shrinking/deforming, so it stays
+     * visually consistent with the (undecimated) point-cloud edge at low LOD.
+     */
+    private _computeMeshLods(generation: number, positions: Float32Array, indices: Uint32Array): void {
+        const levels = MESH_LOD_LEVELS;
+        const targets = levels.slice(1).map((level) => Math.max(3, Math.round((indices.length * level.ratio) / 3) * 3));
+        requestMeshLods(positions, indices, targets, (levelIndex, simplified) => {
+            if (generation !== this._meshGeneration) return;
+            const gl = this._gl;
+            if (!gl) return; // layer torn down mid-computation: nothing left to upload to
+            const i = levelIndex + 1;
+            this._meshLodIdxBuf[i] ??= gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshLodIdxBuf[i]);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, simplified, gl.STATIC_DRAW);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+            this._meshLodCount[i] = simplified.length;
+            this._map?.triggerRepaint();
+        }).catch(() => { /* worker unavailable/crashed: LOD stays at level 0, no functional loss */ });
     }
 
     clearMesh(): void {
         this._meshIndexCount = 0;
         this._shadowDirty = true;
+        ++this._meshGeneration;
+        this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshLodLevel = 0;
         this._map?.triggerRepaint();
     }
 
@@ -831,6 +1073,36 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._meshVisible = visible;
         this._shadowDirty = true;
         this._map?.triggerRepaint();
+    }
+
+    /**
+     * Debug-only snapshot of the current LOD state (see `isLodDebugEnabled`):
+     * which level is currently selected for points/mesh, whether its decimated
+     * buffer has finished computing (still drawing level 0 until then), and
+     * the ACTUAL ratio of elements kept in the ready buffer (1 = full detail,
+     * not decimated). This is measured from the real buffer sizes rather than
+     * the level's configured target ratio: `simplify()`'s error tolerance can
+     * refuse to reach the requested ratio on already-fairly-planar geometry
+     * (it stops simplifying once the shape would distort beyond the allowed
+     * error), so the *requested* 35% can end up keeping far more than 35% of
+     * the original triangles/points — reporting the target instead of the
+     * outcome would make the read-out lie about how much was actually cut.
+     */
+    getLodDebugInfo(): LodDebugInfo {
+        const pointReady = this._pointLodLevel > 0 && this._pointLodCount[this._pointLodLevel] > 0;
+        const meshReady = this._meshLodLevel > 0 && this._meshLodCount[this._meshLodLevel] > 0;
+        const meshDisplayedIndexCount = meshReady ? this._meshLodCount[this._meshLodLevel] : this._meshIndexCount;
+        return {
+            zoom: this._map?.getZoom() ?? 0,
+            pointLevel: this._pointLodLevel,
+            pointRatio: pointReady && this._count > 0 ? this._pointLodCount[this._pointLodLevel] / this._count : 1,
+            pointReady,
+            meshLevel: this._meshLodLevel,
+            meshRatio: meshReady && this._meshIndexCount > 0 ? this._meshLodCount[this._meshLodLevel] / this._meshIndexCount : 1,
+            meshReady,
+            meshTriangleCount: this._meshIndexCount / 3,
+            meshDisplayedTriangleCount: meshDisplayedIndexCount / 3,
+        };
     }
 
     /**
@@ -924,12 +1196,28 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * Draw the point cloud, split into chunks so no single draw call exceeds
      * the per-draw vertex-ID cap (see MAX_VERT_IDS_PER_DRAW). Points are
      * independent, so a contiguous [start, start+len) range draws correctly.
+     *
+     * Level 0 (full detail, or a coarser level whose buffer hasn't finished
+     * computing yet) keeps the original `drawArrays` path untouched — zero
+     * regression risk for the common in-focus case. A ready coarser level
+     * switches to `drawElements` over its decimated index buffer instead.
      */
     private _drawPointsChunked(gl: WebGL2RenderingContext): void {
-        const total = this._count;
-        for (let start = 0; start < total; start += MAX_VERT_IDS_PER_DRAW) {
-            const len = Math.min(MAX_VERT_IDS_PER_DRAW, total - start);
-            gl.drawArrays(gl.POINTS, start, len);
+        const level = this._pointLodLevel;
+        const idxBuf = level > 0 ? this._pointLodIdxBuf[level] : null;
+        const lodCount = level > 0 ? this._pointLodCount[level] : 0;
+        if (!idxBuf || lodCount === 0) {
+            const total = this._count;
+            for (let start = 0; start < total; start += MAX_VERT_IDS_PER_DRAW) {
+                const len = Math.min(MAX_VERT_IDS_PER_DRAW, total - start);
+                gl.drawArrays(gl.POINTS, start, len);
+            }
+            return;
+        }
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+        for (let start = 0; start < lodCount; start += MAX_VERT_IDS_PER_DRAW) {
+            const len = Math.min(MAX_VERT_IDS_PER_DRAW, lodCount - start);
+            gl.drawElements(gl.POINTS, len, gl.UNSIGNED_INT, start * 4);
         }
     }
 
@@ -938,9 +1226,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * vertex-ID cap. The chunk size is rounded down to a multiple of 3 so a
      * triangle is never split across two draws. Each chunk is a contiguous
      * range of the index buffer; indices still address the full vertex buffer.
+     *
+     * Level 0 (or a coarser level not ready yet) draws the original full-res
+     * index buffer, unchanged; a ready coarser level swaps in its simplified
+     * index buffer (same vertex buffers, fewer triangles).
      */
     private _drawMeshChunked(gl: WebGL2RenderingContext): void {
-        const total = this._meshIndexCount;
+        const level = this._meshLodLevel;
+        const useLod = level > 0 && this._meshLodCount[level] > 0;
+        const total = useLod ? this._meshLodCount[level] : this._meshIndexCount;
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, useLod ? this._meshLodIdxBuf[level] : this._meshIdxBuf);
         const chunk = MAX_VERT_IDS_PER_DRAW - (MAX_VERT_IDS_PER_DRAW % 3);
         for (let start = 0; start < total; start += chunk) {
             const len = Math.min(chunk, total - start);
@@ -1434,6 +1729,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._meshColBuf); this._meshColBuf = null;
         delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
         delBuf(this._quadBuf); this._quadBuf = null;
+        for (let i = 0; i < this._pointLodIdxBuf.length; i++) { delBuf(this._pointLodIdxBuf[i]); this._pointLodIdxBuf[i] = null; }
+        for (let i = 0; i < this._meshLodIdxBuf.length; i++) { delBuf(this._meshLodIdxBuf[i]); this._meshLodIdxBuf[i] = null; }
         delProg(this._progPoints); this._progPoints = null;
         delProg(this._progMesh); this._progMesh = null;
         delProg(this._progEdl); this._progEdl = null;

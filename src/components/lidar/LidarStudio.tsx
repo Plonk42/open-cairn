@@ -113,13 +113,37 @@ function cloudStatsLabel(points: number | null, triangles: number | null): strin
     return parts.join(' · ');
 }
 
-/** True when the cloud center currently sits inside the visible map bounds. */
-function isCloudOnScreen(map: maplibregl.Map, lng: number, lat: number): boolean {
+/** Metres-per-degree of latitude, used to convert the cloud radius to a lng/lat footprint. */
+const METERS_PER_DEGREE_LAT = 111_319.491;
+
+/**
+ * Approximate lng/lat bounding box of the cloud's footprint (a radius-metre
+ * square around its centre), used for the on-screen test below.
+ */
+function cloudFootprintBounds(lng: number, lat: number, radius: number): [[number, number], [number, number]] {
+    const dLat = radius / METERS_PER_DEGREE_LAT;
+    const dLng = radius / (METERS_PER_DEGREE_LAT * Math.cos((lat * Math.PI) / 180));
+    return [
+        [lng - dLng, lat - dLat],
+        [lng + dLng, lat + dLat],
+    ];
+}
+
+/**
+ * True when the cloud's footprint (not just its centre point) overlaps the
+ * visible map bounds. A point-only test (`bounds.contains([lng,lat])`) was
+ * tried first but is inconsistent with what's actually rendered: a cloud can
+ * have a large radius, so its centre can drift off-screen while its edge
+ * (still drawn — the WebGL layer culls on the full bbox, not the centre) is
+ * still visible, and vice-versa. Testing footprint-vs-viewport intersection
+ * matches the layer's own bbox-based frustum cull far more closely.
+ */
+function isCloudOnScreen(map: maplibregl.Map, lng: number, lat: number, radius: number): boolean {
     // `map.project()` can't be used here: with 3D terrain forced on, it projects
     // the point at elevation 0 (sea level) — for ground sitting ~1800 m up that
     // lands far off-screen even when centered. The 2D geographic bounds ignore
     // elevation and give a reliable (slightly conservative) visibility test.
-    return map.getBounds().contains([lng, lat]);
+    return map.getBounds().intersects(cloudFootprintBounds(lng, lat, radius));
 }
 
 /** Recenter + frame the loaded cloud so its diameter fills ~60% of the view. */
@@ -184,10 +208,10 @@ function StudioCloudLocator() {
     const [onScreen, setOnScreen] = useState(true);
 
     useEffect(() => {
-        if (lng === null || lat === null) return;
+        if (lng === null || lat === null || radius === null) return;
         const map = useMapStore.getState().mapInstance;
         if (!map) return;
-        const update = () => setOnScreen(isCloudOnScreen(map, lng, lat));
+        const update = () => setOnScreen(isCloudOnScreen(map, lng, lat, radius));
         update();
         map.on('move', update);
         map.on('moveend', update);
@@ -195,7 +219,7 @@ function StudioCloudLocator() {
             map.off('move', update);
             map.off('moveend', update);
         };
-    }, [lng, lat]);
+    }, [lng, lat, radius]);
 
     if (lng === null || lat === null || radius === null) return null;
 

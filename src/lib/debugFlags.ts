@@ -40,3 +40,13 @@ export function isHeightDebugEnabled(): boolean {
     const tokens = debugTokens();
     return debugAll(tokens) || tokens.has('hauteur') || tokens.has('height');
 }
+
+/**
+ * True when the distance-based LOD debug toggle should be shown (lets you
+ * A/B the point/mesh decimation live). Enabled by the generic `?debug=true`
+ * or the scoped `?debug=lod`.
+ */
+export function isLodDebugEnabled(): boolean {
+    const tokens = debugTokens();
+    return debugAll(tokens) || tokens.has('lod');
+}

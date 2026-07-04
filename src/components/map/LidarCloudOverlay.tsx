@@ -1,3 +1,4 @@
+import { isLodDebugEnabled } from '@/lib/debugFlags';
 import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
 import { fetchOrthoMosaic } from '@/lib/lidarBrowser/orthoTexture';
 import { detectTreetops } from '@/lib/lidarBrowser/treetops';
@@ -27,6 +28,9 @@ export function LidarCloudOverlay() {
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
+    const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
+    const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
+    const setLodDebugInfo = useMapStore((s) => s.setLidarLodDebugInfo);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
@@ -108,6 +112,27 @@ export function LidarCloudOverlay() {
             webglRef.current = null;
         };
     }, [mapInstance]);
+
+    // ── Debug-only LOD readout (`?debug=true`/`?debug=lod`) ───────────────────
+    // Polls the WebGL layer's current LOD levels so the "LOD distance (debug)"
+    // control can show whether it's actually decimating (see LidarAppearanceControls).
+    // Not persisted, and inert (no interval) outside the debug flag or without a
+    // loaded cloud. Only writes to the store when a value actually changed, so
+    // components that don't read it are never re-rendered by this poll.
+    useEffect(() => {
+        if (!isLodDebugEnabled() || (!lidarShaded && !lidarMesh)) { setLodDebugInfo(null); return undefined; }
+        const id = globalThis.setInterval(() => {
+            const next = webglRef.current?.getLodDebugInfo() ?? null;
+            const prev = useMapStore.getState().lidarLodDebugInfo;
+            const changed = !prev || !next
+                ? prev !== next
+                : prev.pointLevel !== next.pointLevel || prev.pointReady !== next.pointReady
+                || prev.meshLevel !== next.meshLevel || prev.meshReady !== next.meshReady
+                || Math.round(prev.zoom * 100) !== Math.round(next.zoom * 100);
+            if (changed) setLodDebugInfo(next);
+        }, 300);
+        return () => globalThis.clearInterval(id);
+    }, [setLodDebugInfo, lidarShaded, lidarMesh]);
 
     // ── Compute base colour buffer for the WebGL shaded cloud ─────────────────
     // Ground (class 2) uses the server slope palette; every other class uses its
@@ -249,8 +274,10 @@ export function LidarCloudOverlay() {
             opacity,
             photoOpacityGround: photoOpacity,
             photoOpacityNonGround,
+            lodEnabled,
+            lodForceLevel,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

@@ -50,7 +50,6 @@ Le panneau **LiDAR** offre trois modes de rendu :
 - **EDL pas profondeur-aware** : il opère sur la luminance + une profondeur linéaire,
   pas sur la géométrie réelle. Sur des nuages très denses qui se superposent, peut
   sur-assombrir.
-- **Pas de frustum culling** : tout le nuage est envoyé au GPU à chaque frame.
 - **Z-test point ↔ mesh** : en mode mixed, on s'appuie sur le z-buffer ; les transitions
   peuvent montrer des artefacts.
 
@@ -232,12 +231,31 @@ sequenceDiagram
     Layer->>Layer: free buffers, programs, FBO
 ```
 
+### Niveau de détail (LOD) selon la distance
+
+Le calque décime automatiquement le nuage de points et le maillage quand la caméra
+s'éloigne (zoom faible par rapport au `referenceZoom` du calque), une technique
+ classique de moteur de jeu vidéo :
+
+- Métrique de distance = zoom courant vs `referenceZoom` (même heuristique que la
+  taille de point adaptative), pas la distance 3D réelle à la caméra.
+- 3 niveaux (`POINT_LOD_LEVELS`/`MESH_LOD_LEVELS`) : plein détail, puis deux niveaux
+  décimés (ratios ~35 % et ~10 %), avec une petite hystérésis pour éviter le
+  scintillement au changement de niveau (« LOD popping »).
+- Décimation via `meshoptimizer` (`MeshoptSimplifier.simplifyPoints` pour les points,
+  `.simplify(...,['LockBorder'])` pour le maillage — `LockBorder` empêche le bord
+  extérieur du maillage reconstruit de se déformer). Calcul différé
+  (`requestIdleCallback`) et non bloquant : le premier rendu reste toujours en plein
+  détail, la version décimée prend le relais dès qu'elle est prête.
+- Activé par défaut (`config.lodEnabled`) ; un interrupteur de debug (`?debug=true` ou
+  `?debug=lod`) permet de le désactiver en direct pour comparer.
+
 ### Limitations techniques
 
 - **MRT requis** : nécessite `WEBGL_draw_buffers` + WebGL 2 (universal en 2026).
-- **Pas de tile-based rendering** : le nuage entier est envoyé en VBO unique. Au-delà
-  de ~5 M points, le frame time devient sensible. Solution future : split en chunks
-  spatiaux et frustum culling.
+- **Pas de tile-based rendering** : le nuage entier est envoyé en VBO unique (mais le
+  frustum culling et le LOD distance ci-dessus limitent le coût par frame pour la
+  géométrie hors champ ou lointaine).
 - **Sun direction recalculé chaque frame** mais `sunLighting()` est suffisamment léger
   pour ne pas être un goulot.
 - **Pas de feedback de chargement GPU** : si l'upload de VBO échoue (out of memory),

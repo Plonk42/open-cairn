@@ -7,6 +7,7 @@ import {
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { cancelLidarWorkerRequests } from '@/lib/lidarBrowser/workerClient';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
     screenUpAzimuthDeg, type CaptureRectDims,
@@ -21,6 +22,26 @@ import { persisted, type PersistedSettings } from '../persistence';
 /** Maximum capture area (m²) allowed in Poisson mode (WASM heap / octree limit).
  *  1 000 000 m² = 1 km² = a 1000 × 1000 m zone. */
 export const POISSON_MAX_AREA_M2 = 1_000_000;
+
+/**
+ * Debug-only live snapshot of the WebGL layer's current LOD levels (see
+ * `isLodDebugEnabled`), returned by `LidarWebGLLayer.getLodDebugInfo()` and
+ * polled by `LidarCloudOverlay`. Declared locally (rather than imported from
+ * the WebGL layer) so this store slice doesn't pull the GLSL shader module
+ * graph into contexts — e.g. the vitest tsconfig — that lack the `*.frag`/
+ * `*.vert` ambient module declarations.
+ */
+export interface LidarLodDebugInfo {
+    zoom: number;
+    pointLevel: number;
+    pointRatio: number;
+    pointReady: boolean;
+    meshLevel: number;
+    meshRatio: number;
+    meshReady: boolean;
+    meshTriangleCount: number;
+    meshDisplayedTriangleCount: number;
+}
 
 /**
  * Resolve the area to fetch for the next capture: the centred capture rectangle
@@ -64,6 +85,25 @@ export interface LidarSlice {
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for delaunay / poisson modes. */
     lidarMesh: LidarMeshData | null;
+    /**
+     * Distance-based level-of-detail: decimate the point cloud/mesh as the
+     * camera zooms out. Debug-only toggle (see `isLodDebugEnabled`), always on
+     * otherwise, so deliberately not persisted.
+     */
+    lidarLodEnabled: boolean;
+    setLidarLodEnabled: (v: boolean) => void;
+    /**
+     * Debug-only override: pins the point/mesh LOD to a specific level (0/1/2)
+     * regardless of zoom, so a level's visual effect can be inspected without
+     * having to zoom out to reach it. `null` = normal zoom-driven behaviour.
+     * Not persisted (debug-only, like `lidarLodEnabled`).
+     */
+    lidarLodForceLevel: number | null;
+    setLidarLodForceLevel: (v: number | null) => void;
+    /** Debug-only live snapshot of the WebGL layer's current LOD levels (see
+     *  `isLodDebugEnabled`), polled by `LidarCloudOverlay`. Not persisted. */
+    lidarLodDebugInfo: LidarLodDebugInfo | null;
+    setLidarLodDebugInfo: (v: LidarLodDebugInfo | null) => void;
     /** True while a LiDAR request is in flight. */
     lidarCloudLoading: boolean;
     /** Last error message (null if no error). */
@@ -273,6 +313,12 @@ export interface LidarSlice {
     setLidarRectNorthFixed: (v: boolean) => void;
     /** Load the point cloud centered on the current map view. */
     loadLidarCloud: () => Promise<void>;
+    /**
+     * Cancel an in-progress load (e.g. a Poisson reconstruction taking too
+     * long). The WASM reconstruction can't be paused, so this terminates the
+     * worker running it — the next `loadLidarCloud` call spins up a fresh one.
+     */
+    cancelLidarCloudLoad: () => void;
     /** Instantly re-display a previously saved cloud/mesh snapshot. */
     showLidarCloudSnapshot: (data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }) => void;
     /** Clear the currently displayed point cloud. */
@@ -366,6 +412,12 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     },
     lidarShaded: null,
     lidarMesh: null,
+    lidarLodEnabled: true,
+    setLidarLodEnabled: (lidarLodEnabled) => set({ lidarLodEnabled }),
+    lidarLodForceLevel: null,
+    setLidarLodForceLevel: (lidarLodForceLevel) => set({ lidarLodForceLevel }),
+    lidarLodDebugInfo: null,
+    setLidarLodDebugInfo: (lidarLodDebugInfo) => set({ lidarLodDebugInfo }),
     lidarCloudLoading: false,
     lidarCloudError: null,
     lidarCloudProgress: null,
@@ -606,9 +658,19 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 { shaded: after.lidarShaded, mesh: after.lidarMesh },
             );
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Erreur inconnue';
+            // A user-requested cancellation rejects the in-flight worker request
+            // (see cancelLidarWorkerRequests) — show a neutral idle state instead
+            // of a red error banner for that specific case.
+            const cancelled = err instanceof Error && (err as Error & { code?: string }).code === 'cancelled';
+            let message: string | null = 'Erreur inconnue';
+            if (cancelled) message = null;
+            else if (err instanceof Error) message = err.message;
             set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
         }
+    },
+    cancelLidarCloudLoad: () => {
+        cancelLidarWorkerRequests();
+        set({ lidarCloudLoading: false, lidarCloudError: null, lidarCloudProgress: null });
     },
     clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
 

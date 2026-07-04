@@ -178,6 +178,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
     const stride = useMapStore((s) => s.lidarCloudStride);
     const setStride = useMapStore((s) => s.setLidarCloudStride);
     const load = useMapStore((s) => s.loadLidarCloud);
+    const cancelLoad = useMapStore((s) => s.cancelLidarCloudLoad);
     const clear = useMapStore((s) => s.clearLidarCloud);
     const hasData = shaded !== null || mesh !== null;
     const center = shaded ?? mesh;
@@ -230,6 +231,15 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                     >
                         {loading ? 'Chargement…' : 'Charger ici'}
                     </button>
+                    {loading && (
+                        <button
+                            type="button"
+                            onClick={cancelLoad}
+                            className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:ring-red-800"
+                        >
+                            Annuler
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={clear}

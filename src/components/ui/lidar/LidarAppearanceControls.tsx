@@ -1,12 +1,20 @@
+import { LOD_LEVEL_COUNT } from '@/components/map/LidarWebGLLayer';
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
-import { isHeightDebugEnabled } from '@/lib/debugFlags';
+import { isHeightDebugEnabled, isLodDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import { useMapStore } from '@/stores/mapStore';
 import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
+
+/**
+ * Shared visual treatment for controls gated behind `?debug=`: a dashed amber
+ * accent + a small "debug" pill, so dev-only knobs read visually distinct
+ * from the normal, always-on settings around them.
+ */
+const DEBUG_WRAP_CLASS = 'space-y-2 rounded-md border border-dashed border-amber-400/60 bg-amber-50/60 p-2 dark:border-amber-500/40 dark:bg-amber-950/20';
 
 /** LAS classes available for filtering in the UI. */
 const AVAILABLE_CLASSES = [2, 3, 4, 5, 6, 9, 17, 64, 66] as const;
@@ -194,6 +202,11 @@ export function PointSizeControls() {
     const setPointSize = useMapStore((s) => s.setLidarCloudPointSize);
     const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
     const setSizeCompensation = useMapStore((s) => s.setLidarCloudSizeCompensation);
+    const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
+    const setLodEnabled = useMapStore((s) => s.setLidarLodEnabled);
+    const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
+    const setLodForceLevel = useMapStore((s) => s.setLidarLodForceLevel);
+    const lodDebugInfo = useMapStore((s) => s.lidarLodDebugInfo);
 
     return (
         <div className="space-y-3">
@@ -224,6 +237,55 @@ export function PointSizeControls() {
                     className="h-4 w-4 accent-green-600"
                 />
             </label>
+
+            {/* Debug uniquement : ?debug=true ou ?debug=lod. Décime le nuage et
+                le maillage quand la caméra s'éloigne (niveau de détail). */}
+            {isLodDebugEnabled() && (
+                <div className={DEBUG_WRAP_CLASS}>
+                    <label className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300" title="Décime points et maillage selon le zoom (niveau de détail). Débogage uniquement — toujours actif hors debug.">
+                            LOD distance
+                        </span>
+                        <input
+                            type="checkbox"
+                            checked={lodEnabled}
+                            onChange={(e) => setLodEnabled(e.target.checked)}
+                            className="h-4 w-4 accent-amber-600"
+                        />
+                    </label>
+                    {lodEnabled && (
+                        <label className="block">
+                            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                                <span className="flex items-center gap-1.5" title="Force le niveau de LOD affiché, indépendamment du zoom, pour voir son effet réel sur le maillage/nuage.">
+                                    Niveau LOD forcé
+                                </span>
+                                <span className="font-mono text-xs text-slate-400">{lodForceLevel ?? 'Auto'}</span>
+                            </div>
+                            <input
+                                aria-label="Niveau de LOD forcé"
+                                type="range" min={-1} max={LOD_LEVEL_COUNT - 1} step={1}
+                                value={lodForceLevel ?? -1}
+                                onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    setLodForceLevel(v < 0 ? null : v);
+                                }}
+                                className="mt-1 w-full accent-amber-600"
+                            />
+                        </label>
+                    )}
+                    {lodDebugInfo && (
+                        <p className="font-mono text-[11px] text-amber-700/80 dark:text-amber-300/70">
+                            Zoom {lodDebugInfo.zoom.toFixed(2)}
+                            {' · '}
+                            Points niv. {lodDebugInfo.pointLevel} ({Math.round(lodDebugInfo.pointRatio * 100)}%{lodDebugInfo.pointLevel > 0 && !lodDebugInfo.pointReady ? '…' : ''})
+                            {' · '}
+                            Maillage niv. {lodDebugInfo.meshLevel} ({Math.round(lodDebugInfo.meshRatio * 100)}%{lodDebugInfo.meshLevel > 0 && !lodDebugInfo.meshReady ? '…' : ''})
+                            {' · '}
+                            {lodDebugInfo.meshDisplayedTriangleCount.toLocaleString('fr-FR')} / {lodDebugInfo.meshTriangleCount.toLocaleString('fr-FR')} triangles
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -516,8 +578,8 @@ function HeightAnalysisControls() {
     const setCliffSlopeMin = useMapStore((s) => s.setLidarVegCliffSlopeMin);
 
     return (
-        <details className="group border-t border-slate-200 pt-3 dark:border-slate-700" open>
-            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">
+        <details className={`group mt-1 ${DEBUG_WRAP_CLASS}`} open>
+            <summary className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">
                 Analyse hauteur
             </summary>
             <div className="mt-3 space-y-3">

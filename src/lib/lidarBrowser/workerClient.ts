@@ -19,6 +19,20 @@ let worker: Worker | null = null;
 let nextId = 0;
 const pending = new Map<number, Pending>();
 
+/**
+ * Reject every in-flight request with `err` and tear down the worker. Used
+ * both when the worker crashes (`onerror`) and when the user explicitly
+ * cancels a slow request (`cancelLidarWorkerRequests`) — in both cases the
+ * worker can't be trusted/reused, so it's terminated; `ensureWorker()` lazily
+ * spins up a fresh one on the next request.
+ */
+function resetWorker(err: Error): void {
+    for (const [, p] of pending) p.reject(err);
+    pending.clear();
+    worker?.terminate();
+    worker = null;
+}
+
 function ensureWorker(): Worker {
     if (worker) return worker;
     worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
@@ -39,14 +53,22 @@ function ensureWorker(): Worker {
             p.reject(err);
         }
     };
-    worker.onerror = (ev) => {
-        // Reject everything in flight; the worker is likely dead.
-        for (const [, p] of pending) p.reject(new Error(ev.message || 'Worker crashed'));
-        pending.clear();
-        worker?.terminate();
-        worker = null;
-    };
+    // Reject everything in flight; the worker is likely dead.
+    worker.onerror = (ev) => resetWorker(new Error(ev.message || 'Worker crashed'));
     return worker;
+}
+
+/**
+ * Cancel any LiDAR request currently in flight (e.g. a Poisson reconstruction
+ * taking too long). The WASM reconstruction itself has no pause/abort hook —
+ * the only way to actually stop it (not just ignore its result) is to
+ * terminate the worker it's running in. The next `loadLidarCloud` request
+ * transparently spins up a fresh worker via `ensureWorker()`.
+ */
+export function cancelLidarWorkerRequests(): void {
+    const err = new Error('Annulé par l\'utilisateur') as Error & { code?: string };
+    err.code = 'cancelled';
+    resetWorker(err);
 }
 
 /**
