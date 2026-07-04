@@ -1,5 +1,6 @@
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
+import { isHeightDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
@@ -750,9 +751,10 @@ export function VegetationControls() {
                 </label>
             </fieldset>
 
-            {/* Analyse hauteur — hors fieldset : les seuils de décision et le
-                rendu diagnostic restent actifs même sans « Végétation enrichie ». */}
-            <HeightAnalysisControls />
+            {/* Analyse hauteur — menu de debug caché, activé via le query param
+                `?debug=true` (ou le token ciblé `?debug=hauteur`). Les seuils
+                gardent leurs valeurs par défaut (persistées) quand il est masqué. */}
+            {isHeightDebugEnabled() && <HeightAnalysisControls />}
         </div>
     );
 }
