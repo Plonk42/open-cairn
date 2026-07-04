@@ -276,11 +276,11 @@ export function PointSizeControls() {
                     {lodDebugInfo && (
                         <p className="font-mono text-[11px] text-amber-700/80 dark:text-amber-300/70">
                             Zoom {lodDebugInfo.zoom.toFixed(2)}
-                            {' · '}
+                            <br />
                             Points niv. {lodDebugInfo.pointLevel} ({Math.round(lodDebugInfo.pointRatio * 100)}%{lodDebugInfo.pointLevel > 0 && !lodDebugInfo.pointReady ? '…' : ''})
-                            {' · '}
+                            <br />
                             Maillage niv. {lodDebugInfo.meshLevel} ({Math.round(lodDebugInfo.meshRatio * 100)}%{lodDebugInfo.meshLevel > 0 && !lodDebugInfo.meshReady ? '…' : ''})
-                            {' · '}
+                            <br />
                             {lodDebugInfo.meshDisplayedTriangleCount.toLocaleString('fr-FR')} / {lodDebugInfo.meshTriangleCount.toLocaleString('fr-FR')} triangles
                         </p>
                     )}

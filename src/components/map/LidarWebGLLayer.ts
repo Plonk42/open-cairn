@@ -52,10 +52,10 @@ const MAX_VERT_IDS_PER_DRAW = 24_000_000;
 interface LodLevel { ratio: number; zoomOffset: number }
 const POINT_LOD_LEVELS: readonly LodLevel[] = [
     { ratio: 1, zoomOffset: 0 },
-    { ratio: 0.5, zoomOffset: -1.5 },
-    { ratio: 0.25, zoomOffset: -3 },
-    { ratio: 0.10, zoomOffset: -4 },
-    { ratio: 0.05, zoomOffset: -5 },
+    { ratio: 0.75, zoomOffset: -1.5 },
+    { ratio: 0.5, zoomOffset: -3 },
+    { ratio: 0.25, zoomOffset: -4 },
+    { ratio: 0.1, zoomOffset: -5 },
 ];
 const MESH_LOD_LEVELS: readonly LodLevel[] = [
     { ratio: 1, zoomOffset: 0 },
