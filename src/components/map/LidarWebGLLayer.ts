@@ -8,6 +8,7 @@ import {
     linkProgram,
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
+import { isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { buildForestGpuTables, buildForestPalette, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { requestMeshLods } from '@/lib/lidarBrowser/lodWorkerClient';
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
@@ -67,6 +68,38 @@ const MESH_LOD_LEVELS: readonly LodLevel[] = [
 /** Number of LOD levels (shared by points/mesh); used by the debug override
  *  slider to size its range. */
 export const LOD_LEVEL_COUNT = POINT_LOD_LEVELS.length;
+
+/**
+ * Build a deduplicated GL_LINES edge index list from a triangle index buffer,
+ * for the debug wireframe. Each undirected edge is emitted once (interior edges
+ * are shared by two triangles), so the segment count is ~half of a naive
+ * 3-edges-per-triangle list. Keys pack the ordered endpoint pair into one
+ * number; `stride > maxIndex` keeps them collision-free for any realistic
+ * capture (safe while `maxIndex² < 2^53`).
+ */
+export function buildEdgeList(indices: Uint32Array): Uint32Array {
+    let maxIdx = 0;
+    for (const idx of indices) if (idx > maxIdx) maxIdx = idx;
+    const stride = maxIdx + 1;
+    const seen = new Set<number>();
+    const lines: number[] = [];
+    const addEdge = (u: number, v: number) => {
+        const a = Math.min(u, v);
+        const b = Math.max(u, v);
+        const key = a * stride + b;
+        if (seen.has(key)) return;
+        seen.add(key);
+        lines.push(a, b);
+    };
+    const triCount = Math.floor(indices.length / 3);
+    for (let t = 0; t < triCount; t++) {
+        const i0 = indices[t * 3], i1 = indices[t * 3 + 1], i2 = indices[t * 3 + 2];
+        addEdge(i0, i1);
+        addEdge(i1, i2);
+        addEdge(i2, i0);
+    }
+    return new Uint32Array(lines);
+}
 
 /** Live LOD snapshot returned by `getLodDebugInfo()` — see that method's doc comment. */
 export interface LodDebugInfo {
@@ -306,6 +339,12 @@ export interface LidarWebGLLayerConfig {
     forestMixCellSize: number;
     /** Whether the legend filter hides unmasked species/groups. */
     forestSpeciesFilterOn: boolean;
+    /**
+     * Debug: draw the reconstructed ground mesh as a plain wireframe (no
+     * lighting, no texture) so the triangle density is directly visible.
+     * Enabled from the `?debug=mesh` URL flag.
+     */
+    meshWireframe: boolean;
 }
 
 export class LidarWebGLLayer implements CustomLayerInterface {
@@ -391,6 +430,17 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshColBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
+    // Debug wireframe: a deduplicated GL_LINES edge buffer per LOD level (index i
+    // mirrors `_meshLodIdxBuf`, level 0 = full-res), drawn instead of the filled
+    // mesh when `config.meshWireframe` is on. Following the LOD keeps zoomed-out
+    // wireframes cheap; deduping halves the segment count versus 3 edges/triangle.
+    private _meshWireIdxBuf: (WebGLBuffer | null)[] = MESH_LOD_LEVELS.map(() => null);
+    private _meshWireCount: number[] = MESH_LOD_LEVELS.map(() => 0);
+    // CPU-side triangle indices per LOD level, retained only in wireframe debug
+    // mode so the edge buffers can be built lazily the first time the toggle is
+    // switched on (the mesh may already be loaded), without keeping them around
+    // in the normal render path.
+    private _meshCpuIndices: (Uint32Array | null)[] = MESH_LOD_LEVELS.map(() => null);
     // Whether the ground mesh is drawn. Toggled by the "Sol" class chip in the
     // Delaunay/Poisson modes (where ground points are replaced by this mesh).
     private _meshVisible = true;
@@ -411,7 +461,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         ortho: WebGLUniformLocation | null;
         photoOpacityGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null };
+        wireframe: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -528,6 +579,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         forestGrouping: 'group',
         forestMixCellSize: 6,
         forestSpeciesFilterOn: false,
+        meshWireframe: false,
     };
 
     constructor(id: string) {
@@ -1004,6 +1056,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._shadowDirty = true;
         const generation = ++this._meshGeneration;
         this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshWireCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshCpuIndices = MESH_LOD_LEVELS.map(() => null);
         this._meshLodLevel = 0;
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
@@ -1017,6 +1071,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
         gl.bindVertexArray(prevVAO);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        if (isMeshWireframeDebugEnabled()) {
+            this._meshCpuIndices[0] = indices;
+            if (this.config.meshWireframe) this._buildWireLevel(gl, indices, 0);
+        }
         this._map?.triggerRepaint();
         this._computeMeshLods(generation, positions, indices);
     }
@@ -1049,6 +1107,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, simplified, gl.STATIC_DRAW);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
             this._meshLodCount[i] = simplified.length;
+            if (isMeshWireframeDebugEnabled()) {
+                this._meshCpuIndices[i] = simplified;
+                if (this.config.meshWireframe) this._buildWireLevel(gl, simplified, i);
+            }
             this._map?.triggerRepaint();
         }).catch(() => { /* worker unavailable/crashed: LOD stays at level 0, no functional loss */ });
     }
@@ -1058,6 +1120,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._shadowDirty = true;
         ++this._meshGeneration;
         this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshWireCount = MESH_LOD_LEVELS.map(() => 0);
+        this._meshCpuIndices = MESH_LOD_LEVELS.map(() => null);
         this._meshLodLevel = 0;
         this._map?.triggerRepaint();
     }
@@ -1163,9 +1227,25 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             && config.sunLightingEnabled !== prev.sunLightingEnabled;
         const sizeChanged = config.shadowMapSize !== undefined
             && config.shadowMapSize !== prev.shadowMapSize;
+        const wireTurnedOn = config.meshWireframe === true && !prev.meshWireframe;
         Object.assign(this.config, config);
         if (sunChanged || lightModeChanged || sizeChanged) this._shadowDirty = true;
+        if (wireTurnedOn) this._ensureWireframe();
         this._map?.triggerRepaint();
+    }
+
+    /**
+     * Lazily build any missing wireframe edge buffers from the retained CPU
+     * indices. Called when the debug wireframe toggle is switched on after the
+     * mesh has already loaded (so `setMesh` didn't build them yet).
+     */
+    private _ensureWireframe(): void {
+        const gl = this._gl;
+        if (!gl) return;
+        for (let level = 0; level < this._meshCpuIndices.length; level++) {
+            const idx = this._meshCpuIndices[level];
+            if (idx && this._meshWireCount[level] === 0) this._buildWireLevel(gl, idx, level);
+        }
     }
 
     /**
@@ -1222,6 +1302,39 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     /**
+     * Build the deduplicated GL_LINES edge buffer for one mesh LOD level from
+     * its triangle index buffer. Runs off the render path (setMesh / the async
+     * LOD callback), only when the wireframe debug flag is on.
+     */
+    private _buildWireLevel(gl: WebGL2RenderingContext, indices: Uint32Array, level: number): void {
+        const lines = buildEdgeList(indices);
+        this._meshWireIdxBuf[level] ??= gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshWireIdxBuf[level]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lines, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+        this._meshWireCount[level] = lines.length;
+    }
+
+    /**
+     * Draw the debug wireframe as GL_LINES, chunked under the per-draw cap.
+     * Uses the current LOD level's edge buffer when ready, else falls back to
+     * the full-res level 0 (mirrors `_drawMeshChunked`).
+     */
+    private _drawMeshWire(gl: WebGL2RenderingContext): void {
+        const level = this._meshLodLevel;
+        const useLod = level > 0 && this._meshWireCount[level] > 0;
+        const idxLevel = useLod ? level : 0;
+        const total = this._meshWireCount[idxLevel];
+        if (!total) return;
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshWireIdxBuf[idxLevel]);
+        const chunk = MAX_VERT_IDS_PER_DRAW - (MAX_VERT_IDS_PER_DRAW % 2);
+        for (let start = 0; start < total; start += chunk) {
+            const len = Math.min(chunk, total - start);
+            gl.drawElements(gl.LINES, len, gl.UNSIGNED_INT, start * 4);
+        }
+    }
+
+    /**
      * Draw the mesh element buffer, split into chunks below the per-draw
      * vertex-ID cap. The chunk size is rounded down to a multiple of 3 so a
      * triangle is never split across two draws. Each chunk is a contiguous
@@ -1268,7 +1381,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1i(this._locMesh.ortho, 3);
         this._bindShadowToProgram(gl, this._locMesh);
         gl.bindVertexArray(this._vaoMesh);
-        this._drawMeshChunked(gl);
+        if (this.config.meshWireframe && this._meshWireCount[0] > 0) {
+            gl.uniform1f(this._locMesh.wireframe, 1);
+            this._drawMeshWire(gl);
+        } else {
+            gl.uniform1f(this._locMesh.wireframe, 0);
+            this._drawMeshChunked(gl);
+        }
     }
 
     /**
@@ -1594,6 +1713,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             ortho: gl.getUniformLocation(this._progMesh, 'u_ortho'),
             photoOpacityGround: gl.getUniformLocation(this._progMesh, 'u_photoOpacityGround'),
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
+            wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
         };
 
         // Texture orthophoto (1×1 par défaut, remplie par setOrthoTexture).
@@ -1737,6 +1857,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._meshNorBuf); this._meshNorBuf = null;
         delBuf(this._meshColBuf); this._meshColBuf = null;
         delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
+        for (let i = 0; i < this._meshWireIdxBuf.length; i++) { delBuf(this._meshWireIdxBuf[i]); this._meshWireIdxBuf[i] = null; }
         delBuf(this._quadBuf); this._quadBuf = null;
         for (let i = 0; i < this._pointLodIdxBuf.length; i++) { delBuf(this._pointLodIdxBuf[i]); this._pointLodIdxBuf[i] = null; }
         for (let i = 0; i < this._meshLodIdxBuf.length; i++) { delBuf(this._meshLodIdxBuf[i]); this._meshLodIdxBuf[i] = null; }

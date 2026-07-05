@@ -50,3 +50,14 @@ export function isLodDebugEnabled(): boolean {
     const tokens = debugTokens();
     return debugAll(tokens) || tokens.has('lod');
 }
+
+/**
+ * True when the reconstructed ground mesh should be drawn as a plain wireframe
+ * (no lighting, no texture) so the triangle density is directly visible.
+ * Enabled by the generic `?debug=true` or the scoped `?debug=mesh` (also
+ * accepts `wire` / `wireframe`).
+ */
+export function isMeshWireframeDebugEnabled(): boolean {
+    const tokens = debugTokens();
+    return debugAll(tokens) || tokens.has('mesh') || tokens.has('wire') || tokens.has('wireframe');
+}

@@ -30,6 +30,7 @@ export function LidarCloudOverlay() {
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
+    const meshWireframe = useMapStore((s) => s.lidarMeshWireframe);
     const setLodDebugInfo = useMapStore((s) => s.setLidarLodDebugInfo);
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const sunDate = useMapStore((s) => s.lidarSunDate);
@@ -276,8 +277,9 @@ export function LidarCloudOverlay() {
             photoOpacityNonGround,
             lodEnabled,
             lodForceLevel,
+            meshWireframe,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, meshWireframe, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

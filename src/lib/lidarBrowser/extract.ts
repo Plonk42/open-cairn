@@ -26,6 +26,14 @@ export interface ExtractParams {
     /** LAS class whitelist (null = keep all). */
     classFilter: Set<number> | null;
     /**
+     * LAS classes exempt from `stride` decimation — kept at full density while
+     * every other class is still decimated by `stride`. Used by the Poisson
+     * mode to extract ground+water fully (so the "Densité sol" adaptive
+     * decimation is the *only* thing that thins the ground) while the non-ground
+     * overlay stays controlled by the separate "Densité non-sol" stride.
+     */
+    fullDensityClasses?: Set<number> | null;
+    /**
      * Optional oriented-rectangle crop in Lambert-93. When present it supersedes
      * the square `radius` bbox for the per-point keep test: a point is kept iff
      * it falls inside the rotated rectangle. `ux,uy` is the unit L93 direction of
@@ -246,6 +254,59 @@ function isInsideCrop(
     return x >= bbox.minX && x <= bbox.maxX && y >= bbox.minY && y <= bbox.maxY;
 }
 
+/** Per-node point-collection context passed to {@link collectNodePoints}. */
+interface CollectCtx {
+    n: number;
+    safeStride: number;
+    /** Classes kept at full density; others thinned by `safeStride`. */
+    exempt: Set<number> | null;
+    getX: (i: number) => number;
+    getY: (i: number) => number;
+    getZ: (i: number) => number;
+    getC: ((i: number) => number) | null;
+    classFilter: Set<number> | null;
+    rect: ExtractParams['rect'];
+    bbox: CropBbox;
+    x0: number;
+    y0: number;
+    scan: ReturnType<typeof makeScanReaders> | null;
+    pos: Float32Array;
+    cls: Uint8Array;
+}
+
+/**
+ * Walk a decoded node, applying the (class-aware) stride, bbox/rect crop and
+ * class filter, writing kept points into the preallocated `pos`/`cls`/`scan`
+ * buffers. Returns the number of points written.
+ */
+function collectNodePoints(ctx: CollectCtx): number {
+    const { n, safeStride, exempt, getX, getY, getZ, getC, classFilter, rect, bbox, x0, y0, scan, pos, cls } = ctx;
+    const step = exempt ? 1 : safeStride;
+    let kept = 0;
+    for (let i = 0; i < n; i += step) {
+        const c = getC ? getC(i) : 0;
+        // Non-exempt classes are still decimated by safeStride within the walk.
+        if (exempt && !exempt.has(c) && i % safeStride !== 0) continue;
+        const x = getX(i);
+        const y = getY(i);
+        const dx = x - x0;
+        const dy = y - y0;
+        if (!isInsideCrop(dx, dy, x, y, rect, bbox)) continue;
+        if (classFilter && getC && !classFilter.has(c)) continue;
+        pos[kept * 3] = dx;
+        pos[kept * 3 + 1] = dy;
+        pos[kept * 3 + 2] = getZ(i);
+        cls[kept] = c;
+        if (scan) {
+            scan.scanAngle[kept] = scan.getSA(i);
+            scan.sourceId[kept] = scan.getPSID(i);
+            scan.gpsTime[kept] = scan.getGT(i);
+        }
+        kept++;
+    }
+    return kept;
+}
+
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
     const rect = params.rect ?? null;
@@ -404,40 +465,33 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         const hasClass = view.dimensions.Classification !== undefined;
         const getC = hasClass ? view.getter('Classification') : null;
         const n = view.pointCount;
-        // Preallocate to upper bound (ceil(n / stride)) and use a write
-        // pointer; far faster than pushing into a regular array.
-        const maxKept = Math.ceil(n / safeStride);
+        // Class-aware decimation: when `fullDensityClasses` is set, those
+        // classes are kept at full density (step 1) and every other class is
+        // still thinned by `safeStride`; this needs a per-point walk. Otherwise
+        // the fast uniform stride walk is used.
+        const exempt = (params.fullDensityClasses && params.fullDensityClasses.size > 0 && getC)
+            ? params.fullDensityClasses
+            : null;
+        // Preallocate to upper bound and use a write pointer; far faster than
+        // pushing into a regular array.
+        const maxKept = exempt ? n : Math.ceil(n / safeStride);
         const pos = new Float32Array(maxKept * 3);
         const cls = new Uint8Array(maxKept);
-        const scan = needScan ? makeScanReaders(view, maxKept) : null; let kept = 0;
-        for (let i = 0; i < n; i += safeStride) {
-            const x = getX(i);
-            const y = getY(i);
-            const dx = x - x0;
-            const dy = y - y0;
-            if (!isInsideCrop(dx, dy, x, y, rect, bbox)) continue;
-            const c = getC ? getC(i) : 0;
-            if (classFilter && getC && !classFilter.has(c)) continue;
-            pos[kept * 3] = dx;
-            pos[kept * 3 + 1] = dy;
-            pos[kept * 3 + 2] = getZ(i);
-            cls[kept] = c;
-            if (scan) {
-                scan.scanAngle[kept] = scan.getSA(i);
-                scan.sourceId[kept] = scan.getPSID(i);
-                scan.gpsTime[kept] = scan.getGT(i);
-            }
-            kept++;
-        }
+        const scan = needScan ? makeScanReaders(view, maxKept) : null;
+        const kept = collectNodePoints({
+            n, safeStride, exempt, getX, getY, getZ, getC,
+            classFilter, rect, bbox, x0, y0, scan, pos, cls,
+        });
         // `inBbox` is estimated as kept × stride (the actual ratio is identical
         // up to a class-filter rounding effect, since we only sample every Nth
-        // point in the node). Cheap, and avoids a full per-point iteration.
+        // point in the node). For the exempt walk we kept most points, so the
+        // count itself is the best estimate.
         return {
             positions: pos.subarray(0, kept * 3),
             classifications: cls.subarray(0, kept),
             ...finalizeScan(scan, kept),
             raw: n,
-            inBbox: kept * safeStride,
+            inBbox: exempt ? kept : kept * safeStride,
         };
     }
 

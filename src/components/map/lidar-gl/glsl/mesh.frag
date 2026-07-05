@@ -16,10 +16,17 @@ uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
+uniform float u_wireframe;       // 1 = fil de fer debug (couleur plate, sans lumière/texture)
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth;
 
 void main() {
+    // Mode debug fil de fer : couleur plate lisible, aucune lumière ni photo.
+    if (u_wireframe > 0.5) {
+        fragColor = vec4(0.15, 1.0, 0.55, 1.0);
+        fragDepth = v_depth;
+        return;
+    }
     float s = sampleShadow();
     vec3 albedo = v_albedo;
     // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et

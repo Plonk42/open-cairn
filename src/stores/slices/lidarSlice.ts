@@ -100,6 +100,15 @@ export interface LidarSlice {
      */
     lidarLodForceLevel: number | null;
     setLidarLodForceLevel: (v: number | null) => void;
+    /**
+     * Debug-only: draw the reconstructed ground mesh as a plain wireframe (no
+     * lighting, no texture) so the triangle density is directly visible. The
+     * toggle is only surfaced when `isMeshWireframeDebugEnabled()`; defaults
+     * off (the `?debug` flag reveals the control, it never activates it). Not
+     * persisted.
+     */
+    lidarMeshWireframe: boolean;
+    setLidarMeshWireframe: (v: boolean) => void;
     /** Debug-only live snapshot of the WebGL layer's current LOD levels (see
      *  `isLodDebugEnabled`), polled by `LidarCloudOverlay`. Not persisted. */
     lidarLodDebugInfo: LidarLodDebugInfo | null;
@@ -427,6 +436,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarLodEnabled: (lidarLodEnabled) => set({ lidarLodEnabled }),
     lidarLodForceLevel: null,
     setLidarLodForceLevel: (lidarLodForceLevel) => set({ lidarLodForceLevel }),
+    lidarMeshWireframe: false,
+    setLidarMeshWireframe: (lidarMeshWireframe) => set({ lidarMeshWireframe }),
     lidarLodDebugInfo: null,
     setLidarLodDebugInfo: (lidarLodDebugInfo) => set({ lidarLodDebugInfo }),
     lidarCloudLoading: false,

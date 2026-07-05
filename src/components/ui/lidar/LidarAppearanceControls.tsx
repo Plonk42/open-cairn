@@ -1,7 +1,7 @@
 import { LOD_LEVEL_COUNT } from '@/components/map/LidarWebGLLayer';
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
-import { isHeightDebugEnabled, isLodDebugEnabled } from '@/lib/debugFlags';
+import { isHeightDebugEnabled, isLodDebugEnabled, isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
@@ -207,6 +207,8 @@ export function PointSizeControls() {
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
     const setLodForceLevel = useMapStore((s) => s.setLidarLodForceLevel);
     const lodDebugInfo = useMapStore((s) => s.lidarLodDebugInfo);
+    const meshWireframe = useMapStore((s) => s.lidarMeshWireframe);
+    const setMeshWireframe = useMapStore((s) => s.setLidarMeshWireframe);
 
     return (
         <div className="space-y-3">
@@ -284,6 +286,26 @@ export function PointSizeControls() {
                             {lodDebugInfo.meshDisplayedTriangleCount.toLocaleString('fr-FR')} / {lodDebugInfo.meshTriangleCount.toLocaleString('fr-FR')} triangles
                         </p>
                     )}
+                </div>
+            )}
+
+            {/* Debug uniquement : ?debug=true ou ?debug=mesh. Affiche le maillage
+                sol en fil de fer (sans lumière ni texture) pour visualiser la
+                densité des triangles. Le toggle apparaît seulement en debug ;
+                il est éteint par défaut. */}
+            {isMeshWireframeDebugEnabled() && (
+                <div className={DEBUG_WRAP_CLASS}>
+                    <label className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300" title="Dessine le maillage sol en fil de fer, sans éclairage ni texture. Débogage uniquement.">
+                            Maillage fil de fer
+                        </span>
+                        <input
+                            type="checkbox"
+                            checked={meshWireframe}
+                            onChange={(e) => setMeshWireframe(e.target.checked)}
+                            className="h-4 w-4 accent-amber-600"
+                        />
+                    </label>
                 </div>
             )}
         </div>

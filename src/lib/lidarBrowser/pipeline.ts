@@ -7,6 +7,10 @@
  * Returns the same data shapes as `src/lib/lidarCloud.ts` types.
  */
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import {
+    adaptiveDecimateGround, DEFAULT_ADAPTIVE_CELL_M,
+    DEFAULT_ADAPTIVE_RESIDUAL_M, DEFAULT_ADAPTIVE_SIGMA_TOL,
+} from './adaptiveDecimate';
 import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
 import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
@@ -165,6 +169,14 @@ function copyScanPoint(c: CommonCloud, dst: ScanData | null, gi: number, i: numb
 }
 
 /**
+ * LAS classes that make up the terrain surface: ground (2) + water (9). Used
+ * both to split the cloud and to keep these classes at full density during the
+ * Poisson extraction (their density is governed solely by the adaptive
+ * "Densité sol/eau" decimation, independently of the non-ground stride).
+ */
+const GROUND_WATER_CLASSES = new Set([2, 9]);
+
+/**
  * Split the merged cloud into ground (class 2) + water (class 9, fed to the
  * mesh reconstruction) and everything else (kept as a shaded overlay), in a
  * single pass. Water points lie on the terrain surface and must be included so
@@ -196,45 +208,6 @@ function splitGround(c: CommonCloud): GroundSplit {
     return { groundPos, groundCount, ngPos, ngCls, groundScan };
 }
 
-/** Decimated ground subset for the Poisson reconstruction input. */
-interface DecimatedGround {
-    pos: Float32Array;
-    count: number;
-    scan: ScanData | null;
-}
-
-/**
- * Keep one ground point in `extra` (uniform stride) for the Poisson input only.
- * The caller computes `extra` from the absolute ground stride relative to the
- * extraction stride, so the ground mesh can be reconstructed from far fewer
- * points than the vegetation overlay. `extra <= 1` returns the input unchanged.
- */
-function decimateGround(
-    groundPos: Float32Array, groundCount: number, groundScan: ScanData | null, extra: number,
-): DecimatedGround {
-    if (extra <= 1 || groundCount === 0) return { pos: groundPos, count: groundCount, scan: groundScan };
-    const count = Math.ceil(groundCount / extra);
-    const pos = new Float32Array(count * 3);
-    const scan: ScanData | null = groundScan && {
-        scanAngle: new Float32Array(count),
-        sourceId: new Uint16Array(count),
-        gpsTime: new Float64Array(count),
-    };
-    let k = 0;
-    for (let i = 0; i < groundCount; i += extra) {
-        pos[k * 3] = groundPos[i * 3];
-        pos[k * 3 + 1] = groundPos[i * 3 + 1];
-        pos[k * 3 + 2] = groundPos[i * 3 + 2];
-        if (scan && groundScan) {
-            scan.scanAngle[k] = groundScan.scanAngle[i];
-            scan.sourceId[k] = groundScan.sourceId[i];
-            scan.gpsTime[k] = groundScan.gpsTime[i];
-        }
-        k++;
-    }
-    return { pos: pos.subarray(0, k * 3), count: k, scan };
-}
-
 /**
  * Run steps 1+2 (WFS query → COPC extract on every covering tile, in
  * parallel) and return the merged point set. Used by all three modes.
@@ -242,7 +215,7 @@ function decimateGround(
  * When `opts.needScan` is set, per-point ScanAngle / PointSourceId / GpsTime are
  * also decoded (Poisson mode uses them for flight-line normal orientation).
  */
-async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boolean }): Promise<{
+async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boolean; fullDensityClasses?: Set<number> }): Promise<{
     positions: Float32Array;
     classifications: Uint8Array;
     scanAngle?: Float32Array;
@@ -308,6 +281,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
             tileUrl: tile.url,
             x0, y0, radius, stride,
             classFilter,
+            fullDensityClasses: opts?.fullDensityClasses ?? null,
             rect: rectCrop,
             needScan,
             signal: params.signal,
@@ -686,23 +660,35 @@ export async function fetchLidarPoisson(
     const shader = params.shader ?? 'cliff';
     const total = startTimer();
 
-    // Fetch every class — Poisson reconstruction uses only ground, but the
-    // overlay uses everything else. Scan dimensions feed flight-line orientation.
-    const c = await fetchCommon({ ...params, classes: undefined }, { needScan: true });
+    // Fetch every class. Ground+water are kept at FULL density (exempt from the
+    // non-ground `stride`) so the terrain surface is governed solely by the
+    // adaptive "Densité sol/eau" decimation below; the non-ground overlay is
+    // decimated by `stride` ("Densité non-sol"). Scan dimensions feed
+    // flight-line orientation.
+    const c = await fetchCommon(
+        { ...params, classes: undefined },
+        { needScan: true, fullDensityClasses: GROUND_WATER_CLASSES },
+    );
 
     // Split ground (class 2) from the rest (with the ground scan subset).
     const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGround(c);
     const nonGroundCount = ngCls.length;
 
-    // Decimate the ground subset further for the (slow) reconstruction only:
-    // the absolute `poissonGroundStride` lets the ground/water be sampled more
-    // coarsely than the vegetation. The full `groundPos` still feeds the
-    // veg-height ground grid below so foliage heights stay accurate.
-    const extractionStride = Math.max(1, Math.floor(params.stride));
-    const groundStride = Math.max(extractionStride, Math.floor(params.poissonGroundStride ?? extractionStride));
-    const extraGroundStride = Math.max(1, Math.round(groundStride / extractionStride));
-    const ps = decimateGround(groundPos, groundCount, groundScan, extraGroundStride);
+    // Curvature-adaptive decimation of the (full-density) ground before the slow
+    // reconstruction. `flatStride` is the absolute "Densité sol/eau" value — it
+    // only thins locally-planar cells, so cliffs, ridges, faults and cave mouths
+    // keep full density regardless of orientation. The full `groundPos` still
+    // feeds the veg-height ground grid below so foliage heights stay accurate.
+    const flatStride = Math.max(1, Math.floor(params.poissonGroundStride ?? 1));
+    const tDecim = startTimer();
+    const ps = adaptiveDecimateGround(groundPos, groundCount, groundScan, {
+        cellM: DEFAULT_ADAPTIVE_CELL_M,
+        flatStride,
+        sigmaTol: DEFAULT_ADAPTIVE_SIGMA_TOL,
+        residualTol: DEFAULT_ADAPTIVE_RESIDUAL_M,
+    });
     const psCount = ps.count;
+    logStage('decim (sol)', tDecim(), `${groundCount.toLocaleString()} → ${psCount.toLocaleString()} pts · stride ${flatStride} · -${groundCount ? Math.round((1 - psCount / groundCount) * 100) : 0}%`);
 
     // 1. Ground mesh via PoissonRecon.
     onProgress({

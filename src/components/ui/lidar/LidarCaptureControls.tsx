@@ -162,9 +162,10 @@ function CaptureZoneControls() {
 }
 
 /**
- * Poisson-only ground/water density slider. Lets the ground be sampled more
- * coarsely than the vegetation so the slow PoissonRecon mesh build speeds up
- * without thinning the non-ground overlay.
+ * Poisson-only ground/water density slider. Drives the curvature-adaptive
+ * ground decimation: flat ground is thinned so the slow PoissonRecon mesh build
+ * speeds up, while relief (cliffs, overhangs, caves) keeps full density and the
+ * non-ground overlay is untouched.
  */
 function GroundDensityControl() {
     const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
@@ -172,11 +173,11 @@ function GroundDensityControl() {
     return (
         <label className="block">
             <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                <span>Densité sol/eau</span>
+                <span>Densité sol</span>
                 <span className="font-mono text-xs text-slate-400">{groundStride === 1 ? 'max' : `1/${groundStride}`}</span>
             </div>
             <input
-                aria-label="Décimation du sol et de l'eau (reconstruction Poisson)"
+                aria-label="Décimation adaptative du sol et de l'eau (reconstruction Poisson)"
                 type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
                 list="lidar-density-stops"
                 value={strideToIndex(groundStride)}
@@ -184,7 +185,7 @@ function GroundDensityControl() {
                 className="mt-1 w-full accent-green-600"
             />
             <p className="mt-1 text-[10px] text-slate-400">
-                Sol/eau plus grossier = reconstruction plus rapide, sans toucher à la végétation.
+                Densité adaptive préservant le relief et détails du sol
             </p>
         </label>
     );
@@ -290,6 +291,11 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                             <option key={s} value={i} label={s === 1 ? 'max' : `1/${s}`} />
                         ))}
                     </datalist>
+                    {mode === 'poisson' && (
+                        <p className="mt-1 text-[10px] text-slate-400">
+                            Densité non-sol : végétation, bâti...
+                        </p>
+                    )}
                 </label>
 
                 {mode === 'poisson' && <GroundDensityControl />}
