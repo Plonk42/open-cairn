@@ -15,7 +15,8 @@ import {
     sanitizeVegHeights, type VegGroundGrid,
 } from './groundHeight';
 import { buildMesh } from './mesh';
-import { computeNormalsKNN, computeNormalsVegAware, orientNormalsForPoisson } from './normals';
+import { orientNormalsForPoisson } from './normals';
+import { computeNormalsKNNAsync, computeNormalsVegAwareAsync } from './normalsPool';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { l93RectAxes, lngLatToL93 } from './proj';
@@ -430,7 +431,7 @@ async function buildNonGroundShaded(
     const { pos: ngPos, cls: ngCls, count: nonGroundCount } = nonGround;
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${nonGroundCount.toLocaleString()} pts` });
     const tNg = startTimer();
-    const ngNormals = computeNormalsVegAware(ngPos, ngCls, nonGroundCount);
+    const ngNormals = await computeNormalsVegAwareAsync(ngPos, ngCls, nonGroundCount);
     logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
     const tNgCol = startTimer();
@@ -475,7 +476,7 @@ export async function fetchLidarShaded(
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
     const tNormals = startTimer();
-    const normals = computeNormalsVegAware(c.positions, c.classifications, c.pointCount);
+    const normals = await computeNormalsVegAwareAsync(c.positions, c.classifications, c.pointCount);
     logStage('normals', tNormals(), `${c.pointCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const tColors = startTimer();
@@ -718,7 +719,7 @@ export async function fetchLidarPoisson(
     // (laser scan-angle → +z prior → quality-weighted propagation) and weight
     // each normal by quality so crisp points drive the isosurface.
     const groundQuality = new Float32Array(psCount);
-    const groundNormals = computeNormalsKNN(ps.pos, 12, 2, false, groundQuality);
+    const groundNormals = await computeNormalsKNNAsync(ps.pos, 12, 2, false, groundQuality);
     orientNormalsForPoisson(ps.pos, groundNormals, groundQuality, ps.scan);
     logStage('normals (sol)', tGroundNrm(), `${psCount.toLocaleString()} pts${ps.scan ? ' · scan' : ''}`);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.

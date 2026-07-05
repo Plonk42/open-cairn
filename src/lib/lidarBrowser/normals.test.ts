@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { computeNormalsKNN } from '@/lib/lidarBrowser/normals';
+import { describe, expect, it } from 'vitest';
 
 /** Build an N×N grid of points at constant elevation. */
 function flatGrid(size: number, spacing = 1, z = 0): Float32Array {
@@ -53,5 +53,33 @@ describe('computeNormalsKNN', () => {
             const len = Math.hypot(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
             expect(len).toBeCloseTo(1, 4);
         }
+    });
+
+    it('produces byte-identical output across grid implementations (parity guard)', () => {
+        // Deterministic pseudo-random point cloud (mulberry32), irregular enough
+        // to exercise every k-NN/grid code path across many populated cells. This
+        // snapshot is the parity contract for the CSR spatial-grid refactor
+        // (bucket-per-cell Map<number, number[]> → counting-sorted typed arrays):
+        // it must never change when only the grid's internal data structure
+        // changes, since floating-point accumulation order (and thus exact
+        // results) depends on the k-NN candidate iteration order being preserved.
+        let seed = 42;
+        const rand = () => {
+            seed = seed + 0x6D2B79F5;
+            let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+            t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const count = 500;
+        const positions = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            const x = rand() * 40;
+            const y = rand() * 40;
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = Math.sin(x * 0.2) * Math.cos(y * 0.15) * 3 + rand() * 0.4;
+        }
+        const normals = computeNormalsKNN(positions, 12, 2, true);
+        expect(Array.from(normals)).toMatchSnapshot();
     });
 });
