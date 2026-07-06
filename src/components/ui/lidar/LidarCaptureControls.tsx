@@ -40,6 +40,8 @@ function PoissonControls() {
     const setPoissonSamplesPerNode = useMapStore((s) => s.setLidarCloudPoissonSamplesPerNode);
     const poissonPointWeight = useMapStore((s) => s.lidarCloudPoissonPointWeight);
     const setPoissonPointWeight = useMapStore((s) => s.setLidarCloudPoissonPointWeight);
+    const flatBase = useMapStore((s) => s.lidarCloudPoissonFlatBase);
+    const setFlatBase = useMapStore((s) => s.setLidarCloudPoissonFlatBase);
     return (
         <div className="space-y-3">
             <label className="block">
@@ -90,6 +92,18 @@ function PoissonControls() {
                     Adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
                 </p>
             </label>
+            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+                <input
+                    type="checkbox"
+                    checked={flatBase}
+                    onChange={(e) => setFlatBase(e.target.checked)}
+                    className="accent-green-600"
+                />
+                <span>Socle plat</span>
+            </label>
+            <p className="-mt-1 text-[10px] text-slate-400">
+                Grave le relief sur une brique à base plate au lieu d'un dessous bombé.
+            </p>
         </div>
     );
 }

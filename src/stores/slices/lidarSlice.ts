@@ -237,6 +237,10 @@ export interface LidarSlice {
     /** Interpolation weight for PoissonRecon. Default 4. */
     lidarCloudPoissonPointWeight: number;
     setLidarCloudPoissonPointWeight: (v: number) => void;
+    /** Synthesize a flat parallelepiped "brick" base under the Poisson mesh so
+     *  the underside is flat instead of a bulging cushion. Default true. */
+    lidarCloudPoissonFlatBase: boolean;
+    setLidarCloudPoissonFlatBase: (v: boolean) => void;
     /**
      * Sun position date/time as a naive local-datetime string
      * ("YYYY-MM-DDTHH:mm"). Drives the per-vertex Lambert lighting term in
@@ -544,6 +548,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
     lidarCloudPoissonPointWeight: persisted.lidarCloudPoissonPointWeight ?? 4,
     setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
+    lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
+    setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
     lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
     setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
     lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
@@ -647,6 +653,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     poissonDepth: state.lidarCloudPoissonDepth,
                     poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
                     poissonPointWeight: state.lidarCloudPoissonPointWeight,
+                    poissonFlatBase: state.lidarCloudPoissonFlatBase,
                     groundGapM: state.lidarVegGroundGap,
                     groundRoughM: state.lidarVegGroundRough,
                     shader: state.lidarShader,
@@ -764,6 +771,7 @@ export function selectLidarPersisted(
     | 'lidarCloudPoissonDepth'
     | 'lidarCloudPoissonSamplesPerNode'
     | 'lidarCloudPoissonPointWeight'
+    | 'lidarCloudPoissonFlatBase'
     | 'lidarSunDate'
     | 'lidarSunEnabled'
     | 'lidarShadows'
@@ -818,6 +826,7 @@ export function selectLidarPersisted(
         lidarCloudPoissonDepth: s.lidarCloudPoissonDepth,
         lidarCloudPoissonSamplesPerNode: s.lidarCloudPoissonSamplesPerNode,
         lidarCloudPoissonPointWeight: s.lidarCloudPoissonPointWeight,
+        lidarCloudPoissonFlatBase: s.lidarCloudPoissonFlatBase,
         lidarSunDate: s.lidarSunDate,
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,

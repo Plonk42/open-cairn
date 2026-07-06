@@ -21,6 +21,7 @@ import {
 import { buildMesh } from './mesh';
 import { orientNormalsForPoisson } from './normals';
 import { computeNormalsKNNAsync, computeNormalsVegAwareAsync } from './normalsPool';
+import { buildPoissonBase } from './poissonBase';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { l93RectAxes, lngLatToL93 } from './proj';
@@ -47,6 +48,10 @@ export interface BrowserFetchParams {
     poissonSamplesPerNode?: number;
     /** Interpolation weight for PoissonRecon. Default 4. */
     poissonPointWeight?: number;
+    /** Poisson mode: synthesize a flat parallelepiped "brick" base (floor + walls)
+     *  under the terrain so the underside is flat instead of a bulging cushion.
+     *  Default true. */
+    poissonFlatBase?: boolean;
     /** Colour shader preset applied to all geometry. */
     shader?: ShaderPreset;
     /** Delaunay mode: smooth the ground surface via a regular grid heightfield
@@ -708,8 +713,16 @@ export async function fetchLidarPoisson(
     const groundNormals = await computeNormalsKNNAsync(ps.pos, 12, 2, false, groundQuality);
     orientNormalsForPoisson(ps.pos, groundNormals, groundQuality, ps.scan);
     logStage('normals (sol)', tGroundNrm(), `${psCount.toLocaleString()} pts${ps.scan ? ' · scan' : ''}`);
-    // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input.
-    const oriented = new Float32Array(psCount * 6);
+    // Flat "brick" base: synthesize oriented floor + wall points below the
+    // terrain so Poisson closes the underside into a flat parallelepiped instead
+    // of a bulging cushion. Reused as the veg-height reference grid below.
+    const groundGrid = buildVegGroundGrid(groundPos, groundCount);
+    const flatBase = (params.poissonFlatBase ?? true) && groundGrid
+        ? buildPoissonBase(groundGrid)
+        : new Float32Array(0);
+    // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input, then append the
+    // pre-oriented base points (their normals are hand-set, not KNN-estimated).
+    const oriented = new Float32Array(psCount * 6 + flatBase.length);
     for (let i = 0; i < psCount; i++) {
         oriented[i * 6] = ps.pos[i * 3];
         oriented[i * 6 + 1] = ps.pos[i * 3 + 1];
@@ -717,6 +730,10 @@ export async function fetchLidarPoisson(
         oriented[i * 6 + 3] = groundNormals[i * 3];
         oriented[i * 6 + 4] = groundNormals[i * 3 + 1];
         oriented[i * 6 + 5] = groundNormals[i * 3 + 2];
+    }
+    if (flatBase.length) {
+        oriented.set(flatBase, psCount * 6);
+        logStage('socle plat', tGroundNrm(), `+${(flatBase.length / 6).toLocaleString()} pts base`);
     }
     onProgress({
         stage: 'mesh',
@@ -763,7 +780,7 @@ export async function fetchLidarPoisson(
         c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, shader,
         {
             gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
-            grid: buildVegGroundGrid(groundPos, groundCount),
+            grid: groundGrid,
             roughM: params.groundRoughM ?? DEFAULT_VEG_GROUND_ROUGH,
         },
         onProgress, params.signal,
