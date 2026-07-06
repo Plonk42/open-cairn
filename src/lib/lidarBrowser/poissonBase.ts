@@ -5,10 +5,22 @@
  * underside into a smooth bulging *cushion* — there is simply no geometry to
  * tell it where the bottom is. To carve the relief onto a flat-bottomed brick
  * instead, we synthesize a closed shell UNDER the terrain: a horizontal FLOOR a
- * few metres below the lowest ground point (normals pointing down) plus vertical
- * WALL columns around the footprint silhouette (normals pointing outward). Those
- * oriented points are appended to the ground point set before reconstruction, so
- * Poisson's watertight machinery produces vertical sides and a flat base.
+ * few metres below the lowest ground point (normals pointing down) plus four
+ * straight vertical WALLS at the footprint bounding box (normals pointing
+ * outward). Those oriented points are appended to the ground point set before
+ * reconstruction, so Poisson's watertight machinery produces vertical sides and
+ * a flat base.
+ *
+ * ## Flat, coplanar walls
+ * Following the rasterised per-cell silhouette made the wall wobble in and out
+ * by one cell wherever the capture-edge coverage was ragged, and Poisson turned
+ * those steps into vertical grooves. Instead each of the four sides is a single
+ * straight plane along the capture rectangle's edge; only the column height
+ * follows the terrain. Every point on a side is coplanar, so the wall
+ * reconstructs flat — and cheaply, since a flat plane needs no dense anti-alias
+ * sampling. The rectangle is the rotated capture footprint (see
+ * {@link PoissonBaseRect}); a default square capture is just the same rectangle
+ * at bearing 0, so there is a single code path for both.
  *
  * All coordinates are east/north/up meter offsets — the same frame as
  * {@link VegGroundGrid} and the rest of the browser pipeline.
@@ -21,132 +33,144 @@ import type { VegGroundGrid } from './groundHeight';
  *  rather than skimming the relief. */
 export const POISSON_BASE_MARGIN_M = 3;
 
-/** Target spacing (m) of the synthesized floor grid and wall columns. Coarser
- *  than the octree resolution is plenty for flat planes and keeps the extra
- *  point budget small (a few tens of thousands at most). */
-export const POISSON_BASE_STEP_M = 4;
+/** Octree depth assumed when none is supplied (matches the pipeline default). */
+const DEFAULT_POISSON_DEPTH = 9;
+
+/**
+ * The oriented capture rectangle in the east/north meter frame. When supplied,
+ * the four walls follow these rotated edges exactly (instead of the axis-aligned
+ * bounding box), so a tilted capture gets clean sides with no corner overshoot.
+ */
+export interface PoissonBaseRect {
+    /** Unit length-axis direction (east, north). The width axis is `(-uy, ux)`. */
+    ux: number;
+    uy: number;
+    /** Half-extent along the length and width axes (m). */
+    halfLengthM: number;
+    halfWidthM: number;
+    /** Rectangle centre in the meter frame. Defaults to the capture origin (0, 0). */
+    centerX?: number;
+    centerY?: number;
+}
 
 export interface PoissonBaseOptions {
+    /** PoissonRecon octree depth the base will be reconstructed at. Drives the
+     *  wall/floor sample spacing so it stays below the solver's resolution and
+     *  the walls reconstruct flat instead of corrugated. Default 9. */
+    depth?: number;
     /** Base depth below the lowest ground point (m). Default {@link POISSON_BASE_MARGIN_M}. */
     marginM?: number;
-    /** Floor/wall point spacing (m). Default {@link POISSON_BASE_STEP_M}. */
-    stepM?: number;
+    /** Oriented capture rectangle. When set, walls follow the rotated edges;
+     *  otherwise a default un-rotated rectangle spanning the grid footprint is
+     *  used (the axis-aligned square capture). */
+    rect?: PoissonBaseRect;
+    /** Override the horizontal wall sample spacing (m). Defaults to ≈ half the
+     *  octree cell. Mainly for tests. */
+    wallHStepM?: number;
+    /** Override the vertical wall sample spacing (m). Mainly for tests. */
+    wallVStepM?: number;
+    /** Override the floor grid spacing (m). Mainly for tests. */
+    floorStepM?: number;
 }
 
-/** 4-neighbourhood (von Neumann) offsets used for silhouette detection. */
-const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
-    [-1, 0], [1, 0], [0, -1], [0, 1],
-];
+function clamp(v: number, lo: number, hi: number): number {
+    return Math.min(hi, Math.max(lo, v));
+}
 
-/** Lowest finite ground elevation in the grid, or `NaN` when it is all empty. */
-function lowestGround(groundZ: Float32Array): number {
-    let minZ = Infinity;
+/** Min/max finite ground elevation, or `null` when the grid is all empty. */
+function groundRange(groundZ: Float32Array): { min: number; max: number } | null {
+    let min = Infinity, max = -Infinity;
     for (const z of groundZ) {
-        if (Number.isFinite(z) && z < minZ) minZ = z;
+        if (!Number.isFinite(z)) continue;
+        if (z < min) min = z;
+        if (z > max) max = z;
     }
-    return Number.isFinite(minZ) ? minZ : Number.NaN;
+    return min <= max ? { min, max } : null;
+}
+
+/** Clamp a world offset to a valid cell index. */
+function cellIndex(worldOffset: number, cell: number, n: number): number {
+    return Math.min(n - 1, Math.max(0, Math.floor(worldOffset / cell)));
+}
+
+interface ResolvedRect extends PoissonBaseRect { centerX: number; centerY: number; }
+
+/** Shared context for the oriented (rotation-following) emit helpers. */
+interface OrientedContext {
+    grid: VegGroundGrid;
+    baseZ: number;
+    hStep: number;
+    vStep: number;
+    floorStep: number;
+    out: number[];
+    rect: ResolvedRect;
+}
+
+/** Terrain elevation at meter position (x, y), or `NaN` when that cell is empty. */
+function groundAt(grid: VegGroundGrid, x: number, y: number): number {
+    const cx = cellIndex(x - grid.minX, grid.cell, grid.cols);
+    const cy = cellIndex(y - grid.minY, grid.cell, grid.rows);
+    return grid.groundZ[cy * grid.cols + cx];
+}
+
+/** Fill the rotated rectangle interior with downward floor points at `baseZ`. */
+function emitOrientedFloor(ctx: OrientedContext): void {
+    const { rect, floorStep, baseZ, out } = ctx;
+    const { ux, uy, halfLengthM: L, halfWidthM: W, centerX, centerY } = rect;
+    const wx = -uy, wy = ux; // width axis (left-perpendicular of the length axis)
+    for (let su = -L; su <= L; su += floorStep) {
+        for (let sw = -W; sw <= W; sw += floorStep) {
+            out.push(centerX + ux * su + wx * sw, centerY + uy * su + wy * sw, baseZ, 0, 0, -1);
+        }
+    }
 }
 
 /**
- * Flag every empty cell reachable from the grid border by 4-connected flood
- * fill. These are the cells *outside* the terrain silhouette; empty cells NOT
- * flagged are interior holes (e.g. a forest patch with no ground return) that
- * must stay covered by the brick rather than becoming an internal wall.
+ * One straight wall along a rectangle edge. Points are laid on the exact edge
+ * line (outward normal `n`), spanning `±halfSpan` along tangent `t`, so every
+ * point is coplanar and the wall reconstructs flat. Each column's top follows
+ * the terrain, sampled a cell inside the edge to reliably land on covered ground.
  */
-function markExterior(groundZ: Float32Array, cols: number, rows: number): Uint8Array {
-    const ext = new Uint8Array(cols * rows);
-    const stack: number[] = [];
-    const seed = (cx: number, cy: number): void => {
-        if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return;
-        const k = cy * cols + cx;
-        if (ext[k] || Number.isFinite(groundZ[k])) return;
-        ext[k] = 1;
-        stack.push(k);
+function emitEdge(
+    ctx: OrientedContext,
+    nx: number, ny: number, extent: number,
+    tx: number, ty: number, halfSpan: number,
+): void {
+    const { rect, grid, baseZ, vStep, hStep, out } = ctx;
+    const inset = grid.cell;
+    for (let s = -halfSpan; s <= halfSpan; s += hStep) {
+        const px = rect.centerX + nx * extent + tx * s;
+        const py = rect.centerY + ny * extent + ty * s;
+        const top = groundAt(grid, px - nx * inset, py - ny * inset);
+        if (Number.isNaN(top) || top <= baseZ) continue;
+        for (let z = baseZ; z < top; z += vStep) out.push(px, py, z, nx, ny, 0);
+    }
+}
+
+/** The four straight walls of the rotated rectangle (two long sides, two ends). */
+function emitOrientedWalls(ctx: OrientedContext): void {
+    const { ux, uy, halfLengthM: L, halfWidthM: W } = ctx.rect;
+    const wx = -uy, wy = ux;
+    emitEdge(ctx, wx, wy, W, ux, uy, L);   // +width side
+    emitEdge(ctx, -wx, -wy, W, ux, uy, L); // -width side
+    emitEdge(ctx, ux, uy, L, wx, wy, W);   // +length end
+    emitEdge(ctx, -ux, -uy, L, wx, wy, W); // -length end
+}
+
+/** The oriented rectangle to wall: the caller's rotated rect, or a default
+ *  un-rotated one spanning the grid's axis-aligned footprint. A square capture
+ *  is just a rectangle at bearing 0, so it needs no special path. */
+function resolveRect(grid: VegGroundGrid, rect?: PoissonBaseRect): ResolvedRect {
+    if (rect) return { ...rect, centerX: rect.centerX ?? 0, centerY: rect.centerY ?? 0 };
+    const halfW = (grid.cols * grid.cell) / 2;
+    const halfL = (grid.rows * grid.cell) / 2;
+    return {
+        ux: 1, uy: 0,
+        halfLengthM: halfL,
+        halfWidthM: halfW,
+        centerX: grid.minX + halfW,
+        centerY: grid.minY + halfL,
     };
-    for (let cx = 0; cx < cols; cx++) { seed(cx, 0); seed(cx, rows - 1); }
-    for (let cy = 0; cy < rows; cy++) { seed(0, cy); seed(cols - 1, cy); }
-    while (stack.length) {
-        const k = stack.pop() ?? 0;
-        const cx = k % cols;
-        const cy = (k - cx) / cols;
-        seed(cx - 1, cy); seed(cx + 1, cy); seed(cx, cy - 1); seed(cx, cy + 1);
-    }
-    return ext;
-}
-
-/** True when cell (cx, cy) lies inside the terrain silhouette (covered ground
- *  or an interior hole — anything that is not exterior). */
-function isInside(ext: Uint8Array, cols: number, rows: number, cx: number, cy: number): boolean {
-    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
-    return ext[cy * cols + cx] === 0;
-}
-
-/**
- * Outward horizontal unit normal for a silhouette-boundary cell: the normalized
- * sum of the offsets toward its exterior 4-neighbours. Returns `null` for an
- * interior cell (no exterior neighbour → no wall). Straight edges give an
- * axis-aligned normal, corners give a diagonal.
- */
-function outwardNormal(
-    ext: Uint8Array, cols: number, rows: number, cx: number, cy: number,
-): readonly [number, number] | null {
-    let ox = 0, oy = 0;
-    for (const [dx, dy] of NEIGHBOURS) {
-        if (!isInside(ext, cols, rows, cx + dx, cy + dy)) { ox += dx; oy += dy; }
-    }
-    if (ox === 0 && oy === 0) return null;
-    const len = Math.hypot(ox, oy);
-    return [ox / len, oy / len];
-}
-
-/** Wall-top elevation for a boundary cell: its own ground if known, else the
- *  highest finite ground among its 3×3 neighbours (edge holes), else `baseZ`. */
-function wallTop(
-    groundZ: Float32Array, cols: number, rows: number, cx: number, cy: number, baseZ: number,
-): number {
-    const own = groundZ[cy * cols + cx];
-    if (Number.isFinite(own)) return own;
-    let best = -Infinity;
-    for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-            const nx = cx + dx, ny = cy + dy;
-            if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-            const v = groundZ[ny * cols + nx];
-            if (Number.isFinite(v) && v > best) best = v;
-        }
-    }
-    return best > -Infinity ? best : baseZ;
-}
-
-/** Emit one downward floor point per strided interior cell, so the brick stays
- *  solid even under forest gaps (interior holes). */
-function emitFloor(grid: VegGroundGrid, ext: Uint8Array, baseZ: number, stride: number, out: number[]): void {
-    const { minX, minY, cell, cols, rows } = grid;
-    for (let cy = 0; cy < rows; cy += stride) {
-        for (let cx = 0; cx < cols; cx += stride) {
-            if (!isInside(ext, cols, rows, cx, cy)) continue;
-            out.push(minX + (cx + 0.5) * cell, minY + (cy + 0.5) * cell, baseZ, 0, 0, -1);
-        }
-    }
-}
-
-/** Emit a vertical wall column at every interior cell touching the exterior,
- *  from the base up to the local ground, normal pointing outward. */
-function emitWalls(grid: VegGroundGrid, ext: Uint8Array, baseZ: number, stepM: number, out: number[]): void {
-    const { minX, minY, cell, cols, rows, groundZ } = grid;
-    for (let cy = 0; cy < rows; cy++) {
-        for (let cx = 0; cx < cols; cx++) {
-            if (!isInside(ext, cols, rows, cx, cy)) continue;
-            const normal = outwardNormal(ext, cols, rows, cx, cy);
-            if (!normal) continue;
-            const top = wallTop(groundZ, cols, rows, cx, cy, baseZ);
-            const x = minX + (cx + 0.5) * cell;
-            const y = minY + (cy + 0.5) * cell;
-            for (let z = baseZ; z < top; z += stepM) {
-                out.push(x, y, z, normal[0], normal[1], 0);
-            }
-        }
-    }
 }
 
 /**
@@ -157,17 +181,26 @@ function emitWalls(grid: VegGroundGrid, ext: Uint8Array, baseZ: number, stepM: n
  * grid's east/north/up meter frame. Empty when the grid has no finite cell.
  */
 export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): Float32Array {
+    const range = groundRange(grid.groundZ);
+    if (!range) return new Float32Array(0);
+
     const marginM = opts.marginM ?? POISSON_BASE_MARGIN_M;
-    const stepM = opts.stepM ?? POISSON_BASE_STEP_M;
+    const baseZ = range.min - marginM;
 
-    const minZ = lowestGround(grid.groundZ);
-    if (!Number.isFinite(minZ)) return new Float32Array(0);
-    const baseZ = minZ - marginM;
+    // Octree cell ≈ largest bbox side / 2^depth. Coplanar walls no longer alias,
+    // so the spacing only needs to stay near the solver resolution.
+    const depth = opts.depth ?? DEFAULT_POISSON_DEPTH;
+    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
+    const extentZ = range.max - baseZ;
+    const octreeCell = Math.max(extentXY, extentZ) / 2 ** depth;
 
-    const ext = markExterior(grid.groundZ, grid.cols, grid.rows);
-    const stride = Math.max(1, Math.round(stepM / grid.cell));
-    const out: number[] = [];
-    emitFloor(grid, ext, baseZ, stride, out);
-    emitWalls(grid, ext, baseZ, stepM, out);
-    return Float32Array.from(out);
+    const hStep = opts.wallHStepM ?? clamp(octreeCell, 0.25, 2);
+    const vStep = opts.wallVStepM ?? clamp(octreeCell * 2, 0.5, 4);
+    const floorStep = opts.floorStepM ?? clamp(octreeCell * 3, 1.5, 4);
+
+    const rect = resolveRect(grid, opts.rect);
+    const ctx: OrientedContext = { grid, baseZ, hStep, vStep, floorStep, out: [], rect };
+    emitOrientedFloor(ctx);
+    emitOrientedWalls(ctx);
+    return Float32Array.from(ctx.out);
 }

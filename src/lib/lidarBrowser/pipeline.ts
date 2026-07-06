@@ -718,7 +718,16 @@ export async function fetchLidarPoisson(
     // of a bulging cushion. Reused as the veg-height reference grid below.
     const groundGrid = buildVegGroundGrid(groundPos, groundCount);
     const flatBase = (params.poissonFlatBase ?? true) && groundGrid
-        ? buildPoissonBase(groundGrid)
+        ? buildPoissonBase(groundGrid, {
+            depth,
+            rect: params.rect
+                ? {
+                    ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
+                    halfLengthM: params.rect.halfLengthM,
+                    halfWidthM: params.rect.halfWidthM,
+                }
+                : undefined,
+        })
         : new Float32Array(0);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input, then append the
     // pre-oriented base points (their normals are hand-set, not KNN-estimated).

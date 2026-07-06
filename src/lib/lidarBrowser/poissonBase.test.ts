@@ -24,6 +24,14 @@ function makeGrid(cols: number, rows: number, z: (cx: number, cy: number) => num
 const floors = (pts: BasePoint[]) => pts.filter((p) => p.nz === -1);
 const walls = (pts: BasePoint[]) => pts.filter((p) => p.nz === 0);
 
+/** True when the point lies on one of the outer footprint boundary planes. */
+const onBoundary = (p: BasePoint, lo: number, hi: number) =>
+    Math.abs(p.x - lo) < 1e-4 || Math.abs(p.x - hi) < 1e-4
+    || Math.abs(p.y - lo) < 1e-4 || Math.abs(p.y - hi) < 1e-4;
+
+/** Deterministic sample spacing so the tests don't depend on the octree heuristic. */
+const UNIT_STEPS = { floorStepM: 1, wallHStepM: 1, wallVStepM: 1 };
+
 describe('buildPoissonBase', () => {
     it('returns nothing for an all-empty grid', () => {
         const grid = makeGrid(4, 4, () => Number.NaN);
@@ -32,10 +40,11 @@ describe('buildPoissonBase', () => {
 
     it('lays a flat floor a fixed margin below the lowest ground, normals down', () => {
         const grid = makeGrid(4, 4, () => 10);
-        const pts = decode(buildPoissonBase(grid, { stepM: 1 }));
+        const pts = decode(buildPoissonBase(grid, UNIT_STEPS));
         const baseZ = 10 - POISSON_BASE_MARGIN_M;
         const floor = floors(pts);
-        expect(floor).toHaveLength(16); // one per covered cell at stride 1
+        // 5x5 grid of floor samples across the 4x4 m footprint at unit spacing.
+        expect(floor).toHaveLength(25);
         for (const p of floor) {
             expect(p.z).toBeCloseTo(baseZ);
             expect(p.nx).toBe(0);
@@ -44,42 +53,81 @@ describe('buildPoissonBase', () => {
         }
     });
 
-    it('walls only the outer silhouette with outward unit normals', () => {
+    it('walls only the outer silhouette with axis-aligned outward unit normals', () => {
         const grid = makeGrid(4, 4, () => 10);
-        const pts = decode(buildPoissonBase(grid, { stepM: 1 }));
+        const pts = decode(buildPoissonBase(grid, UNIT_STEPS));
         const wall = walls(pts);
         expect(wall.length).toBeGreaterThan(0);
         for (const p of wall) {
             expect(Math.hypot(p.nx, p.ny)).toBeCloseTo(1); // horizontal unit
+            expect(p.nx === 0 || p.ny === 0).toBe(true); // axis-aligned
             expect(p.nz).toBe(0);
             expect(p.z).toBeGreaterThanOrEqual(10 - POISSON_BASE_MARGIN_M);
             expect(p.z).toBeLessThan(10);
+            expect(onBoundary(p, 0, 4)).toBe(true); // never inside the footprint
         }
-        // Interior cells (cx,cy in 1..2) never carry a wall.
-        const interior = wall.filter((p) => p.x > 1.4 && p.x < 2.6 && p.y > 1.4 && p.y < 2.6);
-        expect(interior).toHaveLength(0);
     });
 
-    it('gives corners a diagonal outward normal', () => {
+    it('gives each corner two perpendicular faces', () => {
         const grid = makeGrid(4, 4, () => 10);
-        const pts = decode(buildPoissonBase(grid, { stepM: 1 }));
-        // Bottom-left corner cell centre is (0.5, 0.5); its normal points (-,-).
-        const corner = walls(pts).find((p) => p.x === 0.5 && p.y === 0.5);
-        expect(corner).toBeDefined();
-        expect(corner?.nx).toBeCloseTo(-Math.SQRT1_2);
-        expect(corner?.ny).toBeCloseTo(-Math.SQRT1_2);
+        const wall = walls(decode(buildPoissonBase(grid, UNIT_STEPS)));
+        // The west edge (x = 0) faces (-1, 0); the south edge (y = 0) faces (0, -1).
+        const west = wall.find((p) => Math.abs(p.x) < 1e-4 && p.nx === -1);
+        const south = wall.find((p) => Math.abs(p.y) < 1e-4 && p.ny === -1);
+        expect(west?.ny === 0).toBe(true);
+        expect(south?.nx === 0).toBe(true);
+    });
+
+    it('samples walls more densely as the horizontal step shrinks', () => {
+        const grid = makeGrid(4, 4, () => 10);
+        const coarse = walls(decode(buildPoissonBase(grid, { ...UNIT_STEPS, wallHStepM: 1 })));
+        const fine = walls(decode(buildPoissonBase(grid, { ...UNIT_STEPS, wallHStepM: 0.25 })));
+        expect(fine.length).toBeGreaterThan(coarse.length * 3);
     });
 
     it('keeps an interior hole covered without walling it', () => {
         // 5x5 flat grid with a single NaN hole at the centre (2,2).
         const grid = makeGrid(5, 5, (cx, cy) => (cx === 2 && cy === 2 ? Number.NaN : 10));
-        const pts = decode(buildPoissonBase(grid, { stepM: 1 }));
-        // Floor still covers the hole centre (brick stays solid underneath).
-        expect(floors(pts).some((p) => p.x === 2.5 && p.y === 2.5)).toBe(true);
-        // None of the hole's orthogonal neighbours become walls.
-        const holeNeighbours = walls(pts).filter((p) =>
-            (p.x === 2.5 && (p.y === 1.5 || p.y === 3.5))
-            || (p.y === 2.5 && (p.x === 1.5 || p.x === 3.5)));
-        expect(holeNeighbours).toHaveLength(0);
+        const pts = decode(buildPoissonBase(grid, UNIT_STEPS));
+        // Floor still spans the hole cell [2,3]² (brick stays solid underneath).
+        expect(floors(pts).some((p) => p.x >= 2 && p.x <= 3 && p.y >= 2 && p.y <= 3)).toBe(true);
+        // Every wall sits on the outer boundary — the interior hole is never walled.
+        for (const p of walls(pts)) expect(onBoundary(p, 0, 5)).toBe(true);
+    });
+});
+
+describe('buildPoissonBase with an oriented rectangle', () => {
+    it('walls an axis-aligned rect exactly on its four edges', () => {
+        const grid = makeGrid(4, 4, () => 10);
+        const rect = { ux: 1, uy: 0, halfLengthM: 2, halfWidthM: 2, centerX: 2, centerY: 2 };
+        const wall = walls(decode(buildPoissonBase(grid, { ...UNIT_STEPS, rect })));
+        expect(wall.length).toBeGreaterThan(0);
+        for (const p of wall) {
+            expect(Math.hypot(p.nx, p.ny)).toBeCloseTo(1); // horizontal unit normal
+            expect(p.nx === 0 || p.ny === 0).toBe(true); // axis-aligned edges
+            expect(onBoundary(p, 0, 4)).toBe(true); // on the rect boundary
+        }
+    });
+
+    it('follows a rotated rect: diagonal wall normals and a tilted floor', () => {
+        const grid = makeGrid(10, 10, () => 10);
+        const s = Math.SQRT1_2; // cos/sin 45°
+        const rect = { ux: s, uy: s, halfLengthM: 3, halfWidthM: 3, centerX: 5, centerY: 5 };
+        const pts = decode(buildPoissonBase(grid, { ...UNIT_STEPS, rect }));
+        const wall = walls(pts);
+        expect(wall.length).toBeGreaterThan(0);
+        for (const p of wall) {
+            // Every side of a 45°-rotated square has a diagonal outward normal.
+            expect(Math.abs(p.nx)).toBeCloseTo(s);
+            expect(Math.abs(p.ny)).toBeCloseTo(s);
+        }
+        // Floor points stay inside the rotated rectangle (no axis-aligned overshoot).
+        const ux = s, uy = s, wx = -s, wy = s;
+        for (const p of floors(pts)) {
+            const du = (p.x - 5) * ux + (p.y - 5) * uy;
+            const dw = (p.x - 5) * wx + (p.y - 5) * wy;
+            expect(Math.abs(du)).toBeLessThanOrEqual(3 + 1e-4);
+            expect(Math.abs(dw)).toBeLessThanOrEqual(3 + 1e-4);
+        }
     });
 });
