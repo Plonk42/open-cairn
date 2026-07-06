@@ -428,6 +428,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshPosBuf: WebGLBuffer | null = null;
     private _meshNorBuf: WebGLBuffer | null = null;
     private _meshColBuf: WebGLBuffer | null = null;
+    private _meshBaseBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
     // Debug wireframe: a deduplicated GL_LINES edge buffer per LOD level (index i
@@ -1044,6 +1045,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         indices: Uint32Array,
         originLng: number,
         originLat: number,
+        baseMask?: Uint8Array,
     ): void {
         const gl = this._gl;
         if (!gl) return;
@@ -1066,6 +1068,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
         gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshBaseBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, baseMask ?? new Uint8Array(positions.length / 3), gl.STATIC_DRAW);
         gl.bindVertexArray(this._vaoMesh);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
@@ -1730,6 +1734,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._meshPosBuf = gl.createBuffer();
         this._meshNorBuf = gl.createBuffer();
         this._meshColBuf = gl.createBuffer();
+        this._meshBaseBuf = gl.createBuffer();
         this._meshIdxBuf = gl.createBuffer();
         this._vaoMesh = gl.createVertexArray();
         gl.bindVertexArray(this._vaoMesh);
@@ -1742,6 +1747,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
         gl.enableVertexAttribArray(2);
         gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshBaseBuf);
+        gl.enableVertexAttribArray(3);
+        // NOT normalized: the mask stores 0/1, so the ubyte value must reach the
+        // shader as 0.0/1.0. Normalizing would map 1 → 1/255 ≈ 0.004 and the
+        // `v_base > 0.5` test would never fire.
+        gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
         gl.bindVertexArray(prevVAO);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -1856,6 +1867,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._meshPosBuf); this._meshPosBuf = null;
         delBuf(this._meshNorBuf); this._meshNorBuf = null;
         delBuf(this._meshColBuf); this._meshColBuf = null;
+        delBuf(this._meshBaseBuf); this._meshBaseBuf = null;
         delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
         for (let i = 0; i < this._meshWireIdxBuf.length; i++) { delBuf(this._meshWireIdxBuf[i]); this._meshWireIdxBuf[i] = null; }
         delBuf(this._quadBuf); this._quadBuf = null;

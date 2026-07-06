@@ -8,6 +8,8 @@ in vec4 v_lightPos;
 in float v_depth;
 in float v_alpha;
 in float v_up;
+in float v_base;
+in vec3 v_wpos;
 
 #include ./lib/sampleShadow.glsl;
 
@@ -50,6 +52,20 @@ void main() {
     // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
     // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
     vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
-    fragColor = vec4(mix(lit, neutral, u_flatLight), v_alpha);
+    vec3 rgb = mix(lit, neutral, u_flatLight);
+    // Hachures à 45° gravées sur les murs du socle synthétique. En espace-monde
+    // (v_wpos, mètres) : les lignes suivent le mesh (elles restent fixées à la
+    // paroi quand la caméra bouge). L'épaisseur est mesurée en pixels via fwidth
+    // pour rester un trait fin d'~1 px quel que soit le zoom.
+    if (v_base > 0.5) {
+        const float HATCH_PERIOD_M = 10.0; // espacement des lignes (mètres, sur le mesh)
+        float coord = (v_wpos.z + v_wpos.x + v_wpos.y) / HATCH_PERIOD_M;
+        float f = fract(coord);
+        float line = min(f, 1.0 - f);                  // distance à la ligne la plus proche
+        float dist = line / max(fwidth(coord), 1e-5);  // distance en pixels
+        float lineMask = 1.0 - smoothstep(0.5, 1.0, dist); // trait fin d'~1 px
+        rgb = mix(rgb, rgb * 0.75, lineMask);
+    }
+    fragColor = vec4(rgb, v_alpha);
     fragDepth = v_depth;
 }

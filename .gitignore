@@ -17,3 +17,6 @@ public/showcase/*.zip
 public/showcase/scene-*.bin
 public/showcase/scene-*.webp
 public/showcase/scene-*.json
+
+#concours IGN
+docs/concours/rendu/

@@ -93,7 +93,8 @@ function cellIndex(worldOffset: number, cell: number, n: number): number {
     return Math.min(n - 1, Math.max(0, Math.floor(worldOffset / cell)));
 }
 
-interface ResolvedRect extends PoissonBaseRect { centerX: number; centerY: number; }
+/** {@link PoissonBaseRect} with its centre resolved to concrete coordinates. */
+export interface ResolvedRect extends PoissonBaseRect { centerX: number; centerY: number; }
 
 /** Shared context for the oriented (rotation-following) emit helpers. */
 interface OrientedContext {
@@ -160,7 +161,7 @@ function emitOrientedWalls(ctx: OrientedContext): void {
 /** The oriented rectangle to wall: the caller's rotated rect, or a default
  *  un-rotated one spanning the grid's axis-aligned footprint. A square capture
  *  is just a rectangle at bearing 0, so it needs no special path. */
-function resolveRect(grid: VegGroundGrid, rect?: PoissonBaseRect): ResolvedRect {
+export function resolvePoissonBaseRect(grid: VegGroundGrid, rect?: PoissonBaseRect): ResolvedRect {
     if (rect) return { ...rect, centerX: rect.centerX ?? 0, centerY: rect.centerY ?? 0 };
     const halfW = (grid.cols * grid.cell) / 2;
     const halfL = (grid.rows * grid.cell) / 2;
@@ -171,6 +172,58 @@ function resolveRect(grid: VegGroundGrid, rect?: PoissonBaseRect): ResolvedRect 
         centerX: grid.minX + halfW,
         centerY: grid.minY + halfL,
     };
+}
+
+/** Minimum distance (m) from the rectangle edge within which a near-vertical
+ *  vertex is treated as a base wall. The effective band grows with the octree
+ *  cell (see {@link poissonBaseWallPerimM}) so it always spans at least the
+ *  solver's sampling resolution — a fixed sub-metre band catches nothing on
+ *  large captures, where reconstructed wall vertices sit a cell or two off the
+ *  ideal boundary plane. */
+export const POISSON_WALL_PERIM_M = 0.6;
+
+/**
+ * Recommended {@link buildPoissonBaseMask} `perimM` for a grid: reconstructed
+ * wall vertices land within roughly one octree cell of the ideal boundary
+ * plane, so the capture band must scale with the solver resolution rather than
+ * stay a fixed sub-metre value.
+ */
+export function poissonBaseWallPerimM(grid: VegGroundGrid, depth = DEFAULT_POISSON_DEPTH): number {
+    const range = groundRange(grid.groundZ);
+    if (!range) return POISSON_WALL_PERIM_M;
+    const baseZ = range.min - POISSON_BASE_MARGIN_M;
+    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
+    const octreeCell = Math.max(extentXY, range.max - baseZ) / 2 ** depth;
+    return Math.max(POISSON_WALL_PERIM_M, octreeCell * 1.5);
+}
+
+/** A near-vertical vertex is a wall when its normal's up-component is below this
+ *  (walls ≈ 0, floor ≈ -1); larger values are the terrain top. */
+const WALL_MAX_NZ = 0.35;
+
+/**
+ * Per-vertex mask flagging the synthetic base *walls* on a reconstructed mesh:
+ * near-vertical faces within `perimM` of the capture rectangle's perimeter. The
+ * terrain top (normal pointing up) and interior cliffs (far from the perimeter)
+ * are excluded, so the renderer can texture only the plinth sides. `1` = wall.
+ */
+export function buildPoissonBaseMask(
+    positions: Float32Array, normals: Float32Array, rect: ResolvedRect, perimM: number,
+): Uint8Array {
+    const n = positions.length / 3;
+    const mask = new Uint8Array(n);
+    const { ux, uy, halfLengthM, halfWidthM, centerX, centerY } = rect;
+    const wx = -uy, wy = ux;
+    for (let i = 0; i < n; i++) {
+        if (normals[i * 3 + 2] > WALL_MAX_NZ) continue; // terrain top, not a wall
+        const dx = positions[i * 3] - centerX;
+        const dy = positions[i * 3 + 1] - centerY;
+        const du = dx * ux + dy * uy;
+        const dw = dx * wx + dy * wy;
+        const perim = Math.min(halfLengthM - Math.abs(du), halfWidthM - Math.abs(dw));
+        if (perim <= perimM) mask[i] = 1; // on (or just outside) the rectangle edge
+    }
+    return mask;
 }
 
 /**
@@ -198,7 +251,7 @@ export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions =
     const vStep = opts.wallVStepM ?? clamp(octreeCell * 2, 0.5, 4);
     const floorStep = opts.floorStepM ?? clamp(octreeCell * 3, 1.5, 4);
 
-    const rect = resolveRect(grid, opts.rect);
+    const rect = resolvePoissonBaseRect(grid, opts.rect);
     const ctx: OrientedContext = { grid, baseZ, hStep, vStep, floorStep, out: [], rect };
     emitOrientedFloor(ctx);
     emitOrientedWalls(ctx);

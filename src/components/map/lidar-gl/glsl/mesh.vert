@@ -11,6 +11,7 @@ precision highp float;
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec4 a_color;
+layout(location = 3) in float a_base; // 1 = mur du socle synthétique (à hachurer)
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
@@ -27,6 +28,8 @@ out vec4 v_lightPos;
 out float v_depth;
 out float v_alpha;
 out float v_up;
+out float v_base;
+out vec3 v_wpos;   // position monde (mètres est/nord/z) pour hachures ancrées au mesh
 
 #include ./lib/flatLight.glsl;
 
@@ -43,6 +46,8 @@ void main() {
     // surfaces orientées vers le bas (fond fermé « fantôme » du mesh Poisson,
     // dessous de surplombs/grottes).
     v_up = n.z;
+    v_base = a_base;
+    v_wpos = a_pos;
     v_albedo = a_color.rgb;
     v_alpha = a_color.a;
     // Projection planaire nadir : u suit l'est, v suit le nord. La première

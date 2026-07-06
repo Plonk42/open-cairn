@@ -40,6 +40,12 @@ export interface LidarMeshData {
      * Only present for Poisson meshes; undefined for Delaunay (Mixed mode).
      */
     roughness?: Float32Array;
+    /**
+     * Per-vertex flag (`1` = synthetic base wall) marking the plinth sides so
+     * the renderer can hatch them. Only present for Poisson meshes built with a
+     * flat base; undefined for Delaunay (Mixed mode) and legacy scenes.
+     */
+    baseMask?: Uint8Array;
     vertexCount: number;
     triangleCount: number;
     radius: number;

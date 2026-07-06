@@ -243,6 +243,7 @@ export function LidarCloudOverlay() {
                 lidarMesh.indices,
                 lidarMesh.centerLng,
                 lidarMesh.centerLat,
+                lidarMesh.baseMask,
             );
         } else {
             layer.clearMesh();

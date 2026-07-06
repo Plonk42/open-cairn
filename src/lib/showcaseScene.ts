@@ -47,6 +47,7 @@ const TAG = {
     shadedForestTfv: 9,
     shadedTreeSeed: 10,
     shadedHeight: 11,
+    meshBaseMask: 12,
 } as const;
 
 export interface ShowcaseCamera {
@@ -186,6 +187,8 @@ interface MeshMeta {
     vertexCount: number;
     triangleCount: number;
     hasRoughness: boolean;
+    /** Whether the binary carries the per-vertex base-wall mask (tag 12). */
+    hasBaseMask: boolean;
 }
 
 /**
@@ -294,6 +297,9 @@ function collectDescriptors(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Buff
         if (mesh.roughness) {
             descriptors.push(vertexDescriptor(TAG.meshRoughness, mesh.roughness, 4));
         }
+        if (mesh.baseMask) {
+            descriptors.push(vertexDescriptor(TAG.meshBaseMask, mesh.baseMask, 1));
+        }
     }
     return descriptors;
 }
@@ -321,6 +327,7 @@ function buildGeometryBlob(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Geome
                 vertexCount: mesh.vertexCount,
                 triangleCount: mesh.triangleCount,
                 hasRoughness: Boolean(mesh.roughness),
+                hasBaseMask: Boolean(mesh.baseMask),
             }
             : null,
     };
@@ -496,6 +503,7 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>): LidarMeshD
         colors: byteView(buffers, TAG.meshColors, v * 4),
         indices: new Uint32Array(raw.buffer, 0, meta.triangleCount * 3),
         roughness: meta.hasRoughness ? floatView(buffers, TAG.meshRoughness, v) : undefined,
+        baseMask: meta.hasBaseMask ? byteView(buffers, TAG.meshBaseMask, v) : undefined,
     };
 }
 

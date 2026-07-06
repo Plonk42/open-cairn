@@ -21,7 +21,7 @@ import {
 import { buildMesh } from './mesh';
 import { orientNormalsForPoisson } from './normals';
 import { computeNormalsKNNAsync, computeNormalsVegAwareAsync } from './normalsPool';
-import { buildPoissonBase } from './poissonBase';
+import { buildPoissonBase, buildPoissonBaseMask, poissonBaseWallPerimM, resolvePoissonBaseRect } from './poissonBase';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { l93RectAxes, lngLatToL93 } from './proj';
@@ -717,17 +717,19 @@ export async function fetchLidarPoisson(
     // terrain so Poisson closes the underside into a flat parallelepiped instead
     // of a bulging cushion. Reused as the veg-height reference grid below.
     const groundGrid = buildVegGroundGrid(groundPos, groundCount);
-    const flatBase = (params.poissonFlatBase ?? true) && groundGrid
-        ? buildPoissonBase(groundGrid, {
-            depth,
-            rect: params.rect
-                ? {
-                    ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
-                    halfLengthM: params.rect.halfLengthM,
-                    halfWidthM: params.rect.halfWidthM,
-                }
-                : undefined,
-        })
+    const rectOpt = params.rect
+        ? {
+            ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
+            halfLengthM: params.rect.halfLengthM,
+            halfWidthM: params.rect.halfWidthM,
+        }
+        : undefined;
+    const flatBaseRect = (params.poissonFlatBase ?? true) && groundGrid
+        ? resolvePoissonBaseRect(groundGrid, rectOpt)
+        : null;
+    const tFlatBase = startTimer();
+    const flatBase = flatBaseRect && groundGrid
+        ? buildPoissonBase(groundGrid, { depth, rect: flatBaseRect })
         : new Float32Array(0);
     // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input, then append the
     // pre-oriented base points (their normals are hand-set, not KNN-estimated).
@@ -742,7 +744,7 @@ export async function fetchLidarPoisson(
     }
     if (flatBase.length) {
         oriented.set(flatBase, psCount * 6);
-        logStage('socle plat', tGroundNrm(), `+${(flatBase.length / 6).toLocaleString()} pts base`);
+        logStage('socle plat', tFlatBase(), `+${(flatBase.length / 6).toLocaleString()} pts base`);
     }
     onProgress({
         stage: 'mesh',
@@ -768,6 +770,11 @@ export async function fetchLidarPoisson(
     const tMeshCol = startTimer();
     const { normals: meshNrm, colors: meshCols, roughness: meshRoughness } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
     logStage('colors (mesh sol)', tMeshCol());
+    let baseMask: Uint8Array | undefined;
+    if (flatBaseRect && groundGrid) {
+        const perimM = poissonBaseWallPerimM(groundGrid, depth);
+        baseMask = buildPoissonBaseMask(mesh.positions, meshNrm, flatBaseRect, perimM);
+    }
     const meshData: LidarMeshData = {
         kind: 'mesh',
         centerLng: c.centerLng,
@@ -776,6 +783,7 @@ export async function fetchLidarPoisson(
         normals: meshNrm,
         colors: meshCols,
         roughness: meshRoughness,
+        baseMask,
         indices: mesh.indices,
         vertexCount,
         triangleCount,

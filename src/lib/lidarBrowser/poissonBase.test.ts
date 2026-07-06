@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VegGroundGrid } from './groundHeight';
-import { buildPoissonBase, POISSON_BASE_MARGIN_M } from './poissonBase';
+import { buildPoissonBase, buildPoissonBaseMask, POISSON_BASE_MARGIN_M, POISSON_WALL_PERIM_M, resolvePoissonBaseRect } from './poissonBase';
 
 interface BasePoint { x: number; y: number; z: number; nx: number; ny: number; nz: number; }
 
@@ -131,3 +131,52 @@ describe('buildPoissonBase with an oriented rectangle', () => {
         }
     });
 });
+
+describe('resolvePoissonBaseRect', () => {
+    it('returns the supplied rect with a resolved centre', () => {
+        const grid = makeGrid(4, 4, () => 10);
+        const rect = { ux: 0, uy: 1, halfLengthM: 3, halfWidthM: 2, centerX: 7, centerY: 9 };
+        expect(resolvePoissonBaseRect(grid, rect)).toEqual(rect);
+    });
+
+    it('synthesises an un-rotated rect spanning the grid footprint', () => {
+        const grid = makeGrid(4, 6, () => 10); // cols=4, rows=6, cell=1, origin (0,0)
+        const r = resolvePoissonBaseRect(grid);
+        expect(r.ux).toBe(1);
+        expect(r.uy).toBe(0);
+        expect(r.halfWidthM).toBe(2);  // cols * cell / 2
+        expect(r.halfLengthM).toBe(3); // rows * cell / 2
+        expect(r.centerX).toBe(2);
+        expect(r.centerY).toBe(3);
+    });
+});
+
+describe('buildPoissonBaseMask', () => {
+    // rect spans x,y ∈ [-5, 5]; du = x, dw = y; perim = min(5-|x|, 5-|y|).
+    const rect = { ux: 1, uy: 0, halfLengthM: 5, halfWidthM: 5, centerX: 0, centerY: 0 };
+    const positions = new Float32Array([
+        5, 0, 2,   // 0 wall exactly on the +x edge
+        0, 0, 2,   // 1 interior cliff (near-vertical but far from the perimeter)
+        1, 1, -3,  // 2 floor interior (down normal, far from the perimeter)
+        4.9, 0, 5, // 3 terrain top near the edge (up normal)
+        4.7, 0, 1, // 4 wall just inside the edge
+    ]);
+    const normals = new Float32Array([
+        1, 0, 0,   // 0 vertical face
+        1, 0, 0,   // 1 vertical face
+        0, 0, -1,  // 2 floor (down)
+        0, 0, 1,   // 3 terrain top (up)
+        1, 0, 0,   // 4 vertical face
+    ]);
+
+    it('flags only near-vertical faces close to the rectangle perimeter', () => {
+        const mask = buildPoissonBaseMask(positions, normals, rect, POISSON_WALL_PERIM_M);
+        expect(Array.from(mask)).toEqual([1, 0, 0, 0, 1]);
+    });
+
+    it('never flags the terrain top, even at the very edge', () => {
+        const mask = buildPoissonBaseMask(positions, normals, rect, POISSON_WALL_PERIM_M);
+        expect(mask[3]).toBe(0);
+    });
+});
+
