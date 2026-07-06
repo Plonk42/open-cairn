@@ -27,12 +27,23 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Itinéraires sauvegardés** — localStorage avec aperçu polyline + thumbnail
 - **Import / export GPX** — preserves la géométrie originale des traces
 - **Vue partageable** — URL hash encodant tout l'état de l'application
-- **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL2 custom avec
-  Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes : `shaded`, `mixed`, `poisson`.
+- **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL 2 custom avec
+  Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes de reconstruction :
+  `shaded` (points bruts), `delaunay` (mesh 2.5D, avec variante sol lissé), `poisson`
+  (reconstruction de surface WASM). Niveau de détail (LOD) adaptatif à la distance pour les
+  gros nuages.
+- **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
+  nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
+  automatique, galerie de « vues » (scènes caméra + réglages) sauvegardables localement ou
+  partagées via [public/showcase/](public/showcase/), export d'images
+- **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),
+  enrichissement par essence via la BD Forêt IGN, panneau de diagnostic dédié à la classification
+  falaise / pente / surplomb
 - **Coupe falaise** — cross-section verticale du nuage LiDAR le long d'une polyligne, graphe
   Canvas 2D à échelle 1:1, relais cliquables et calcul de cordes recommandées (escalade,
   canyon, rappel)
-- **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs)
+- **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs) pour la vue carte
+  classique ; le Studio LiDAR est desktop uniquement
 
 ---
 
@@ -40,11 +51,18 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 
 ```bash
 npm install
-npm run dev      # Vite dev server, ~http://localhost:5173
-npm run build    # tsc --build && vite build → dist/
-npm run preview  # serve dist/
-npm run lint     # tsc --noEmit (validation type-only)
+npm run dev       # Vite dev server, ~http://localhost:5173
+npm run build     # tsc --build && vite build → dist/
+npm run preview   # serve dist/
+npm run test:run  # Vitest (lib + tests unitaires)
+npm run lint:test # tsc --noEmit sur les fichiers de test
 ```
+
+`npm run lint` lance `tsc --noEmit` sur le `tsconfig.json` racine — celui-ci
+ne fait que référencer les autres projets TypeScript (`tsconfig.app.json` /
+`tsconfig.node.json`) et ne vérifie donc rien par lui-même. Pour un vrai
+contrôle de types, utiliser `npm run build` (ou `npx tsc -b`) et
+`npm run lint:test`.
 
 Aucune clé d'API n'est requise pour les fonctionnalités de base — la quasi-totalité de la
 Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut être saisie dans
@@ -61,7 +79,7 @@ Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut êt
 | UI                   | Tailwind CSS 3                                    |
 | Cartographie         | MapLibre GL JS 5.11                               |
 | Rendu 3D additionnel | deck.gl 9 · WebGL 2 custom layers                 |
-| LiDAR                | `copc.js` + `laz-perf` (WASM) · `delaunator` · PoissonRecon (WASM) |
+| LiDAR                | `copc.js` + `laz-perf` (WASM) · `delaunator` · PoissonRecon (WASM) · `meshoptimizer` (LOD) |
 | État                 | Zustand 5 (avec persistance localStorage)         |
 | Graphiques           | Chart.js 4                                        |
 | Projections          | proj4 (EPSG:2154 Lambert-93 ↔ WGS84)              |
@@ -73,16 +91,21 @@ Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut êt
 
 ```mermaid
 flowchart TB
-    User([Utilisateur]) --> App[App.tsx<br/>shell + tabs]
-    App --> MapC[MapContainer<br/>MapLibre GL]
+    User([Utilisateur]) --> Root[Root.tsx<br/>?view= switch]
+    Root --> MapC[MapContainer<br/>MapLibre GL, persistant]
+    Root --> App[App.tsx<br/>?view=map · shell + tabs]
+    Root --> Studio[LidarStudio<br/>?view=lidar · plein écran]
+
     App --> Panels[Panels UI<br/>Layers · Route · LiDAR · Settings]
+    Studio --> Gallery[ShowcaseGallery / ShowcaseExport<br/>scènes locales + public/showcase/]
 
-    MapC --> Style[mapStyle.ts<br/>style spec]
+    MapC --> Style[mapStyle.ts<br/>style spec par vue]
     MapC --> Comp[compositeProtocol<br/>composite://]
-    MapC --> Custom[LidarWebGLLayer<br/>WebGL 2 custom]
+    MapC --> Custom[LidarWebGLLayer<br/>WebGL 2 custom + LOD]
 
-    Panels --> StoreM[(mapStore<br/>Zustand)]
+    Panels --> StoreM[(mapStore<br/>Zustand, slices)]
     Panels --> StoreR[(routeStore<br/>Zustand)]
+    Studio --> StoreM
 
     StoreM --> Lidar[lidarBrowser/<br/>Web Worker pipeline]
     Lidar --> Custom
@@ -94,10 +117,12 @@ flowchart TB
     Routing --> IGN2[(IGN Navigation)]
     Elev --> IGN3[(IGN Altimétrie)]
     Lidar --> IGN4[(IGN WFS + COPC LAZ)]
+    Lidar --> IGN5[(IGN BD Forêt WFS)]
 ```
 
 L'application est une SPA pure : aucun backend, toutes les données viennent en direct de
-`data.geopf.fr`. Les calculs lourds (décodage LAZ, k-NN PCA, mesh) tournent dans un Web Worker.
+`data.geopf.fr`. Les calculs lourds (décodage LAZ, k-NN PCA, mesh, simplification LOD) tournent
+dans des Web Workers dédiés.
 
 ---
 
@@ -136,6 +161,8 @@ Documentation détaillée par fonctionnalité, organisée en **sections utilisat
   plan vertical, graphe 1:1, relais et calcul de cordes
 - [docs/SUN_LIGHTING.md](docs/SUN_LIGHTING.md) — Position solaire NOAA, intensité et tint
   appliqués au LiDAR
+- [docs/POISSON_WASM.md](docs/POISSON_WASM.md) — Portage WebAssembly de PoissonRecon (builds
+  wasm64 / wasm32 avec repli automatique), patches amont, toolchain
 
 ### Architecture & UI
 
@@ -155,7 +182,8 @@ Le projet est en alpha. Les contributions sont bienvenues, en particulier sur :
 - accessibilité du panneau d'altimétrie (clavier, lecteur d'écran)
 - support multi-langue (actuellement français uniquement)
 
-Lancer la validation de type : `npm run lint`. La complexité cognitive de `App.tsx` est
+Lancer la validation de type : `npm run build` (ou `npx tsc -b`) et `npm run lint:test`
+(`npm run lint` seul ne vérifie rien, voir plus haut). La complexité cognitive de `App.tsx` est
 plafonnée par SonarQube ; extraire des sous-composants plutôt que d'empiler des ternaires.
 
 ## 📝 Licence
