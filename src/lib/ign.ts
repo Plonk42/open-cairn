@@ -60,10 +60,12 @@ export const IGN_LAYERS = {
         id: 'GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN25TOUR',
         format: 'image/jpeg' as const,
         minZoom: 6,
-        // Verified against the public SCAN25TOUR WMTS: z17/z18 can return 404
-        // in mountain areas, while z16 is available. Higher map zooms overzoom
-        // this parent tile through the composite protocol.
-        maxZoom: 18,
+        // Verified against the public SCAN25TOUR WMTS: z17/z18 return 404 in
+        // mountain areas, while z16 is available everywhere. Cap the source at
+        // z16 so MapLibre overzooms this parent tile for deeper map zooms
+        // instead of requesting non-existent z17/z18 tiles (which flood the
+        // console with 404s).
+        maxZoom: 16,
         label: 'SCAN 25 Tour',
         private: true,
     },
