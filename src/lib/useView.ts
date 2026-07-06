@@ -7,7 +7,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 export type AppView = 'map' | 'lidar';
 
 /** Read the current view from the URL search params. */
-function readView(): AppView {
+export function readView(): AppView {
     const params = new URLSearchParams(globalThis.location.search);
     return params.get('view') === 'lidar' ? 'lidar' : 'map';
 }

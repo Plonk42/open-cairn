@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CursorCoordinates } from './components/map/CursorCoordinates';
-import { MapContainer } from './components/map/MapContainer';
+import { MapSlot } from './components/map/MapSlot';
 import { SearchBox } from './components/map/SearchBox';
 import { MobileLayout } from './components/MobileLayout';
 import { BottomPanelContent, RightTabContent, type MobileTab, type RightTab } from './components/panels/PanelTabs';
@@ -116,7 +116,7 @@ export function App() {
             <div className="relative flex min-h-0 flex-1">
                 {/* Map fills remaining space */}
                 <div className="relative flex-1">
-                    <MapContainer />
+                    <MapSlot />
                     {/* Top-left unified menu: app title + search + cursor coordinates */}
                     <div className="pointer-events-none absolute left-3 top-3 z-10 w-72">
                         <div className="overflow-hidden rounded-lg bg-white/85 shadow-sm ring-1 ring-black/5 backdrop-blur-md dark:bg-slate-900/75 dark:ring-white/10">

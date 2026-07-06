@@ -2,6 +2,8 @@ import type { BlendMode } from '@/lib/compositeProtocol';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { CaptureRectDims } from '@/lib/lidarCaptureRect';
 import type { BaseLayerId } from '@/lib/mapStyle';
+import type { AppView } from '@/lib/useView';
+import type { MapStyleSettings } from './mapStyleView';
 import type { LidarMode } from './slices/lidarSlice';
 import type { RenderQuality, UiTheme } from './slices/settingsSlice';
 import type { HillshadeSource, TerrainDemSource } from './slices/terrainSlice';
@@ -12,6 +14,12 @@ export const STORAGE_KEY = 'open-cairn-settings';
 /** Keys persisted in localStorage. */
 export type PersistedSettings = {
     view?: MapView;
+    /** Per-view map-style bundle (Itinéraire vs LiDAR Studio). */
+    mapStyleByView?: Record<AppView, MapStyleSettings>;
+    /**
+     * Legacy flat map-style keys — no longer written, kept optional so old
+     * localStorage payloads can be migrated into `mapStyleByView` on load.
+     */
     baseLayer?: BaseLayerId;
     hillshadeEnabled?: boolean;
     hillshadeSource?: HillshadeSource;

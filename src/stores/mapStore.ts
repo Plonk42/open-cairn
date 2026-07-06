@@ -3,7 +3,7 @@ import { savePersistedSettings } from './persistence';
 import { createCliffSliceSlice, selectCliffSlicePersisted, type CliffSliceSlice } from './slices/cliffSliceSlice';
 import { createLidarSlice, selectLidarPersisted, type LidarSlice } from './slices/lidarSlice';
 import { createSettingsSlice, selectSettingsPersisted, type SettingsSlice } from './slices/settingsSlice';
-import { createTerrainSlice, selectTerrainPersisted, type TerrainSlice } from './slices/terrainSlice';
+import { createTerrainSlice, type TerrainSlice } from './slices/terrainSlice';
 import { createViewSlice, selectViewPersisted, type ViewSlice } from './slices/viewSlice';
 
 // Re-export the public store API (types + label maps + constants) so existing
@@ -43,7 +43,6 @@ useMapStore.subscribe((state) => {
     _mapSaveTimer = setTimeout(() => {
         savePersistedSettings({
             ...selectViewPersisted(state),
-            ...selectTerrainPersisted(state),
             ...selectSettingsPersisted(state),
             ...selectLidarPersisted(state),
             ...selectCliffSlicePersisted(state),

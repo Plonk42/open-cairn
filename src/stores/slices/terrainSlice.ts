@@ -1,7 +1,7 @@
 import { type BlendMode } from '@/lib/compositeProtocol';
 import type { StateCreator } from 'zustand';
-import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
+import { initialActiveStyle, patchActiveStyle } from '../mapStyleView';
 
 /** IGN LiDAR HD shadow product used as hillshade source. */
 export type HillshadeSource = 'mns' | 'mnt' | 'mnh';
@@ -71,63 +71,33 @@ export interface TerrainSlice {
 }
 
 export const createTerrainSlice: StateCreator<MapState, [], [], TerrainSlice> = (set) => ({
-    hillshadeEnabled: persisted.hillshadeEnabled ?? true,
-    setHillshadeEnabled: (hillshadeEnabled) => set({ hillshadeEnabled }),
+    hillshadeEnabled: initialActiveStyle.hillshadeEnabled,
+    setHillshadeEnabled: (hillshadeEnabled) => patchActiveStyle(set, { hillshadeEnabled }),
 
-    hillshadeSource: persisted.hillshadeSource ?? 'mns',
-    setHillshadeSource: (hillshadeSource) => set({ hillshadeSource }),
+    hillshadeSource: initialActiveStyle.hillshadeSource,
+    setHillshadeSource: (hillshadeSource) => patchActiveStyle(set, { hillshadeSource }),
 
-    hillshadeBlend: persisted.hillshadeBlend ?? 'lidar-neutral',
-    setHillshadeBlend: (hillshadeBlend) => set({ hillshadeBlend }),
+    hillshadeBlend: initialActiveStyle.hillshadeBlend,
+    setHillshadeBlend: (hillshadeBlend) => patchActiveStyle(set, { hillshadeBlend }),
 
-    sunHillshadeEnabled: persisted.sunHillshadeEnabled ?? false,
-    setSunHillshadeEnabled: (sunHillshadeEnabled) => set({ sunHillshadeEnabled }),
+    sunHillshadeEnabled: initialActiveStyle.sunHillshadeEnabled,
+    setSunHillshadeEnabled: (sunHillshadeEnabled) => patchActiveStyle(set, { sunHillshadeEnabled }),
 
-    hillshadeIntensity: persisted.hillshadeIntensity ?? 0.85,
-    setHillshadeIntensity: (hillshadeIntensity) => set({ hillshadeIntensity }),
+    hillshadeIntensity: initialActiveStyle.hillshadeIntensity,
+    setHillshadeIntensity: (hillshadeIntensity) => patchActiveStyle(set, { hillshadeIntensity }),
 
-    terrainEnabled: persisted.terrainEnabled ?? true,
-    setTerrainEnabled: (terrainEnabled) => set({ terrainEnabled }),
+    terrainEnabled: initialActiveStyle.terrainEnabled,
+    setTerrainEnabled: (terrainEnabled) => patchActiveStyle(set, { terrainEnabled }),
 
-    contourLinesEnabled: persisted.contourLinesEnabled ?? false,
-    setContourLinesEnabled: (contourLinesEnabled) => set({ contourLinesEnabled }),
+    contourLinesEnabled: initialActiveStyle.contourLinesEnabled,
+    setContourLinesEnabled: (contourLinesEnabled) => patchActiveStyle(set, { contourLinesEnabled }),
 
-    contourLinesOpacity: persisted.contourLinesOpacity ?? 0.4,
-    setContourLinesOpacity: (contourLinesOpacity) => set({ contourLinesOpacity }),
+    contourLinesOpacity: initialActiveStyle.contourLinesOpacity,
+    setContourLinesOpacity: (contourLinesOpacity) => patchActiveStyle(set, { contourLinesOpacity }),
 
-    terrainExaggeration: persisted.terrainExaggeration ?? 1,
-    setTerrainExaggeration: (terrainExaggeration) => set({ terrainExaggeration }),
+    terrainExaggeration: initialActiveStyle.terrainExaggeration,
+    setTerrainExaggeration: (terrainExaggeration) => patchActiveStyle(set, { terrainExaggeration }),
 
-    terrainDemSource: persisted.terrainDemSource ?? 'auto',
-    setTerrainDemSource: (terrainDemSource) => set({ terrainDemSource }),
+    terrainDemSource: initialActiveStyle.terrainDemSource,
+    setTerrainDemSource: (terrainDemSource) => patchActiveStyle(set, { terrainDemSource }),
 });
-
-/** Persisted keys owned by the terrain slice. */
-export function selectTerrainPersisted(
-    s: TerrainSlice,
-): Pick<
-    PersistedSettings,
-    | 'hillshadeEnabled'
-    | 'hillshadeSource'
-    | 'hillshadeBlend'
-    | 'hillshadeIntensity'
-    | 'sunHillshadeEnabled'
-    | 'terrainEnabled'
-    | 'terrainExaggeration'
-    | 'terrainDemSource'
-    | 'contourLinesEnabled'
-    | 'contourLinesOpacity'
-> {
-    return {
-        hillshadeEnabled: s.hillshadeEnabled,
-        hillshadeSource: s.hillshadeSource,
-        hillshadeBlend: s.hillshadeBlend,
-        hillshadeIntensity: s.hillshadeIntensity,
-        sunHillshadeEnabled: s.sunHillshadeEnabled,
-        terrainEnabled: s.terrainEnabled,
-        terrainExaggeration: s.terrainExaggeration,
-        terrainDemSource: s.terrainDemSource,
-        contourLinesEnabled: s.contourLinesEnabled,
-        contourLinesOpacity: s.contourLinesOpacity,
-    };
-}

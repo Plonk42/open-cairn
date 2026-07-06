@@ -1,8 +1,16 @@
+import type { BaseLayerId } from '@/lib/mapStyle';
+import type { AppView } from '@/lib/useView';
 import type maplibregl from 'maplibre-gl';
 import type { StateCreator } from 'zustand';
-import type { BaseLayerId } from '@/lib/mapStyle';
-import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
+import {
+    initialActiveStyle,
+    initialAppView,
+    initialMapStyleByView,
+    patchActiveStyle,
+    type MapStyleSettings,
+} from '../mapStyleView';
+import { persisted, type PersistedSettings } from '../persistence';
 
 export interface MapView {
     longitude: number;
@@ -26,6 +34,16 @@ export interface ViewSlice {
     view: MapView;
     setView: (view: Partial<MapView>) => void;
 
+    /**
+     * Top-level view mirrored from the URL `?view=` param. Used to know which
+     * copy of the per-view map-style bundle the style setters should write to.
+     */
+    appView: AppView;
+    /** Swap the active map-style fields to the given view's stored copy. */
+    setAppView: (view: AppView) => void;
+    /** Per-view map-style bundle (Itinéraire vs LiDAR Studio). */
+    mapStyleByView: Record<AppView, MapStyleSettings>;
+
     baseLayer: BaseLayerId;
     setBaseLayer: (id: BaseLayerId) => void;
 
@@ -40,8 +58,13 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
     view: persisted.view ?? DEFAULT_VIEW,
     setView: (view) => set((s) => ({ view: { ...s.view, ...view } })),
 
-    baseLayer: persisted.baseLayer ?? 'scan25',
-    setBaseLayer: (baseLayer) => set({ baseLayer }),
+    appView: initialAppView,
+    setAppView: (view) =>
+        set((s) => (view === s.appView ? {} : { appView: view, ...s.mapStyleByView[view] })),
+    mapStyleByView: initialMapStyleByView,
+
+    baseLayer: initialActiveStyle.baseLayer,
+    setBaseLayer: (baseLayer) => patchActiveStyle(set, { baseLayer }),
 
     mapInstance: null,
     setMapInstance: (mapInstance) => set({ mapInstance }),
@@ -56,9 +79,9 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
 });
 
 /** Persisted keys owned by the view slice. */
-export function selectViewPersisted(s: ViewSlice): Pick<PersistedSettings, 'view' | 'baseLayer'> {
+export function selectViewPersisted(s: ViewSlice): Pick<PersistedSettings, 'view' | 'mapStyleByView'> {
     return {
         view: s.view,
-        baseLayer: s.baseLayer,
+        mapStyleByView: s.mapStyleByView,
     };
 }

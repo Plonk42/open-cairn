@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { MapContainer } from '@/components/map/MapContainer';
+import { MapSlot } from '@/components/map/MapSlot';
 import { MobileSheetContent, type MobileTab } from '@/components/panels/PanelTabs';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShare }: Readonly<{
     mobileTab: MobileTab;
@@ -56,7 +56,7 @@ export function MobileLayout({ mobileTab, setMobileTab, shareTooltip, handleShar
         <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-gray-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
             {/* Map always renders, takes available space */}
             <div className="relative min-h-0 flex-1">
-                <MapContainer />
+                <MapSlot />
                 {/* Compact title badge */}
                 <div className="pointer-events-none absolute left-2 top-2 z-10 select-none">
                     <div className="flex items-center gap-1 rounded-lg bg-white/85 px-2 py-1 text-xs font-semibold shadow-sm backdrop-blur-md ring-1 ring-black/5 dark:bg-slate-900/70 dark:ring-white/10">

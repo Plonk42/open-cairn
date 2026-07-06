@@ -1,4 +1,4 @@
-import { MapContainer } from '@/components/map/MapContainer';
+import { MapSlot } from '@/components/map/MapSlot';
 import { useView } from '@/lib/useView';
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
@@ -7,11 +7,6 @@ import { ShowcaseExport } from './ShowcaseExport';
 import { ShowcaseGallery } from './ShowcaseGallery';
 import { OrbitTopBarButton, StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
 import { StudioTutorial } from './tutorial/StudioTutorial';
-
-// Forces the contextual orthophoto base map once per page load when the studio
-// is first opened (mountain context reads best over imagery), without fighting
-// the user's later choices via the quick switch.
-let studioBaseInitialized = false;
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
 function useStudioCameraIntro() {
@@ -286,12 +281,6 @@ export function LidarStudio() {
 
     useStudioCameraIntro();
 
-    useEffect(() => {
-        if (studioBaseInitialized) return;
-        studioBaseInitialized = true;
-        useMapStore.getState().setBaseLayer('ortho');
-    }, []);
-
     // Auto-launch the onboarding tutorial once, on a newcomer's first visit,
     // and only when nothing is loaded yet (a shared link with a cloud skips it).
     // Runs a single time per mount — loading a cloud mid-tutorial won't reopen.
@@ -307,7 +296,7 @@ export function LidarStudio() {
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">
-            <MapContainer studio />
+            <MapSlot />
 
             <StudioTopBar onExit={() => setView('map')} onHelp={() => setTutorialOpen(true)} />
 

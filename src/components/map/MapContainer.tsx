@@ -1,13 +1,40 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { ignLayerUrl } from '@/lib/ign';
-import { buildMapStyle, directBaseUrl } from '@/lib/mapStyle';
+import { buildMapStyle, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
 import { sunLighting } from '@/lib/sun';
-import { useMapStore } from '@/stores/mapStore';
+import { useView } from '@/lib/useView';
+import { useMapStore, type MapState } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
+import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
+
+/**
+ * Assembles the `buildMapStyle` options from a store snapshot. Shared by all
+ * three call sites (init / structural rebuild / tile reload) so the mapping
+ * stays in one place. In the LiDAR Studio (`studio`) terrain is forced on with
+ * exaggeration 1 so the point cloud maps onto the mesh correctly.
+ */
+function mapStyleOptionsFrom(s: MapState, studio: boolean): MapStyleOptions {
+    return {
+        base: s.baseLayer,
+        hillshade: s.hillshadeEnabled,
+        hillshadeSource: s.hillshadeSource,
+        hillshadeBlend: s.hillshadeBlend,
+        hillshadeIntensity: s.hillshadeIntensity,
+        sunHillshade: s.sunHillshadeEnabled,
+        terrain: studio || s.terrainEnabled,
+        terrainExaggeration: studio ? 1 : s.terrainExaggeration,
+        renderQuality: s.renderQuality,
+        contourLines: s.contourLinesEnabled,
+        contourLinesOpacity: s.contourLinesOpacity,
+        ignScanApiKey: s.ignScanApiKey,
+        ignDemApiKey: s.ignDemApiKey,
+        terrainDemSource: s.terrainDemSource,
+    };
+}
 
 // Custom WebGL2 layer that renders the shaded LiDAR HD cloud. Lazy-loaded so
 // the WebGL plumbing only ships to clients who actually open the LiDAR overlay.
@@ -23,8 +50,9 @@ const LidarCloudOverlay = lazy(() =>
  *
  * Mounted UNCONDITIONALLY (unlike `LidarCloudOverlay`, which only mounts once a
  * cloud is loaded) so the slider gives live feedback even before any cloud/mesh
- * is displayed. Dimming is scoped to the studio OR to when a cloud is present,
- * so the classic map view is never dimmed by a persisted opacity value.
+ * is displayed. Dimming is scoped to the studio ONLY: the itinerary view has no
+ * "Fond de carte" slider, so the basemap must always be forced to full opacity
+ * there — otherwise a persisted value would leave it dimmed with no way back.
  *
  * A base-layer switch (Photo/Plan) rebuilds the style via `setStyle({diff:true})`
  * and, because the new style spec carries no `raster-opacity` on the `base`
@@ -35,14 +63,10 @@ const LidarCloudOverlay = lazy(() =>
 function BasemapDimmer({ studio }: { studio: boolean }) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
-    const lidarShaded = useMapStore((s) => s.lidarShaded);
-    const lidarMesh = useMapStore((s) => s.lidarMesh);
     useEffect(() => {
         const map = mapInstance;
         if (!map) return;
-        const hasOverlay = lidarShaded !== null || lidarMesh !== null;
-        const shouldDim = hasOverlay || studio;
-        const targetOpacity = shouldDim ? basemapOpacity : 1;
+        const targetOpacity = studio ? basemapOpacity : 1;
         const apply = () => {
             const style = map.getStyle();
             if (!style?.layers) return;
@@ -58,7 +82,7 @@ function BasemapDimmer({ studio }: { studio: boolean }) {
         else map.once('idle', apply);
         map.on('styledata', apply);
         return () => { map.off('styledata', apply); };
-    }, [mapInstance, basemapOpacity, lidarShaded, lidarMesh, studio]);
+    }, [mapInstance, basemapOpacity, studio]);
     return null;
 }
 
@@ -614,11 +638,31 @@ function applySunHillshade(map: maplibregl.Map, sunDate: string): void {
     map.setPaintProperty('sun-hillshade', 'hillshade-highlight-color', `rgb(${r}, ${g}, ${b})`);
 }
 
-export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>) {
-    const containerRef = useRef<HTMLDivElement | null>(null);
+export function MapContainer() {
+    // A single map instance is shared across every view. `studio` is derived
+    // from the URL view rather than a prop so the persistent map reacts to
+    // `?view=` switches (LiDAR Studio ↔ classic map) without being rebuilt.
+    const { view: appView } = useView();
+    const studio = appView === 'lidar';
+
+    // The map's canvas lives in this imperative holder — NOT a React-rendered
+    // node — so it can be freely reparented between view slots without React
+    // trying to reconcile/remove it.
+    const holderRef = useRef<HTMLDivElement | null>(null);
+    if (holderRef.current === null && typeof document !== 'undefined') {
+        const el = document.createElement('div');
+        el.className = 'absolute inset-0 h-full w-full';
+        holderRef.current = el;
+    }
     const mapRef = useRef<maplibregl.Map | null>(null);
+    // Read by the once-registered map event handlers so they honour the current
+    // view without re-registering on every switch.
+    const studioRef = useRef(studio);
+    const terrainControlRef = useRef<maplibregl.TerrainControl | null>(null);
     const draggedWaypointIdRef = useRef<string | null>(null);
     const dragMovedRef = useRef(false);
+
+    useEffect(() => { studioRef.current = studio; }, [studio]);
 
     const baseLayer = useMapStore((s) => s.baseLayer);
     const view = useMapStore((s) => s.view);
@@ -643,27 +687,17 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
 
     // Initial map creation (runs once)
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) return;
+        const holder = holderRef.current;
+        if (!holder || mapRef.current) return;
+        // Attach the holder to the currently active view slot before creating
+        // the map so MapLibre measures a real size.
+        const initialSlot = getActiveMapSlot();
+        if (initialSlot && holder.parentElement !== initialSlot) initialSlot.appendChild(holder);
         const initial = useMapStore.getState();
         setScanApiKey(initial.ignScanApiKey);
         const map = new maplibregl.Map({
-            container: containerRef.current,
-            style: buildMapStyle({
-                base: initial.baseLayer,
-                hillshade: initial.hillshadeEnabled,
-                hillshadeSource: initial.hillshadeSource,
-                hillshadeBlend: initial.hillshadeBlend,
-                hillshadeIntensity: initial.hillshadeIntensity,
-                sunHillshade: initial.sunHillshadeEnabled,
-                terrain: studio || initial.terrainEnabled,
-                terrainExaggeration: initial.terrainExaggeration,
-                renderQuality: initial.renderQuality,
-                contourLines: initial.contourLinesEnabled,
-                contourLinesOpacity: initial.contourLinesOpacity,
-                ignScanApiKey: initial.ignScanApiKey,
-                ignDemApiKey: initial.ignDemApiKey,
-                terrainDemSource: initial.terrainDemSource,
-            }),
+            container: holder,
+            style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
             pitch: view.pitch,
@@ -716,17 +750,9 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
             'bottom-left',
         );
         // In the LiDAR Studio, 3D terrain is forced on and not user-toggleable,
-        // so the terrain control button is omitted there.
-        if (!studio) {
-            const terrainControl = new maplibregl.TerrainControl({
-                source: 'terrain',
-                exaggeration: initial.terrainExaggeration,
-            });
-            map.addControl(terrainControl, 'bottom-left');
-            terrainControl._terrainButton.addEventListener('click', () => {
-                globalThis.setTimeout(() => syncTerrainControlState(map), 0);
-            });
-        }
+        // so the terrain control button is omitted there. The control is added
+        // and removed reactively (see the studio-terrain effect below) since the
+        // same persistent map is shared with the classic view.
 
         map.on('moveend', (e) => {
             // The orbit loop drives `jumpTo` every frame; persisting the view
@@ -772,7 +798,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
 
         map.on('click', (event) => {
             // The LiDAR Studio shares this map but must never edit the itinerary.
-            if (studio) return;
+            if (studioRef.current) return;
             const slice = useMapStore.getState();
             // Cliff mode owns the click — never fall through to route, even when
             // the slice tracé sub-mode is off (read-only chart viewing).
@@ -796,7 +822,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         });
 
         map.on('dblclick', (event) => {
-            if (studio) return;
+            if (studioRef.current) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
@@ -812,7 +838,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         });
 
         map.on('contextmenu', (event) => {
-            if (studio) return;
+            if (studioRef.current) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active) return;
@@ -824,7 +850,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
 
         const startDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
             // Dragging waypoints only makes sense in route mode.
-            if (studio) return;
+            if (studioRef.current) return;
             if (useMapStore.getState().bottomMode === 'cliff') return;
             const route = useRouteStore.getState();
             if (!route.active || route.deleteMode) return;
@@ -867,6 +893,45 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Reparent the persistent map into whichever view slot is currently active.
+    // This is what lets the map survive a `?view=` switch without a rebuild.
+    useEffect(() => {
+        const place = () => {
+            const slot = getActiveMapSlot();
+            const holder = holderRef.current;
+            if (slot && holder && holder.parentElement !== slot) {
+                slot.appendChild(holder);
+                mapRef.current?.resize();
+            }
+        };
+        place();
+        return subscribeMapSlot(place);
+    }, []);
+
+    // Add the terrain toggle control only in the classic view. In the LiDAR
+    // Studio 3D terrain is forced on and not user-toggleable, so the control is
+    // removed. Runs whenever the view (studio) changes on the shared map.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        if (studio) {
+            if (terrainControlRef.current) {
+                map.removeControl(terrainControlRef.current);
+                terrainControlRef.current = null;
+            }
+        } else if (!terrainControlRef.current) {
+            const control = new maplibregl.TerrainControl({
+                source: 'terrain',
+                exaggeration: useMapStore.getState().terrainExaggeration,
+            });
+            map.addControl(control, 'bottom-left');
+            control._terrainButton.addEventListener('click', () => {
+                globalThis.setTimeout(() => syncTerrainControlState(map), 0);
+            });
+            terrainControlRef.current = control;
+        }
+    }, [studio]);
+
     // Rebuild style when structural settings change (base layer, hillshade on/off,
     // render quality, contour lines). Uses diff mode to preserve terrain mesh.
     useEffect(() => {
@@ -875,22 +940,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         const handle = globalThis.setTimeout(() => {
             const current = useMapStore.getState();
             map.setStyle(
-                buildMapStyle({
-                    base: baseLayer,
-                    hillshade: hillshadeEnabled,
-                    hillshadeSource,
-                    hillshadeBlend,
-                    hillshadeIntensity,
-                    sunHillshade: sunHillshadeEnabled,
-                    terrain: studio || current.terrainEnabled,
-                    terrainExaggeration: current.terrainExaggeration,
-                    renderQuality: current.renderQuality,
-                    contourLines: current.contourLinesEnabled,
-                    contourLinesOpacity: current.contourLinesOpacity,
-                    ignScanApiKey: current.ignScanApiKey,
-                    ignDemApiKey: current.ignDemApiKey,
-                    terrainDemSource: current.terrainDemSource,
-                }),
+                buildMapStyle(mapStyleOptionsFrom(current, studioRef.current)),
                 { diff: true },
             );
             map.once('idle', () => {
@@ -973,22 +1023,7 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
             // by triggering a full style reload with diff mode.
             const current = useMapStore.getState();
             map.setStyle(
-                buildMapStyle({
-                    base: current.baseLayer,
-                    hillshade: current.hillshadeEnabled,
-                    hillshadeSource: current.hillshadeSource,
-                    hillshadeBlend: current.hillshadeBlend,
-                    hillshadeIntensity: current.hillshadeIntensity,
-                    sunHillshade: current.sunHillshadeEnabled,
-                    terrain: studio || current.terrainEnabled,
-                    terrainExaggeration: current.terrainExaggeration,
-                    renderQuality: current.renderQuality,
-                    contourLines: current.contourLinesEnabled,
-                    contourLinesOpacity: current.contourLinesOpacity,
-                    ignScanApiKey: current.ignScanApiKey,
-                    ignDemApiKey: current.ignDemApiKey,
-                    terrainDemSource: current.terrainDemSource,
-                }),
+                buildMapStyle(mapStyleOptionsFrom(current, studioRef.current)),
                 { diff: false },
             );
         };
@@ -1006,12 +1041,12 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
         const map = mapRef.current;
         if (!map?.isStyleLoaded()) return;
         if (terrainEnabled || studio) {
-            map.setTerrain({ source: 'terrain', exaggeration: terrainExaggeration });
+            map.setTerrain({ source: 'terrain', exaggeration: studio ? 1 : terrainExaggeration });
             map.once('idle', () => syncCenterElevationToTerrain(map));
         } else {
             map.setTerrain(null);
         }
-    }, [terrainEnabled, terrainExaggeration]);
+    }, [terrainEnabled, terrainExaggeration, studio]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1065,7 +1100,6 @@ export function MapContainer({ studio = false }: Readonly<{ studio?: boolean }>)
 
     return (
         <>
-            <div ref={containerRef} className="absolute inset-0 h-full w-full" />
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
             <CliffSlicePathOverlayGate />
