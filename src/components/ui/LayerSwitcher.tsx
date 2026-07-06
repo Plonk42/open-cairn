@@ -14,6 +14,7 @@ const SHADOW_TITLES: Record<HillshadeSource, string> = {
 export function LayerSwitcher() {
     const baseLayer = useMapStore((s) => s.baseLayer);
     const setBaseLayer = useMapStore((s) => s.setBaseLayer);
+    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const hillshadeEnabled = useMapStore((s) => s.hillshadeEnabled);
     const setHillshadeEnabled = useMapStore((s) => s.setHillshadeEnabled);
     const hillshadeSource = useMapStore((s) => s.hillshadeSource);
@@ -41,19 +42,24 @@ export function LayerSwitcher() {
                     Fond de carte
                 </h3>
                 <div className="grid grid-cols-2 gap-1.5">
-                    {BASES.map((id) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => setBaseLayer(id)}
-                            className={`rounded-md px-2.5 py-1.5 text-xs ring-1 transition ${baseLayer === id
-                                ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
-                                : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
-                                }`}
-                        >
-                            {BASE_LAYER_LABELS[id]}
-                        </button>
-                    ))}
+                    {BASES.map((id) => {
+                        const disabled = id === 'scan25' && !ignScanApiKey;
+                        return (
+                            <button
+                                key={id}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => setBaseLayer(id)}
+                                title={disabled ? 'Nécessite une clé IGN (voir Réglages)' : undefined}
+                                className={`rounded-md px-2.5 py-1.5 text-xs ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${baseLayer === id
+                                    ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                                    : 'bg-gray-50 text-slate-600 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-700'
+                                    }`}
+                            >
+                                {BASE_LAYER_LABELS[id]}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 

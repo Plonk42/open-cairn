@@ -12,7 +12,12 @@ const shared = parseShareFromUrl();
 if (shared) {
     const map = useMapStore.getState();
     map.setView(shared.view);
-    map.setBaseLayer(shared.baseLayer);
+    // SCAN 25 is a private IGN layer gated by an API key configured locally
+    // by each user (never shared in the link). If the recipient hasn't
+    // configured one, requesting it renders nothing (black map) — fall back
+    // to the free Plan IGN basemap instead.
+    const needsScanKey = shared.baseLayer === 'scan25' && !map.ignScanApiKey;
+    map.setBaseLayer(needsScanKey ? 'plan' : shared.baseLayer);
     map.setHillshadeEnabled(shared.hillshadeEnabled);
     map.setHillshadeSource(shared.hillshadeSource);
     map.setHillshadeBlend(shared.hillshadeBlend);
