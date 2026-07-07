@@ -42,6 +42,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
+    const pointSizeMultiplier = useMapStore((s) => s.lidarPointSizeMultiplier);
     const meshWireframe = useMapStore((s) => s.lidarMeshWireframe);
     const setLodDebugInfo = useMapStore((s) => s.setLidarLodDebugInfo);
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -296,9 +297,10 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             photoOpacityNonGround,
             lodEnabled,
             lodForceLevel,
+            pointSizeMultiplier,
             meshWireframe,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, meshWireframe, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, pointSizeMultiplier, meshWireframe, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

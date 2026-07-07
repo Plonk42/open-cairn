@@ -1,5 +1,5 @@
-import { createPortal } from 'react-dom';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Persisted export destination choice (survives across exports). */
 const TARGET_KEY = 'open-cairn-export-target';
@@ -23,6 +23,34 @@ function readTarget(): ExportTarget {
 function writeTarget(target: ExportTarget): void {
     try {
         localStorage.setItem(TARGET_KEY, JSON.stringify(target));
+    } catch { /* ignore quota */ }
+}
+
+/** Persisted PNG export resolution multiplier (survives across exports). */
+const RESOLUTION_KEY = 'open-cairn-export-resolution';
+
+/** Supersampling multiplier applied on top of the map's current pixel ratio. */
+export type ExportResolutionScale = 1 | 2 | 3 | 4;
+
+const RESOLUTION_OPTIONS: ReadonlyArray<{ value: ExportResolutionScale; label: string }> = [
+    { value: 1, label: 'Écran (×1)' },
+    { value: 2, label: 'Haute définition (×2)' },
+    { value: 3, label: 'Très haute définition (×3)' },
+    { value: 4, label: 'Ultra HD (×4)' },
+];
+
+function readResolution(): ExportResolutionScale {
+    try {
+        const raw = localStorage.getItem(RESOLUTION_KEY);
+        const n = raw ? Number(raw) : 1;
+        if (n === 2 || n === 3 || n === 4) return n;
+    } catch { /* ignore */ }
+    return 1;
+}
+
+function writeResolution(scale: ExportResolutionScale): void {
+    try {
+        localStorage.setItem(RESOLUTION_KEY, String(scale));
     } catch { /* ignore quota */ }
 }
 
@@ -61,12 +89,13 @@ export function ExportDialog({
     onClose,
 }: Readonly<{
     onExport: (title: string, description: string, target: ExportTarget) => void;
-    onDownloadImage: () => void;
+    onDownloadImage: (resolution: ExportResolutionScale) => void;
     onClose: () => void;
 }>) {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [target, setTarget] = useState<ExportTarget>(() => readTarget());
+    const [resolution, setResolution] = useState<ExportResolutionScale>(() => readResolution());
 
     const updateTarget = (patch: Partial<ExportTarget>) => {
         setTarget((prev) => {
@@ -138,10 +167,28 @@ export function ExportDialog({
                         Exporter
                     </button>
                 </div>
+                <label className="mt-3 flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-300">Résolution de l’image</span>
+                    <select
+                        value={resolution}
+                        onChange={(e) => {
+                            const v = Number(e.target.value) as ExportResolutionScale;
+                            setResolution(v);
+                            writeResolution(v);
+                        }}
+                        className="rounded-md bg-white/5 px-2 py-1 text-xs text-white ring-1 ring-white/15 focus:outline-none focus:ring-emerald-400/60"
+                    >
+                        {RESOLUTION_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value} className="bg-slate-900">
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
                 <button
                     type="button"
-                    onClick={() => { onDownloadImage(); }}
-                    className="mt-3 w-full rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10"
+                    onClick={() => { onDownloadImage(resolution); }}
+                    className="mt-2 w-full rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10"
                 >
                     Télécharger seulement l’image (.png)
                 </button>

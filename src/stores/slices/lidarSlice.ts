@@ -129,6 +129,16 @@ export interface LidarSlice {
     lidarLodForceLevel: number | null;
     setLidarLodForceLevel: (v: number | null) => void;
     /**
+     * Export-only override: final multiplier applied to every point's on-screen
+     * size, on top of the normal device-pixel clamp — used by `ShowcaseExport`
+     * to compensate for a supersampled screenshot capture (boosting the map's
+     * pixel ratio shrinks points, in relative terms, unless their device-pixel
+     * size is scaled up to match). Always 1 outside of an export capture, so
+     * deliberately not persisted.
+     */
+    lidarPointSizeMultiplier: number;
+    setLidarPointSizeMultiplier: (v: number) => void;
+    /**
      * Debug-only: draw the reconstructed ground mesh as a plain wireframe (no
      * lighting, no texture) so the triangle density is directly visible. The
      * toggle is only surfaced when `isMeshWireframeDebugEnabled()`; defaults
@@ -507,6 +517,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarLodEnabled: (lidarLodEnabled) => set({ lidarLodEnabled }),
         lidarLodForceLevel: null,
         setLidarLodForceLevel: (lidarLodForceLevel) => set({ lidarLodForceLevel }),
+        lidarPointSizeMultiplier: 1,
+        setLidarPointSizeMultiplier: (lidarPointSizeMultiplier) => set({ lidarPointSizeMultiplier }),
         lidarMeshWireframe: false,
         setLidarMeshWireframe: (lidarMeshWireframe) => set({ lidarMeshWireframe }),
         lidarLodDebugInfo: null,

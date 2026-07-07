@@ -267,6 +267,18 @@ export interface LidarWebGLLayerConfig {
     adaptiveSize: boolean;
     /** Map zoom at which `pointSize` is applied verbatim. */
     referenceZoom: number;
+    /**
+     * Final multiplier applied to the computed point size, AFTER the normal
+     * 1..16 device-pixel clamp — used to compensate for a supersampled export
+     * capture (see `ShowcaseExport.downloadFrame`). `gl_PointSize` is set in
+     * drawing-buffer (device) pixels, not CSS pixels, so boosting the map's
+     * pixel ratio for a higher-resolution screenshot without also scaling
+     * this up would shrink every point (proportionally to the resolution
+     * boost) relative to the exported image — most visible on non-ground
+     * (vegetation) points, since the reconstructed ground mesh has no point
+     * size to shrink. Always 1 outside of an export capture.
+     */
+    pointSizeMultiplier: number;
     edlEnabled: boolean;
     edlStrength: number;
     edlRadius: number;
@@ -649,6 +661,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         pointSize: 2,
         adaptiveSize: true,
         referenceZoom: 19,
+        pointSizeMultiplier: 1,
         edlEnabled: false,
         edlStrength: 40,
         edlRadius: 0.7,
@@ -1038,11 +1051,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      */
     private _effectivePointSize(): number {
         const base = Math.max(this.config.pointSize, 0.5);
-        if (!this.config.adaptiveSize || !this._map) return Math.max(base, 1);
+        if (!this.config.adaptiveSize || !this._map) return Math.max(base, 1) * this.config.pointSizeMultiplier;
         const zoom = this._map.getZoom();
         const dz = zoom - this.config.referenceZoom;
         const scale = Math.pow(2, dz * 0.5);
-        return Math.min(16, Math.max(1, base * scale));
+        return Math.min(16, Math.max(1, base * scale)) * this.config.pointSizeMultiplier;
     }
 
     /**
