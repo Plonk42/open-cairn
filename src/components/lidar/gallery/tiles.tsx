@@ -270,6 +270,16 @@ function formatCount(n: number): string {
     return String(n);
 }
 
+/** Capture-zone size label: the actual rectangle dims when known, falling back
+ *  to the legacy enclosing-circle radius for entries saved before the
+ *  rectangular capture zone existed. */
+function captureSizeLabel(cloud: SavedCloud): string {
+    if (cloud.widthM && cloud.lengthM) {
+        return `${Math.round(cloud.widthM)} × ${Math.round(cloud.lengthM)} m`;
+    }
+    return `r ${cloud.radius} m`;
+}
+
 function RecentTile({
     cloud,
     busy,
@@ -294,7 +304,7 @@ function RecentTile({
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cloud.name}</div>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
                         <span className="rounded bg-slate-200/70 px-1 text-[10px] dark:bg-white/10">{CLOUD_MODE_LABELS[cloud.mode]}</span>
-                        <span>r {cloud.radius} m</span>
+                    <span>{captureSizeLabel(cloud)}</span>
                         {cloud.pointCount > 0 && <span>· {formatCount(cloud.pointCount)} pts</span>}
                         {cloud.hasMesh && cloud.vertexCount && <span>· {formatCount(cloud.vertexCount)} v</span>}
                     </p>

@@ -54,10 +54,15 @@ function captureGeometry(
     map: MapState['mapInstance'],
     maxArea: number,
     northFixed: boolean,
-): { radius: number; rect: { halfWidthM: number; halfLengthM: number; bearingDeg: number } } {
+): {
+    radius: number; widthM: number; lengthM: number;
+    rect: { halfWidthM: number; halfLengthM: number; bearingDeg: number };
+} {
     const { widthM, lengthM } = clampRectToArea(rect.widthM, rect.lengthM, maxArea);
     return {
         radius: rectEnclosingRadiusM(widthM, lengthM),
+        widthM,
+        lengthM,
         rect: {
             halfWidthM: widthM / 2,
             halfLengthM: lengthM / 2,
@@ -685,6 +690,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     centerLng: center.lng,
                     centerLat: center.lat,
                     radius: capture.radius,
+                    widthM: capture.widthM,
+                    lengthM: capture.lengthM,
                     stride: state.lidarCloudStride,
                     classes: state.lidarCloudClasses,
                     shader: state.lidarShader,

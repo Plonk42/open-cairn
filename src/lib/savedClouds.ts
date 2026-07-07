@@ -42,7 +42,11 @@ export interface SavedCloud {
     mode: LidarCloudMode;
     centerLng: number;
     centerLat: number;
+    /** Enclosing-circle radius (m) of the capture rectangle — kept for tile-fitting/legacy reads. */
     radius: number;
+    /** Capture rectangle dimensions (m). Absent on entries saved before the rectangular capture zone. */
+    widthM?: number;
+    lengthM?: number;
     stride: number;
     classes: number[];
     shader: string;
@@ -65,6 +69,8 @@ export interface SavedCloudParams {
     centerLng: number;
     centerLat: number;
     radius: number;
+    widthM?: number;
+    lengthM?: number;
     stride: number;
     classes: number[];
     shader: string;
@@ -84,7 +90,13 @@ export function makeCloudKey(p: SavedCloudParams): string {
     const lng = p.centerLng.toFixed(4);
     const lat = p.centerLat.toFixed(4);
     const cls = p.classes.length > 0 ? [...p.classes].sort((a, b) => a - b).join(',') : 'all';
-    return `${p.mode}:${lng}:${lat}:${p.radius}:${p.stride}:${cls}:${p.shader}`;
+    // Include the rectangle dimensions (not just the derived enclosing radius)
+    // so two differently-shaped rectangles that happen to share the same
+    // enclosing radius (e.g. 500×300 vs a near-square rect) don't dedupe together.
+    const size = p.widthM !== undefined && p.lengthM !== undefined
+        ? `${p.widthM.toFixed(0)}x${p.lengthM.toFixed(0)}`
+        : p.radius;
+    return `${p.mode}:${lng}:${lat}:${size}:${p.stride}:${cls}:${p.shader}`;
 }
 
 function defaultName(p: SavedCloudParams): string {
@@ -112,6 +124,8 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
         centerLng: params.centerLng,
         centerLat: params.centerLat,
         radius: params.radius,
+        widthM: params.widthM,
+        lengthM: params.lengthM,
         stride: params.stride,
         classes: [...params.classes],
         shader: params.shader,
