@@ -376,19 +376,15 @@ class SharedLidarDepth {
     private _tex: WebGLTexture | null = null;
     private _w = 0;
     private _h = 0;
-    /** All currently-mounted LidarWebGLLayer instance ids (onAdd/onRemove). */
-    private readonly _registered = new Set<string>();
-    /** Ids that have already written their depth during the current repaint. */
-    private readonly _renderedThisFrame = new Set<string>();
-
-    register(id: string): void {
-        this._registered.add(id);
-    }
-
-    unregister(id: string): void {
-        this._registered.delete(id);
-        this._renderedThisFrame.delete(id);
-    }
+    /**
+     * True for the duration of one MapLibre repaint. Set by the first LiDAR
+     * layer to render this frame (which also clears the shared depth) and reset
+     * via a microtask that only runs once the whole synchronous render loop —
+     * every LiDAR layer's `render()` — has finished. This finds frame boundaries
+     * without counting layers, so it stays correct even when some clouds are
+     * frustum-culled, hidden or still loading and skip rendering entirely.
+     */
+    private _frameActive = false;
 
     get texture(): WebGLTexture | null {
         return this._tex;
@@ -400,26 +396,23 @@ class SharedLidarDepth {
 
     /**
      * Call once per instance per `render()`, before writing its own depth.
-     * Clears the shared depth texture exactly once per repaint — precisely
-     * when this is the first of the currently-registered instances to reach
-     * this point since the last reset — then, once every registered instance
-     * has done so, resets the bookkeeping so the *next* repaint is detected
-     * as a fresh frame. All registered instances render synchronously within
-     * one MapLibre repaint, so this simple counter is enough to find frame
-     * boundaries without any explicit hook into MapLibre's render loop.
+     * Clears the shared depth texture exactly once per repaint: the first LiDAR
+     * layer of the frame does the clear and marks the frame active; a microtask
+     * resets that flag, and since microtasks can't run until the current task
+     * (MapLibre's whole synchronous render loop, i.e. every LiDAR layer's
+     * `render()`) has drained, the flag stays set for the entire frame and
+     * clears exactly once at the next one — regardless of how many clouds
+     * actually render.
      */
-    beginLayer(gl: WebGL2RenderingContext, id: string, w: number, h: number): void {
+    beginLayer(gl: WebGL2RenderingContext, w: number, h: number): void {
         this._ensureSize(gl, w, h);
-        if (this._renderedThisFrame.size === 0) {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
-            gl.viewport(0, 0, w, h);
-            gl.clearDepth(1);
-            gl.clear(gl.DEPTH_BUFFER_BIT);
-        }
-        this._renderedThisFrame.add(id);
-        if (this._renderedThisFrame.size >= this._registered.size) {
-            this._renderedThisFrame.clear();
-        }
+        if (this._frameActive) return;
+        this._frameActive = true;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
+        gl.viewport(0, 0, w, h);
+        gl.clearDepth(1);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        queueMicrotask(() => { this._frameActive = false; });
     }
 
     private _ensureSize(gl: WebGL2RenderingContext, w: number, h: number): void {
@@ -697,11 +690,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._map = map;
         this._gl = gl as WebGL2RenderingContext;
         this._initGL(this._gl);
-        sharedLidarDepth.register(this.id);
     }
 
     onRemove(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-        sharedLidarDepth.unregister(this.id);
         this._cleanup(gl as WebGL2RenderingContext);
     }
 
@@ -1756,7 +1747,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      */
     private _writeSharedDepth(gl: WebGL2RenderingContext, translatedMatrix: Float32Array, effectivePointSize: number): void {
         const canvas = gl.canvas as HTMLCanvasElement;
-        sharedLidarDepth.beginLayer(gl, this.id, canvas.width, canvas.height);
+        sharedLidarDepth.beginLayer(gl, canvas.width, canvas.height);
         gl.bindFramebuffer(gl.FRAMEBUFFER, sharedLidarDepth.framebuffer);
         gl.viewport(0, 0, canvas.width, canvas.height);
         const prevRange = gl.getParameter(gl.DEPTH_RANGE) as Float32Array;
