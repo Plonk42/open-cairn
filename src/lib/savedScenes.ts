@@ -34,6 +34,11 @@ export interface SavedScene {
     hasMesh: boolean;
     pointCount: number;
     vertexCount?: number;
+    /**
+     * Total number of clouds bundled in this scene (primary + extraClouds).
+     * Absent on entries saved before multi-cloud export existed — treat as 1.
+     */
+    cloudCount?: number;
 }
 
 /** Heavy snapshot kept in IndexedDB (structured-cloned typed arrays). */
@@ -42,6 +47,8 @@ export interface SavedSceneData {
     ambiance: ShowcaseAmbiance;
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
+    /** Extra clouds bundled alongside the primary one (multi-cloud export). */
+    extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
 }
 
 const scenes = createSavedCollection<SavedScene>(SAVED_SCENES_KEY);
@@ -74,6 +81,7 @@ export async function saveScene(
         hasMesh: data.mesh !== null,
         pointCount: data.shaded?.pointCount ?? 0,
         vertexCount: data.mesh?.vertexCount,
+        cloudCount: 1 + (data.extraClouds?.length ?? 0),
     };
 
     try {
@@ -159,7 +167,7 @@ async function importSceneFromArchive(
     const id = `scene-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return saveScene(
         { id, title: manifest.title || fallbackName, description: manifest.description },
-        { camera: manifest.camera, ambiance: manifest.ambiance, shaded: geometry.shaded, mesh: geometry.mesh },
+        { camera: manifest.camera, ambiance: manifest.ambiance, shaded: geometry.shaded, mesh: geometry.mesh, extraClouds: geometry.extraClouds },
         thumbBytes ?? null,
     );
 }

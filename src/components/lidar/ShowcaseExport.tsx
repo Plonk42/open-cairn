@@ -129,7 +129,12 @@ function downloadSceneZip(scene: ShowcaseScene, bytes: Uint8Array, thumb: Uint8A
 
 function buildScene(id: string, title: string, description: string): ShowcaseScene | null {
     const st = useMapStore.getState();
-    if (st.lidarShaded === null && st.lidarMesh === null) return null;
+    // Every currently-visible cloud gets bundled into the scene (not just the
+    // primary one mirrored in `lidarShaded`/`lidarMesh`), so "Exporter cette
+    // vue" restores the whole multi-cloud view in one shot on reload.
+    const visibleClouds = st.lidarClouds.filter((c) => c.visible && (c.shaded !== null || c.mesh !== null));
+    if (visibleClouds.length === 0) return null;
+    const [primary, ...rest] = visibleClouds;
     const map = st.mapInstance;
     const center = map ? map.getCenter() : { lng: st.view.longitude, lat: st.view.latitude };
     return {
@@ -144,8 +149,9 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
             centerElevation: map ? map.getCenterElevation() : undefined,
         },
         ambiance: extractAmbiance(st),
-        shaded: st.lidarShaded,
-        mesh: st.lidarMesh,
+        shaded: primary.shaded,
+        mesh: primary.mesh,
+        extraClouds: rest.length > 0 ? rest.map((c) => ({ shaded: c.shaded, mesh: c.mesh })) : undefined,
     };
 }
 
@@ -161,7 +167,8 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
  *  - "both"    : stored locally *and* downloaded.
  */
 export function ShowcaseExport() {
-    const hasData = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
+    const hasData = useMapStore((s) => s.lidarClouds.some((c) => c.visible && (c.shaded !== null || c.mesh !== null)));
+    const cloudCount = useMapStore((s) => s.lidarClouds.filter((c) => c.visible && (c.shaded !== null || c.mesh !== null)).length);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [prompting, setPrompting] = useState(false);
@@ -190,7 +197,7 @@ export function ShowcaseExport() {
             if (target.local) {
                 await saveScene(
                     { id, title: scene.title, description: scene.description },
-                    { camera: scene.camera, ambiance: scene.ambiance, shaded: scene.shaded, mesh: scene.mesh },
+                    { camera: scene.camera, ambiance: scene.ambiance, shaded: scene.shaded, mesh: scene.mesh, extraClouds: scene.extraClouds },
                     thumb,
                 );
             }
@@ -211,6 +218,11 @@ export function ShowcaseExport() {
         if (!ok) setError('Capture d’écran indisponible.');
     };
 
+    const cloudSuffix = cloudCount > 1 ? 's' : '';
+    const exportTitle = hasData
+        ? `Exporter la vue actuelle (${cloudCount} nuage${cloudSuffix}) en scène showcase`
+        : 'Chargez un nuage pour exporter';
+
     return (
         <div className="flex items-center gap-2">
             <button
@@ -218,7 +230,7 @@ export function ShowcaseExport() {
                 data-tutorial="export"
                 onClick={() => { setError(null); setPrompting(true); }}
                 disabled={!hasData || busy}
-                title={hasData ? 'Exporter la vue actuelle en scène showcase' : 'Chargez un nuage pour exporter'}
+                title={exportTitle}
                 className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10 disabled:opacity-40"
             >
                 <DownloadIcon className="h-4 w-4" />

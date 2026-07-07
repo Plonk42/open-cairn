@@ -34,6 +34,17 @@ const VERSION = 1;
 const ENC_VERTEX = 0;
 const ENC_INDEX = 1;
 
+/**
+ * Tag-space reserved per cloud so a scene can bundle several clouds/meshes
+ * without changing the per-buffer header layout: the primary cloud keeps the
+ * original tags 0-12 (byte-identical to every scene ever exported), and each
+ * extra cloud's buffers reuse the same tags shifted by `index * STRIDE`. Since
+ * the highest tag value is 12, a stride of 16 leaves room for up to
+ * `MAX_CLOUDS` clouds while the tag still fits in a single byte.
+ */
+const CLOUD_TAG_STRIDE = 16;
+const MAX_CLOUDS = Math.floor(255 / CLOUD_TAG_STRIDE) + 1;
+
 const TAG = {
     shadedPositions: 0,
     shadedNormals: 1,
@@ -107,6 +118,15 @@ export interface ShowcaseScene {
     ambiance: ShowcaseAmbiance;
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
+    /**
+     * Additional clouds/meshes bundled alongside the primary one, when the
+     * view being exported had several LiDAR clouds displayed at once (see
+     * `lidarClouds` in the map store). Restoring a scene re-adds every entry
+     * here (plus the primary) via `addLidarCloudSnapshot`, so "Exporter cette
+     * vue" round-trips the whole scene in one shot. Omitted (or empty) for
+     * single-cloud scenes, which stay byte-identical to the original format.
+     */
+    extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
 }
 
 /**
@@ -191,6 +211,9 @@ interface MeshMeta {
     hasBaseMask: boolean;
 }
 
+/** The geometry-only slice of a scene needed to encode/decode its buffers. */
+type SceneGeometryInput = Pick<ShowcaseScene, 'shaded' | 'mesh' | 'extraClouds'>;
+
 /**
  * Geometry metadata embedded in the binary settings header — only what's needed
  * to rebuild the typed arrays. Presentation settings (name, camera, ambiance)
@@ -199,6 +222,8 @@ interface MeshMeta {
 interface GeometryBlob {
     shaded: ShadedMeta | null;
     mesh: MeshMeta | null;
+    /** Metadata for extra clouds, in the same order as `ShowcaseScene.extraClouds`. */
+    extraClouds?: Array<{ shaded: ShadedMeta | null; mesh: MeshMeta | null }>;
 }
 
 interface BufferDescriptor {
@@ -267,45 +292,58 @@ function indexDescriptor(tag: number, indices: Uint32Array): BufferDescriptor {
     };
 }
 
-function collectDescriptors(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): BufferDescriptor[] {
+function collectCloudDescriptors(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>, tagOffset: number): BufferDescriptor[] {
     const descriptors: BufferDescriptor[] = [];
-    const { shaded, mesh } = scene;
+    const { shaded, mesh } = cloud;
     if (shaded) {
         descriptors.push(
-            vertexDescriptor(TAG.shadedPositions, shaded.positions, 12),
-            vertexDescriptor(TAG.shadedNormals, shaded.normals, 12),
-            vertexDescriptor(TAG.shadedColors, shaded.colors, 4),
-            vertexDescriptor(TAG.shadedClass, shaded.classifications, 1),
+            vertexDescriptor(tagOffset + TAG.shadedPositions, shaded.positions, 12),
+            vertexDescriptor(tagOffset + TAG.shadedNormals, shaded.normals, 12),
+            vertexDescriptor(tagOffset + TAG.shadedColors, shaded.colors, 4),
+            vertexDescriptor(tagOffset + TAG.shadedClass, shaded.classifications, 1),
         );
         if (shaded.forestTfv) {
-            descriptors.push(vertexDescriptor(TAG.shadedForestTfv, shaded.forestTfv, 1));
+            descriptors.push(vertexDescriptor(tagOffset + TAG.shadedForestTfv, shaded.forestTfv, 1));
         }
         if (shaded.treeSeed) {
-            descriptors.push(vertexDescriptor(TAG.shadedTreeSeed, shaded.treeSeed, 1));
+            descriptors.push(vertexDescriptor(tagOffset + TAG.shadedTreeSeed, shaded.treeSeed, 1));
         }
         if (shaded.heightAboveGround) {
-            descriptors.push(vertexDescriptor(TAG.shadedHeight, shaded.heightAboveGround, 4));
+            descriptors.push(vertexDescriptor(tagOffset + TAG.shadedHeight, shaded.heightAboveGround, 4));
         }
     }
     if (mesh) {
         descriptors.push(
-            vertexDescriptor(TAG.meshPositions, mesh.positions, 12),
-            vertexDescriptor(TAG.meshNormals, mesh.normals, 12),
-            vertexDescriptor(TAG.meshColors, mesh.colors, 4),
-            indexDescriptor(TAG.meshIndices, mesh.indices),
+            vertexDescriptor(tagOffset + TAG.meshPositions, mesh.positions, 12),
+            vertexDescriptor(tagOffset + TAG.meshNormals, mesh.normals, 12),
+            vertexDescriptor(tagOffset + TAG.meshColors, mesh.colors, 4),
+            indexDescriptor(tagOffset + TAG.meshIndices, mesh.indices),
         );
         if (mesh.roughness) {
-            descriptors.push(vertexDescriptor(TAG.meshRoughness, mesh.roughness, 4));
+            descriptors.push(vertexDescriptor(tagOffset + TAG.meshRoughness, mesh.roughness, 4));
         }
         if (mesh.baseMask) {
-            descriptors.push(vertexDescriptor(TAG.meshBaseMask, mesh.baseMask, 1));
+            descriptors.push(vertexDescriptor(tagOffset + TAG.meshBaseMask, mesh.baseMask, 1));
         }
     }
     return descriptors;
 }
 
-function buildGeometryBlob(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): GeometryBlob {
-    const { shaded, mesh } = scene;
+function collectDescriptors(scene: SceneGeometryInput): BufferDescriptor[] {
+    const descriptors = collectCloudDescriptors({ shaded: scene.shaded, mesh: scene.mesh }, 0);
+    (scene.extraClouds ?? []).forEach((cloud, i) => {
+        const cloudIndex = i + 1;
+        if (cloudIndex >= MAX_CLOUDS) {
+            console.warn(`showcase scene: dropping extra cloud #${cloudIndex} — a scene supports at most ${MAX_CLOUDS - 1} extra clouds`);
+            return;
+        }
+        descriptors.push(...collectCloudDescriptors(cloud, cloudIndex * CLOUD_TAG_STRIDE));
+    });
+    return descriptors;
+}
+
+function buildCloudMeta(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>): { shaded: ShadedMeta | null; mesh: MeshMeta | null } {
+    const { shaded, mesh } = cloud;
     return {
         shaded: shaded
             ? {
@@ -331,6 +369,14 @@ function buildGeometryBlob(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Geome
             }
             : null,
     };
+}
+
+function buildGeometryBlob(scene: SceneGeometryInput): GeometryBlob {
+    const primary = buildCloudMeta({ shaded: scene.shaded, mesh: scene.mesh });
+    const extraClouds = (scene.extraClouds ?? [])
+        .slice(0, MAX_CLOUDS - 1)
+        .map((cloud) => buildCloudMeta(cloud));
+    return { ...primary, extraClouds: extraClouds.length > 0 ? extraClouds : undefined };
 }
 
 /** Extract the editable presentation settings (title + description + camera + ambiance). */
@@ -366,7 +412,7 @@ export function parseShowcaseManifest(json: string): ShowcaseManifest {
  * editable camera/ambiance/name go in the sidecar manifest (see
  * {@link serializeShowcaseManifest}).
  */
-export async function encodeShowcaseGeometry(scene: Pick<ShowcaseScene, 'shaded' | 'mesh'>): Promise<Uint8Array> {
+export async function encodeShowcaseGeometry(scene: SceneGeometryInput): Promise<Uint8Array> {
     const encoder = await getEncoder();
     const descriptors = collectDescriptors(scene);
 
@@ -468,7 +514,7 @@ function byteView(buffers: Map<number, Uint8Array>, tag: number, length: number)
     return raw.subarray(0, length);
 }
 
-function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>): LidarShadedCloudData {
+function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>, tagOffset = 0): LidarShadedCloudData {
     const n = meta.pointCount;
     return {
         kind: 'shaded',
@@ -476,20 +522,20 @@ function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>): LidarS
         centerLat: meta.centerLat,
         radius: meta.radius,
         pointCount: n,
-        positions: floatView(buffers, TAG.shadedPositions, n * 3),
-        normals: floatView(buffers, TAG.shadedNormals, n * 3),
-        colors: byteView(buffers, TAG.shadedColors, n * 4),
-        classifications: byteView(buffers, TAG.shadedClass, n),
-        forestTfv: meta.hasForestTfv ? byteView(buffers, TAG.shadedForestTfv, n) : undefined,
-        treeSeed: meta.hasTreeSeed ? byteView(buffers, TAG.shadedTreeSeed, n) : undefined,
-        heightAboveGround: meta.hasHeight ? floatView(buffers, TAG.shadedHeight, n) : undefined,
+        positions: floatView(buffers, tagOffset + TAG.shadedPositions, n * 3),
+        normals: floatView(buffers, tagOffset + TAG.shadedNormals, n * 3),
+        colors: byteView(buffers, tagOffset + TAG.shadedColors, n * 4),
+        classifications: byteView(buffers, tagOffset + TAG.shadedClass, n),
+        forestTfv: meta.hasForestTfv ? byteView(buffers, tagOffset + TAG.shadedForestTfv, n) : undefined,
+        treeSeed: meta.hasTreeSeed ? byteView(buffers, tagOffset + TAG.shadedTreeSeed, n) : undefined,
+        heightAboveGround: meta.hasHeight ? floatView(buffers, tagOffset + TAG.shadedHeight, n) : undefined,
         vegHeightAuto: meta.hasHeight ? meta.vegHeightAuto : undefined,
     };
 }
 
-function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>): LidarMeshData {
+function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>, tagOffset = 0): LidarMeshData {
     const v = meta.vertexCount;
-    const raw = buffers.get(TAG.meshIndices);
+    const raw = buffers.get(tagOffset + TAG.meshIndices);
     if (!raw) throw new Error('showcase scene: missing mesh indices');
     return {
         kind: 'mesh',
@@ -498,12 +544,12 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>): LidarMeshD
         radius: meta.radius,
         vertexCount: v,
         triangleCount: meta.triangleCount,
-        positions: floatView(buffers, TAG.meshPositions, v * 3),
-        normals: floatView(buffers, TAG.meshNormals, v * 3),
-        colors: byteView(buffers, TAG.meshColors, v * 4),
+        positions: floatView(buffers, tagOffset + TAG.meshPositions, v * 3),
+        normals: floatView(buffers, tagOffset + TAG.meshNormals, v * 3),
+        colors: byteView(buffers, tagOffset + TAG.meshColors, v * 4),
         indices: new Uint32Array(raw.buffer, 0, meta.triangleCount * 3),
-        roughness: meta.hasRoughness ? floatView(buffers, TAG.meshRoughness, v) : undefined,
-        baseMask: meta.hasBaseMask ? byteView(buffers, TAG.meshBaseMask, v) : undefined,
+        roughness: meta.hasRoughness ? floatView(buffers, tagOffset + TAG.meshRoughness, v) : undefined,
+        baseMask: meta.hasBaseMask ? byteView(buffers, tagOffset + TAG.meshBaseMask, v) : undefined,
     };
 }
 
@@ -511,6 +557,8 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>): LidarMeshD
 export interface DecodedGeometry {
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
+    /** Extra clouds bundled in the scene, in the same order as encoded. */
+    extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
 }
 
 /**
@@ -566,7 +614,15 @@ export async function decodeShowcaseGeometry(data: ArrayBuffer): Promise<Decoded
     const mesh = settings.mesh ? buildMesh(settings.mesh, buffers) : null;
     if (shaded) reconstructShadedHeights(shaded);
 
-    return { shaded, mesh };
+    const extraClouds = (settings.extraClouds ?? []).map((cloudMeta, i) => {
+        const tagOffset = (i + 1) * CLOUD_TAG_STRIDE;
+        const cloudShaded = cloudMeta.shaded ? buildShaded(cloudMeta.shaded, buffers, tagOffset) : null;
+        const cloudMesh = cloudMeta.mesh ? buildMesh(cloudMeta.mesh, buffers, tagOffset) : null;
+        if (cloudShaded) reconstructShadedHeights(cloudShaded);
+        return { shaded: cloudShaded, mesh: cloudMesh };
+    });
+
+    return { shaded, mesh, extraClouds: extraClouds.length > 0 ? extraClouds : undefined };
 }
 
 /**
@@ -701,5 +757,6 @@ export async function loadShowcaseScene(
         ambiance: args.manifest.ambiance,
         shaded: geometry.shaded,
         mesh: geometry.mesh,
+        extraClouds: geometry.extraClouds,
     };
 }

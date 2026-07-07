@@ -192,6 +192,11 @@ function LocalTile({
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{scene.title}</div>
                     {scene.description && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{scene.description}</p>}
+                    {(scene.cloudCount ?? 1) > 1 && (
+                        <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
+                            <span className="rounded bg-slate-200/70 px-1 text-[10px] dark:bg-white/10">{scene.cloudCount} nuages</span>
+                        </p>
+                    )}
                 </div>
             </button>
             <button

@@ -124,6 +124,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 ambiance: data.ambiance,
                 shaded: data.shaded,
                 mesh: data.mesh,
+                extraClouds: data.extraClouds,
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la vue.');
