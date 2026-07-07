@@ -24,7 +24,7 @@ import { computeNormalsKNNAsync, computeNormalsVegAwareAsync } from './normalsPo
 import { buildPoissonBase, buildPoissonBaseMask, poissonBaseWallPerimM, resolvePoissonBaseRect } from './poissonBase';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
-import { l93RectAxes, lngLatToL93 } from './proj';
+import { l93OffsetsToGeographicEnu, l93RectAxes, lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
 import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
 import { detectTreetops } from './treetops';
@@ -315,6 +315,12 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
         totalPts += r.classifications.length;
     }
     const positions = concatPositions(posParts, totalPts);
+    // Points are decoded as Lambert-93 grid offsets; rotate them into a true
+    // geographic east/north frame so the renderer (which treats them as ENU)
+    // places them exactly — otherwise the L93 meridian convergence turns each
+    // cloud ~γ about its centre and overlapping captures drift apart by a few
+    // metres in their shared area.
+    l93OffsetsToGeographicEnu(positions, totalPts, params.lng, params.lat);
     const classifications = concatClasses(clsParts, totalPts);
     const scan = needScan ? mergeScan(results, totalPts) : undefined;
     const safeStride = Math.max(1, Math.floor(stride));

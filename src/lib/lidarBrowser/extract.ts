@@ -51,7 +51,13 @@ export interface ExtractParams {
 }
 
 export interface ExtractResult {
-    /** Interleaved (dx_east, dy_north, z) float32 meters, METER_OFFSETS origin = (x0, y0). */
+    /**
+     * Interleaved (dx, dy, z) float32 meters, origin = (x0, y0). Here dx/dy are
+     * raw Lambert-93 *grid* offsets (X_l93 − x0, Y_l93 − y0), NOT geographic
+     * east/north — they still carry the meridian convergence. The pipeline
+     * rotates them to true east/north (see l93OffsetsToGeographicEnu) after
+     * merging tiles, before any consumer treats them as ENU.
+     */
     positions: Float32Array;
     /** ASPRS LAS classification per point (0..255). */
     classifications: Uint8Array;

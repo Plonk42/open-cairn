@@ -48,3 +48,45 @@ export function l93RectAxes(
     const len = Math.hypot(ux, uy) || 1;
     return { ux: ux / len, uy: uy / len };
 }
+
+/** Unit Lambert-93 direction of geographic north at (lng, lat). */
+function geographicNorthInL93(lng: number, lat: number): { nx: number; ny: number } {
+    const stepN = 10 / 111_320;
+    const [ax, ay] = lngLatToL93(lng, lat);
+    const [bx, by] = lngLatToL93(lng, lat + stepN);
+    const nx = bx - ax;
+    const ny = by - ay;
+    const len = Math.hypot(nx, ny) || 1;
+    return { nx: nx / len, ny: ny / len };
+}
+
+/**
+ * Rotate interleaved Lambert-93 grid offsets `(dx, dy, z)` into a true
+ * geographic east/north/up frame at (lng, lat), in place.
+ *
+ * IGN LiDAR positions are decoded as grid offsets from the capture centre
+ * (`dx = X_l93 − x0`, `dy = Y_l93 − y0`), but the renderer and every downstream
+ * consumer (shader, shadow light matrix, BD Forêt® rasteriser, cliff slice…)
+ * treat them as geographic east/north. Those frames differ by the L93 meridian
+ * convergence γ — zero on the 3°E central meridian, ≈2° in the Alps — so each
+ * cloud is effectively rotated γ about its own centre. A single capture merely
+ * looks slightly turned against the basemap, but two overlapping captures with
+ * different centres drift apart by ≈ γ·(centre separation) in their shared area
+ * (a few metres), which is the visible seam between adjacent clouds.
+ *
+ * γ varies negligibly across a ~500 m capture, so one rotation about the centre
+ * aligns the whole cloud (residual < 1 cm). Heights (`z`) are untouched.
+ */
+export function l93OffsetsToGeographicEnu(
+    positions: Float32Array, pointCount: number, lng: number, lat: number,
+): void {
+    const { nx, ny } = geographicNorthInL93(lng, lat);
+    // (nx, ny) is geographic north in L93; east is that turned 90° clockwise,
+    // i.e. (ny, -nx). Projecting each offset onto the two axes maps L93 → ENU.
+    for (let i = 0; i < pointCount; i++) {
+        const dx = positions[i * 3];
+        const dy = positions[i * 3 + 1];
+        positions[i * 3] = dx * ny - dy * nx;      // east
+        positions[i * 3 + 1] = dx * nx + dy * ny;  // north
+    }
+}
