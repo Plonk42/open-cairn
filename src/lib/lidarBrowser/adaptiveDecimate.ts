@@ -24,14 +24,17 @@
  * roughness and keeps it dense.
  *
  * Instead of a binary keep/thin threshold, the two quantities are normalised
- * against `sigmaTol` / `residualTol` into a single `detail` score in
- * `[0, DETAIL_CAP]`, which drives a **continuous gamma-law stride** (like JPEG
- * quantisation): `cellStride = flatStride ** (1 - detail)`. Flat cells get the
- * full `flatStride`; rougher cells get a geometrically smaller stride, so the
- * density transition between "flat" and "relief" is a smooth ramp rather than a
- * step. `detail` is capped just below 1 so even the strongest relief is thinned
- * a little at aggressive `flatStride` (highlights are compressed least, never
- * fully spared) while staying intact at gentle `flatStride`.
+ * against `sigmaTol` / `residualTol` into a single `detail` score in `[0, 1]`
+ * (1 = a cell that saturates either tolerance — genuine relief), which drives
+ * a **continuous gamma-law keep-fraction** (like JPEG quantisation, where more
+ * local detail survives more compression): `keepFraction = flatStride **
+ * (detail - 1)`. A perfectly flat cell (detail 0) keeps `1/flatStride` of its
+ * points; a cell with full-blown relief (detail 1) keeps every point; anything
+ * in between keeps a proportionally interpolated fraction — no per-cell
+ * rounding to a handful of discrete strides, so nearby roughness levels produce
+ * nearby densities instead of a two-value (thinned/not-thinned) jump. The
+ * fraction is applied with a running accumulator (not `Math.random`), so the
+ * kept subset is evenly spread and fully deterministic.
  *
  * `flatStride <= 1` (or an empty cloud) is a byte-identical passthrough, so the
  * feature degrades gracefully to a no-op when disabled.
@@ -41,11 +44,11 @@ import type { ScanData } from './scanOrient';
 export interface AdaptiveDecimateOptions {
     /** XY analysis cell size in meters. Smaller = finer detail preserved. */
     cellM: number;
-    /** Stride applied to perfectly-flat cells (the maximum). `<= 1` => passthrough. */
+    /** Max decimation factor for perfectly-flat cells (keeps 1/flatStride of their points). `<= 1` => passthrough. */
     flatStride: number;
-    /** PCA surface variation at which a cell reaches full detail (stride → 1). */
+    /** PCA surface variation at which a cell reaches full detail (kept at 100%). */
     sigmaTol: number;
-    /** Max out-of-plane residual (m) at which a cell reaches full detail. */
+    /** Max out-of-plane residual (m) at which a cell reaches full detail (kept at 100%). */
     residualTol: number;
 }
 
@@ -62,15 +65,6 @@ export const DEFAULT_ADAPTIVE_RESIDUAL_M = 0.3;
 
 /** Cells with fewer points than this are treated as full detail (can't fit a plane). */
 const MIN_ANALYZE_POINTS = 6;
-
-/**
- * Upper bound on the per-cell `detail` score (0..1). Kept below 1 so the gamma
- * ramp `flatStride ** (1 - detail)` never fully spares even the roughest cell:
- * at aggressive `flatStride` the strongest relief is still thinned a little
- * (like JPEG, highlights are compressed least but not exempt), while at gentle
- * `flatStride` the residual stride rounds back to 1 and relief stays intact.
- */
-const DETAIL_CAP = 0.85;
 
 /**
  * Eigen-decomposition of a symmetric 3×3 covariance matrix (Cardano closed
@@ -133,15 +127,15 @@ function planeFit(
 
 /**
  * Measure a single cell's orientation-invariant roughness as a `detail` score
- * in `[0, DETAIL_CAP]`: 0 for a perfect thin plane (at any orientation), rising
- * toward the cap as PCA surface variation or the max out-of-plane residual
- * approach `sigmaTol` / `residualTol`. Drives the gamma-law stride below.
+ * in `[0, 1]`: 0 for a perfect thin plane (at any orientation), rising toward 1
+ * as PCA surface variation or the max out-of-plane residual reach (or exceed)
+ * `sigmaTol` / `residualTol`. Drives the continuous keep-fraction below.
  */
 function cellDetail(
     positions: Float32Array, idx: number[], sigmaTol: number, residualTol: number,
 ): number {
     const n = idx.length;
-    if (n < MIN_ANALYZE_POINTS) return DETAIL_CAP; // too few to fit a plane — treat as detailed.
+    if (n < MIN_ANALYZE_POINTS) return 1; // too few to fit a plane — treat as full detail.
     let sx = 0, sy = 0, sz = 0;
     for (let j = 0; j < n; j++) {
         const b = idx[j] * 3;
@@ -172,16 +166,19 @@ function cellDetail(
     }
     const bySigma = sigmaTol > 0 ? sigma / sigmaTol : 0;
     const byResidual = residualTol > 0 ? maxResidual / residualTol : 0;
-    return Math.min(DETAIL_CAP, Math.max(bySigma, byResidual));
+    return Math.min(1, Math.max(bySigma, byResidual));
 }
 
 /**
- * Gamma-law stride for a cell of the given `detail` score: `flatStride` for a
- * perfectly flat cell (detail 0), ramping geometrically down toward 1 as detail
- * rises. Rounded to an integer stride ≥ 1.
+ * Continuous (JPEG-quantisation-like) keep-fraction for a cell of the given
+ * `detail` score: `1/flatStride` for a perfectly flat cell (detail 0), ramping
+ * geometrically up toward 1 (kept in full) as detail rises to 1. Unlike an
+ * integer stride, this is never rounded — a cell at detail 0.5 keeps a
+ * genuinely intermediate fraction of its points instead of snapping to one of
+ * only two discrete densities.
  */
-function cellStride(detail: number, flatStride: number): number {
-    return Math.max(1, Math.round(flatStride ** (1 - detail)));
+function cellKeepFraction(detail: number, flatStride: number): number {
+    return flatStride ** (detail - 1);
 }
 
 /**
@@ -235,10 +232,11 @@ function emitKept(
 
 /**
  * Curvature-adaptive decimation of a ground point subset. Thins locally-planar
- * cells by `flatStride` while keeping every cell with surface relief at full
- * density. Carries the per-point scan channels (scan angle / source id / gps
- * time) for the kept points so Poisson normal orientation stays valid. Output
- * points preserve the input ordering. Never increases the point count.
+ * cells continuously toward `1/flatStride` while keeping every cell with real
+ * surface relief close to (or at) full density. Carries the per-point scan
+ * channels (scan angle / source id / gps time) for the kept points so Poisson
+ * normal orientation stays valid. Output points preserve the input ordering.
+ * Never increases the point count.
  */
 export function adaptiveDecimateGround(
     positions: Float32Array, count: number, scan: ScanData | null,
@@ -249,14 +247,24 @@ export function adaptiveDecimateGround(
     const cellM = opts.cellM > 0 ? opts.cellM : DEFAULT_ADAPTIVE_CELL_M;
     const buckets = bucketByCell(positions, count, 1 / cellM);
 
-    // Per cell: derive a roughness-driven stride (flat => flatStride, rough =>
-    // ~1) and keep that strided subset. Flags are set in original-index space so
-    // the emit pass preserves ordering and scan alignment.
+    // Per cell: derive a roughness-driven keep-fraction (flat => 1/flatStride,
+    // rough => up to 1) and keep that fraction of the cell's points via a
+    // running accumulator — this evenly distributes the kept points at exactly
+    // the target density, continuous in `detail` (no snapping to a handful of
+    // discrete integer strides). Flags are set in original-index space so the
+    // emit pass preserves ordering and scan alignment.
     const keep = new Uint8Array(count);
     for (const idx of buckets.values()) {
         const detail = cellDetail(positions, idx, opts.sigmaTol, opts.residualTol);
-        const stride = cellStride(detail, flatStride);
-        for (let j = 0; j < idx.length; j += stride) keep[idx[j]] = 1;
+        const keepFraction = cellKeepFraction(detail, flatStride);
+        let acc = 0;
+        for (const pointIdx of idx) {
+            acc += keepFraction;
+            if (acc >= 1) {
+                keep[pointIdx] = 1;
+                acc -= 1;
+            }
+        }
     }
 
     let kept = 0;

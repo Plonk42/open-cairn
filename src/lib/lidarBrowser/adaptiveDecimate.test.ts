@@ -149,9 +149,10 @@ describe('adaptiveDecimateGround', () => {
         expect(Array.from(a.pos)).toEqual(Array.from(b.pos));
     });
 
-    it('thins relief less than flat ground but not entirely, at aggressive flatStride', () => {
-        // Same rough single-cell patch (z = ±0.4, residual > residualTol) at two
-        // compression levels, plus a flat cloud for comparison.
+    it('keeps genuine relief at full density regardless of how aggressive flatStride is', () => {
+        // Same rough single-cell patch (z = ±0.4, residual > residualTol, so it
+        // saturates the detail score at 1) at two very different aggressiveness
+        // levels: a cell with real relief is never thinned, gentle or aggressive.
         const rough: number[] = [];
         const flat: number[] = [];
         for (let i = 0; i < 10; i++) {
@@ -164,13 +165,46 @@ describe('adaptiveDecimateGround', () => {
         const flatPos = new Float32Array(flat);
         const n = roughPos.length / 3;
 
-        // Gentle stride: relief stays fully intact.
         expect(adaptiveDecimateGround(roughPos, n, null, { ...OPTS, flatStride: 4 }).count).toBe(n);
 
-        // Aggressive stride: relief is thinned a little, but far less than flat.
         const rough32 = adaptiveDecimateGround(roughPos, n, null, { ...OPTS, flatStride: 32 });
         const flat32 = adaptiveDecimateGround(flatPos, n, null, { ...OPTS, flatStride: 32 });
-        expect(rough32.count).toBeLessThan(n); // not totally spared
-        expect(rough32.count).toBeGreaterThan(flat32.count); // but far denser than flat
+        expect(rough32.count).toBe(n); // relief stays fully intact even at an aggressive setting
+        expect(rough32.count).toBeGreaterThan(flat32.count); // flat ground keeps thinning as expected
+    });
+
+    it('keeps a partially-detailed cell at a genuinely intermediate density (continuous, not binary)', () => {
+        // Mild undulation: residual well below residualTol, so `detail` lands
+        // strictly between 0 and 1 instead of saturating either bound.
+        const moderate: number[] = [];
+        for (let i = 0; i < 10; i++) {
+            for (let j = 0; j < 10; j++) {
+                moderate.push(i * 0.14, j * 0.14, (i + j) % 2 === 0 ? 0.1 : -0.1);
+            }
+        }
+        const pos = new Float32Array(moderate);
+        const n = pos.length / 3;
+
+        const r = adaptiveDecimateGround(pos, n, null, { ...OPTS, flatStride: 4 });
+        // Neither the fully-flat fraction (1/4 = 25) nor the fully-detailed one
+        // (100): a real, in-between density.
+        expect(r.count).toBeGreaterThan(n / 4);
+        expect(r.count).toBeLessThan(n);
+    });
+
+    it('thins a partially-detailed cell more as flatStride gets more aggressive', () => {
+        const moderate: number[] = [];
+        for (let i = 0; i < 10; i++) {
+            for (let j = 0; j < 10; j++) {
+                moderate.push(i * 0.14, j * 0.14, (i + j) % 2 === 0 ? 0.1 : -0.1);
+            }
+        }
+        const pos = new Float32Array(moderate);
+        const n = pos.length / 3;
+
+        const gentle = adaptiveDecimateGround(pos, n, null, { ...OPTS, flatStride: 4 });
+        const aggressive = adaptiveDecimateGround(pos, n, null, { ...OPTS, flatStride: 32 });
+        expect(aggressive.count).toBeLessThan(gentle.count);
+        expect(aggressive.count).toBeGreaterThan(0);
     });
 });
