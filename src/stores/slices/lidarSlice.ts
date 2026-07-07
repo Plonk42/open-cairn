@@ -13,7 +13,7 @@ import {
     screenUpAzimuthDeg, type CaptureRectDims,
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
-import { saveLoadedCloud } from '@/lib/savedClouds';
+import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { formatSunDate, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
@@ -74,6 +74,27 @@ export type LidarMode = 'shaded' | 'delaunay' | 'poisson';
  *  per-point `vegDiag` buffer (see « Analyse hauteur »). */
 export type LidarVegDiagMode = 'off' | 'decision' | 'clusters' | 'roughness' | 'flags';
 
+/**
+ * One simultaneously-displayed cloud/mesh entry. Multiple can be loaded at
+ * once (see `addLidarCloudSnapshot`); `lidarClouds[0]` is the "primary"
+ * cloud — the one every single-target tool (cliff-slice, postcard export,
+ * veg-height diagnostics/recompute) operates on, mirrored into the flat
+ * `lidarShaded`/`lidarMesh` fields below so those tools need no changes.
+ */
+export interface LoadedLidarCloud {
+    id: string;
+    shaded: LidarShadedCloudData | null;
+    mesh: LidarMeshData | null;
+    /** Whether this cloud/mesh is currently drawn (hidden clouds stay loaded). */
+    visible: boolean;
+    createdAt: number;
+    mode: LidarMode;
+    /** Dedupe key matching `SavedCloud.key` — used to badge/skip already-loaded "Nuages récents" entries in the Gallery. */
+    sourceKey?: string;
+    /** Matches a showcase `GalleryEntry.id` / `SavedScene.id` — used to badge/skip already-loaded Gallery scenes. */
+    sourceSceneId?: string;
+}
+
 export interface LidarSlice {
     /** Rendering mode: shaded point cloud, delaunay (Delaunay 2.5D ground mesh + points), or poisson (PoissonRecon WASM ground mesh + points). */
     lidarMode: LidarMode;
@@ -81,10 +102,12 @@ export interface LidarSlice {
     /** Colour shader preset for geometry colorization. */
     lidarShader: ShaderPreset;
     setLidarShader: (v: ShaderPreset) => void;
-    /** Loaded shaded point cloud (positions + normals + slope colors). */
+    /** Loaded shaded point cloud (positions + normals + slope colors) — mirrors `lidarClouds[0]`. */
     lidarShaded: LidarShadedCloudData | null;
-    /** Loaded ground mesh for delaunay / poisson modes. */
+    /** Loaded ground mesh for delaunay / poisson modes — mirrors `lidarClouds[0]`. */
     lidarMesh: LidarMeshData | null;
+    /** Every simultaneously-displayed cloud/mesh, oldest ("primary") first. */
+    lidarClouds: LoadedLidarCloud[];
     /**
      * Distance-based level-of-detail: decimate the point cloud/mesh as the
      * camera zooms out. Debug-only toggle (see `isLodDebugEnabled`), always on
@@ -343,10 +366,21 @@ export interface LidarSlice {
      * worker running it — the next `loadLidarCloud` call spins up a fresh one.
      */
     cancelLidarCloudLoad: () => void;
-    /** Instantly re-display a previously saved cloud/mesh snapshot. */
-    showLidarCloudSnapshot: (data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }) => void;
-    /** Clear the currently displayed point cloud. */
-    clearLidarCloud: () => void;
+    /**
+     * Append a freshly loaded (or re-opened) cloud/mesh snapshot to the
+     * display without removing existing ones. Becomes the new last entry;
+     * the first-ever loaded cloud stays the "primary" one.
+     */
+    addLidarCloudSnapshot: (
+        data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null },
+        meta: { mode: LidarMode; sourceKey?: string; sourceSceneId?: string },
+    ) => void;
+    /** Remove a single loaded cloud/mesh from the display. */
+    removeLidarCloud: (id: string) => void;
+    /** Toggle whether a loaded cloud/mesh is currently drawn. */
+    toggleLidarCloudVisible: (id: string) => void;
+    /** Remove every loaded cloud/mesh. */
+    clearAllLidarClouds: () => void;
     /** Reset every LiDAR render setting (opacity, classes, shader, lighting, shadows, EDL, contours…) to its default. Does not unload the cloud. */
     resetLidarRenderSettings: () => void;
 }
@@ -418,273 +452,235 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarForestSpeciesFilterOn: false,
 };
 
-export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => ({
-    lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
-    setLidarMode: (lidarMode) => set({ lidarMode }),
-    lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
-    setLidarShader: (shader) => {
-        set({ lidarShader: shader });
-        const { lidarShaded, lidarMesh } = get();
-        if (lidarShaded) {
-            const colors = colorsFromNormals(lidarShaded.normals, shader, lidarShaded.positions);
-            set({ lidarShaded: { ...lidarShaded, colors } });
-        }
-        if (lidarMesh) {
-            const colors = recolorMeshVertices(lidarMesh.normals, lidarMesh.positions, lidarMesh.roughness, shader);
-            set({ lidarMesh: { ...lidarMesh, colors } });
-        }
-    },
-    lidarShaded: null,
-    lidarMesh: null,
-    lidarLodEnabled: true,
-    setLidarLodEnabled: (lidarLodEnabled) => set({ lidarLodEnabled }),
-    lidarLodForceLevel: null,
-    setLidarLodForceLevel: (lidarLodForceLevel) => set({ lidarLodForceLevel }),
-    lidarMeshWireframe: false,
-    setLidarMeshWireframe: (lidarMeshWireframe) => set({ lidarMeshWireframe }),
-    lidarLodDebugInfo: null,
-    setLidarLodDebugInfo: (lidarLodDebugInfo) => set({ lidarLodDebugInfo }),
-    lidarCloudLoading: false,
-    lidarCloudError: null,
-    lidarCloudProgress: null,
-    lidarCloudStride: persisted.lidarCloudStride ?? 10,
-    setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
-    lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? 16,
-    setLidarCloudGroundStride: (lidarCloudGroundStride) => set({ lidarCloudGroundStride }),
-    lidarMeshSmooth: persisted.lidarMeshSmooth ?? true,
-    setLidarMeshSmooth: (lidarMeshSmooth) => set({ lidarMeshSmooth }),
-    lidarGridCell: persisted.lidarGridCell ?? 1,
-    setLidarGridCell: (lidarGridCell) => set({ lidarGridCell }),
-    lidarVegGroundGap: persisted.lidarVegGroundGap ?? DEFAULT_VEG_GROUND_GAP,
-    setLidarVegGroundGap: (lidarVegGroundGap) => set({ lidarVegGroundGap }),
-    lidarVegGroundRough: persisted.lidarVegGroundRough ?? DEFAULT_VEG_GROUND_ROUGH,
-    setLidarVegGroundRough: (lidarVegGroundRough) => set({ lidarVegGroundRough }),
-    lidarVegColumnCell: persisted.lidarVegColumnCell ?? DEFAULT_VEG_COLUMN_CELL_M,
-    setLidarVegColumnCell: (lidarVegColumnCell) => set({ lidarVegColumnCell }),
-    lidarVegRoughLowFrac: persisted.lidarVegRoughLowFrac ?? DEFAULT_VEG_ROUGH_LOW_FRAC,
-    setLidarVegRoughLowFrac: (lidarVegRoughLowFrac) => set({ lidarVegRoughLowFrac }),
-    lidarVegOverhangReach: persisted.lidarVegOverhangReach ?? DEFAULT_VEG_OVERHANG_REACH_M,
-    setLidarVegOverhangReach: (lidarVegOverhangReach) => set({ lidarVegOverhangReach }),
-    lidarVegCliffDistMode: persisted.lidarVegCliffDistMode ?? 'column',
-    setLidarVegCliffDistMode: (lidarVegCliffDistMode) => set({ lidarVegCliffDistMode }),
-    lidarVegColorSmooth: persisted.lidarVegColorSmooth ?? 0,
-    setLidarVegColorSmooth: (lidarVegColorSmooth) => set({ lidarVegColorSmooth }),
-    lidarVegCliffSparseFallback: persisted.lidarVegCliffSparseFallback ?? 0,
-    setLidarVegCliffSparseFallback: (lidarVegCliffSparseFallback) => set({ lidarVegCliffSparseFallback }),
-    lidarVegCliffSlopeDeg: persisted.lidarVegCliffSlopeDeg ?? 0,
-    setLidarVegCliffSlopeDeg: (lidarVegCliffSlopeDeg) => set({ lidarVegCliffSlopeDeg }),
-    lidarVegCliffSlopeSample: persisted.lidarVegCliffSlopeSample ?? DEFAULT_VEG_SLOPE_SAMPLE_M,
-    setLidarVegCliffSlopeSample: (lidarVegCliffSlopeSample) => set({ lidarVegCliffSlopeSample }),
-    lidarVegCliffSlopeMin: persisted.lidarVegCliffSlopeMin ?? 0,
-    setLidarVegCliffSlopeMin: (lidarVegCliffSlopeMin) => set({ lidarVegCliffSlopeMin }),
-    lidarVegDiagMode: persisted.lidarVegDiagMode ?? 'off',
-    setLidarVegDiagMode: (lidarVegDiagMode) => set({ lidarVegDiagMode }),
-    recomputeVegHeights: () => {
-        const {
-            lidarShaded, lidarVegGroundGap, lidarVegGroundRough, lidarVegColumnCell,
-            lidarVegRoughLowFrac, lidarVegOverhangReach,
-            lidarVegCliffDistMode, lidarVegColorSmooth, lidarVegCliffSparseFallback,
-            lidarVegCliffSlopeDeg,
-            lidarVegCliffSlopeSample,
-            lidarVegCliffSlopeMin,
-        } = get();
-        if (!lidarShaded) return;
-        // Rebuild the bare-earth grid only when ground refs (class 2/9) survive in
-        // the shaded cloud (Points mode). Mesh modes strip the ground into the
-        // surface, so we reuse the cached grid there.
-        const grid = rebuildVegGrid(lidarShaded);
-        const vegDiag = new Uint8Array(lidarShaded.pointCount * 4);
-        const heightAboveGround = computeVegHeights(
-            lidarShaded.positions, lidarShaded.classifications, lidarShaded.pointCount,
-            lidarVegGroundGap, grid, lidarVegGroundRough,
-            {
-                columnCellM: lidarVegColumnCell,
-                roughLowFrac: lidarVegRoughLowFrac,
-                overhangReachM: lidarVegOverhangReach,
-                cliffDistMode: lidarVegCliffDistMode,
-                vegColorSmooth: lidarVegColorSmooth,
-                cliffSparseMaxPts: lidarVegCliffSparseFallback,
-                cliffSlopeDeg: lidarVegCliffSlopeDeg,
-                cliffSlopeSampleM: lidarVegCliffSlopeSample,
-                cliffSlopeMinDeg: lidarVegCliffSlopeMin,
-                diag: vegDiag,
-            },
-        );
-        const vegHeightAuto = sanitizeVegHeights(
-            heightAboveGround, lidarShaded.classifications, lidarShaded.pointCount, vegDiag,
-        ) ?? undefined;
+export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => {
+    /**
+     * Apply a patch to the "primary" cloud (`lidarClouds[0]`) and keep the
+     * flat `lidarShaded`/`lidarMesh` mirror fields in sync. Used by writers
+     * that recompute the primary cloud's geometry in place (shader recolor,
+     * veg-height recompute) — a no-op when nothing is loaded.
+     */
+    const patchPrimaryCloud = (patch: { shaded?: LidarShadedCloudData; mesh?: LidarMeshData }) => {
+        const { lidarClouds } = get();
+        if (lidarClouds.length === 0) return;
+        const updated: LoadedLidarCloud = { ...lidarClouds[0], ...patch };
         set({
-            lidarShaded: {
-                ...lidarShaded, heightAboveGround, vegHeightAuto, vegDiag,
-                vegGroundGrid: grid ?? lidarShaded.vegGroundGrid,
-            },
+            lidarClouds: [updated, ...lidarClouds.slice(1)],
+            lidarShaded: updated.shaded,
+            lidarMesh: updated.mesh,
         });
-    },
-    lidarCloudPointSize: persisted.lidarCloudPointSize ?? LIDAR_RENDER_DEFAULTS.lidarCloudPointSize,
-    setLidarCloudPointSize: (lidarCloudPointSize) => set({ lidarCloudPointSize }),
-    lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? LIDAR_RENDER_DEFAULTS.lidarCloudSizeCompensation,
-    setLidarCloudSizeCompensation: (lidarCloudSizeCompensation) => set({ lidarCloudSizeCompensation }),
-    lidarCloudEdl: persisted.lidarCloudEdl ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdl,
-    setLidarCloudEdl: (lidarCloudEdl) => set({ lidarCloudEdl }),
-    lidarCloudEdlStrength: persisted.lidarCloudEdlStrength ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlStrength,
-    setLidarCloudEdlStrength: (lidarCloudEdlStrength) => set({ lidarCloudEdlStrength }),
-    lidarCloudEdlRadius: persisted.lidarCloudEdlRadius ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlRadius,
-    setLidarCloudEdlRadius: (lidarCloudEdlRadius) => set({ lidarCloudEdlRadius }),
-    lidarCloudEdlFarPlane: persisted.lidarCloudEdlFarPlane ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlFarPlane,
-    setLidarCloudEdlFarPlane: (lidarCloudEdlFarPlane) => set({ lidarCloudEdlFarPlane }),
-    lidarCloudOpacity: persisted.lidarCloudOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudOpacity,
-    setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
-    lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacity,
-    setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
-    lidarCloudPhotoOpacityNonGround: persisted.lidarCloudPhotoOpacityNonGround ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacityNonGround,
-    setLidarCloudPhotoOpacityNonGround: (lidarCloudPhotoOpacityNonGround) => set({ lidarCloudPhotoOpacityNonGround }),
-    lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudBasemapOpacity,
-    setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
-    lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
-    setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
-    lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
-    setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
-    lidarCloudPoissonSamplesPerNode: persisted.lidarCloudPoissonSamplesPerNode ?? 1.5,
-    setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
-    lidarCloudPoissonPointWeight: persisted.lidarCloudPoissonPointWeight ?? 4,
-    setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
-    lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
-    setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
-    lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
-    setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
-    lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
-    setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
-    lidarShadows: persisted.lidarShadows ?? LIDAR_RENDER_DEFAULTS.lidarShadows,
-    setLidarShadows: (lidarShadows) => set({ lidarShadows }),
-    lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
-    setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
-    lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
-    setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
-    lidarVegColorMode: ((): VegColorMode => {
-        const m = persisted.lidarVegColorMode;
-        return m === 'height' || m === 'species' ? m : LIDAR_RENDER_DEFAULTS.lidarVegColorMode;
-    })(),
-    setLidarVegColorMode: (lidarVegColorMode) => set({ lidarVegColorMode }),
-    lidarVegHeightScale: persisted.lidarVegHeightScale ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightScale,
-    setLidarVegHeightScale: (lidarVegHeightScale) => set({ lidarVegHeightScale }),
-    lidarVegHeightAuto: persisted.lidarVegHeightAuto ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightAuto,
-    setLidarVegHeightAuto: (lidarVegHeightAuto) => set({ lidarVegHeightAuto }),
-    lidarVegIntensity: persisted.lidarVegIntensity ?? LIDAR_RENDER_DEFAULTS.lidarVegIntensity,
-    setLidarVegIntensity: (lidarVegIntensity) => set({ lidarVegIntensity }),
-    lidarVegNormalShade: persisted.lidarVegNormalShade ?? LIDAR_RENDER_DEFAULTS.lidarVegNormalShade,
-    setLidarVegNormalShade: (lidarVegNormalShade) => set({ lidarVegNormalShade }),
-    lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? LIDAR_RENDER_DEFAULTS.lidarVegSizeBoost,
-    setLidarVegSizeBoost: (lidarVegSizeBoost) => set({ lidarVegSizeBoost }),
-    lidarForestGrouping: (persisted.lidarForestGrouping === 'species' ? 'species' : LIDAR_RENDER_DEFAULTS.lidarForestGrouping),
-    setLidarForestGrouping: (lidarForestGrouping) => set({ lidarForestGrouping }),
-    lidarForestMixCellSize: persisted.lidarForestMixCellSize ?? LIDAR_RENDER_DEFAULTS.lidarForestMixCellSize,
-    setLidarForestMixCellSize: (lidarForestMixCellSize) => set({ lidarForestMixCellSize }),
-    lidarForestEdgeBlend: ((): ForestEdgeBlend => {
-        const b = persisted.lidarForestEdgeBlend;
-        return b === 'sharp' || b === 'feather' || b === 'scatter' ? b : LIDAR_RENDER_DEFAULTS.lidarForestEdgeBlend;
-    })(),
-    setLidarForestEdgeBlend: (lidarForestEdgeBlend) => set({ lidarForestEdgeBlend }),
-    lidarForestEdgeBandM: persisted.lidarForestEdgeBandM ?? LIDAR_RENDER_DEFAULTS.lidarForestEdgeBandM,
-    setLidarForestEdgeBandM: (lidarForestEdgeBandM) => set({ lidarForestEdgeBandM }),
-    lidarForestTreetopSensitivity: persisted.lidarForestTreetopSensitivity ?? LIDAR_RENDER_DEFAULTS.lidarForestTreetopSensitivity,
-    setLidarForestTreetopSensitivity: (lidarForestTreetopSensitivity) => set({ lidarForestTreetopSensitivity }),
-    lidarForestHiddenLegend: persisted.lidarForestHiddenLegend ?? LIDAR_RENDER_DEFAULTS.lidarForestHiddenLegend,
-    setLidarForestHiddenLegend: (lidarForestHiddenLegend) => set({ lidarForestHiddenLegend }),
-    lidarForestSpeciesFilterOn: persisted.lidarForestSpeciesFilterOn ?? LIDAR_RENDER_DEFAULTS.lidarForestSpeciesFilterOn,
-    setLidarForestSpeciesFilterOn: (lidarForestSpeciesFilterOn) => set({ lidarForestSpeciesFilterOn }),
-    lidarPreviewVisible: false,
-    setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
-    lidarCaptureRect: persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 },
-    setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
-    lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
-    setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
-    loadLidarCloud: async () => {
-        const state = get();
-        const map = state.mapInstance;
-        // Use screen center (not map.getCenter) so the loaded area matches the
-        // preview rectangle when the camera is pitched.
-        let center: { lng: number; lat: number };
-        if (map) {
-            const canvas = map.getCanvas();
-            const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
-            center = { lng: screenCenter.lng, lat: screenCenter.lat };
-        } else {
-            center = { lng: state.view.longitude, lat: state.view.latitude };
-        }
-        const maxArea = state.lidarMode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
-        const capture = captureGeometry(
-            state.lidarCaptureRect, map, maxArea, state.lidarRectNorthFixed,
-        );
-        set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
-        try {
-            const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
-            if (state.lidarMode === 'delaunay') {
-                const composite = await fetchLidarDelaunay({
-                    lng: center.lng,
-                    lat: center.lat,
-                    radius: capture.radius,
-                    rect: capture.rect,
-                    stride: state.lidarCloudStride,
-                    groundGapM: state.lidarVegGroundGap,
-                    groundRoughM: state.lidarVegGroundRough,
-                    shader: state.lidarShader,
-                    gridMesh: state.lidarMeshSmooth,
-                    gridCell: state.lidarGridCell,
-                    onProgress,
-                });
-                // Set both shaded and mesh layers for delaunay mode display
-                set({
-                    lidarShaded: composite.shaded,
-                    lidarMesh: composite.mesh,
-                    lidarCloudLoading: false,
-                    lidarCloudProgress: null,
-                });
-            } else if (state.lidarMode === 'poisson') {
-                // PoissonRecon WASM on ground + shaded cloud overlay for the
-                // other classes. Cap radius so the WASM heap (2 GB) and the
-                // depth-12 octree don't explode.
-                const composite = await fetchLidarPoisson({
-                    lng: center.lng,
-                    lat: center.lat,
-                    radius: capture.radius,
-                    rect: capture.rect,
-                    stride: state.lidarCloudStride,
-                    poissonGroundStride: state.lidarCloudGroundStride,
-                    poissonDepth: state.lidarCloudPoissonDepth,
-                    poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
-                    poissonPointWeight: state.lidarCloudPoissonPointWeight,
-                    poissonFlatBase: state.lidarCloudPoissonFlatBase,
-                    groundGapM: state.lidarVegGroundGap,
-                    groundRoughM: state.lidarVegGroundRough,
-                    shader: state.lidarShader,
-                    onProgress,
-                });
-                set({
-                    lidarShaded: composite.shaded,
-                    lidarMesh: composite.mesh,
-                    lidarCloudLoading: false,
-                    lidarCloudProgress: null,
-                });
-            } else {
-                // Shaded mode: always fetches every class and filters on the GPU
-                // via LidarWebGLLayer.setClassMask(), so toggling classes is instant.
-                const shaded = await fetchLidarShaded({
-                    lng: center.lng,
-                    lat: center.lat,
-                    radius: capture.radius,
-                    rect: capture.rect,
-                    stride: state.lidarCloudStride,
-                    groundGapM: state.lidarVegGroundGap,
-                    groundRoughM: state.lidarVegGroundRough,
-                    shader: state.lidarShader,
-                    onProgress,
-                });
-                set({ lidarShaded: shaded, lidarMesh: null, lidarCloudLoading: false, lidarCloudProgress: null });
-            }
-            // Persist a "recently loaded" entry so it can be re-opened instantly.
-            const after = get();
-            void saveLoadedCloud(
+    };
+
+    return {
+        lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
+        setLidarMode: (lidarMode) => set({ lidarMode }),
+        lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
+        setLidarShader: (shader) => {
+            // Recolor EVERY loaded cloud/mesh (not just the "primary" one) —
+            // the shader is a global render setting shown for all simultaneously
+            // displayed clouds, so all of them must recolor together.
+            const { lidarClouds } = get();
+            const recoloredClouds = lidarClouds.map((cloud) => ({
+                ...cloud,
+                shaded: cloud.shaded
+                    ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, shader, cloud.shaded.positions) }
+                    : cloud.shaded,
+                mesh: cloud.mesh
+                    ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.roughness, shader) }
+                    : cloud.mesh,
+            }));
+            set({
+                lidarShader: shader,
+                lidarClouds: recoloredClouds,
+                lidarShaded: recoloredClouds[0]?.shaded ?? null,
+                lidarMesh: recoloredClouds[0]?.mesh ?? null,
+            });
+        },
+        lidarShaded: null,
+        lidarMesh: null,
+        lidarClouds: [],
+        lidarLodEnabled: true,
+        setLidarLodEnabled: (lidarLodEnabled) => set({ lidarLodEnabled }),
+        lidarLodForceLevel: null,
+        setLidarLodForceLevel: (lidarLodForceLevel) => set({ lidarLodForceLevel }),
+        lidarMeshWireframe: false,
+        setLidarMeshWireframe: (lidarMeshWireframe) => set({ lidarMeshWireframe }),
+        lidarLodDebugInfo: null,
+        setLidarLodDebugInfo: (lidarLodDebugInfo) => set({ lidarLodDebugInfo }),
+        lidarCloudLoading: false,
+        lidarCloudError: null,
+        lidarCloudProgress: null,
+        lidarCloudStride: persisted.lidarCloudStride ?? 10,
+        setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
+        lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? 16,
+        setLidarCloudGroundStride: (lidarCloudGroundStride) => set({ lidarCloudGroundStride }),
+        lidarMeshSmooth: persisted.lidarMeshSmooth ?? true,
+        setLidarMeshSmooth: (lidarMeshSmooth) => set({ lidarMeshSmooth }),
+        lidarGridCell: persisted.lidarGridCell ?? 1,
+        setLidarGridCell: (lidarGridCell) => set({ lidarGridCell }),
+        lidarVegGroundGap: persisted.lidarVegGroundGap ?? DEFAULT_VEG_GROUND_GAP,
+        setLidarVegGroundGap: (lidarVegGroundGap) => set({ lidarVegGroundGap }),
+        lidarVegGroundRough: persisted.lidarVegGroundRough ?? DEFAULT_VEG_GROUND_ROUGH,
+        setLidarVegGroundRough: (lidarVegGroundRough) => set({ lidarVegGroundRough }),
+        lidarVegColumnCell: persisted.lidarVegColumnCell ?? DEFAULT_VEG_COLUMN_CELL_M,
+        setLidarVegColumnCell: (lidarVegColumnCell) => set({ lidarVegColumnCell }),
+        lidarVegRoughLowFrac: persisted.lidarVegRoughLowFrac ?? DEFAULT_VEG_ROUGH_LOW_FRAC,
+        setLidarVegRoughLowFrac: (lidarVegRoughLowFrac) => set({ lidarVegRoughLowFrac }),
+        lidarVegOverhangReach: persisted.lidarVegOverhangReach ?? DEFAULT_VEG_OVERHANG_REACH_M,
+        setLidarVegOverhangReach: (lidarVegOverhangReach) => set({ lidarVegOverhangReach }),
+        lidarVegCliffDistMode: persisted.lidarVegCliffDistMode ?? 'column',
+        setLidarVegCliffDistMode: (lidarVegCliffDistMode) => set({ lidarVegCliffDistMode }),
+        lidarVegColorSmooth: persisted.lidarVegColorSmooth ?? 0,
+        setLidarVegColorSmooth: (lidarVegColorSmooth) => set({ lidarVegColorSmooth }),
+        lidarVegCliffSparseFallback: persisted.lidarVegCliffSparseFallback ?? 0,
+        setLidarVegCliffSparseFallback: (lidarVegCliffSparseFallback) => set({ lidarVegCliffSparseFallback }),
+        lidarVegCliffSlopeDeg: persisted.lidarVegCliffSlopeDeg ?? 0,
+        setLidarVegCliffSlopeDeg: (lidarVegCliffSlopeDeg) => set({ lidarVegCliffSlopeDeg }),
+        lidarVegCliffSlopeSample: persisted.lidarVegCliffSlopeSample ?? DEFAULT_VEG_SLOPE_SAMPLE_M,
+        setLidarVegCliffSlopeSample: (lidarVegCliffSlopeSample) => set({ lidarVegCliffSlopeSample }),
+        lidarVegCliffSlopeMin: persisted.lidarVegCliffSlopeMin ?? 0,
+        setLidarVegCliffSlopeMin: (lidarVegCliffSlopeMin) => set({ lidarVegCliffSlopeMin }),
+        lidarVegDiagMode: persisted.lidarVegDiagMode ?? 'off',
+        setLidarVegDiagMode: (lidarVegDiagMode) => set({ lidarVegDiagMode }),
+        recomputeVegHeights: () => {
+            const {
+                lidarShaded, lidarVegGroundGap, lidarVegGroundRough, lidarVegColumnCell,
+                lidarVegRoughLowFrac, lidarVegOverhangReach,
+                lidarVegCliffDistMode, lidarVegColorSmooth, lidarVegCliffSparseFallback,
+                lidarVegCliffSlopeDeg,
+                lidarVegCliffSlopeSample,
+                lidarVegCliffSlopeMin,
+            } = get();
+            if (!lidarShaded) return;
+            // Rebuild the bare-earth grid only when ground refs (class 2/9) survive in
+            // the shaded cloud (Points mode). Mesh modes strip the ground into the
+            // surface, so we reuse the cached grid there.
+            const grid = rebuildVegGrid(lidarShaded);
+            const vegDiag = new Uint8Array(lidarShaded.pointCount * 4);
+            const heightAboveGround = computeVegHeights(
+                lidarShaded.positions, lidarShaded.classifications, lidarShaded.pointCount,
+                lidarVegGroundGap, grid, lidarVegGroundRough,
                 {
+                    columnCellM: lidarVegColumnCell,
+                    roughLowFrac: lidarVegRoughLowFrac,
+                    overhangReachM: lidarVegOverhangReach,
+                    cliffDistMode: lidarVegCliffDistMode,
+                    vegColorSmooth: lidarVegColorSmooth,
+                    cliffSparseMaxPts: lidarVegCliffSparseFallback,
+                    cliffSlopeDeg: lidarVegCliffSlopeDeg,
+                    cliffSlopeSampleM: lidarVegCliffSlopeSample,
+                    cliffSlopeMinDeg: lidarVegCliffSlopeMin,
+                    diag: vegDiag,
+                },
+            );
+            const vegHeightAuto = sanitizeVegHeights(
+                heightAboveGround, lidarShaded.classifications, lidarShaded.pointCount, vegDiag,
+            ) ?? undefined;
+            patchPrimaryCloud({
+                shaded: {
+                    ...lidarShaded, heightAboveGround, vegHeightAuto, vegDiag,
+                    vegGroundGrid: grid ?? lidarShaded.vegGroundGrid,
+                },
+            });
+        },
+        lidarCloudPointSize: persisted.lidarCloudPointSize ?? LIDAR_RENDER_DEFAULTS.lidarCloudPointSize,
+        setLidarCloudPointSize: (lidarCloudPointSize) => set({ lidarCloudPointSize }),
+        lidarCloudSizeCompensation: persisted.lidarCloudSizeCompensation ?? LIDAR_RENDER_DEFAULTS.lidarCloudSizeCompensation,
+        setLidarCloudSizeCompensation: (lidarCloudSizeCompensation) => set({ lidarCloudSizeCompensation }),
+        lidarCloudEdl: persisted.lidarCloudEdl ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdl,
+        setLidarCloudEdl: (lidarCloudEdl) => set({ lidarCloudEdl }),
+        lidarCloudEdlStrength: persisted.lidarCloudEdlStrength ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlStrength,
+        setLidarCloudEdlStrength: (lidarCloudEdlStrength) => set({ lidarCloudEdlStrength }),
+        lidarCloudEdlRadius: persisted.lidarCloudEdlRadius ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlRadius,
+        setLidarCloudEdlRadius: (lidarCloudEdlRadius) => set({ lidarCloudEdlRadius }),
+        lidarCloudEdlFarPlane: persisted.lidarCloudEdlFarPlane ?? LIDAR_RENDER_DEFAULTS.lidarCloudEdlFarPlane,
+        setLidarCloudEdlFarPlane: (lidarCloudEdlFarPlane) => set({ lidarCloudEdlFarPlane }),
+        lidarCloudOpacity: persisted.lidarCloudOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudOpacity,
+        setLidarCloudOpacity: (lidarCloudOpacity) => set({ lidarCloudOpacity }),
+        lidarCloudPhotoOpacity: persisted.lidarCloudPhotoOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacity,
+        setLidarCloudPhotoOpacity: (lidarCloudPhotoOpacity) => set({ lidarCloudPhotoOpacity }),
+        lidarCloudPhotoOpacityNonGround: persisted.lidarCloudPhotoOpacityNonGround ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoOpacityNonGround,
+        setLidarCloudPhotoOpacityNonGround: (lidarCloudPhotoOpacityNonGround) => set({ lidarCloudPhotoOpacityNonGround }),
+        lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudBasemapOpacity,
+        setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
+        lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
+        setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
+        lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
+        setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
+        lidarCloudPoissonSamplesPerNode: persisted.lidarCloudPoissonSamplesPerNode ?? 1.5,
+        setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
+        lidarCloudPoissonPointWeight: persisted.lidarCloudPoissonPointWeight ?? 4,
+        setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
+        lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
+        setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
+        lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
+        setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
+        lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
+        setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
+        lidarShadows: persisted.lidarShadows ?? LIDAR_RENDER_DEFAULTS.lidarShadows,
+        setLidarShadows: (lidarShadows) => set({ lidarShadows }),
+        lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
+        setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
+        lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
+        setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
+        lidarVegColorMode: ((): VegColorMode => {
+            const m = persisted.lidarVegColorMode;
+            return m === 'height' || m === 'species' ? m : LIDAR_RENDER_DEFAULTS.lidarVegColorMode;
+        })(),
+        setLidarVegColorMode: (lidarVegColorMode) => set({ lidarVegColorMode }),
+        lidarVegHeightScale: persisted.lidarVegHeightScale ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightScale,
+        setLidarVegHeightScale: (lidarVegHeightScale) => set({ lidarVegHeightScale }),
+        lidarVegHeightAuto: persisted.lidarVegHeightAuto ?? LIDAR_RENDER_DEFAULTS.lidarVegHeightAuto,
+        setLidarVegHeightAuto: (lidarVegHeightAuto) => set({ lidarVegHeightAuto }),
+        lidarVegIntensity: persisted.lidarVegIntensity ?? LIDAR_RENDER_DEFAULTS.lidarVegIntensity,
+        setLidarVegIntensity: (lidarVegIntensity) => set({ lidarVegIntensity }),
+        lidarVegNormalShade: persisted.lidarVegNormalShade ?? LIDAR_RENDER_DEFAULTS.lidarVegNormalShade,
+        setLidarVegNormalShade: (lidarVegNormalShade) => set({ lidarVegNormalShade }),
+        lidarVegSizeBoost: persisted.lidarVegSizeBoost ?? LIDAR_RENDER_DEFAULTS.lidarVegSizeBoost,
+        setLidarVegSizeBoost: (lidarVegSizeBoost) => set({ lidarVegSizeBoost }),
+        lidarForestGrouping: (persisted.lidarForestGrouping === 'species' ? 'species' : LIDAR_RENDER_DEFAULTS.lidarForestGrouping),
+        setLidarForestGrouping: (lidarForestGrouping) => set({ lidarForestGrouping }),
+        lidarForestMixCellSize: persisted.lidarForestMixCellSize ?? LIDAR_RENDER_DEFAULTS.lidarForestMixCellSize,
+        setLidarForestMixCellSize: (lidarForestMixCellSize) => set({ lidarForestMixCellSize }),
+        lidarForestEdgeBlend: ((): ForestEdgeBlend => {
+            const b = persisted.lidarForestEdgeBlend;
+            return b === 'sharp' || b === 'feather' || b === 'scatter' ? b : LIDAR_RENDER_DEFAULTS.lidarForestEdgeBlend;
+        })(),
+        setLidarForestEdgeBlend: (lidarForestEdgeBlend) => set({ lidarForestEdgeBlend }),
+        lidarForestEdgeBandM: persisted.lidarForestEdgeBandM ?? LIDAR_RENDER_DEFAULTS.lidarForestEdgeBandM,
+        setLidarForestEdgeBandM: (lidarForestEdgeBandM) => set({ lidarForestEdgeBandM }),
+        lidarForestTreetopSensitivity: persisted.lidarForestTreetopSensitivity ?? LIDAR_RENDER_DEFAULTS.lidarForestTreetopSensitivity,
+        setLidarForestTreetopSensitivity: (lidarForestTreetopSensitivity) => set({ lidarForestTreetopSensitivity }),
+        lidarForestHiddenLegend: persisted.lidarForestHiddenLegend ?? LIDAR_RENDER_DEFAULTS.lidarForestHiddenLegend,
+        setLidarForestHiddenLegend: (lidarForestHiddenLegend) => set({ lidarForestHiddenLegend }),
+        lidarForestSpeciesFilterOn: persisted.lidarForestSpeciesFilterOn ?? LIDAR_RENDER_DEFAULTS.lidarForestSpeciesFilterOn,
+        setLidarForestSpeciesFilterOn: (lidarForestSpeciesFilterOn) => set({ lidarForestSpeciesFilterOn }),
+        lidarPreviewVisible: false,
+        setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
+        lidarCaptureRect: persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 },
+        setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
+        lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
+        setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
+        loadLidarCloud: async () => {
+            const state = get();
+            const map = state.mapInstance;
+            // Use screen center (not map.getCenter) so the loaded area matches the
+            // preview rectangle when the camera is pitched.
+            let center: { lng: number; lat: number };
+            if (map) {
+                const canvas = map.getCanvas();
+                const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
+                center = { lng: screenCenter.lng, lat: screenCenter.lat };
+            } else {
+                center = { lng: state.view.longitude, lat: state.view.latitude };
+            }
+            const maxArea = state.lidarMode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
+            const capture = captureGeometry(
+                state.lidarCaptureRect, map, maxArea, state.lidarRectNorthFixed,
+            );
+            set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
+            try {
+                const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
+                const cloudParams = {
                     mode: state.lidarMode,
                     centerLng: center.lng,
                     centerLat: center.lat,
@@ -692,45 +688,135 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     stride: state.lidarCloudStride,
                     classes: state.lidarCloudClasses,
                     shader: state.lidarShader,
-                },
-                { shaded: after.lidarShaded, mesh: after.lidarMesh },
-            );
-        } catch (err) {
-            // A user-requested cancellation rejects the in-flight worker request
-            // (see cancelLidarWorkerRequests) — show a neutral idle state instead
-            // of a red error banner for that specific case.
-            const cancelled = err instanceof Error && (err as Error & { code?: string }).code === 'cancelled';
-            let message: string | null = 'Erreur inconnue';
-            if (cancelled) message = null;
-            else if (err instanceof Error) message = err.message;
-            set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
-        }
-    },
-    cancelLidarCloudLoad: () => {
-        cancelLidarWorkerRequests();
-        set({ lidarCloudLoading: false, lidarCloudError: null, lidarCloudProgress: null });
-    },
-    clearLidarCloud: () => set({ lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null }),
+                };
+                let shadedResult: LidarShadedCloudData | null;
+                let meshResult: LidarMeshData | null;
+                if (state.lidarMode === 'delaunay') {
+                    const composite = await fetchLidarDelaunay({
+                        lng: center.lng,
+                        lat: center.lat,
+                        radius: capture.radius,
+                        rect: capture.rect,
+                        stride: state.lidarCloudStride,
+                        groundGapM: state.lidarVegGroundGap,
+                        groundRoughM: state.lidarVegGroundRough,
+                        shader: state.lidarShader,
+                        gridMesh: state.lidarMeshSmooth,
+                        gridCell: state.lidarGridCell,
+                        onProgress,
+                    });
+                    shadedResult = composite.shaded;
+                    meshResult = composite.mesh;
+                } else if (state.lidarMode === 'poisson') {
+                    // PoissonRecon WASM on ground + shaded cloud overlay for the
+                    // other classes. Cap radius so the WASM heap (2 GB) and the
+                    // depth-12 octree don't explode.
+                    const composite = await fetchLidarPoisson({
+                        lng: center.lng,
+                        lat: center.lat,
+                        radius: capture.radius,
+                        rect: capture.rect,
+                        stride: state.lidarCloudStride,
+                        poissonGroundStride: state.lidarCloudGroundStride,
+                        poissonDepth: state.lidarCloudPoissonDepth,
+                        poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
+                        poissonPointWeight: state.lidarCloudPoissonPointWeight,
+                        poissonFlatBase: state.lidarCloudPoissonFlatBase,
+                        groundGapM: state.lidarVegGroundGap,
+                        groundRoughM: state.lidarVegGroundRough,
+                        shader: state.lidarShader,
+                        onProgress,
+                    });
+                    shadedResult = composite.shaded;
+                    meshResult = composite.mesh;
+                } else {
+                    // Shaded mode: always fetches every class and filters on the GPU
+                    // via LidarWebGLLayer.setClassMask(), so toggling classes is instant.
+                    shadedResult = await fetchLidarShaded({
+                        lng: center.lng,
+                        lat: center.lat,
+                        radius: capture.radius,
+                        rect: capture.rect,
+                        stride: state.lidarCloudStride,
+                        groundGapM: state.lidarVegGroundGap,
+                        groundRoughM: state.lidarVegGroundRough,
+                        shader: state.lidarShader,
+                        onProgress,
+                    });
+                    meshResult = null;
+                }
+                // Append rather than replace, so a new capture never removes an
+                // already-displayed cloud/mesh.
+                get().addLidarCloudSnapshot(
+                    { shaded: shadedResult, mesh: meshResult },
+                    { mode: state.lidarMode, sourceKey: makeCloudKey(cloudParams) },
+                );
+                // Persist a "recently loaded" entry so it can be re-opened instantly.
+                void saveLoadedCloud(cloudParams, { shaded: shadedResult, mesh: meshResult });
+            } catch (err) {
+                // A user-requested cancellation rejects the in-flight worker request
+                // (see cancelLidarWorkerRequests) — show a neutral idle state instead
+                // of a red error banner for that specific case.
+                const cancelled = err instanceof Error && (err as Error & { code?: string }).code === 'cancelled';
+                let message: string | null = 'Erreur inconnue';
+                if (cancelled) message = null;
+                else if (err instanceof Error) message = err.message;
+                set({ lidarCloudLoading: false, lidarCloudError: message, lidarCloudProgress: null });
+            }
+        },
+        cancelLidarCloudLoad: () => {
+            cancelLidarWorkerRequests();
+            set({ lidarCloudLoading: false, lidarCloudError: null, lidarCloudProgress: null });
+        },
+        addLidarCloudSnapshot: (data, meta) => {
+            if (!data.shaded && !data.mesh) return;
+            const entry: LoadedLidarCloud = {
+                id: `lidar-cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                shaded: data.shaded,
+                mesh: data.mesh,
+                visible: true,
+                createdAt: Date.now(),
+                mode: meta.mode,
+                sourceKey: meta.sourceKey,
+                sourceSceneId: meta.sourceSceneId,
+            };
+            const lidarClouds = [...get().lidarClouds, entry];
+            set({
+                lidarClouds,
+                lidarShaded: lidarClouds[0].shaded,
+                lidarMesh: lidarClouds[0].mesh,
+                lidarCloudLoading: false,
+                lidarCloudError: null,
+                lidarCloudProgress: null,
+            });
+        },
+        removeLidarCloud: (id) => {
+            const lidarClouds = get().lidarClouds.filter((c) => c.id !== id);
+            set({
+                lidarClouds,
+                lidarShaded: lidarClouds[0]?.shaded ?? null,
+                lidarMesh: lidarClouds[0]?.mesh ?? null,
+            });
+        },
+        toggleLidarCloudVisible: (id) => set({
+            lidarClouds: get().lidarClouds.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
+        }),
+        clearAllLidarClouds: () => set({
+            lidarClouds: [], lidarShaded: null, lidarMesh: null, lidarCloudError: null, lidarCloudProgress: null,
+        }),
 
-    resetLidarRenderSettings: () => {
-        set({
-            ...LIDAR_RENDER_DEFAULTS,
-            // Contour lines belong to terrainSlice but are part of the render reset.
-            contourLinesEnabled: false,
-            contourLinesOpacity: 0.4,
-        });
-        // Go through the shader setter so the loaded geometry is recolored.
-        get().setLidarShader(LIDAR_RENDER_DEFAULTS.lidarShader);
-    },
-
-    showLidarCloudSnapshot: (data) => set({
-        lidarShaded: data.shaded,
-        lidarMesh: data.mesh,
-        lidarCloudLoading: false,
-        lidarCloudError: null,
-        lidarCloudProgress: null,
-    }),
-});
+        resetLidarRenderSettings: () => {
+            set({
+                ...LIDAR_RENDER_DEFAULTS,
+                // Contour lines belong to terrainSlice but are part of the render reset.
+                contourLinesEnabled: false,
+                contourLinesOpacity: 0.4,
+            });
+            // Go through the shader setter so the loaded geometry is recolored.
+            get().setLidarShader(LIDAR_RENDER_DEFAULTS.lidarShader);
+        },
+    };
+};
 
 /** Persisted keys owned by the lidar slice. */
 export function selectLidarPersisted(

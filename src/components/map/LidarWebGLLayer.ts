@@ -347,6 +347,107 @@ export interface LidarWebGLLayerConfig {
     meshWireframe: boolean;
 }
 
+/**
+ * Cross-cloud (but explicitly NOT cross-terrain) shared depth buffer.
+ *
+ * Each loaded LiDAR cloud/mesh is its own independent `LidarWebGLLayer`
+ * custom-layer instance (own FBO, own LOD/culling — see LidarCloudOverlay).
+ * When two clouds overlap on screen, whichever layer's FBO-composite blit ran
+ * last used to always win visually, regardless of which was actually nearer
+ * the camera. Testing that composite against MapLibre's REAL shared depth
+ * buffer would fix cloud-vs-cloud ordering, but it would also let terrain
+ * occlude LiDAR — and that's deliberately never wanted: terrain elevation is
+ * frequently imprecise, and LiDAR must always stay visible on top of it, even
+ * where the (wrong) terrain height would otherwise hide it.
+ *
+ * So this keeps a SEPARATE, LiDAR-only depth texture (a real depth-attachment
+ * texture, hardware LEQUAL-tested), used purely to arbitrate cloud-vs-cloud
+ * occlusion. It's written by every instance (`_writeSharedDepth`) right after
+ * `_exportDepthToMapLibre`, then sampled during the FBO→MapLibre composite
+ * (`edl.frag`'s `u_sharedDepth`) to discard a pixel if a NEARER cloud already
+ * claimed it this frame. The result is order-independent: whichever cloud is
+ * truly nearest ends up visible regardless of which LidarWebGLLayer instance
+ * MapLibre happens to render first/last. MapLibre's own depth buffer / terrain
+ * is never read here, so LiDAR still always wins over terrain, exactly as
+ * before.
+ */
+class SharedLidarDepth {
+    private _fbo: WebGLFramebuffer | null = null;
+    private _tex: WebGLTexture | null = null;
+    private _w = 0;
+    private _h = 0;
+    /** All currently-mounted LidarWebGLLayer instance ids (onAdd/onRemove). */
+    private readonly _registered = new Set<string>();
+    /** Ids that have already written their depth during the current repaint. */
+    private readonly _renderedThisFrame = new Set<string>();
+
+    register(id: string): void {
+        this._registered.add(id);
+    }
+
+    unregister(id: string): void {
+        this._registered.delete(id);
+        this._renderedThisFrame.delete(id);
+    }
+
+    get texture(): WebGLTexture | null {
+        return this._tex;
+    }
+
+    get framebuffer(): WebGLFramebuffer | null {
+        return this._fbo;
+    }
+
+    /**
+     * Call once per instance per `render()`, before writing its own depth.
+     * Clears the shared depth texture exactly once per repaint — precisely
+     * when this is the first of the currently-registered instances to reach
+     * this point since the last reset — then, once every registered instance
+     * has done so, resets the bookkeeping so the *next* repaint is detected
+     * as a fresh frame. All registered instances render synchronously within
+     * one MapLibre repaint, so this simple counter is enough to find frame
+     * boundaries without any explicit hook into MapLibre's render loop.
+     */
+    beginLayer(gl: WebGL2RenderingContext, id: string, w: number, h: number): void {
+        this._ensureSize(gl, w, h);
+        if (this._renderedThisFrame.size === 0) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
+            gl.viewport(0, 0, w, h);
+            gl.clearDepth(1);
+            gl.clear(gl.DEPTH_BUFFER_BIT);
+        }
+        this._renderedThisFrame.add(id);
+        if (this._renderedThisFrame.size >= this._registered.size) {
+            this._renderedThisFrame.clear();
+        }
+    }
+
+    private _ensureSize(gl: WebGL2RenderingContext, w: number, h: number): void {
+        if (!this._fbo) {
+            this._fbo = gl.createFramebuffer();
+            this._tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, this._tex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this._tex, 0);
+            gl.drawBuffers([gl.NONE]);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
+        if (this._w === w && this._h === h) return;
+        this._w = w;
+        this._h = h;
+        gl.bindTexture(gl.TEXTURE_2D, this._tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, w, h, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+}
+
+const sharedLidarDepth = new SharedLidarDepth();
+
 export class LidarWebGLLayer implements CustomLayerInterface {
     readonly id: string;
     readonly type = 'custom' as const;
@@ -445,6 +546,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     // Whether the ground mesh is drawn. Toggled by the "Sol" class chip in the
     // Delaunay/Poisson modes (where ground points are replaced by this mesh).
     private _meshVisible = true;
+    // Whether this ENTIRE layer instance (points + mesh + shadow pass) is drawn.
+    // Used to hide one loaded cloud among several without discarding its GPU
+    // buffers, so re-showing it is instant (see `setVisible`).
+    private _visible = true;
     private _locMesh: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -485,6 +590,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _locEdl: {
         color: WebGLUniformLocation | null;
         depth: WebGLUniformLocation | null;
+        sharedDepth: WebGLUniformLocation | null;
         texelSize: WebGLUniformLocation | null;
         strength: WebGLUniformLocation | null;
         radius: WebGLUniformLocation | null;
@@ -492,7 +598,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
         opacity: WebGLUniformLocation | null;
-    } = { color: null, depth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
+    } = { color: null, depth: null, sharedDepth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
     // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
     // by the main pass to attenuate the diffuse term where the mesh occludes
@@ -591,9 +697,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._map = map;
         this._gl = gl as WebGL2RenderingContext;
         this._initGL(this._gl);
+        sharedLidarDepth.register(this.id);
     }
 
     onRemove(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
+        sharedLidarDepth.unregister(this.id);
         this._cleanup(gl as WebGL2RenderingContext);
     }
 
@@ -715,7 +823,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     }
 
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, _args: CustomRenderMethodInput): void {
-        if ((!this._count && !this._meshIndexCount) || !this._progPoints || !this._vao) {
+        if (!this._visible || (!this._count && !this._meshIndexCount) || !this._progPoints || !this._vao) {
             return;
         }
         const gl2 = gl as WebGL2RenderingContext;
@@ -758,6 +866,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         const prevFBO = gl2.getParameter(gl2.FRAMEBUFFER_BINDING);
         const prevBlend = gl2.isEnabled(gl2.BLEND);
         const prevDepthTest = gl2.isEnabled(gl2.DEPTH_TEST);
+        // MapLibre narrows the depth range to a per-layer sub-slice (for layer
+        // ordering) before calling us — and a DIFFERENT slice for each of the two
+        // lidar layers. `gl_FragCoord.z` written into `_texDepth.g` during the FBO
+        // pass below would therefore be in a per-layer scale, incomparable to the
+        // full-[0,1] depth `_writeSharedDepth` stores. We force [0,1] for the FBO
+        // geometry so both live in the same scale, then restore MapLibre's range.
+        const prevDepthRange = gl2.getParameter(gl2.DEPTH_RANGE) as Float32Array;
 
         // QGIS-style adaptive sizing: the configured pointSize is the size at
         // `referenceZoom`. Below it, points are enlarged so the cloud always
@@ -775,6 +890,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
             gl2.viewport(0, 0, w, h);
+            gl2.depthRange(0, 1);
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
             gl2.clear(gl2.COLOR_BUFFER_BIT | gl2.DEPTH_BUFFER_BIT);
@@ -795,6 +911,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             // re-draw that overdraws the mesh with distant hazy relief.
             this._exportDepthToMapLibre(gl2, prevFBO, translatedMatrix, effectivePointSize);
 
+            // Write this cloud's depth into the LiDAR-only shared depth buffer
+            // (arbitrates cloud-vs-cloud occlusion below; never compared against
+            // terrain — see SharedLidarDepth doc comment).
+            this._writeSharedDepth(gl2, translatedMatrix, effectivePointSize);
+
             // ─── Pass 2: Apply EDL and render to screen ───
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
             gl2.viewport(0, 0, w, h);
@@ -808,6 +929,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.bindTexture(gl2.TEXTURE_2D, this._texDepth);
             gl2.uniform1i(this._locEdl.depth, 1);
 
+            gl2.activeTexture(gl2.TEXTURE2);
+            gl2.bindTexture(gl2.TEXTURE_2D, sharedLidarDepth.texture);
+            gl2.uniform1i(this._locEdl.sharedDepth, 2);
+
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
             gl2.uniform1f(this._locEdl.strength, this.config.edlStrength);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
@@ -816,6 +941,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
             gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
 
+            // NOT depth-tested against MapLibre's real (terrain-including) depth
+            // buffer on purpose: LiDAR must always render on top of terrain, even
+            // where imprecise terrain elevation would otherwise hide it. Cloud-vs-
+            // cloud occlusion is instead resolved in edl.frag via u_sharedDepth.
             gl2.disable(gl2.DEPTH_TEST);
             gl2.enable(gl2.BLEND);
             gl2.blendFunc(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
@@ -828,6 +957,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
             gl2.viewport(0, 0, w, h);
+            gl2.depthRange(0, 1);
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
             gl2.clear(gl2.COLOR_BUFFER_BIT | gl2.DEPTH_BUFFER_BIT);
@@ -846,6 +976,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             // Export depth (see EDL path above) before compositing.
             this._exportDepthToMapLibre(gl2, prevFBO, translatedMatrix, effectivePointSize);
 
+            // Write this cloud's depth into the LiDAR-only shared depth buffer
+            // (arbitrates cloud-vs-cloud occlusion below; never compared against
+            // terrain — see SharedLidarDepth doc comment).
+            this._writeSharedDepth(gl2, translatedMatrix, effectivePointSize);
+
             // Composite FBO color back to MapLibre framebuffer (strength=0 ⇒ no EDL).
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, prevFBO);
             gl2.viewport(0, 0, w, h);
@@ -859,6 +994,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.bindTexture(gl2.TEXTURE_2D, this._texDepth);
             gl2.uniform1i(this._locEdl.depth, 1);
 
+            gl2.activeTexture(gl2.TEXTURE2);
+            gl2.bindTexture(gl2.TEXTURE_2D, sharedLidarDepth.texture);
+            gl2.uniform1i(this._locEdl.sharedDepth, 2);
+
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
             gl2.uniform1f(this._locEdl.strength, 0);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
@@ -867,6 +1006,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
             gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
 
+            // See comment in the EDL path above: never depth-test against
+            // MapLibre's real (terrain-including) depth buffer — LiDAR must
+            // always stay on top of terrain. Cloud-vs-cloud occlusion is
+            // resolved in edl.frag via u_sharedDepth instead.
             gl2.disable(gl2.DEPTH_TEST);
             gl2.enable(gl2.BLEND);
             gl2.blendFunc(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
@@ -887,6 +1030,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // Restore state
         if (prevDepthTest) gl2.enable(gl2.DEPTH_TEST); else gl2.disable(gl2.DEPTH_TEST);
         if (prevBlend) gl2.enable(gl2.BLEND); else gl2.disable(gl2.BLEND);
+        gl2.depthRange(prevDepthRange[0], prevDepthRange[1]);
         gl2.bindVertexArray(prevVAO);
         gl2.useProgram(prevProg);
     }
@@ -1139,6 +1283,19 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     setMeshVisible(visible: boolean): void {
         if (this._meshVisible === visible) return;
         this._meshVisible = visible;
+        this._shadowDirty = true;
+        this._map?.triggerRepaint();
+    }
+
+    /**
+     * Show/hide this entire cloud/mesh instance (points, mesh and shadow
+     * pass). Unlike removing the map layer, the GPU buffers stay allocated,
+     * so toggling back on is instant. Used by the multi-cloud list to hide a
+     * loaded cloud without unloading it.
+     */
+    setVisible(visible: boolean): void {
+        if (this._visible === visible) return;
+        this._visible = visible;
         this._shadowDirty = true;
         this._map?.triggerRepaint();
     }
@@ -1588,6 +1745,38 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.depthRange(prevRange[0], prevRange[1]);
     }
 
+    /**
+     * Depth-only pass into the {@link SharedLidarDepth} texture — completely
+     * separate from MapLibre's own framebuffer/terrain. Used ONLY to arbitrate
+     * occlusion between overlapping LiDAR clouds/meshes (see that class's doc
+     * comment): the hardware LEQUAL test here means whichever cloud is truly
+     * nearest ends up owning each pixel in the shared texture, regardless of
+     * MapLibre's custom-layer draw order. Terrain is never involved, so LiDAR
+     * still always renders on top of it, exactly as before this fix.
+     */
+    private _writeSharedDepth(gl: WebGL2RenderingContext, translatedMatrix: Float32Array, effectivePointSize: number): void {
+        const canvas = gl.canvas as HTMLCanvasElement;
+        sharedLidarDepth.beginLayer(gl, this.id, canvas.width, canvas.height);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, sharedLidarDepth.framebuffer);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        const prevRange = gl.getParameter(gl.DEPTH_RANGE) as Float32Array;
+        gl.depthRange(0, 1);
+        gl.colorMask(false, false, false, false);
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+
+        this._drawMesh(gl, translatedMatrix);
+
+        this._bindPointsUniforms(gl, translatedMatrix, effectivePointSize);
+        gl.bindVertexArray(this._vao);
+        this._drawPointsChunked(gl);
+
+        gl.colorMask(true, true, true, true);
+        gl.depthRange(prevRange[0], prevRange[1]);
+    }
+
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
         if (this._fboWidth === w && this._fboHeight === h) return;
         this._fboWidth = w;
@@ -1597,9 +1786,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindTexture(gl.TEXTURE_2D, this._texColor);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
-        // Resize depth texture
+        // Resize depth texture (RG32F: x = linear EDL depth, y = hardware NDC depth)
         gl.bindTexture(gl.TEXTURE_2D, this._texDepth);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, w, h, 0, gl.RG, gl.FLOAT, null);
 
         // Resize GL depth renderbuffer
         if (this._rbDepth) {
@@ -1763,6 +1952,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._locEdl = {
             color: gl.getUniformLocation(this._progEdl, 'u_color'),
             depth: gl.getUniformLocation(this._progEdl, 'u_depth'),
+            sharedDepth: gl.getUniformLocation(this._progEdl, 'u_sharedDepth'),
             texelSize: gl.getUniformLocation(this._progEdl, 'u_texelSize'),
             strength: gl.getUniformLocation(this._progEdl, 'u_strength'),
             radius: gl.getUniformLocation(this._progEdl, 'u_radius'),
@@ -1806,7 +1996,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, 1, 1, 0, gl.RG, gl.FLOAT, null);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this._texDepth, 0);
 
         // Depth renderbuffer for proper occlusion (GL depth test) during pass 1.

@@ -71,7 +71,10 @@ export async function loadGalleryEntries(): Promise<GalleryEntry[]> {
 
 export function applyScene(scene: ShowcaseScene) {
     applyAmbiance(scene.ambiance);
-    useMapStore.getState().showLidarCloudSnapshot({ shaded: scene.shaded, mesh: scene.mesh });
+    useMapStore.getState().addLidarCloudSnapshot(
+        { shaded: scene.shaded, mesh: scene.mesh },
+        { mode: scene.mesh ? 'poisson' : 'shaded', sourceSceneId: scene.id },
+    );
     const map = useMapStore.getState().mapInstance;
     if (map) {
         flyToScene(map, scene.camera);

@@ -79,7 +79,8 @@ export const listSavedClouds = clouds.list;
 /** Reactive hook returning the current saved clouds, sorted newest-first. */
 export const useSavedClouds = clouds.useItems;
 
-function makeKey(p: SavedCloudParams): string {
+/** Dedupe key: same area + params reuses the same entry/gallery match. */
+export function makeCloudKey(p: SavedCloudParams): string {
     const lng = p.centerLng.toFixed(4);
     const lat = p.centerLat.toFixed(4);
     const cls = p.classes.length > 0 ? [...p.classes].sort((a, b) => a - b).join(',') : 'all';
@@ -97,7 +98,7 @@ function defaultName(p: SavedCloudParams): string {
  */
 export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloudData): Promise<SavedCloud | null> {
     if (!data.shaded && !data.mesh) return null;
-    const key = makeKey(params);
+    const key = makeCloudKey(params);
     const all = readAll();
     const existing = all.find((c) => c.key === key);
     const id = existing?.id ?? `cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

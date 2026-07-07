@@ -95,16 +95,18 @@ const CliffSlicePathOverlay = lazy(() =>
 /**
  * Wrapper that only mounts the (lazy) LiDAR overlay once the user has
  * interacted with the LiDAR feature at least once, keeping the initial page
- * load lean.
+ * load lean. Mounts one `LidarCloudOverlay` per loaded cloud/mesh entry (see
+ * `lidarClouds`), each with its own WebGL layer instance so several clouds
+ * render, cull and LOD independently.
  */
 function LidarCloudOverlayGate() {
-    const active = useMapStore(
-        (s) => s.lidarShaded !== null || s.lidarMesh !== null || s.lidarCloudLoading || s.lidarCloudError !== null,
-    );
-    if (!active) return null;
+    const clouds = useMapStore((s) => s.lidarClouds);
+    const loading = useMapStore((s) => s.lidarCloudLoading);
+    const error = useMapStore((s) => s.lidarCloudError);
+    if (clouds.length === 0 && !loading && !error) return null;
     return (
         <Suspense fallback={null}>
-            <LidarCloudOverlay />
+            {clouds.map((c) => <LidarCloudOverlay key={c.id} cloudId={c.id} />)}
         </Suspense>
     );
 }

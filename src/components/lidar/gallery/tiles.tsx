@@ -52,27 +52,39 @@ const TrashGlyph = () => (
     </svg>
 );
 
+/** Small pill shown over a tile's thumbnail when it is already loaded. */
+function LoadedBadge() {
+    return (
+        <span className="absolute left-1.5 top-1.5 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[10px] font-medium text-white shadow">
+            Déjà chargé
+        </span>
+    );
+}
+
 function GalleryTile({
     entry,
     busy,
+    loaded,
     progress,
     onSelect,
-}: Readonly<{ entry: GalleryEntry; busy: boolean; progress: SceneLoadProgress | null; onSelect: () => void }>) {
+}: Readonly<{ entry: GalleryEntry; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void }>) {
     return (
         <button
             type="button"
             onClick={onSelect}
-            disabled={busy}
-            className="group relative overflow-hidden rounded-lg bg-slate-50 text-left ring-1 ring-slate-200 transition hover:ring-emerald-400/60 disabled:cursor-wait dark:bg-slate-800 dark:ring-white/10"
+            disabled={busy || loaded}
+            title={loaded ? 'Déjà chargé — supprimez-le depuis la pastille pour le recharger' : undefined}
+            className="group relative overflow-hidden rounded-lg bg-slate-50 text-left ring-1 ring-slate-200 transition hover:ring-emerald-400/60 disabled:cursor-not-allowed dark:bg-slate-800 dark:ring-white/10"
         >
             <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-700">
                 <img
                     src={entry.thumbUrl}
                     alt={entry.title}
                     loading="lazy"
-                    className={`h-full w-full object-cover transition ${busy ? '' : 'group-hover:scale-[1.03]'}`}
+                    className={`h-full w-full object-cover transition ${busy || loaded ? '' : 'group-hover:scale-[1.03]'} ${loaded ? 'opacity-60' : ''}`}
                 />
                 {busy && <SceneProgressOverlay progress={progress} />}
+                {loaded && !busy && <LoadedBadge />}
             </div>
             <div className="p-2.5">
                 <div className="text-sm font-semibold text-slate-900 dark:text-white">{entry.title}</div>
@@ -87,6 +99,7 @@ export function GalleryBody({
     loading,
     error,
     busyId,
+    loadedIds,
     progress,
     onSelect,
 }: Readonly<{
@@ -94,6 +107,7 @@ export function GalleryBody({
     loading: boolean;
     error: string | null;
     busyId: string | null;
+    loadedIds: ReadonlySet<string>;
     progress: SceneLoadProgress | null;
     onSelect: (e: GalleryEntry) => void;
 }>) {
@@ -113,6 +127,7 @@ export function GalleryBody({
                     key={e.id}
                     entry={e}
                     busy={busyId === e.id}
+                    loaded={loadedIds.has(e.id)}
                     progress={busyId === e.id ? progress : null}
                     onSelect={() => onSelect(e)}
                 />
@@ -155,16 +170,24 @@ function LocalThumb({ id, alt }: Readonly<{ id: string; alt: string }>) {
 function LocalTile({
     scene,
     busy,
+    loaded,
     progress,
     onSelect,
     onDelete,
-}: Readonly<{ scene: SavedScene; busy: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onDelete: () => void }>) {
+}: Readonly<{ scene: SavedScene; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onDelete: () => void }>) {
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
-            <button type="button" onClick={onSelect} disabled={busy} className="block w-full cursor-pointer text-left disabled:cursor-wait">
+            <button
+                type="button"
+                onClick={onSelect}
+                disabled={busy || loaded}
+                title={loaded ? 'Déjà chargé — supprimez-le depuis la pastille pour le recharger' : undefined}
+                className="block w-full cursor-pointer text-left disabled:cursor-not-allowed"
+            >
                 <div className="relative">
                     <LocalThumb id={scene.id} alt={scene.title} />
                     {busy && <SceneProgressOverlay progress={progress} />}
+                    {loaded && !busy && <LoadedBadge />}
                 </div>
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{scene.title}</div>
@@ -186,12 +209,14 @@ function LocalTile({
 export function LocalGalleryBody({
     scenes,
     busyId,
+    loadedIds,
     progress,
     onSelect,
     onDelete,
 }: Readonly<{
     scenes: SavedScene[];
     busyId: string | null;
+    loadedIds: ReadonlySet<string>;
     progress: SceneLoadProgress | null;
     onSelect: (s: SavedScene) => void;
     onDelete: (s: SavedScene) => void;
@@ -210,6 +235,7 @@ export function LocalGalleryBody({
                     key={s.id}
                     scene={s}
                     busy={busyId === s.id}
+                    loaded={loadedIds.has(s.id)}
                     progress={busyId === s.id ? progress : null}
                     onSelect={() => onSelect(s)}
                     onDelete={() => onDelete(s)}
@@ -247,13 +273,23 @@ function formatCount(n: number): string {
 function RecentTile({
     cloud,
     busy,
+    loaded,
     onSelect,
     onDelete,
-}: Readonly<{ cloud: SavedCloud; busy: boolean; onSelect: () => void; onDelete: () => void }>) {
+}: Readonly<{ cloud: SavedCloud; busy: boolean; loaded: boolean; onSelect: () => void; onDelete: () => void }>) {
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
-            <button type="button" onClick={onSelect} disabled={busy} className="block w-full text-left disabled:opacity-50">
-                <CloudThumb cloud={cloud} />
+            <button
+                type="button"
+                onClick={onSelect}
+                disabled={busy || loaded}
+                title={loaded ? 'Déjà chargé — supprimez-le depuis la pastille pour le recharger' : undefined}
+                className="block w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
+            >
+                <div className="relative">
+                    <CloudThumb cloud={cloud} />
+                    {loaded && <LoadedBadge />}
+                </div>
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cloud.name}</div>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
@@ -279,11 +315,13 @@ function RecentTile({
 export function RecentGalleryBody({
     clouds,
     busyId,
+    loadedKeys,
     onSelect,
     onDelete,
 }: Readonly<{
     clouds: SavedCloud[];
     busyId: string | null;
+    loadedKeys: ReadonlySet<string>;
     onSelect: (c: SavedCloud) => void;
     onDelete: (c: SavedCloud) => void;
 }>) {
@@ -301,6 +339,7 @@ export function RecentGalleryBody({
                     key={c.id}
                     cloud={c}
                     busy={busyId !== null}
+                    loaded={loadedKeys.has(c.key)}
                     onSelect={() => onSelect(c)}
                     onDelete={() => onDelete(c)}
                 />

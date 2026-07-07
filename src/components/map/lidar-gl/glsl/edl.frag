@@ -3,6 +3,12 @@ precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_color;
 uniform sampler2D u_depth;
+// Real hardware NDC depth (0..1) accumulated across ALL LiDAR cloud/mesh
+// layers this frame — NOT MapLibre's own depth buffer, so terrain (often
+// imprecise) can never hide LiDAR. Used only to let a genuinely nearer cloud
+// win over a farther one when they overlap on screen (see SharedLidarDepth /
+// _writeSharedDepth in LidarWebGLLayer.ts).
+uniform sampler2D u_sharedDepth;
 uniform vec2 u_texelSize;
 uniform float u_strength;   // QGIS-equivalent edlStrength (default ~1000)
 uniform float u_radius;     // QGIS-equivalent edlDistance (in 2-pixel units)
@@ -163,6 +169,13 @@ float aoFactor() {
 void main() {
     vec4 color = texture(u_color, v_uv);
     if (color.a == 0.0) discard;
+    // Cloud-vs-cloud occlusion only (never vs. terrain): if a NEARER cloud
+    // already claimed this pixel this frame, let it win instead of painting
+    // over it — order-independent regardless of which LidarWebGLLayer
+    // instance MapLibre happens to render first/last.
+    float ownDepth = texture(u_depth, v_uv).g;
+    float nearestDepth = texture(u_sharedDepth, v_uv).r;
+    if (ownDepth > nearestDepth + 1e-6) discard;
     float shade = exp(-edlFactor() * u_strength) * exp(-aoFactor() * u_aoStrength);
     fragColor = vec4(color.rgb * shade, color.a * u_opacity);
 }

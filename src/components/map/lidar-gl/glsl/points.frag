@@ -21,7 +21,12 @@ uniform float u_photoOpacityNonGround; // 0..1, drapage photo hors-sol (végét.
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 uniform float u_vegNormalShade;  // 0..1 = strength of normal-driven shading on vegetation
 layout(location = 0) out vec4 fragColor;
-layout(location = 1) out float fragDepth;
+// x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag);
+// y = real hardware NDC depth (gl_FragCoord.z) — sampled in edl.frag as the
+// "own depth" and compared against the LiDAR-only shared depth texture so a
+// nearer cloud wins over a farther one where they overlap (multi-cloud
+// occlusion; see SharedLidarDepth in LidarWebGLLayer.ts).
+layout(location = 1) out vec2 fragDepth;
 
 void main() {
     // Splats ronds opaques pour la végétation : on découpe le carré du point
@@ -34,7 +39,7 @@ void main() {
     // l'ombrage, l'EDL via la profondeur restant écrite pour garder le relief.
     if (v_emissive > 0.5) {
         fragColor = vec4(v_albedo, v_alpha);
-        fragDepth = v_depth;
+        fragDepth = vec2(v_depth, gl_FragCoord.z);
         return;
     }
     float s = sampleShadow();
@@ -63,5 +68,5 @@ void main() {
     // croissante d'éclairage neutre/normale pour adoucir le rendu.
     float flatVeg = (v_isVeg > 0.5) ? max(u_flatLight, 1.0 - u_vegNormalShade) : u_flatLight;
     fragColor = vec4(mix(lit, neutral, flatVeg), v_alpha);
-    fragDepth = v_depth;
+    fragDepth = vec2(v_depth, gl_FragCoord.z);
 }

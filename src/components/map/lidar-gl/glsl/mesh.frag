@@ -20,13 +20,18 @@ uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mes
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 uniform float u_wireframe;       // 1 = fil de fer debug (couleur plate, sans lumière/texture)
 layout(location = 0) out vec4 fragColor;
-layout(location = 1) out float fragDepth;
+// x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag);
+// y = real hardware NDC depth (gl_FragCoord.z) — sampled in edl.frag as the
+// "own depth" and compared against the LiDAR-only shared depth texture so a
+// nearer cloud wins over a farther one where they overlap (multi-cloud
+// occlusion; see SharedLidarDepth in LidarWebGLLayer.ts).
+layout(location = 1) out vec2 fragDepth;
 
 void main() {
     // Mode debug fil de fer : couleur plate lisible, aucune lumière ni photo.
     if (u_wireframe > 0.5) {
         fragColor = vec4(0.15, 1.0, 0.55, 1.0);
-        fragDepth = v_depth;
+        fragDepth = vec2(v_depth, gl_FragCoord.z);
         return;
     }
     float s = sampleShadow();
@@ -36,8 +41,11 @@ void main() {
     // aucun sens sur une face orientée vers le bas : on l'estompe quand la
     // normale bascule sous l'horizontale, ce qui retire la texture du fond
     // fermé fantôme du mesh Poisson (et des dessous de surplombs) sans toucher
-    // à la géométrie ni aux falaises verticales.
-    float photoFacing = smoothstep(-0.25, 0.05, v_up);
+    // à la géométrie ni aux falaises verticales. Les murs verticaux du socle
+    // synthétique (v_base, hachurés ci-dessous) ne « voient » pas le ciel non
+    // plus mais leur normale est quasi-horizontale (v_up≈0) donc le lissage
+    // ci-dessus les laisserait recevoir la photo — on les exclut explicitement.
+    float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, v_up);
     if (u_hasPhoto > 0.5
         && photoFacing > 0.0
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
@@ -67,5 +75,5 @@ void main() {
         rgb = mix(rgb, rgb * 0.75, lineMask);
     }
     fragColor = vec4(rgb, v_alpha);
-    fragDepth = v_depth;
+    fragDepth = vec2(v_depth, gl_FragCoord.z);
 }

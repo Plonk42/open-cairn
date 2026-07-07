@@ -111,3 +111,23 @@ export function PopoverCloseIcon({ className = 'h-4 w-4' }: IconProps): ReactEle
         </svg>
     );
 }
+
+/** Visible/shown state — used to toggle a loaded LiDAR cloud on. */
+export function EyeIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path d="M10 3.5c-4.5 0-7.75 3.5-8.5 6.5.75 3 4 6.5 8.5 6.5s7.75-3.5 8.5-6.5c-.75-3-4-6.5-8.5-6.5Zm0 10.75A4.25 4.25 0 1 1 10 5.75a4.25 4.25 0 0 1 0 8.5Z" />
+            <circle cx="10" cy="10" r="2.25" />
+        </svg>
+    );
+}
+
+/** Hidden state — used to toggle a loaded LiDAR cloud off (kept loaded, just not drawn). */
+export function EyeOffIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path fillRule="evenodd" d="M3.53 2.47a.75.75 0 0 0-1.06 1.06l2.2 2.2C3.06 6.98 1.73 8.6 1.5 10c.75 3 4 6.5 8.5 6.5 1.6 0 3.02-.44 4.24-1.13l2.19 2.2a.75.75 0 1 0 1.06-1.07L3.53 2.47ZM10 14.25c-.5 0-.98-.08-1.42-.24l-1.2-1.2A2.25 2.25 0 0 1 10 8.5c.16 0 .32.02.47.04l1.2 1.2c.16.44.24.92.24 1.42a4.25 4.25 0 0 1-1.91.09v.98c.55.02 1.09-.06 1.6-.24l1.16 1.16A6.63 6.63 0 0 1 10 14.25Z" clipRule="evenodd" />
+            <path d="M12.45 6.36 14 7.9c.98.94 1.86 2 2.28 2.98a1.5 1.5 0 0 1 0 .24c-.34.85-1.05 1.86-2 2.75l1.09 1.1c1.14-1.06 1.97-2.26 2.4-3.34l.01-.03a1.6 1.6 0 0 0 0-1.36C17.03 8.2 14.06 4.68 10 4.5c-1 0-1.94.16-2.8.46l1.17 1.17c.5-.14 1.04-.22 1.63-.22.94 0 1.79.16 2.45.45Z" />
+        </svg>
+    );
+}

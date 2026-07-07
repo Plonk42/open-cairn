@@ -9,16 +9,28 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
 
 /**
- * Manages the LidarWebGLLayer for shaded cloud rendering with depth-based
- * Eye-Dome Lighting. In mixed mode, the ground mesh is also rendered
- * in the same WebGL layer for proper depth ordering.
+ * Manages one `LidarWebGLLayer` instance for a single loaded cloud/mesh entry
+ * (see `lidarClouds` in the store). Several instances can be mounted at once
+ * — one per entry, keyed by `cloudId` — so multiple clouds render, cull and
+ * LOD independently. Render *settings* (opacity, shader, veg/forest params,
+ * sun, shadows…) stay global and are shared by every instance.
  *
  * Positions are METER_OFFSETS relative to the request center.
  */
-export function LidarCloudOverlay() {
+export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const mapInstance = useMapStore((s) => s.mapInstance);
-    const lidarShaded = useMapStore((s) => s.lidarShaded);
-    const lidarMesh = useMapStore((s) => s.lidarMesh);
+    const cloudEntry = useMapStore((s) => s.lidarClouds.find((c) => c.id === cloudId));
+    const lidarShaded = cloudEntry?.shaded ?? null;
+    const lidarMesh = cloudEntry?.mesh ?? null;
+    const cloudVisible = cloudEntry?.visible ?? true;
+    // The foliage height-scale slider and `recomputeVegHeights` are global and
+    // only ever act on the "primary" cloud (`lidarClouds[0]`, see lidarSlice).
+    // One `LidarCloudOverlay` is mounted per loaded cloud, so without this
+    // guard every non-primary instance would also fight over the shared
+    // height-scale value with its own cloud's auto target, ping-ponging the
+    // store forever ("Maximum update depth exceeded").
+    const isPrimaryCloud = useMapStore((s) => s.lidarClouds[0]?.id === cloudId);
+    const layerId = `lidar-cloud-${cloudId}`;
     const basePointSize = useMapStore((s) => s.lidarCloudPointSize);
     const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
     const edl = useMapStore((s) => s.lidarCloudEdl);
@@ -83,8 +95,8 @@ export function LidarCloudOverlay() {
         // (Re)add our custom layer and bump the epoch so dependent push-effects
         // re-upload their buffers to the fresh layer. Idempotent.
         const ensureLayer = () => {
-            if (mapInstance.getLayer('lidar-shaded-cloud')) return;
-            const layer = new LidarWebGLLayer('lidar-shaded-cloud');
+            if (mapInstance.getLayer(layerId)) return;
+            const layer = new LidarWebGLLayer(layerId);
             // Add BEFORE the route layers so the itinerary renders on top.
             const beforeId = mapInstance.getLayer('open-cairn-route-line-casing') ? 'open-cairn-route-line-casing' : undefined;
             mapInstance.addLayer(layer, beforeId);
@@ -109,10 +121,15 @@ export function LidarCloudOverlay() {
         return () => {
             mapInstance.off('style.load', ensureLayer);
             mapInstance.off('idle', ensureLayer);
-            try { mapInstance.removeLayer('lidar-shaded-cloud'); } catch { /* map may be gone */ }
+            try { mapInstance.removeLayer(layerId); } catch { /* map may be gone */ }
             webglRef.current = null;
         };
-    }, [mapInstance]);
+    }, [mapInstance, layerId]);
+
+    // ── Show/hide this cloud without discarding its GPU buffers ──────────────
+    useEffect(() => {
+        webglRef.current?.setVisible(cloudVisible);
+    }, [cloudVisible, styleEpoch]);
 
     // ── Debug-only LOD readout (`?debug=true`/`?debug=lod`) ───────────────────
     // Polls the WebGL layer's current LOD levels so the "LOD distance (debug)"
@@ -183,12 +200,12 @@ export function LidarCloudOverlay() {
     // robust canopy top (cliff-edge artefacts already clamped in the pipeline),
     // so the colour ramp spans the real tree heights without a manual slider.
     useEffect(() => {
-        if (!vegHeightAuto) return;
+        if (!isPrimaryCloud || !vegHeightAuto) return;
         const auto = lidarShaded?.vegHeightAuto;
         if (auto && Math.round(auto) !== Math.round(vegHeightScale)) {
             setVegHeightScale(Math.round(auto));
         }
-    }, [lidarShaded, vegHeightAuto, vegHeightScale, setVegHeightScale]);
+    }, [isPrimaryCloud, lidarShaded, vegHeightAuto, vegHeightScale, setVegHeightScale]);
 
     // ── Live recompute of vegetation heights when the height sliders move ─────
     // The gap and ground-relief knobs are baked at capture time, but
@@ -199,10 +216,11 @@ export function LidarCloudOverlay() {
     const gapMountRef = useRef(true);
     useEffect(() => {
         if (gapMountRef.current) { gapMountRef.current = false; return undefined; }
+        if (!isPrimaryCloud) return undefined;
         const t = setTimeout(() => recomputeVegHeights(), 150);
         return () => clearTimeout(t);
     }, [
-        groundGap, groundRough, vegColumnCell, vegRoughLowFrac,
+        isPrimaryCloud, groundGap, groundRough, vegColumnCell, vegRoughLowFrac,
         vegOverhangReach, vegCliffDistMode, vegColorSmooth, vegCliffSparseFallback, recomputeVegHeights,
         vegCliffSlopeDeg,
         vegCliffSlopeSample,

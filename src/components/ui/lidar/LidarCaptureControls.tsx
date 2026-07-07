@@ -266,7 +266,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
     const setStride = useMapStore((s) => s.setLidarCloudStride);
     const load = useMapStore((s) => s.loadLidarCloud);
     const cancelLoad = useMapStore((s) => s.cancelLidarCloudLoad);
-    const clear = useMapStore((s) => s.clearLidarCloud);
+    const clear = useMapStore((s) => s.clearAllLidarClouds);
     const hasData = shaded !== null || mesh !== null;
     const center = shaded ?? mesh;
 

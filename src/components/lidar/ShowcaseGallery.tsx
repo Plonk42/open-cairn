@@ -27,13 +27,16 @@ import {
 } from '@/lib/savedScenes';
 import { loadShowcaseScene, type SceneLoadProgress } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
  * Showcase gallery — lists baked scenes from `public/showcase/index.json` and
  * loads them instantly (bypassing the WFS/COPC/Poisson pipeline) by feeding the
- * decoded geometry straight into the store via `showLidarCloudSnapshot`.
+ * decoded geometry straight into the store via `addLidarCloudSnapshot`, which
+ * appends alongside any clouds already displayed. Tiles matching an
+ * already-loaded cloud (by scene id / recent-cloud key) are badged and
+ * disabled until removed from the LiDAR Studio pill.
  */
 export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{ variant?: 'dark' | 'light'; inline?: boolean }>) {
     const [open, setOpen] = useState(false);
@@ -51,6 +54,19 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const importInputRef = useRef<HTMLInputElement>(null);
     const [urlImportOpen, setUrlImportOpen] = useState(false);
     const [urlValue, setUrlValue] = useState('');
+
+    // Already-loaded clouds (shown in the pill) drive the Gallery's "already
+    // loaded" badge/disable state, matched by scene id (Featured/Mes vues) or
+    // by recent-cloud dedupe key (Nuages récents).
+    const loadedClouds = useMapStore((s) => s.lidarClouds);
+    const loadedSceneIds = useMemo(
+        () => new Set(loadedClouds.map((c) => c.sourceSceneId).filter((id): id is string => Boolean(id))),
+        [loadedClouds],
+    );
+    const loadedCloudKeys = useMemo(
+        () => new Set(loadedClouds.map((c) => c.sourceKey).filter((key): key is string => Boolean(key))),
+        [loadedClouds],
+    );
 
     useEffect(() => {
         if (!isOpen || entries.length > 0) return;
@@ -82,7 +98,6 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 (p) => setSceneProgress(p),
             );
             applyScene(scene);
-            setOpen(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la scène.');
         } finally {
@@ -110,7 +125,6 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 shaded: data.shaded,
                 mesh: data.mesh,
             });
-            setOpen(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la vue.');
         } finally {
@@ -130,14 +144,13 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             }
             const st = useMapStore.getState();
             st.setLidarMode(cloud.mode);
-            st.showLidarCloudSnapshot(data);
+            st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key });
             const dLat = cloud.radius / 111320;
             const dLng = cloud.radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
             st.fitBounds(
                 [cloud.centerLng - dLng, cloud.centerLat - dLat, cloud.centerLng + dLng, cloud.centerLat + dLat],
                 { padding: 60 },
             );
-            setOpen(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger le nuage.');
         } finally {
@@ -218,6 +231,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         loading={loading}
                         error={error}
                         busyId={busyId}
+                        loadedIds={loadedSceneIds}
                         progress={sceneProgress}
                         onSelect={(e) => { onSelect(e); }}
                     />
@@ -304,6 +318,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         <LocalGalleryBody
                             scenes={localScenes}
                             busyId={busyId}
+                            loadedIds={loadedSceneIds}
                             progress={sceneProgress}
                             onSelect={(s) => { onSelectLocal(s); }}
                             onDelete={(s) => deleteSavedScene(s.id)}
@@ -360,6 +375,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         <RecentGalleryBody
                             clouds={recentClouds}
                             busyId={busyId}
+                            loadedKeys={loadedCloudKeys}
                             onSelect={(c) => { onSelectRecent(c); }}
                             onDelete={(c) => deleteSavedCloud(c.id)}
                         />
