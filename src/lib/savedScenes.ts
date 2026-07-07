@@ -8,9 +8,8 @@
  * descriptor (id, title, counts, date) lives in localStorage so the list
  * renders synchronously and stays well under the localStorage quota.
  *
- * The IndexedDB store is deliberately separate from the pipeline result cache
- * (`lidarBrowser/cache.ts`) and from saved clouds, so clearing one never wipes
- * the others.
+ * The IndexedDB store uses a dedicated `createStore`, separate from saved
+ * clouds, so clearing one never wipes the other.
  */
 import { unzipSync } from 'fflate';
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';

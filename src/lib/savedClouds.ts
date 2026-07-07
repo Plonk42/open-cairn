@@ -8,9 +8,8 @@
  * localStorage so the list renders synchronously and stays well under the
  * ~5 MB localStorage quota.
  *
- * The IndexedDB store is deliberately separate from the pipeline result cache
- * (`lidarBrowser/cache.ts`), so `clearLidarCache()` (which clears the default
- * idb-keyval store) never wipes the user's saved clouds.
+ * The IndexedDB store uses a dedicated `createStore` (not the default
+ * idb-keyval store), so it is isolated from any other idb-keyval usage.
  */
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 

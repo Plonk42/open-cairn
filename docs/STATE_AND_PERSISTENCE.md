@@ -30,7 +30,7 @@ flowchart LR
     MapStore -->|persist| LSm["localStorage<br/>open-cairn-settings"]
     RouteStore -->|persist| LSr["localStorage<br/>open-cairn-route"]
     SavedRoutes[savedRoutes.ts] -->|CRUD| LSs["localStorage<br/>open-cairn-saved-routes"]
-    LidarBrowser[lidarBrowser/cache.ts] -->|read/write| IDB[(IndexedDB<br/>idb-keyval default DB)]
+    SavedClouds[savedClouds.ts / savedScenes.ts] -->|read/write| IDB[(IndexedDB<br/>stores dédiés)]
 ```
 
 ### Stores Zustand

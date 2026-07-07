@@ -39,8 +39,8 @@ Dans le panneau **LiDAR** :
    (recherche de dalles → téléchargement → décodage → normales / mesh /
    reconstruction Poisson).
 
-Le résultat est mis en cache local : recharger les mêmes paramètres au même
-endroit (à ~10 m près) est instantané.
+Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
+la galerie est instantané (aucun re-calcul).
 
 ### Limitations connues
 
@@ -58,8 +58,6 @@ endroit (à ~10 m près) est instantané.
 - **Pas d'annulation** : un chargement en cours ne peut pas être interrompu
   proprement ; lancer un nouveau chargement remplace simplement le résultat
   (logique « le dernier gagne »).
-- **Cache navigateur** : ~50 entrées maximum, éviction LRU. Les très gros
-  nuages peuvent saturer rapidement le quota IndexedDB.
 
 ---
 
@@ -70,8 +68,7 @@ endroit (à ~10 m près) est instantané.
 ```mermaid
 flowchart LR
     UI[LidarCloudPanel<br/>UI] -->|loadLidarCloud| Store[mapStore<br/>Zustand]
-    Store --> IDX[lib/lidarBrowser/index.ts<br/>cache-first wrapper]
-    IDX --> CACHE[(IndexedDB<br/>idb-keyval)]
+    Store --> IDX[lib/lidarBrowser/index.ts<br/>worker wrapper]
     IDX --> WC[workerClient.ts]
     WC --> WK[worker.ts<br/>DedicatedWorker]
     WK --> PIPE[pipeline.ts<br/>fetchCommon + finalizers]
@@ -96,8 +93,7 @@ uniformément.
 |---------|------|
 | [src/components/ui/LidarCloudPanel.tsx](../src/components/ui/LidarCloudPanel.tsx) | UI : rayon, stride, mode, classes, déclenchement du chargement |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Action `loadLidarCloud`, gestion des courses (latest-wins) |
-| [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper cache-first qui dispatche vers le worker |
-| [src/lib/lidarBrowser/cache.ts](../src/lib/lidarBrowser/cache.ts) | Cache IndexedDB (idb-keyval), pack/unpack typed arrays, LRU |
+| [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper qui dispatche vers le worker |
 | [src/lib/lidarBrowser/workerClient.ts](../src/lib/lidarBrowser/workerClient.ts) | Côté main : `postMessage`, dé-multiplexage par id, transferables |
 | [src/lib/lidarBrowser/worker.ts](../src/lib/lidarBrowser/worker.ts) | Boucle de réception, appel `pipeline.ts`, collecte des transferables |
 | [src/lib/lidarBrowser/pipeline.ts](../src/lib/lidarBrowser/pipeline.ts) | `fetchCommon` + finalizers `fetchLidarShaded` / `fetchLidarDelaunay` / `fetchLidarPoisson` |
@@ -229,14 +225,11 @@ même manière.
 sequenceDiagram
     participant Store as mapStore.loadLidarCloud
     participant IDX as lib/lidarBrowser/index.ts
-    participant Cache as IndexedDB cache
     participant WC as workerClient.ts
     participant WK as worker.ts
     participant PIPE as pipeline.ts
 
     Store->>IDX: fetchLidarShaded(params)
-    IDX->>Cache: readCachedLidar('shaded', params)
-    Cache-->>IDX: hit? return; miss? continue
     IDX->>WC: dispatch('shaded', params)
     WC->>WK: postMessage({id, kind, params})
     WK->>PIPE: fetchLidarShaded(paramsWithProgress)
@@ -249,7 +242,6 @@ sequenceDiagram
     WK->>WK: collectTransferables(data)
     WK-->>WC: postMessage({id, ok, data}, [buffers])
     WC-->>IDX: resolve(data)
-    IDX->>Cache: writeCachedLidar (fire-and-forget)
     IDX-->>Store: data
     Store->>Store: set({lidarShaded: data})
 ```
@@ -266,23 +258,6 @@ Contrats clés :
 - **Progress** : messages streamés de la forme
   `{ id, type: 'progress', progress: LidarProgress }`, dé-multiplexés par id
   de requête.
-
-### Cache IndexedDB (`cache.ts`)
-
-```mermaid
-flowchart LR
-    P([params]) --> K[makeKey<br/>lidar:shaded:lng:lat:r:s:classes]
-    K --> GET[idbGet]
-    GET -->|hit| UNPACK[unpack ArrayBuffer<br/>→ Float32Array etc.]
-    GET -->|miss| RUN[run worker pipeline]
-    RUN --> PACK[pack typed arrays<br/>→ ArrayBuffer]
-    PACK --> SET[idbSet]
-    SET --> EV[evictIfNeeded<br/>soft LRU, 50 entries cap]
-```
-
-- Coordonnées arrondies à 4 décimales (~10 m) pour qu'un léger jitter touche
-  encore le cache.
-- Éviction best-effort, ordonnée par insertion (ordre de clés Chromium IDB).
 
 ### Des données aux pixels
 
@@ -310,8 +285,6 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 - **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
   kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
   exploitable.
-- **Cache LRU best-effort** : l'éviction n'est pas stricte et peut laisser
-  passer brièvement plus de 50 entrées en cas de concurrence.
 
 ### Points d'entrée pour le debug
 
