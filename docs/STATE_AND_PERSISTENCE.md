@@ -94,10 +94,13 @@ waypoints, ce qui garantit qu'ils sont à jour si les API IGN ont évolué.
 
 | Lib       | DB / store        | Usage                                                |
 |-----------|-------------------|------------------------------------------------------|
-| `idb-keyval` | default DB (`keyval-store`) | Cache LiDAR (cf. [LIDAR_PIPELINE.md](LIDAR_PIPELINE.md)) |
+| `idb-keyval` | `open-cairn-saved-clouds-db` | Nuages LiDAR sauvegardés (galerie « Nuages récents ») |
+| `idb-keyval` | `open-cairn-saved-scenes-db` | Scènes exportées (« Mes vues ») |
 
-Capacité approximative : **~300 MB** par défaut sur les navigateurs (50 entrées × ~6 MB
-chacune). Eviction LRU best-effort dans `cache.ts`.
+Chaque store est cappé à **30 entrées** (éviction des plus anciennes au-delà,
+cf. `MAX_ENTRIES` dans `savedClouds.ts` / `savedScenes.ts`). La géométrie et les
+vignettes vivent dans IndexedDB ; un descripteur compact (id, titre, date,
+compteurs) est miroiré en localStorage pour un rendu synchrone de la liste.
 
 ### Évènements custom
 
@@ -131,9 +134,9 @@ l'état persisté localement.
 
 - **Pas de garbage-collection** localStorage : les anciennes versions du schéma s'y
   accumulent silencieusement. Penser à nettoyer dans une migration.
-- **IndexedDB single DB** : le cache LiDAR partage la DB par défaut de `idb-keyval`
-  avec n'importe quel autre `idb-keyval` consumer (aucun pour l'instant). À surveiller
-  si on ajoute d'autres caches.
+- **Stores IndexedDB dédiés** : nuages et scènes sauvegardés utilisent chacun leur
+  propre DB (`createStore`), donc effacer l'un n'impacte pas l'autre. À garder en tête
+  si on ajoute d'autres stores.
 - **Quota navigateur** silencieux : un `try/catch` autour des writes éviterait les
   exceptions visibles, mais signalerait l'utilisateur si la sauvegarde a effectivement
   échoué.

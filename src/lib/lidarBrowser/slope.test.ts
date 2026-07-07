@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { slopeColor, vertexColor } from '@/lib/lidarBrowser/slope';
+import { describe, expect, it } from 'vitest';
 
 describe('slopeColor', () => {
     it('returns the flat-ground colour at zero slope', () => {
@@ -44,5 +44,14 @@ describe('vertexColor', () => {
             expect(ch).toBeGreaterThanOrEqual(0);
             expect(ch).toBeLessThanOrEqual(255);
         }
+    });
+
+    it('colours flat ground green and near-vertical faces a bright violet/pink (slope preset)', () => {
+        const flat = vertexColor(0, 0, 1, 1000, 'slope');
+        expect(flat).toEqual([34, 139, 58]);
+        const vertical = vertexColor(1, 0, 0, 1000, 'slope');
+        expect(vertical).toEqual([236, 160, 240]);
+        // The steep end must stay bright/legible, not fade toward black.
+        expect(Math.max(...vertical)).toBeGreaterThan(150);
     });
 });

@@ -478,7 +478,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     return {
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
         setLidarMode: (lidarMode) => set({ lidarMode }),
-        lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
+        lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter' || persisted.lidarShader === 'slope') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
         setLidarShader: (shader) => {
             // Recolor EVERY loaded cloud/mesh (not just the "primary" one) —
             // the shader is a global render setting shown for all simultaneously
@@ -777,10 +777,22 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         },
         addLidarCloudSnapshot: (data, meta) => {
             if (!data.shaded && !data.mesh) return;
+            // Incoming geometry may carry colors baked with a stale shader —
+            // the "recently loaded" gallery keys by capture params only (not by
+            // shader), and a saved scene's mesh was colored whenever it was
+            // originally exported. Always recolor against the *currently
+            // selected* shader here so a gallery pick immediately matches what
+            // the UI shows as active, instead of silently keeping old colors
+            // until the next manual toggle.
+            const { lidarShader } = get();
             const entry: LoadedLidarCloud = {
                 id: `lidar-cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                shaded: data.shaded,
-                mesh: data.mesh,
+                shaded: data.shaded
+                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, lidarShader, data.shaded.positions) }
+                    : data.shaded,
+                mesh: data.mesh
+                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.roughness, lidarShader) }
+                    : data.mesh,
                 visible: true,
                 createdAt: Date.now(),
                 mode: meta.mode,

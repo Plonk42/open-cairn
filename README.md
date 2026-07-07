@@ -83,7 +83,7 @@ Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut êt
 | État                 | Zustand 5 (avec persistance localStorage)         |
 | Graphiques           | Chart.js 4                                        |
 | Projections          | proj4 (EPSG:2154 Lambert-93 ↔ WGS84)              |
-| Cache                | IndexedDB (`idb-keyval`)                          |
+| Persistance locale   | IndexedDB (`idb-keyval`) · localStorage           |
 
 ---
 

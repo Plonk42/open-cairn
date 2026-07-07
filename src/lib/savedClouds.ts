@@ -8,6 +8,11 @@
  * localStorage so the list renders synchronously and stays well under the
  * ~5 MB localStorage quota.
  *
+ * `colors` is stripped before the typed-array payload is persisted (see
+ * `stripColors`/`restoreColors` below) — it's cheap to re-derive from
+ * normals + the active shader, and gets recomputed unconditionally as soon
+ * as a cloud re-enters the store, so storing it would just be dead weight.
+ *
  * The IndexedDB store uses a dedicated `createStore` (not the default
  * idb-keyval store), so it is isolated from any other idb-keyval usage.
  */
@@ -60,6 +65,36 @@ export interface SavedCloud {
 export interface SavedCloudData {
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
+}
+
+/**
+ * On-disk shape of `SavedCloudData`, minus `colors`. Colors are a cheap
+ * per-point derivation from normals + the active shader (no spatial search,
+ * unlike normals themselves — see the pipeline's `colorsFromNormals`), and
+ * `addLidarCloudSnapshot` unconditionally recolors every cloud against the
+ * *current* shader as soon as it re-enters the store. Persisting colors here
+ * would just bloat IndexedDB (~11% more bytes per entry) for values that get
+ * discarded the moment the entry is reloaded.
+ */
+interface StoredCloudData {
+    shaded: Omit<LidarShadedCloudData, 'colors'> | null;
+    mesh: Omit<LidarMeshData, 'colors'> | null;
+}
+
+function stripColors(data: SavedCloudData): StoredCloudData {
+    const { shaded, mesh } = data;
+    return {
+        shaded: shaded ? (({ colors: _colors, ...rest }) => rest)(shaded) : null,
+        mesh: mesh ? (({ colors: _colors, ...rest }) => rest)(mesh) : null,
+    };
+}
+
+/** Placeholder colors sized to match positions; overwritten before anything renders it. */
+function restoreColors(stored: StoredCloudData): SavedCloudData {
+    return {
+        shaded: stored.shaded ? { ...stored.shaded, colors: new Uint8Array(stored.shaded.positions.length) } : null,
+        mesh: stored.mesh ? { ...stored.mesh, colors: new Uint8Array(stored.mesh.positions.length) } : null,
+    };
 }
 
 /** Identifying params captured at load time. */
@@ -134,7 +169,7 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
     };
 
     try {
-        await idbSet(`data:${id}`, data, cloudStore);
+        await idbSet(`data:${id}`, stripColors(data), cloudStore);
     } catch {
         return null; // out of quota / IDB unavailable — skip silently
     }
@@ -151,8 +186,8 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
 /** Read the heavy snapshot for a saved cloud, or null if missing. */
 export async function loadSavedCloudData(id: string): Promise<SavedCloudData | null> {
     try {
-        const data = await idbGet<SavedCloudData>(`data:${id}`, cloudStore);
-        return data ?? null;
+        const stored = await idbGet<StoredCloudData>(`data:${id}`, cloudStore);
+        return stored ? restoreColors(stored) : null;
     } catch {
         return null;
     }

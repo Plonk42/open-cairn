@@ -30,7 +30,9 @@ Le panneau **LiDAR** offre trois modes de rendu :
 - **Eye-Dome Lighting** : ombrage des contours par profondeur, donne un effet « relief »
   spectaculaire. Réglages : *strength* (1000–3000), *radius* (1.5 par défaut), *farPlane*
 - **Préset shader** : `base` (gradient chaud), `cliff` (vert → calcaire → falaise sombre),
-  `winter` (neige + aspect)
+  `winter` (neige + aspect), `slope` (dégradé standard par inclinaison : vert → jaune →
+  orange → rouge → violet/rose, avec granularité fine au-delà de 35° et une teinte
+  claire en fin d'échelle plutôt qu'un noir illisible)
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief

@@ -1,14 +1,20 @@
 /**
  * Slope-based palette + per-point/per-vertex colorization.
  *
- * Three shader presets are supported:
+ * Four shader presets are supported:
  *   'base'   — warm sand/brown gradient (CloudCompare-style, original)
  *   'cliff'  — sharp grass/grey-limestone break at ~30° with roughness detail
  *   'winter' — snow on flat/north-facing areas, brown rock on cliffs,
  *              driven by slope + elevation + cardinal aspect
+ *   'slope'  — standard steepness map: green (plat) → jaune → orange → rouge
+ *              → violet/rose clair (vertical), the conventional gradient used
+ *              for avalanche/ski-touring slope-angle shading (CalTopo,
+ *              Avalanche Canada, IGN pentes…). Finely graduated in the steep
+ *              range (35°+) and capped on a bright violet/pink rather than
+ *              fading to near-black, which stays legible on cliffs.
  */
 
-export type ShaderPreset = 'base' | 'cliff' | 'winter';
+export type ShaderPreset = 'base' | 'cliff' | 'winter' | 'slope';
 
 // ─── BASE palette (original CloudCompare-inspired warm gradient) ──────────────
 const BASE_PALETTE: Array<[number, [number, number, number]]> = [
@@ -26,6 +32,35 @@ const CLIFF_PALETTE: Array<[number, [number, number, number]]> = [
     [34, [188, 184, 175]],
     [70, [200, 197, 190]],
     [90, [182, 178, 170]],
+];
+
+// ─── SLOPE palette (standard steepness-map gradient) ─────────────────────────
+// Matches the conventional avalanche/ski-touring slope-angle shading scale:
+// green (safe, flat) → yellow → orange → red (avalanche-prone 30-45°) →
+// magenta/violet on cliffs, ending on a bright violet/pink rather than
+// darkening to near-black, so the steepest faces stay readable. Extra stops
+// are packed into the 35-90° range for finer granularity on cliffs.
+// Inspired by outdoor apps (CalTopo, Avalanche Canada, Gaia GPS, IGN cartes
+// de pente).
+const SLOPE_PALETTE: Array<[number, [number, number, number]]> = [
+    [0, [34, 139, 58]],
+    [10, [80, 162, 55]],
+    [20, [145, 190, 55]],
+    [27, [205, 206, 60]],
+    [30, [255, 235, 59]],
+    [33, [255, 202, 40]],
+    [36, [255, 160, 0]],
+    [39, [255, 110, 30]],
+    [42, [244, 67, 54]],
+    [45, [211, 47, 47]],
+    [48, [198, 40, 70]],
+    [51, [173, 20, 110]],
+    [55, [162, 25, 140]],
+    [60, [156, 39, 176]],
+    [65, [173, 60, 202]],
+    [70, [199, 90, 220]],
+    [80, [224, 130, 235]],
+    [90, [236, 160, 240]],
 ];
 
 function interpolatePalette(
@@ -74,6 +109,10 @@ export function vertexColor(
 
     if (preset === 'base') {
         return interpolatePalette(BASE_PALETTE, slope);
+    }
+
+    if (preset === 'slope') {
+        return interpolatePalette(SLOPE_PALETTE, slope);
     }
 
     if (preset === 'cliff') {

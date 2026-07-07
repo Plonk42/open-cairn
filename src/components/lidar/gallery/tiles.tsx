@@ -304,7 +304,7 @@ function RecentTile({
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cloud.name}</div>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
                         <span className="rounded bg-slate-200/70 px-1 text-[10px] dark:bg-white/10">{CLOUD_MODE_LABELS[cloud.mode]}</span>
-                    <span>{captureSizeLabel(cloud)}</span>
+                        <span>{captureSizeLabel(cloud)}</span>
                         {cloud.pointCount > 0 && <span>· {formatCount(cloud.pointCount)} pts</span>}
                         {cloud.hasMesh && cloud.vertexCount && <span>· {formatCount(cloud.vertexCount)} v</span>}
                     </p>
