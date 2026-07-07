@@ -24,7 +24,7 @@ import { computeNormalsKNNAsync, computeNormalsVegAwareAsync } from './normalsPo
 import { buildPoissonBase, buildPoissonBaseMask, poissonBaseWallPerimM, resolvePoissonBaseRect } from './poissonBase';
 import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
-import { l93OffsetsToGeographicEnu, l93RectAxes, lngLatToL93 } from './proj';
+import { l93AxisToGeographicEnu, l93OffsetsToGeographicEnu, l93RectAxes, lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
 import { colorsFromNormals, vertexColor, type ShaderPreset } from './slope';
 import { detectTreetops } from './treetops';
@@ -723,13 +723,21 @@ export async function fetchLidarPoisson(
     // terrain so Poisson closes the underside into a flat parallelepiped instead
     // of a bulging cushion. Reused as the veg-height reference grid below.
     const groundGrid = buildVegGroundGrid(groundPos, groundCount);
-    const rectOpt = params.rect
-        ? {
-            ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
+    let rectOpt: { ux: number; uy: number; halfLengthM: number; halfWidthM: number } | undefined;
+    if (params.rect) {
+        // The base is built on ground points already rotated into the ENU frame
+        // by l93OffsetsToGeographicEnu, so its walls must follow the capture
+        // rectangle turned by that SAME meridian convergence — not the raw L93
+        // grid axes, which would tilt the walls off the terrain.
+        const l93 = l93RectAxes(params.lng, params.lat, params.rect.bearingDeg);
+        const enu = l93AxisToGeographicEnu(l93.ux, l93.uy, params.lng, params.lat);
+        rectOpt = {
+            ux: enu.ux,
+            uy: enu.uy,
             halfLengthM: params.rect.halfLengthM,
             halfWidthM: params.rect.halfWidthM,
-        }
-        : undefined;
+        };
+    }
     const flatBaseRect = (params.poissonFlatBase ?? true) && groundGrid
         ? resolvePoissonBaseRect(groundGrid, rectOpt)
         : null;

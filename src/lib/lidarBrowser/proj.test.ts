@@ -1,4 +1,4 @@
-import { l93OffsetsToGeographicEnu, l93RectAxes, l93ToLngLat, lngLatToL93 } from '@/lib/lidarBrowser/proj';
+import { l93AxisToGeographicEnu, l93OffsetsToGeographicEnu, l93RectAxes, l93ToLngLat, lngLatToL93 } from '@/lib/lidarBrowser/proj';
 import { rectCornersLngLat } from '@/lib/lidarCaptureRect';
 import { describe, expect, it } from 'vitest';
 
@@ -114,6 +114,32 @@ describe('l93OffsetsToGeographicEnu', () => {
         // With the correction the residual is well under a decimetre across a
         // ~1 km baseline (uncorrected they would differ by a few metres).
         expect(Math.hypot(bEast - fromA[0], bNorth - fromA[1])).toBeLessThan(0.1);
+    });
+});
+
+describe('l93AxisToGeographicEnu', () => {
+    it('leaves an axis unchanged on the central meridian (no convergence)', () => {
+        const { ux, uy } = l93AxisToGeographicEnu(0.6, 0.8, 3, 46.5);
+        expect(ux).toBeCloseTo(0.6, 4);
+        expect(uy).toBeCloseTo(0.8, 4);
+    });
+
+    it('rotates a rect axis exactly like the point positions (walls track points)', () => {
+        // The Poisson base is built on points already rotated by
+        // l93OffsetsToGeographicEnu, so its rect axes must be turned by the same
+        // convergence. Rotating the L93 rect axis as a point must reproduce
+        // l93AxisToGeographicEnu bit-for-bit.
+        const lng = 6.004;
+        const lat = 45.208;
+        const azimuthDeg = 37;
+        const l93 = l93RectAxes(lng, lat, azimuthDeg);
+        const asPoint = new Float32Array([l93.ux, l93.uy, 0]);
+        l93OffsetsToGeographicEnu(asPoint, 1, lng, lat);
+        const axis = l93AxisToGeographicEnu(l93.ux, l93.uy, lng, lat);
+        expect(axis.ux).toBeCloseTo(asPoint[0], 6);
+        expect(axis.uy).toBeCloseTo(asPoint[1], 6);
+        // And it stays a unit vector.
+        expect(Math.hypot(axis.ux, axis.uy)).toBeCloseTo(1, 6);
     });
 });
 

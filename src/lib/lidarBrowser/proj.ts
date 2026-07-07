@@ -49,6 +49,25 @@ export function l93RectAxes(
     return { ux: ux / len, uy: uy / len };
 }
 
+/**
+ * Rotate a single Lambert-93 axis direction `(ux, uy)` into the true geographic
+ * east/north frame at (lng, lat) — the exact rotation
+ * {@link l93OffsetsToGeographicEnu} applies to point positions. Use it to keep
+ * derived L93 axes (e.g. the Poisson base capture rectangle from
+ * {@link l93RectAxes}) aligned with the rotated point cloud: because every point
+ * is turned by the same centre convergence γ, the capture rectangle — a rigid
+ * feature of the cloud — must be turned by that same γ, not an independently
+ * computed geographic azimuth (which differs by a small finite-difference
+ * residual and would leave the walls a few decimetres off the terrain).
+ */
+export function l93AxisToGeographicEnu(
+    ux: number, uy: number, lng: number, lat: number,
+): { ux: number; uy: number } {
+    const { nx, ny } = geographicNorthInL93(lng, lat);
+    // Same mapping as l93OffsetsToGeographicEnu: east = (ny, -nx), north = (nx, ny).
+    return { ux: ux * ny - uy * nx, uy: ux * nx + uy * ny };
+}
+
 /** Unit Lambert-93 direction of geographic north at (lng, lat). */
 function geographicNorthInL93(lng: number, lat: number): { nx: number; ny: number } {
     const stepN = 10 / 111_320;
