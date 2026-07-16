@@ -34,11 +34,8 @@ export interface SavedScene {
     hasMesh: boolean;
     pointCount: number;
     vertexCount?: number;
-    /**
-     * Total number of clouds bundled in this scene (primary + extraClouds).
-     * Absent on entries saved before multi-cloud export existed — treat as 1.
-     */
-    cloudCount?: number;
+    /** Total number of clouds bundled in this scene (primary + extraClouds). */
+    cloudCount: number;
 }
 
 /** Heavy snapshot kept in IndexedDB (structured-cloned typed arrays). */

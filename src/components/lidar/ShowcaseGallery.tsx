@@ -10,6 +10,7 @@ import {
     RecentGalleryBody,
     TabButton,
 } from '@/components/lidar/gallery/tiles';
+import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import {
     clearAllSavedClouds,
     deleteSavedCloud,
@@ -146,8 +147,9 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             const st = useMapStore.getState();
             st.setLidarMode(cloud.mode);
             st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key });
-            const dLat = cloud.radius / 111320;
-            const dLng = cloud.radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
+            const radius = rectEnclosingRadiusM(cloud.widthM, cloud.lengthM);
+            const dLat = radius / 111320;
+            const dLng = radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
             st.fitBounds(
                 [cloud.centerLng - dLng, cloud.centerLat - dLat, cloud.centerLng + dLng, cloud.centerLat + dLat],
                 { padding: 60 },

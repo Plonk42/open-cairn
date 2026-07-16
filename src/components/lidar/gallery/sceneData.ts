@@ -112,25 +112,9 @@ function flyToScene(map: maplibregl.Map, camera: ShowcaseCamera) {
         pitch: camera.pitch,
         bearing: camera.bearing,
     };
-    const hasTerrain = Boolean(map.getTerrain());
 
-    if (hasTerrain && typeof camera.centerElevation === 'number' && Number.isFinite(camera.centerElevation)) {
+    if (map.getTerrain() && typeof camera.centerElevation === 'number' && Number.isFinite(camera.centerElevation)) {
         map.setCenterElevation(camera.centerElevation);
-        map.flyTo({ ...target, duration: 1400, essential: true });
-        return;
     }
-
     map.flyTo({ ...target, duration: 1400, essential: true });
-
-    // Fallback for scenes saved without a stored center elevation: once the
-    // flight settles and destination terrain has loaded, sync to the relief if
-    // the elevation drifted.
-    if (!hasTerrain) return;
-    map.once('moveend', () => {
-        const elevation = map.queryTerrainElevation(map.getCenter());
-        if (typeof elevation !== 'number' || !Number.isFinite(elevation)) return;
-        if (Math.abs(map.getCenterElevation() - elevation) < 1) return;
-        map.setCenterElevation(elevation);
-        map.jumpTo(target);
-    });
 }

@@ -54,27 +54,14 @@ export const LIDAR_STYLE_DEFAULTS: MapStyleSettings = {
 };
 
 /**
- * Seed the per-view bundle from persisted state. Prefers the new
- * `mapStyleByView` shape; otherwise migrates from the legacy flat keys so
- * existing users keep their settings (the lidar copy defaults to the photo
- * basemap, matching the previous Studio behaviour).
+ * Seed the per-view bundle from persisted state, falling back to the per-view
+ * defaults (the LiDAR copy uses the photo/ortho basemap).
  */
 function seedByView(p: PersistedSettings): Record<AppView, MapStyleSettings> {
-    if (p.mapStyleByView) return p.mapStyleByView;
-    const base: MapStyleSettings = {
-        baseLayer: p.baseLayer ?? MAP_STYLE_DEFAULTS.baseLayer,
-        hillshadeEnabled: p.hillshadeEnabled ?? MAP_STYLE_DEFAULTS.hillshadeEnabled,
-        hillshadeSource: p.hillshadeSource ?? MAP_STYLE_DEFAULTS.hillshadeSource,
-        hillshadeBlend: p.hillshadeBlend ?? MAP_STYLE_DEFAULTS.hillshadeBlend,
-        hillshadeIntensity: p.hillshadeIntensity ?? MAP_STYLE_DEFAULTS.hillshadeIntensity,
-        sunHillshadeEnabled: p.sunHillshadeEnabled ?? MAP_STYLE_DEFAULTS.sunHillshadeEnabled,
-        terrainEnabled: p.terrainEnabled ?? MAP_STYLE_DEFAULTS.terrainEnabled,
-        terrainExaggeration: p.terrainExaggeration ?? MAP_STYLE_DEFAULTS.terrainExaggeration,
-        terrainDemSource: p.terrainDemSource ?? MAP_STYLE_DEFAULTS.terrainDemSource,
-        contourLinesEnabled: p.contourLinesEnabled ?? MAP_STYLE_DEFAULTS.contourLinesEnabled,
-        contourLinesOpacity: p.contourLinesOpacity ?? MAP_STYLE_DEFAULTS.contourLinesOpacity,
+    return p.mapStyleByView ?? {
+        map: { ...MAP_STYLE_DEFAULTS },
+        lidar: { ...LIDAR_STYLE_DEFAULTS },
     };
-    return { map: base, lidar: { ...base, baseLayer: LIDAR_STYLE_DEFAULTS.baseLayer } };
 }
 
 /** Top-level view at store-init time (URL is the source of truth). */

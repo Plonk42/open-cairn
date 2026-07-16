@@ -24,7 +24,6 @@
  */
 
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
-import { computeVegHeightStacked, DEFAULT_VEG_GROUND_GAP, sanitizeVegHeights } from './lidarBrowser/groundHeight';
 import type { ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 
@@ -190,7 +189,7 @@ interface ShadedMeta {
     hasTreeSeed?: boolean;
     /**
      * Whether the binary carries the per-point height-above-ground buffer
-     * (tag 11). When absent (legacy scenes) the heights are recomputed on load.
+     * (tag 11). Always baked at export; when absent the heights stay undefined.
      */
     hasHeight?: boolean;
     /**
@@ -553,34 +552,12 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>, tagOffset =
     };
 }
 
-/** Decoded geometry plus any presentation settings embedded in legacy binaries. */
+/** Decoded geometry buffers (point cloud / mesh) for one or more clouds. */
 export interface DecodedGeometry {
     shaded: LidarShadedCloudData | null;
     mesh: LidarMeshData | null;
     /** Extra clouds bundled in the scene, in the same order as encoded. */
     extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
-}
-
-/**
- * Re-derive per-point height-above-ground (and the robust canopy top that
- * drives the "Hauteur max · Auto" foliage scale) for a restored scene.
- *
- * Scenes baked with `hasHeight` already carry both buffers (see
- * {@link buildShaded}) and this is a no-op. It only runs for legacy scenes
- * saved before heights were persisted: we recompute them with the per-column
- * stacked-ground metric (see computeVegHeightStacked), using the default gap —
- * a costly main-thread pass the user can re-tune live afterwards. Mutates
- * `shaded` to attach `heightAboveGround` + `vegHeightAuto`.
- */
-function reconstructShadedHeights(shaded: LidarShadedCloudData): void {
-    if (shaded.heightAboveGround) return;
-    const heightAboveGround = computeVegHeightStacked(
-        shaded.positions, shaded.classifications, shaded.pointCount, DEFAULT_VEG_GROUND_GAP,
-    );
-    shaded.heightAboveGround = heightAboveGround;
-    shaded.vegHeightAuto = sanitizeVegHeights(
-        heightAboveGround, shaded.classifications, shaded.pointCount,
-    ) ?? undefined;
 }
 
 /** Parse a compressed binary blob into geometry buffers (point cloud / mesh). */
@@ -612,13 +589,11 @@ export async function decodeShowcaseGeometry(data: ArrayBuffer): Promise<Decoded
 
     const shaded = settings.shaded ? buildShaded(settings.shaded, buffers) : null;
     const mesh = settings.mesh ? buildMesh(settings.mesh, buffers) : null;
-    if (shaded) reconstructShadedHeights(shaded);
 
     const extraClouds = (settings.extraClouds ?? []).map((cloudMeta, i) => {
         const tagOffset = (i + 1) * CLOUD_TAG_STRIDE;
         const cloudShaded = cloudMeta.shaded ? buildShaded(cloudMeta.shaded, buffers, tagOffset) : null;
         const cloudMesh = cloudMeta.mesh ? buildMesh(cloudMeta.mesh, buffers, tagOffset) : null;
-        if (cloudShaded) reconstructShadedHeights(cloudShaded);
         return { shaded: cloudShaded, mesh: cloudMesh };
     });
 

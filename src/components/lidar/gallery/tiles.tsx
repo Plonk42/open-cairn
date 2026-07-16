@@ -1,5 +1,6 @@
 import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
 import { ignStaticMapUrl } from '@/lib/ign';
+import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import { CLOUD_MODE_LABELS, type SavedCloud } from '@/lib/savedClouds';
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
 import type { SceneLoadProgress } from '@/lib/showcaseScene';
@@ -192,7 +193,7 @@ function LocalTile({
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{scene.title}</div>
                     {scene.description && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-300">{scene.description}</p>}
-                    {(scene.cloudCount ?? 1) > 1 && (
+                    {scene.cloudCount > 1 && (
                         <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
                             <span className="rounded bg-slate-200/70 px-1 text-[10px] dark:bg-white/10">{scene.cloudCount} nuages</span>
                         </p>
@@ -255,7 +256,7 @@ function CloudThumb({ cloud }: Readonly<{ cloud: SavedCloud }>) {
     const src = ignStaticMapUrl({
         centerLng: cloud.centerLng,
         centerLat: cloud.centerLat,
-        radius: cloud.radius,
+        radius: rectEnclosingRadiusM(cloud.widthM, cloud.lengthM),
     });
     return (
         <div className="aspect-video w-full bg-slate-100 dark:bg-slate-900">
@@ -275,14 +276,9 @@ function formatCount(n: number): string {
     return String(n);
 }
 
-/** Capture-zone size label: the actual rectangle dims when known, falling back
- *  to the legacy enclosing-circle radius for entries saved before the
- *  rectangular capture zone existed. */
+/** Capture-zone size label from the rectangle dimensions. */
 function captureSizeLabel(cloud: SavedCloud): string {
-    if (cloud.widthM && cloud.lengthM) {
-        return `${Math.round(cloud.widthM)} × ${Math.round(cloud.lengthM)} m`;
-    }
-    return `r ${cloud.radius} m`;
+    return `${Math.round(cloud.widthM)} × ${Math.round(cloud.lengthM)} m`;
 }
 
 function RecentTile({

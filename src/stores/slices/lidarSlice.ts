@@ -701,7 +701,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     mode: state.lidarMode,
                     centerLng: center.lng,
                     centerLat: center.lat,
-                    radius: capture.radius,
                     widthM: capture.widthM,
                     lengthM: capture.lengthM,
                     stride: state.lidarCloudStride,
