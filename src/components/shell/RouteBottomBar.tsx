@@ -63,6 +63,7 @@ export function RouteBottomBar() {
         setPopover((cur) => (cur === id ? null : id));
 
     const handleOpenRoute = useCallback(() => {
+        setPopover(null);
         if (bottomMode === 'route' && bottomOpen) {
             setBottomOpen(false);
         } else {
@@ -75,6 +76,7 @@ export function RouteBottomBar() {
     }, [bottomMode, bottomOpen, setBottomMode, setActiveSlice]);
 
     const handleOpenCliff = useCallback(() => {
+        setPopover(null);
         if (bottomMode === 'cliff' && bottomOpen) {
             setBottomOpen(false);
         } else {
