@@ -37,6 +37,20 @@ export const POISSON_BASE_MARGIN_M = 3;
 const DEFAULT_POISSON_DEPTH = 9;
 
 /**
+ * Cap on the octree depth used to size the socle's floor/wall sample spacing.
+ * The floor and walls are perfectly flat/coplanar — unlike the terrain they
+ * carry no high-frequency detail, so sampling them at the FULL requested
+ * Poisson depth buys no reconstruction quality while `octreeCell` (and thus
+ * the point count) shrinks as `1 / 2^depth` per axis. That is a ~4x-per-step
+ * blow-up for the wall step (linear in depth) and up to ~16x for the floor
+ * (quadratic, area / step²) — plus tall walls (a capture spanning a big
+ * elevation range down to one shared base level) multiply the effect further.
+ * Depths beyond this cap only make the *terrain* mesh finer; the base keeps
+ * sampling as if reconstructed at this depth.
+ */
+export const POISSON_BASE_MAX_SAMPLE_DEPTH = 9;
+
+/**
  * The oriented capture rectangle in the east/north meter frame. When supplied,
  * the four walls follow these rotated edges exactly (instead of the axis-aligned
  * bounding box), so a tilted capture gets clean sides with no corner overshoot.
@@ -241,11 +255,14 @@ export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions =
     const baseZ = range.min - marginM;
 
     // Octree cell ≈ largest bbox side / 2^depth. Coplanar walls no longer alias,
-    // so the spacing only needs to stay near the solver resolution.
+    // so the spacing only needs to stay near the solver resolution — capped at
+    // POISSON_BASE_MAX_SAMPLE_DEPTH so a high terrain-detail depth doesn't also
+    // force a needlessly dense (and, on tall walls, hugely inflated) socle.
     const depth = opts.depth ?? DEFAULT_POISSON_DEPTH;
+    const sampleDepth = Math.min(depth, POISSON_BASE_MAX_SAMPLE_DEPTH);
     const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
     const extentZ = range.max - baseZ;
-    const octreeCell = Math.max(extentXY, extentZ) / 2 ** depth;
+    const octreeCell = Math.max(extentXY, extentZ) / 2 ** sampleDepth;
 
     const hStep = opts.wallHStepM ?? clamp(octreeCell, 0.25, 2);
     const vStep = opts.wallVStepM ?? clamp(octreeCell * 2, 0.5, 4);
