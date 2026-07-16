@@ -5,6 +5,7 @@ import { type MobileTab } from './components/panels/PanelTabs';
 import { AppHeaderBox } from './components/shell/AppHeaderBox';
 import { RouteBottomBar } from './components/shell/RouteBottomBar';
 import { ViewSwitch } from './components/shell/ViewSwitch';
+import { SavedRoutesGallery } from './components/ui/SavedRoutesGallery';
 import { useIsMobile } from './lib/useIsMobile';
 import { useShare } from './lib/useShare';
 import { useMapStore } from './stores/mapStore';
@@ -37,8 +38,9 @@ export function App() {
                 <AppHeaderBox />
             </div>
 
-            {/* View switch (Itinéraire ↔ Studio LiDAR). */}
-            <div className="absolute right-3 top-3 z-10">
+            {/* View switch (Itinéraire ↔ Studio LiDAR) + saved-routes gallery. */}
+            <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+                <SavedRoutesGallery />
                 <ViewSwitch />
             </div>
 

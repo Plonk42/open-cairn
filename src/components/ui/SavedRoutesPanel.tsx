@@ -39,7 +39,7 @@ function buildSparkline(
     return { line, area };
 }
 
-function PreviewThumb({ preview }: Readonly<{ preview: SavedRoutePreview }>) {
+export function PreviewThumb({ preview }: Readonly<{ preview: SavedRoutePreview }>) {
     const { coords, bbox, elevations, summit } = preview;
     const gradientId = useId();
     const W = 120, MAP_H = 56, GAP = 4, SPARK_H = 20, P = 6;
