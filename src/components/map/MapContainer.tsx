@@ -891,6 +891,11 @@ export function MapContainer() {
         return () => {
             map.remove();
             mapRef.current = null;
+            // The terrain control was owned by this now-destroyed map. Drop the
+            // stale reference so a freshly recreated map (StrictMode / Fast
+            // Refresh remount) re-adds its own control instead of skipping the
+            // add and later trying to remove a detached control.
+            terrainControlRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -917,10 +922,17 @@ export function MapContainer() {
         const map = mapRef.current;
         if (!map) return;
         if (studio) {
-            if (terrainControlRef.current) {
-                map.removeControl(terrainControlRef.current);
-                terrainControlRef.current = null;
+            const control = terrainControlRef.current;
+            // Guard against a stale reference: if the map was recreated (e.g. a
+            // StrictMode / Fast Refresh remount runs the init-effect cleanup,
+            // which destroys the previous map), the ref may point at a control
+            // that is no longer attached. Removing it would make MapLibre's
+            // onRemove dereference an undefined `_map` and throw, blanking the
+            // whole studio. Only remove a control that is actually still added.
+            if (control && map.hasControl(control)) {
+                map.removeControl(control);
             }
+            terrainControlRef.current = null;
         } else if (!terrainControlRef.current) {
             const control = new maplibregl.TerrainControl({
                 source: 'terrain',
