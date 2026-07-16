@@ -1,11 +1,11 @@
 import { CaptureIcon, OrbitIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import {
-    BottomBarItem,
     QuickBasemapSwitch,
     ResetSettingsButton,
     STUDIO_RENDER_SETTINGS,
     type StudioRenderSettingId,
 } from '@/components/lidar/StudioRenderSettings';
+import { BottomBar, BottomBarPill } from '@/components/shell/BottomBar';
 import { LidarCaptureControls } from '@/components/ui/lidar/LidarCaptureControls';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import { useMapStore } from '@/stores/mapStore';
@@ -17,39 +17,35 @@ export type { StudioRenderSettingId } from '@/components/lidar/StudioRenderSetti
  * Bottom overlay toolbar for the LiDAR Studio: a row of small pills (one per
  * render setting), each toggling a compact popover above it. One open at a
  * time; clicking anywhere outside collapses it. Desktop only.
+ *
+ * Built on the shared, theme-aware `BottomBar`; wrapped in a `dark` element so
+ * it keeps the studio's permanent dark look.
  */
 export function StudioBottomBar() {
     const [active, setActive] = useState<StudioRenderSettingId | null>(null);
-    const rootRef = useRef<HTMLDivElement>(null);
 
     const select = (id: StudioRenderSettingId) =>
         setActive((cur) => (cur === id ? null : id));
 
-    // Collapse the open popover on any outside interaction (map, top bar, …).
-    useEffect(() => {
-        if (!active) return;
-        const onPointerDown = (e: PointerEvent) => {
-            if (!rootRef.current?.contains(e.target as Node)) setActive(null);
-        };
-        globalThis.addEventListener('pointerdown', onPointerDown);
-        return () => globalThis.removeEventListener('pointerdown', onPointerDown);
-    }, [active]);
-
     return (
-        <div className="dark pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3 text-slate-100">
-            <div
-                ref={rootRef}
-                data-tutorial="render-settings"
-                className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
-            >
+        <div className="dark text-slate-100">
+            <BottomBar active={active !== null} onDismiss={() => setActive(null)} dataTutorial="render-settings">
                 <QuickBasemapSwitch />
                 <div className="mx-0.5 h-6 w-px bg-white/15" />
                 {STUDIO_RENDER_SETTINGS.map((s) => (
-                    <BottomBarItem key={s.id} setting={s} active={s.id === active} onSelect={select} />
+                    <BottomBarPill
+                        key={s.id}
+                        label={s.label}
+                        Icon={s.Icon}
+                        active={s.id === active}
+                        onSelect={() => select(s.id)}
+                    >
+                        {s.render()}
+                    </BottomBarPill>
                 ))}
                 <div className="mx-0.5 h-6 w-px bg-white/15" />
                 <ResetSettingsButton />
-            </div>
+            </BottomBar>
         </div>
     );
 }

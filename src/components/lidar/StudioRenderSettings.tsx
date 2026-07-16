@@ -82,37 +82,6 @@ export function QuickBasemapSwitch(): ReactElement {
     );
 }
 
-/** A single bottom-bar pill + its anchored popover (shown above when active). */
-export function BottomBarItem({ setting, active, onSelect }: Readonly<{
-    setting: StudioRenderSetting;
-    active: boolean;
-    onSelect: (id: StudioRenderSettingId) => void;
-}>): ReactElement {
-    const { Icon, label, id } = setting;
-    return (
-        <div className="relative">
-            {active && (
-                <div className="absolute bottom-full left-1/2 mb-2 w-80 -translate-x-1/2 overflow-hidden rounded-xl border border-white/10 bg-slate-950/90 shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
-                    <div className="scrollbar-slim max-h-[60vh] overflow-y-auto p-3">{setting.render()}</div>
-                </div>
-            )}
-            <button
-                type="button"
-                onClick={() => onSelect(id)}
-                title={label}
-                aria-label={label}
-                aria-pressed={active}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${active
-                    ? 'bg-emerald-500/20 text-emerald-200 ring-emerald-400/40'
-                    : 'bg-white/5 text-slate-200 ring-white/15 hover:bg-white/10'}`}
-            >
-                <Icon className="h-4 w-4" />
-                <span>{label}</span>
-            </button>
-        </div>
-    );
-}
-
 /** Resets every LiDAR render setting (opacity, classes, shader, lighting…) to defaults. */
 export function ResetSettingsButton(): ReactElement {
     const reset = useMapStore((s) => s.resetLidarRenderSettings);
