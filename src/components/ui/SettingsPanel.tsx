@@ -56,7 +56,7 @@ export function AppearanceSection() {
 }
 
 /** Hillshade blend-mode selector. */
-export function ShadingBlendSection() {
+export function ShadingBlendSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const hillshadeEnabled = useMapStore((s) => s.hillshadeEnabled);
     const baseLayer = useMapStore((s) => s.baseLayer);
     const hillshadeBlend = useMapStore((s) => s.hillshadeBlend);
@@ -64,12 +64,14 @@ export function ShadingBlendSection() {
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path d="M10 2a1 1 0 011 1v1.323a7.022 7.022 0 013.927 2.07l.936-.935a1 1 0 111.414 1.414l-.935.936A7.022 7.022 0 0118.412 12H19a1 1 0 110 2h-1.27a7.024 7.024 0 01-5.32 5.32V20a1 1 0 11-2 0v-.68A7.02 7.02 0 014.07 14H3a1 1 0 110-2h.588a7.022 7.022 0 012.07-3.927l-.936-.936a1 1 0 011.414-1.414l.936.935A7.022 7.022 0 019 4.323V3a1 1 0 011-1zm0 4a5 5 0 100 10 5 5 0 000-10z" />
-                </svg>
-                Ombrage
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M10 2a1 1 0 011 1v1.323a7.022 7.022 0 013.927 2.07l.936-.935a1 1 0 111.414 1.414l-.935.936A7.022 7.022 0 0118.412 12H19a1 1 0 110 2h-1.27a7.024 7.024 0 01-5.32 5.32V20a1 1 0 11-2 0v-.68A7.02 7.02 0 014.07 14H3a1 1 0 110-2h.588a7.022 7.022 0 012.07-3.927l-.936-.936a1 1 0 011.414-1.414l.936.935A7.022 7.022 0 019 4.323V3a1 1 0 011-1zm0 4a5 5 0 100 10 5 5 0 000-10z" />
+                    </svg>
+                    Ombrage
+                </h3>
+            )}
             <div>
                 <div className="mb-1 text-xs text-slate-500">Mode de fusion</div>
                 <select
@@ -90,7 +92,7 @@ export function ShadingBlendSection() {
 }
 
 /** Render quality + composite tile cache size. */
-export function RenderSection() {
+export function RenderSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const renderQuality = useMapStore((s) => s.renderQuality);
     const setRenderQuality = useMapStore((s) => s.setRenderQuality);
     const tileCacheSize = useMapStore((s) => s.tileCacheSize);
@@ -98,12 +100,14 @@ export function RenderSection() {
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0L2.5 11.06zm11-4.31a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0z" clipRule="evenodd" />
-                </svg>
-                Rendu
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0L2.5 11.06zm11-4.31a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0z" clipRule="evenodd" />
+                    </svg>
+                    Rendu
+                </h3>
+            )}
             <div className="grid grid-cols-2 gap-1.5">
                 {RENDER_QUALITIES.map((id) => (
                     <button
@@ -150,18 +154,20 @@ export function RenderSection() {
 }
 
 /** Route profile options (colour elevation by slope). */
-export function RouteProfileSection() {
+export function RouteProfileSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path fillRule="evenodd" d="M8.157 2.176a1.5 1.5 0 00-1.147 0l-4.084 1.69A1.5 1.5 0 002 5.25v10.877a1.5 1.5 0 002.074 1.386l3.51-1.452 4.26 1.762a1.5 1.5 0 001.146 0l4.083-1.69A1.5 1.5 0 0018 14.75V3.872a1.5 1.5 0 00-2.073-1.386l-3.51 1.452-4.26-1.762zM7.58 5a.75.75 0 01.75.75v6.5a.75.75 0 01-1.5 0v-6.5A.75.75 0 017.58 5zm5.59 2.75a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5z" clipRule="evenodd" />
-                </svg>
-                Itinéraire
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M8.157 2.176a1.5 1.5 0 00-1.147 0l-4.084 1.69A1.5 1.5 0 002 5.25v10.877a1.5 1.5 0 002.074 1.386l3.51-1.452 4.26 1.762a1.5 1.5 0 001.146 0l4.083-1.69A1.5 1.5 0 0018 14.75V3.872a1.5 1.5 0 00-2.073-1.386l-3.51 1.452-4.26-1.762zM7.58 5a.75.75 0 01.75.75v6.5a.75.75 0 01-1.5 0v-6.5A.75.75 0 017.58 5zm5.59 2.75a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5z" clipRule="evenodd" />
+                    </svg>
+                    Itinéraire
+                </h3>
+            )}
             <label className="flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
                 <span>Pente colorée sur le profil</span>
                 <input
@@ -176,19 +182,21 @@ export function RouteProfileSection() {
 }
 
 /** GPX import/export options (intermediate waypoint count). */
-export function GpxSection() {
+export function GpxSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
     const setGpxImportWaypoints = useRouteStore((s) => s.setGpxImportWaypoints);
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
-                    <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
-                </svg>
-                Import / Export GPX
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+                        <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                    </svg>
+                    Import / Export GPX
+                </h3>
+            )}
             <label className="flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
                 <span>Points intermédiaires</span>
                 <input
@@ -209,19 +217,21 @@ export function GpxSection() {
 }
 
 /** 3D relief DEM source (Auto / IGN / Mapterhorn). */
-export function TerrainDemSection() {
+export function TerrainDemSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const terrainDemSource = useMapStore((s) => s.terrainDemSource);
     const setTerrainDemSource = useMapStore((s) => s.setTerrainDemSource);
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path fillRule="evenodd" d="M1 17.25a.75.75 0 01.45-.688l5.5-2.357 5.385 2.308a.75.75 0 00.59 0l5.385-2.308.24.103a.75.75 0 11-.59 1.379l-5.33 2.285a.75.75 0 01-.59 0L7.5 15.66l-5.05 2.164A.75.75 0 011 17.25zm6.95-13.94a.75.75 0 01.59 0l8 3.429a.75.75 0 010 1.379l-8 3.428a.75.75 0 01-.59 0l-8-3.428a.75.75 0 010-1.38l8-3.428z" clipRule="evenodd" />
-                </svg>
-                Relief 3D (MNT)
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M1 17.25a.75.75 0 01.45-.688l5.5-2.357 5.385 2.308a.75.75 0 00.59 0l5.385-2.308.24.103a.75.75 0 11-.59 1.379l-5.33 2.285a.75.75 0 01-.59 0L7.5 15.66l-5.05 2.164A.75.75 0 011 17.25zm6.95-13.94a.75.75 0 01.59 0l8 3.429a.75.75 0 010 1.379l-8 3.428a.75.75 0 01-.59 0l-8-3.428a.75.75 0 010-1.38l8-3.428z" clipRule="evenodd" />
+                    </svg>
+                    Relief 3D (MNT)
+                </h3>
+            )}
             <div className="grid grid-cols-3 gap-1.5">
                 {TERRAIN_DEM_SOURCES.map((id) => (
                     <button
@@ -245,7 +255,7 @@ export function TerrainDemSection() {
 }
 
 /** IGN API keys (SCAN 25 WMTS + Terrain 3D WMS-r). */
-export function ApiKeysSection() {
+export function ApiKeysSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const setIgnScanApiKey = useMapStore((s) => s.setIgnScanApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
@@ -253,12 +263,14 @@ export function ApiKeysSection() {
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
-                </svg>
-                Clés API IGN
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+                    </svg>
+                    Clés API IGN
+                </h3>
+            )}
             <label className="mb-2 block text-sm text-slate-700 dark:text-slate-300">
                 <span className="mb-1 block text-xs text-slate-500">SCAN 25 (WMTS privé)</span>
                 <input

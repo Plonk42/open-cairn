@@ -12,19 +12,21 @@ const SHADOW_TITLES: Record<HillshadeSource, string> = {
 };
 
 /** Base-map picker (SCAN 25 / Plan / Ortho / OSM / LiDAR). */
-export function BaseLayerSection() {
+export function BaseLayerSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const baseLayer = useMapStore((s) => s.baseLayer);
     const setBaseLayer = useMapStore((s) => s.setBaseLayer);
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
 
     return (
         <div>
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                </svg>
-                Fond de carte
-            </h3>
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                    </svg>
+                    Fond de carte
+                </h3>
+            )}
             <div className="grid grid-cols-2 gap-1.5">
                 {BASES.map((id) => {
                     const disabled = id === 'scan25' && !ignScanApiKey;
@@ -111,25 +113,30 @@ export function HillshadeSection() {
     );
 }
 
-/** Contour lines toggle + opacity. */
-export function ContourSection() {
-    const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
-    const setContourLinesEnabled = useMapStore((s) => s.setContourLinesEnabled);
+/** Contour lines opacity (0 % disables the layer, à la Studio). */
+export function ContourSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
     const setContourLinesOpacity = useMapStore((s) => s.setContourLinesOpacity);
+    const setContourLinesEnabled = useMapStore((s) => s.setContourLinesEnabled);
+
+    const applyOpacity = (v: number) => {
+        setContourLinesOpacity(v);
+        // Opacity is the single control: any value above 0 turns the layer on,
+        // 0 turns it off — no separate enable checkbox (mirrors the Studio).
+        setContourLinesEnabled(v > 0);
+    };
 
     return (
         <div>
-            <label className="flex items-center justify-between gap-3">
-                <span className="text-sm text-slate-700 dark:text-slate-300">Courbes de niveau</span>
-                <input
-                    type="checkbox"
-                    checked={contourLinesEnabled}
-                    onChange={(e) => setContourLinesEnabled(e.target.checked)}
-                    className="h-4 w-4 accent-green-600"
-                />
-            </label>
-            <label className="mt-2 block">
+            {!hideTitle && (
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-3.5 w-3.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-3 5-4 8-4s6 1 8 4M4 15c2-2 4-3 6-3s4 1 6 3M7 8.5c1-1 2-1.5 3-1.5s2 .5 3 1.5" />
+                    </svg>
+                    Courbes de niveau
+                </h3>
+            )}
+            <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                     <span>Opacité</span>
                     <span className="font-mono text-xs text-slate-400">
@@ -139,13 +146,12 @@ export function ContourSection() {
                 <input
                     aria-label="Opacité courbes de niveau"
                     type="range"
-                    min={0.1}
+                    min={0}
                     max={1}
                     step={0.05}
                     value={contourLinesOpacity}
-                    onChange={(e) => setContourLinesOpacity(Number(e.target.value))}
-                    disabled={!contourLinesEnabled}
-                    className="mt-1 w-full accent-green-600 disabled:opacity-40"
+                    onChange={(e) => applyOpacity(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
                 />
             </label>
         </div>
@@ -153,7 +159,7 @@ export function ContourSection() {
 }
 
 /** 3D terrain toggle + exaggeration + dynamic sun hillshade. */
-export function Terrain3DSection() {
+export function Terrain3DSection({ hideTitle }: Readonly<{ hideTitle?: boolean }>) {
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const setTerrainEnabled = useMapStore((s) => s.setTerrainEnabled);
     const sunHillshadeEnabled = useMapStore((s) => s.sunHillshadeEnabled);
@@ -164,9 +170,13 @@ export function Terrain3DSection() {
     return (
         <div>
             <label className="flex items-center justify-between gap-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Terrain 3D
-                </h3>
+                {hideTitle ? (
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Terrain 3D</span>
+                ) : (
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Terrain 3D
+                    </h3>
+                )}
                 <input
                     aria-label="Activer terrain 3D"
                     type="checkbox"

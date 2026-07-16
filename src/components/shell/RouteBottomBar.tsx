@@ -8,7 +8,6 @@ import {
 } from '@/components/ui/LayerSwitcher';
 import {
     ApiKeysSection,
-    AppearanceSection,
     GpxSection,
     RenderSection,
     RouteProfileSection,
@@ -67,14 +66,6 @@ function RenderIcon({ className }: Readonly<{ className?: string }>) {
     );
 }
 
-function ThemeIcon({ className }: Readonly<{ className?: string }>) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
-            <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 1.5V16.5a6.5 6.5 0 010-13z" />
-        </svg>
-    );
-}
-
 function ProfileIcon({ className }: Readonly<{ className?: string }>) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
@@ -98,7 +89,7 @@ const SETTINGS_PILLS: ReadonlyArray<{
     Icon: (props: { className?: string }) => ReactElement;
     render: () => ReactElement;
 }> = [
-    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
+    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection hideTitle /> },
     {
         id: 'ombrage',
         label: 'Ombrage',
@@ -107,38 +98,37 @@ const SETTINGS_PILLS: ReadonlyArray<{
             <>
                 <HillshadeSection />
                 <SectionDivider />
-                <ShadingBlendSection />
+                <ShadingBlendSection hideTitle />
             </>
         ),
     },
-    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
+    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection hideTitle /> },
     {
         id: 'terrain',
         label: 'Terrain',
         Icon: MountainIcon,
         render: () => (
             <>
-                <Terrain3DSection />
+                <Terrain3DSection hideTitle />
                 <SectionDivider />
-                <TerrainDemSection />
+                <TerrainDemSection hideTitle />
             </>
         ),
     },
-    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection /> },
-    { id: 'apparence', label: 'Apparence', Icon: ThemeIcon, render: () => <AppearanceSection /> },
+    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection hideTitle /> },
     {
         id: 'profil',
         label: 'Profil',
         Icon: ProfileIcon,
         render: () => (
             <>
-                <RouteProfileSection />
+                <RouteProfileSection hideTitle />
                 <SectionDivider />
-                <GpxSection />
+                <GpxSection hideTitle />
             </>
         ),
     },
-    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection /> },
+    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection hideTitle /> },
 ];
 
 function RouteIcon({ className }: Readonly<{ className?: string }>) {
