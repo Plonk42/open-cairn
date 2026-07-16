@@ -61,19 +61,32 @@ export function BottomBarPill({ label, Icon, active, onSelect, children }: Reado
                     </div>
                 </div>
             )}
-            <button
-                type="button"
-                onClick={onSelect}
-                title={label}
-                aria-label={label}
-                aria-pressed={active}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${active
-                    ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
-                    : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
-            >
-                {Icon && <Icon className="h-4 w-4" />}
-                <span>{label}</span>
-            </button>
+            <BottomBarButton label={label} Icon={Icon} active={active} onSelect={onSelect} />
         </div>
+    );
+}
+
+/** A plain bottom-bar pill button (no popover), sharing the pill styling. */
+export function BottomBarButton({ label, Icon, active, onSelect, title }: Readonly<{
+    label: string;
+    Icon?: (props: IconProps) => ReactElement;
+    active: boolean;
+    onSelect: () => void;
+    title?: string;
+}>): ReactElement {
+    return (
+        <button
+            type="button"
+            onClick={onSelect}
+            title={title ?? label}
+            aria-label={label}
+            aria-pressed={active}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${active
+                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
+                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
+        >
+            {Icon && <Icon className="h-4 w-4" />}
+            <span>{label}</span>
+        </button>
     );
 }
