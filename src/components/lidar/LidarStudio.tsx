@@ -1,6 +1,7 @@
 import { EyeIcon, EyeOffIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import { MapSlot } from '@/components/map/MapSlot';
-import { useView } from '@/lib/useView';
+import { AppHeaderBox } from '@/components/shell/AppHeaderBox';
+import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useMapStore } from '@/stores/mapStore';
 import type { LoadedLidarCloud } from '@/stores/slices/lidarSlice';
 import type maplibregl from 'maplibre-gl';
@@ -40,58 +41,36 @@ function useStudioCameraIntro() {
     }, []);
 }
 
-function StudioTopBar({
-    onExit,
-    onHelp,
-}: Readonly<{ onExit: () => void; onHelp: () => void }>) {
+function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
     return (
-        <div className="pointer-events-auto absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-3 py-2.5">
-            {/* Groupe gauche : Studio LiDAR + Orbite + Export + Galerie */}
-            <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
-                <div className="flex items-center gap-2 px-1.5 text-sm font-semibold text-white">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-300">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                            <circle cx="4" cy="6" r="1.2" /><circle cx="10" cy="4" r="1.2" /><circle cx="16" cy="7" r="1.2" />
-                            <circle cx="6" cy="11" r="1.2" /><circle cx="13" cy="12" r="1.2" /><circle cx="4" cy="16" r="1.2" />
-                            <circle cx="11" cy="17" r="1.2" /><circle cx="17" cy="14" r="1.2" />
-                        </svg>
-                    </span>
-                    <span>Studio LiDAR</span>
-                </div>
-
-                {/* Showcase : galerie et export. */}
-                <div className="mx-0.5 h-6 w-px bg-white/15" />
-                <div className="flex items-center gap-1.5">
-                    <OrbitTopBarButton />
-                    <ShowcaseExport />
-                    <ShowcaseGallery />
-                    <button
-                        type="button"
-                        onClick={onHelp}
-                        title="Revoir le tutoriel"
-                        aria-label="Revoir le tutoriel"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/5 text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.94 6.94a1.5 1.5 0 0 1 2.56 1.06c0 .58-.34.92-.93 1.36-.66.5-1.07 1-1.07 1.89v.25a.75.75 0 0 0 1.5 0v-.16c0-.4.18-.62.74-1.04.66-.5 1.26-1.13 1.26-2.3a3 3 0 0 0-5.86-.9.75.75 0 0 0 1.43.46c.04-.13.1-.26.18-.38ZM10 15.25a.94.94 0 1 0 0-1.88.94.94 0 0 0 0 1.88Z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                </div>
+        <div className="dark pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-3 px-3 py-2.5">
+            {/* Shared app header box (logo + name + search + coordinates). */}
+            <div className="pointer-events-auto">
+                <AppHeaderBox />
             </div>
 
-            {/* Quitter */}
-            <button
-                type="button"
-                onClick={onExit}
-                data-tutorial="exit"
-                className="ml-auto inline-flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 px-3 py-3 text-xs font-medium text-slate-200 shadow-2xl ring-1 ring-white/10 backdrop-blur-md transition hover:bg-white/10"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                    <path fillRule="evenodd" d="M3 4.25A2.25 2.25 0 0 1 5.25 2h5.5A2.25 2.25 0 0 1 13 4.25v2a.75.75 0 0 1-1.5 0v-2a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 0 0 .75-.75v-2a.75.75 0 0 1 1.5 0v2A2.25 2.25 0 0 1 10.75 18h-5.5A2.25 2.25 0 0 1 3 15.75V4.25Z" clipRule="evenodd" />
-                    <path fillRule="evenodd" d="M19 10a.75.75 0 0 0-.75-.75H8.704l1.048-1.07a.75.75 0 1 0-1.004-1.11l-2.5 2.25a.75.75 0 0 0 0 1.11l2.5 2.25a.75.75 0 1 0 1.004-1.11L8.704 10.75h9.546A.75.75 0 0 0 19 10Z" clipRule="evenodd" />
-                </svg>
-                Quitter le studio
-            </button>
+            {/* Studio action group : Orbite + Export + Galerie + aide. */}
+            <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/85 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
+                <OrbitTopBarButton />
+                <ShowcaseExport />
+                <ShowcaseGallery />
+                <button
+                    type="button"
+                    onClick={onHelp}
+                    title="Revoir le tutoriel"
+                    aria-label="Revoir le tutoriel"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/5 text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.94 6.94a1.5 1.5 0 0 1 2.56 1.06c0 .58-.34.92-.93 1.36-.66.5-1.07 1-1.07 1.89v.25a.75.75 0 0 0 1.5 0v-.16c0-.4.18-.62.74-1.04.66-.5 1.26-1.13 1.26-2.3a3 3 0 0 0-5.86-.9.75.75 0 0 0 1.43.46c.04-.13.1-.26.18-.38ZM10 15.25a.94.94 0 1 0 0-1.88.94.94 0 0 0 0 1.88Z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+
+            {/* View switch (replaces the old "Quitter le studio" button). */}
+            <div data-tutorial="exit" className="pointer-events-auto ml-auto">
+                <ViewSwitch />
+            </div>
         </div>
     );
 }
@@ -423,7 +402,6 @@ function StudioCloudLocator() {
  * map view, and composes the extracted control bricks into a retractable dock.
  */
 export function LidarStudio() {
-    const { setView } = useView();
     const shaded = useMapStore((s) => s.lidarShaded);
     const mesh = useMapStore((s) => s.lidarMesh);
     const loading = useMapStore((s) => s.lidarCloudLoading);
@@ -452,7 +430,7 @@ export function LidarStudio() {
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">
             <MapSlot />
 
-            <StudioTopBar onExit={() => setView('map')} onHelp={() => setTutorialOpen(true)} />
+            <StudioTopBar onHelp={() => setTutorialOpen(true)} />
 
             <StudioCloudLocator />
 
