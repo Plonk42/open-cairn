@@ -1,12 +1,30 @@
 import { BottomPanelContent } from '@/components/panels/PanelTabs';
 import { BottomBar, BottomBarButton, BottomBarPill } from '@/components/shell/BottomBar';
-import { LayerSwitcher } from '@/components/ui/LayerSwitcher';
-import { SettingsPanel } from '@/components/ui/SettingsPanel';
+import {
+    BaseLayerSection,
+    ContourSection,
+    HillshadeSection,
+    Terrain3DSection,
+} from '@/components/ui/LayerSwitcher';
+import {
+    ApiKeysSection,
+    AppearanceSection,
+    GpxSection,
+    RenderSection,
+    RouteProfileSection,
+    ShadingBlendSection,
+    TerrainDemSection,
+} from '@/components/ui/SettingsPanel';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
-type Popover = 'layers' | 'settings' | null;
+type Popover = string | null;
+
+/** Thin divider between two stacked sections inside a single pill's popover. */
+function SectionDivider() {
+    return <div className="my-3 h-px bg-gray-200 dark:bg-slate-700" />;
+}
 
 function LayersIcon({ className }: Readonly<{ className?: string }>) {
     return (
@@ -16,13 +34,112 @@ function LayersIcon({ className }: Readonly<{ className?: string }>) {
     );
 }
 
-function SettingsGearIcon({ className }: Readonly<{ className?: string }>) {
+function ShadingIcon({ className }: Readonly<{ className?: string }>) {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
-            <path fillRule="evenodd" d="M8.34 1.804A1 1 0 019.32 1h1.36a1 1 0 01.98.804l.295 1.473c.497.179.971.41 1.416.69l1.38-.588a1 1 0 011.12.258l.962.962a1 1 0 01.258 1.12l-.588 1.38c.28.445.511.919.69 1.416l1.473.295A1 1 0 0119 9.32v1.36a1 1 0 01-.804.98l-1.473.295c-.179.497-.41.971-.69 1.416l.588 1.38a1 1 0 01-.258 1.12l-.962.962a1 1 0 01-1.12.258l-1.38-.588c-.445.28-.919.511-1.416.69l-.295 1.473A1 1 0 0110.68 19H9.32a1 1 0 01-.98-.804l-.295-1.473a7.957 7.957 0 01-1.416-.69l-1.38.588a1 1 0 01-1.12-.258l-.962-.962a1 1 0 01-.258-1.12l.588-1.38a7.957 7.957 0 01-.69-1.416l-1.473-.295A1 1 0 011 10.68V9.32a1 1 0 01.804-.98l1.473-.295c.179-.497.41-.971.69-1.416l-.588-1.38a1 1 0 01.258-1.12l.962-.962a1 1 0 011.12-.258l1.38.588c.445-.28.919-.511 1.416-.69l.295-1.473zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" className={className} aria-hidden="true">
+            <circle cx="10" cy="10" r="6.5" />
+            <path fill="currentColor" stroke="none" d="M10 3.5a6.5 6.5 0 000 13V3.5z" />
         </svg>
     );
 }
+
+function ContourIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.2" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-3 5-4 8-4s6 1 8 4M4 15c2-2 4-3 6-3s4 1 6 3M7 8.5c1-1 2-1.5 3-1.5s2 .5 3 1.5" />
+        </svg>
+    );
+}
+
+function MountainIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2 16l4.5-8 3 5 2.5-4.5L18 16H2z" />
+        </svg>
+    );
+}
+
+function RenderIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0L2.5 11.06zm11-4.31a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0z" clipRule="evenodd" />
+        </svg>
+    );
+}
+
+function ThemeIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 1.5V16.5a6.5 6.5 0 010-13z" />
+        </svg>
+    );
+}
+
+function ProfileIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2 15l4-6 3 3 4-7 5 10" />
+        </svg>
+    );
+}
+
+function KeyIcon({ className }: Readonly<{ className?: string }>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+            <path fillRule="evenodd" d="M8 1a5 5 0 00-4.546 7.09L1 10.543V14a1 1 0 001 1h3v-2h2v-2h1.457A5 5 0 108 1zm2.5 3.5a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+        </svg>
+    );
+}
+
+/** Config for the "layers/settings" pills — mirrors Studio's per-setting pills. */
+const SETTINGS_PILLS: ReadonlyArray<{
+    id: string;
+    label: string;
+    Icon: (props: { className?: string }) => ReactElement;
+    render: () => ReactElement;
+}> = [
+    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
+    {
+        id: 'ombrage',
+        label: 'Ombrage',
+        Icon: ShadingIcon,
+        render: () => (
+            <>
+                <HillshadeSection />
+                <SectionDivider />
+                <ShadingBlendSection />
+            </>
+        ),
+    },
+    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
+    {
+        id: 'terrain',
+        label: 'Terrain',
+        Icon: MountainIcon,
+        render: () => (
+            <>
+                <Terrain3DSection />
+                <SectionDivider />
+                <TerrainDemSection />
+            </>
+        ),
+    },
+    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection /> },
+    { id: 'apparence', label: 'Apparence', Icon: ThemeIcon, render: () => <AppearanceSection /> },
+    {
+        id: 'profil',
+        label: 'Profil',
+        Icon: ProfileIcon,
+        render: () => (
+            <>
+                <RouteProfileSection />
+                <SectionDivider />
+                <GpxSection />
+            </>
+        ),
+    },
+    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection /> },
+];
 
 function RouteIcon({ className }: Readonly<{ className?: string }>) {
     return (
@@ -165,22 +282,17 @@ export function RouteBottomBar() {
 
             {/* Bottom pill bar. */}
             <BottomBar active={popover !== null} onDismiss={() => setPopover(null)}>
-                <BottomBarPill
-                    label="Couches"
-                    Icon={LayersIcon}
-                    active={popover === 'layers'}
-                    onSelect={() => togglePopover('layers')}
-                >
-                    <LayerSwitcher />
-                </BottomBarPill>
-                <BottomBarPill
-                    label="Réglages"
-                    Icon={SettingsGearIcon}
-                    active={popover === 'settings'}
-                    onSelect={() => togglePopover('settings')}
-                >
-                    <SettingsPanel />
-                </BottomBarPill>
+                {SETTINGS_PILLS.map((pill) => (
+                    <BottomBarPill
+                        key={pill.id}
+                        label={pill.label}
+                        Icon={pill.Icon}
+                        active={popover === pill.id}
+                        onSelect={() => togglePopover(pill.id)}
+                    >
+                        {pill.render()}
+                    </BottomBarPill>
+                ))}
                 <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
                 <BottomBarButton
                     label="Itinéraire"
