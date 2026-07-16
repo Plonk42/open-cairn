@@ -89,7 +89,7 @@ const SETTINGS_PILLS: ReadonlyArray<{
     Icon: (props: { className?: string }) => ReactElement;
     render: () => ReactElement;
 }> = [
-    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection hideTitle /> },
+    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
     {
         id: 'ombrage',
         label: 'Ombrage',
@@ -98,37 +98,37 @@ const SETTINGS_PILLS: ReadonlyArray<{
             <>
                 <HillshadeSection />
                 <SectionDivider />
-                <ShadingBlendSection hideTitle />
+                <ShadingBlendSection />
             </>
         ),
     },
-    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection hideTitle /> },
+    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
     {
         id: 'terrain',
         label: 'Terrain',
         Icon: MountainIcon,
         render: () => (
             <>
-                <Terrain3DSection hideTitle />
+                <Terrain3DSection />
                 <SectionDivider />
-                <TerrainDemSection hideTitle />
+                <TerrainDemSection />
             </>
         ),
     },
-    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection hideTitle /> },
+    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection /> },
     {
         id: 'profil',
         label: 'Profil',
         Icon: ProfileIcon,
         render: () => (
             <>
-                <RouteProfileSection hideTitle />
+                <RouteProfileSection />
                 <SectionDivider />
-                <GpxSection hideTitle />
+                <GpxSection />
             </>
         ),
     },
-    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection hideTitle /> },
+    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection /> },
 ];
 
 function RouteIcon({ className }: Readonly<{ className?: string }>) {
