@@ -22,6 +22,14 @@ const LidarStudio = lazy(() =>
  */
 export function Root() {
     const { view } = useView();
+    const uiTheme = useMapStore((s) => s.uiTheme);
+
+    // Apply the UI theme at the document root so it drives every view. This
+    // lives here (not in `App`) because `App` is only mounted for the map view
+    // — the Studio would otherwise never react to the theme toggle.
+    useEffect(() => {
+        document.documentElement.classList.toggle('dark', uiTheme === 'dark');
+    }, [uiTheme]);
 
     // Mirror the URL-driven top-level view into the store so the map-style
     // setters know which per-view copy to write, and swap the active style

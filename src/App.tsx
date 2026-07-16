@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { MapSlot } from './components/map/MapSlot';
 import { MobileLayout } from './components/MobileLayout';
 import { type MobileTab } from './components/panels/PanelTabs';
@@ -8,17 +8,11 @@ import { ViewSwitch } from './components/shell/ViewSwitch';
 import { SavedRoutesGallery } from './components/ui/SavedRoutesGallery';
 import { useIsMobile } from './lib/useIsMobile';
 import { useShare } from './lib/useShare';
-import { useMapStore } from './stores/mapStore';
 
 export function App() {
     const isMobile = useIsMobile();
     const { shareTooltip, handleShare } = useShare();
     const [mobileTab, setMobileTab] = useState<MobileTab>('map');
-    const uiTheme = useMapStore((s) => s.uiTheme);
-
-    useEffect(() => {
-        document.documentElement.classList.toggle('dark', uiTheme === 'dark');
-    }, [uiTheme]);
 
     if (isMobile) {
         return <MobileLayout

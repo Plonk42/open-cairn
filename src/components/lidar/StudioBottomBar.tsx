@@ -28,25 +28,23 @@ export function StudioBottomBar() {
         setActive((cur) => (cur === id ? null : id));
 
     return (
-        <div className="dark text-slate-100">
-            <BottomBar active={active !== null} onDismiss={() => setActive(null)} dataTutorial="render-settings">
-                <QuickBasemapSwitch />
-                <div className="mx-0.5 h-6 w-px bg-white/15" />
-                {STUDIO_RENDER_SETTINGS.map((s) => (
-                    <BottomBarPill
-                        key={s.id}
-                        label={s.label}
-                        Icon={s.Icon}
-                        active={s.id === active}
-                        onSelect={() => select(s.id)}
-                    >
-                        {s.render()}
-                    </BottomBarPill>
-                ))}
-                <div className="mx-0.5 h-6 w-px bg-white/15" />
-                <ResetSettingsButton />
-            </BottomBar>
-        </div>
+        <BottomBar active={active !== null} onDismiss={() => setActive(null)} dataTutorial="render-settings">
+            <QuickBasemapSwitch />
+            <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
+            {STUDIO_RENDER_SETTINGS.map((s) => (
+                <BottomBarPill
+                    key={s.id}
+                    label={s.label}
+                    Icon={s.Icon}
+                    active={s.id === active}
+                    onSelect={() => select(s.id)}
+                >
+                    {s.render()}
+                </BottomBarPill>
+            ))}
+            <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
+            <ResetSettingsButton />
+        </BottomBar>
     );
 }
 
@@ -62,8 +60,8 @@ export function OrbitTopBarButton() {
             aria-label="Orbite automatique autour du LiDAR"
             aria-pressed={orbiting}
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${orbiting
-                ? 'bg-emerald-500/20 text-emerald-200 ring-emerald-400/40'
-                : 'bg-white/5 text-slate-200 ring-white/15 hover:bg-white/10'}`}
+                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
+                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
         >
             <OrbitIcon className="h-4 w-4" />
             <span>Orbite</span>
@@ -114,15 +112,15 @@ export function StudioCaptureButton() {
     return (
         <div className="absolute bottom-4 right-4 z-30 flex flex-col items-end gap-3">
             {open && (
-                <div className="dark flex max-h-[70vh] w-80 flex-col overflow-hidden rounded-xl border border-white/10 bg-slate-950/90 text-slate-100 shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
-                    <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2.5">
-                        <h2 className="text-sm font-semibold text-white">Capture</h2>
+                <div className="flex max-h-[70vh] w-80 flex-col overflow-hidden rounded-xl border border-black/5 bg-white/95 text-slate-800 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:text-slate-100 dark:ring-white/10">
+                    <div className="flex shrink-0 items-center justify-between border-b border-black/5 px-3 py-2.5 dark:border-white/10">
+                        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Capture</h2>
                         <button
                             type="button"
                             onClick={() => setOpen(false)}
                             title="Fermer"
                             aria-label="Fermer le panneau"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-300 transition hover:bg-white/10"
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-black/10 dark:text-slate-300 dark:hover:bg-white/10"
                         >
                             <PopoverCloseIcon />
                         </button>

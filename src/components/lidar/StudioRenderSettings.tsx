@@ -63,7 +63,7 @@ export function QuickBasemapSwitch(): ReactElement {
     return (
         <div className="flex items-center gap-1.5">
             {/* Basemap layer selector (Photo / Plan). */}
-            <div className="inline-flex items-center overflow-hidden rounded-md ring-1 ring-white/15">
+            <div className="inline-flex items-center overflow-hidden rounded-md ring-1 ring-black/10 dark:ring-white/15">
                 <fieldset className="inline-flex">
                     {BASEMAPS.map(({ id, label }) => (
                         <button
@@ -71,7 +71,7 @@ export function QuickBasemapSwitch(): ReactElement {
                             type="button"
                             onClick={() => setBaseLayer(id)}
                             aria-pressed={baseLayer === id}
-                            className={`px-2.5 py-1 text-xs transition ${baseLayer === id ? 'bg-emerald-500 text-white' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                            className={`px-2.5 py-1 text-xs transition ${baseLayer === id ? 'bg-emerald-500 text-white' : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'}`}
                         >
                             {label}
                         </button>
@@ -91,7 +91,7 @@ export function ResetSettingsButton(): ReactElement {
             onClick={() => reset()}
             title="Réinitialiser tous les réglages de rendu"
             aria-label="Réinitialiser tous les réglages de rendu"
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10"
+            className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
         >
             <ResetIcon className="h-4 w-4" />
             <span>Réinit.</span>

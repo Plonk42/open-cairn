@@ -231,12 +231,12 @@ export function ShowcaseExport() {
                 onClick={() => { setError(null); setPrompting(true); }}
                 disabled={!hasData || busy}
                 title={exportTitle}
-                className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/15 transition hover:bg-white/10 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 disabled:opacity-40 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
             >
                 <DownloadIcon className="h-4 w-4" />
                 <span>{busy ? 'Export…' : 'Exporter cette vue'}</span>
             </button>
-            {error && <span className="text-xs text-rose-300">{error}</span>}
+            {error && <span className="text-xs text-rose-500 dark:text-rose-300">{error}</span>}
 
             {prompting && (
                 <ExportDialog
