@@ -1,3 +1,4 @@
+import { GalleryIcon } from '@/components/lidar/gallery/tiles';
 import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
 import { formatDistance, formatElevation } from '@/lib/geo';
 import {
@@ -144,13 +145,12 @@ export function SavedRoutesGallery() {
         <>
             <button
                 type="button"
+                data-tutorial="routes-gallery"
                 onClick={() => setOpen(true)}
                 title="Mes itinéraires"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white/85 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-black/5 backdrop-blur-md transition hover:bg-white dark:bg-slate-950/85 dark:text-slate-200 dark:ring-white/10 dark:hover:bg-slate-900"
+                className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                    <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
-                </svg>
+                <GalleryIcon className="h-4 w-4" />
                 <span>Itinéraires</span>
             </button>
 

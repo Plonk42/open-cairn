@@ -32,9 +32,12 @@ export function App() {
                 <AppHeaderBox />
             </div>
 
-            {/* View switch (Itinéraire ↔ Studio LiDAR) + saved-routes gallery. */}
-            <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-                <SavedRoutesGallery />
+            {/* View switch (Itinéraire ↔ Studio LiDAR) + saved-routes gallery.
+                The gallery lives in an action group mirroring the Studio top bar. */}
+            <div className="absolute right-3 top-3 z-10 flex items-center gap-3">
+                <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
+                    <SavedRoutesGallery />
+                </div>
                 <ViewSwitch />
             </div>
 
