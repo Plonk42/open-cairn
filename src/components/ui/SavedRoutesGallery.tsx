@@ -130,6 +130,8 @@ export function SavedRoutesGallery() {
     const setRouteActive = useRouteStore((s) => s.setActive);
     const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
     const fitBounds = useMapStore((s) => s.fitBounds);
+    const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
+    const setGpxImportWaypoints = useRouteStore((s) => s.setGpxImportWaypoints);
 
     const handleLoad = (r: SavedRoute) => {
         importRoute(r.waypoints, r.segments);
@@ -184,6 +186,21 @@ export function SavedRoutesGallery() {
                         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10">
                             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Galerie d’itinéraires</h2>
                             <div className="flex items-center gap-1.5">
+                                <label className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15">
+                                    <span className="whitespace-nowrap">Points intermédiaires</span>
+                                    <input
+                                        aria-label="Nombre de points intermédiaires à l'import GPX"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={gpxImportWaypoints}
+                                        onChange={(e) => {
+                                            const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                                            setGpxImportWaypoints(v);
+                                        }}
+                                        className="w-12 rounded bg-white px-1.5 py-0.5 text-center text-xs text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-600"
+                                    />
+                                </label>
                                 <button
                                     type="button"
                                     onClick={() => { handleImportGpx(); }}

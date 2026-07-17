@@ -735,6 +735,10 @@ export function MapContainer() {
             centerClampedToGround: true,
             attributionControl: false,
             hash: true,
+            // Disable MapLibre's default bearing-snap-to-north (7° threshold)
+            // so the bearing isn't force-aligned to 0 when the user ends a
+            // rotate gesture close to north.
+            bearingSnap: 0,
         });
         mapRef.current = map;
         useMapStore.getState().setMapInstance(map);

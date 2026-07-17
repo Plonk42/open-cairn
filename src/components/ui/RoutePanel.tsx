@@ -56,6 +56,7 @@ export function RoutePanel() {
     const mode = useRouteStore((s) => s.mode);
     const setMode = useRouteStore((s) => s.setMode);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
+    const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
     const waypoints = useRouteStore((s) => s.waypoints);
     const routeSegments = useRouteStore((s) => s.routeSegments);
     const profile = useRouteStore((s) => s.profile);
@@ -315,7 +316,22 @@ export function RoutePanel() {
             {/* Content: chart + collapsible waypoints */}
             <div className={isMobile ? 'flex flex-col gap-2' : 'mt-2 flex min-h-0 flex-1'}>
                 {/* Elevation chart (fills remaining space) */}
-                <div className={isMobile ? 'h-40 w-full' : 'min-w-0 flex-1'}>
+                <div className={`relative ${isMobile ? 'h-40 w-full' : 'min-w-0 flex-1'}`}>
+                    <button
+                        type="button"
+                        onClick={() => setColorElevationBySlope(!colorElevationBySlope)}
+                        aria-pressed={colorElevationBySlope}
+                        className={`absolute right-1.5 top-1.5 z-10 flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] font-medium ring-1 transition ${colorElevationBySlope
+                            ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700'
+                            : 'bg-white/80 text-slate-500 ring-gray-200 hover:bg-gray-100 dark:bg-slate-800/80 dark:text-slate-400 dark:ring-slate-600 dark:hover:bg-slate-700'
+                            }`}
+                        title="Colorer le profil selon la pente"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2 15l4-6 3 3 4-7 5 10" />
+                        </svg>
+                        Pente colorée
+                    </button>
                     <ElevationChart
                         samples={profile}
                         waypointMarkers={waypointMarkers}

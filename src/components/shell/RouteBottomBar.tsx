@@ -8,9 +8,7 @@ import {
 } from '@/components/ui/LayerSwitcher';
 import {
     ApiKeysSection,
-    GpxSection,
     RenderSection,
-    RouteProfileSection,
     ShadingBlendSection,
     TerrainDemSection,
 } from '@/components/ui/SettingsPanel';
@@ -19,6 +17,15 @@ import { useRouteStore } from '@/stores/routeStore';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
 type Popover = string | null;
+
+// Track auto-expand transitions at MODULE scope (not component state/refs) so
+// they survive `RouteBottomBar` unmounting when the user switches to the
+// LiDAR Studio and back — otherwise a plain useRef resets on remount and
+// wrongly re-detects a "0 → N" / "not ready → ready" transition that already
+// happened earlier in the session, forcing the panel back open even after
+// the user explicitly collapsed it.
+let prevRouteWaypointCount = 0;
+let prevCliffSliceReady = false;
 
 /** Thin divider between two stacked sections inside a single pill's popover. */
 function SectionDivider() {
@@ -58,26 +65,11 @@ function MountainIcon({ className }: Readonly<{ className?: string }>) {
     );
 }
 
-function RenderIcon({ className }: Readonly<{ className?: string }>) {
+function AdvancedIcon({ className }: Readonly<{ className?: string }>) {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
-            <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0L2.5 11.06zm11-4.31a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0z" clipRule="evenodd" />
-        </svg>
-    );
-}
-
-function ProfileIcon({ className }: Readonly<{ className?: string }>) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2 15l4-6 3 3 4-7 5 10" />
-        </svg>
-    );
-}
-
-function KeyIcon({ className }: Readonly<{ className?: string }>) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
-            <path fillRule="evenodd" d="M8 1a5 5 0 00-4.546 7.09L1 10.543V14a1 1 0 001 1h3v-2h2v-2h1.457A5 5 0 108 1zm2.5 3.5a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.6 2.5h2.8l.4 2.02c.5.17.96.42 1.38.71l1.94-.68 1.4 2.42-1.53 1.4a5.7 5.7 0 010 1.6l1.53 1.4-1.4 2.42-1.94-.68c-.42.29-.88.54-1.38.71l-.4 2.02H8.6l-.4-2.02a5.6 5.6 0 01-1.38-.71l-1.94.68-1.4-2.42 1.53-1.4a5.7 5.7 0 010-1.6L3.48 6.97l1.4-2.42 1.94.68c.42-.29.88-.54 1.38-.71l.4-2.02z" />
+            <circle cx="10" cy="10" r="2.3" />
         </svg>
     );
 }
@@ -89,47 +81,45 @@ const SETTINGS_PILLS: ReadonlyArray<{
     Icon: (props: { className?: string }) => ReactElement;
     render: () => ReactElement;
 }> = [
-    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
-    {
-        id: 'ombrage',
-        label: 'Ombrage',
-        Icon: ShadingIcon,
-        render: () => (
-            <>
-                <HillshadeSection />
-                <SectionDivider />
-                <ShadingBlendSection />
-            </>
-        ),
-    },
-    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
-    {
-        id: 'terrain',
-        label: 'Terrain',
-        Icon: MountainIcon,
-        render: () => (
-            <>
-                <Terrain3DSection />
-                <SectionDivider />
-                <TerrainDemSection />
-            </>
-        ),
-    },
-    { id: 'rendu', label: 'Rendu', Icon: RenderIcon, render: () => <RenderSection /> },
-    {
-        id: 'profil',
-        label: 'Profil',
-        Icon: ProfileIcon,
-        render: () => (
-            <>
-                <RouteProfileSection />
-                <SectionDivider />
-                <GpxSection />
-            </>
-        ),
-    },
-    { id: 'cles', label: 'Clés API', Icon: KeyIcon, render: () => <ApiKeysSection /> },
-];
+        { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
+        {
+            id: 'ombrage',
+            label: 'Ombrage',
+            Icon: ShadingIcon,
+            render: () => (
+                <>
+                    <HillshadeSection />
+                    <SectionDivider />
+                    <ShadingBlendSection />
+                </>
+            ),
+        },
+        { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
+        {
+            id: 'terrain',
+            label: 'Terrain',
+            Icon: MountainIcon,
+            render: () => (
+                <>
+                    <Terrain3DSection />
+                    <SectionDivider />
+                    <TerrainDemSection />
+                </>
+            ),
+        },
+        {
+            id: 'avance',
+            label: 'Avancé',
+            Icon: AdvancedIcon,
+            render: () => (
+                <>
+                    <RenderSection />
+                    <SectionDivider />
+                    <ApiKeysSection />
+                </>
+            ),
+        },
+    ];
 
 function RouteIcon({ className }: Readonly<{ className?: string }>) {
     return (
@@ -157,11 +147,12 @@ function CliffIcon({ className }: Readonly<{ className?: string }>) {
  */
 export function RouteBottomBar() {
     const [popover, setPopover] = useState<Popover>(null);
-    const [bottomOpen, setBottomOpen] = useState(false);
     const [bottomHeight, setBottomHeight] = useState(330);
 
     const bottomMode = useMapStore((s) => s.bottomMode);
     const setBottomMode = useMapStore((s) => s.setBottomMode);
+    const bottomOpen = useMapStore((s) => s.bottomOpen);
+    const setBottomOpen = useMapStore((s) => s.setBottomOpen);
     const setActiveSlice = useMapStore((s) => s.setCliffSliceActive);
     const setActiveRoute = useRouteStore((s) => s.setActive);
     const lidarLoaded = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
@@ -198,25 +189,26 @@ export function RouteBottomBar() {
 
     // Auto-expand the Itinéraire panel when the first waypoint is added.
     const waypoints = useRouteStore((s) => s.waypoints);
-    const prevWaypointCount = useRef(0);
     useEffect(() => {
-        if (waypoints.length > 0 && prevWaypointCount.current === 0) {
+        if (waypoints.length > 0 && prevRouteWaypointCount === 0) {
             setBottomOpen(true);
         }
-        prevWaypointCount.current = waypoints.length;
-    }, [waypoints.length]);
+        prevRouteWaypointCount = waypoints.length;
+    }, [waypoints.length, setBottomOpen]);
 
     // Auto-expand bottom panel when the cliff-slice polyline has ≥2 points
     // (covers share-link reload and the case where the user keeps adding points
-    // after collapsing the panel).
+    // after collapsing the panel). Guarded on the not-ready→ready transition
+    // (see `prevCliffSliceReady` above) so it doesn't re-fire on every remount.
     const slicePointCount = useMapStore((s) => s.cliffSlicePoints.length);
     const sliceReady = slicePointCount >= 2;
     useEffect(() => {
-        if (sliceReady) {
+        if (sliceReady && !prevCliffSliceReady) {
             setBottomMode('cliff');
             setBottomOpen(true);
         }
-    }, [sliceReady, setBottomMode]);
+        prevCliffSliceReady = sliceReady;
+    }, [sliceReady, setBottomMode, setBottomOpen]);
 
     const resizingRef = useRef(false);
     const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {

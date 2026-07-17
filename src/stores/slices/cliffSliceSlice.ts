@@ -1,8 +1,8 @@
 import type { CliffStation } from '@/lib/cliffSlice';
 import type { LngLatTuple } from '@/lib/geo';
 import type { StateCreator } from 'zustand';
-import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
+import { persisted, type PersistedSettings } from '../persistence';
 
 export interface CliffSliceSlice {
     /** True while the user is picking points of the slice polyline on the map. */
@@ -11,6 +11,14 @@ export interface CliffSliceSlice {
     /** Which bottom panel is currently shown: route or cliff. Drives map click routing. */
     bottomMode: 'route' | 'cliff';
     setBottomMode: (m: 'route' | 'cliff') => void;
+    /**
+     * Whether the resizable route/cliff editing panel is expanded. Lives in
+     * the store (not component state) so it survives `App` unmounting when
+     * the user switches to the LiDAR Studio and back — otherwise the panel
+     * would always re-open on return.
+     */
+    bottomOpen: boolean;
+    setBottomOpen: (v: boolean) => void;
     /** Polyline vertices in WGS84 (≥2 → slice is drawn). */
     cliffSlicePoints: LngLatTuple[];
     setCliffSlicePoints: (pts: LngLatTuple[]) => void;
@@ -49,6 +57,8 @@ export const createCliffSliceSlice: StateCreator<MapState, [], [], CliffSliceSli
     setCliffSliceActive: (cliffSliceActive) => set({ cliffSliceActive }),
     bottomMode: 'route',
     setBottomMode: (bottomMode) => set({ bottomMode }),
+    bottomOpen: false,
+    setBottomOpen: (bottomOpen) => set({ bottomOpen }),
     cliffSlicePoints: [],
     setCliffSlicePoints: (cliffSlicePoints) => set({ cliffSlicePoints }),
     addCliffSlicePoint: (p) => set((s) => ({ cliffSlicePoints: [...s.cliffSlicePoints, p] })),

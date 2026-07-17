@@ -5,7 +5,6 @@ import {
     type BlendMode,
 } from '@/lib/compositeProtocol';
 import { RENDER_QUALITY_LABELS, TERRAIN_DEM_SOURCE_LABELS, useMapStore, type RenderQuality, type TerrainDemSource, type UiTheme } from '@/stores/mapStore';
-import { useRouteStore } from '@/stores/routeStore';
 
 const RENDER_QUALITIES: RenderQuality[] = ['balanced', 'sharp'];
 const TERRAIN_DEM_SOURCES: TerrainDemSource[] = ['auto', 'ign', 'mapterhorn'];
@@ -86,6 +85,7 @@ export function RenderSection() {
 
     return (
         <div>
+            <div className="mb-2 text-xs font-medium text-slate-500">Qualité de rendu</div>
             <div className="grid grid-cols-2 gap-1.5">
                 {RENDER_QUALITIES.map((id) => (
                     <button
@@ -131,52 +131,6 @@ export function RenderSection() {
     );
 }
 
-/** Route profile options (colour elevation by slope). */
-export function RouteProfileSection() {
-    const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
-    const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
-
-    return (
-        <div>
-            <label className="flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
-                <span>Pente colorée sur le profil</span>
-                <input
-                    type="checkbox"
-                    checked={colorElevationBySlope}
-                    onChange={(event) => setColorElevationBySlope(event.target.checked)}
-                    className="h-4 w-4 accent-green-600"
-                />
-            </label>
-        </div>
-    );
-}
-
-/** GPX import/export options (intermediate waypoint count). */
-export function GpxSection() {
-    const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
-    const setGpxImportWaypoints = useRouteStore((s) => s.setGpxImportWaypoints);
-
-    return (
-        <div>
-            <label className="flex items-center justify-between gap-3 text-sm text-slate-700 dark:text-slate-300">
-                <span>Points intermédiaires</span>
-                <input
-                    aria-label="Nombre de points intermédiaires à l'import GPX"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={gpxImportWaypoints}
-                    onChange={(e) => {
-                        const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                        setGpxImportWaypoints(v);
-                    }}
-                    className="w-14 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
-                />
-            </label>
-        </div>
-    );
-}
-
 /** 3D relief DEM source (Auto / IGN / Mapterhorn). */
 export function TerrainDemSection() {
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
@@ -216,6 +170,7 @@ export function ApiKeysSection() {
 
     return (
         <div>
+            <div className="mb-2 text-xs font-medium text-slate-500">Clés API IGN</div>
             <label className="mb-2 block text-sm text-slate-700 dark:text-slate-300">
                 <span className="mb-1 block text-xs text-slate-500">SCAN 25 (WMTS privé)</span>
                 <input
@@ -253,10 +208,6 @@ export function SettingsPanel() {
             <ShadingBlendSection />
             <div className="h-px bg-gray-200 dark:bg-slate-700" />
             <RenderSection />
-            <div className="h-px bg-gray-200 dark:bg-slate-700" />
-            <RouteProfileSection />
-            <div className="h-px bg-gray-200 dark:bg-slate-700" />
-            <GpxSection />
             <div className="h-px bg-gray-200 dark:bg-slate-700" />
             <TerrainDemSection />
             <div className="h-px bg-gray-200 dark:bg-slate-700" />
