@@ -1,5 +1,13 @@
+import {
+    RESOLUTION_OPTIONS,
+    readResolution,
+    writeResolution,
+    type ExportResolutionScale,
+} from '@/lib/screenshot';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+
+export type { ExportResolutionScale } from '@/lib/screenshot';
 
 /** Persisted export destination choice (survives across exports). */
 const TARGET_KEY = 'open-cairn-export-target';
@@ -23,34 +31,6 @@ function readTarget(): ExportTarget {
 function writeTarget(target: ExportTarget): void {
     try {
         localStorage.setItem(TARGET_KEY, JSON.stringify(target));
-    } catch { /* ignore quota */ }
-}
-
-/** Persisted PNG export resolution multiplier (survives across exports). */
-const RESOLUTION_KEY = 'open-cairn-export-resolution';
-
-/** Supersampling multiplier applied on top of the map's current pixel ratio. */
-export type ExportResolutionScale = 1 | 2 | 3 | 4;
-
-const RESOLUTION_OPTIONS: ReadonlyArray<{ value: ExportResolutionScale; label: string }> = [
-    { value: 1, label: 'Écran (×1)' },
-    { value: 2, label: 'Haute définition (×2)' },
-    { value: 3, label: 'Très haute définition (×3)' },
-    { value: 4, label: 'Ultra HD (×4)' },
-];
-
-function readResolution(): ExportResolutionScale {
-    try {
-        const raw = localStorage.getItem(RESOLUTION_KEY);
-        const n = raw ? Number(raw) : 1;
-        if (n === 2 || n === 3 || n === 4) return n;
-    } catch { /* ignore */ }
-    return 1;
-}
-
-function writeResolution(scale: ExportResolutionScale): void {
-    try {
-        localStorage.setItem(RESOLUTION_KEY, String(scale));
     } catch { /* ignore quota */ }
 }
 

@@ -1,4 +1,4 @@
-import { CaptureIcon, OrbitIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
+import { CaptureIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import {
     QuickBasemapSwitch,
     ResetSettingsButton,
@@ -7,7 +7,6 @@ import {
 } from '@/components/lidar/StudioRenderSettings';
 import { BottomBar, BottomBarPill } from '@/components/shell/BottomBar';
 import { LidarCaptureControls } from '@/components/ui/lidar/LidarCaptureControls';
-import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 
@@ -45,27 +44,6 @@ export function StudioBottomBar() {
             <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
             <ResetSettingsButton />
         </BottomBar>
-    );
-}
-
-/** Orbit auto toggle for the top bar, sitting beside "Galerie" / "Exporter cette vue". */
-export function OrbitTopBarButton() {
-    const { orbiting, setOrbiting } = useOrbit();
-    return (
-        <button
-            type="button"
-            data-tutorial="orbit"
-            onClick={() => setOrbiting((o) => !o)}
-            title="Orbite automatique autour du LiDAR"
-            aria-label="Orbite automatique autour du LiDAR"
-            aria-pressed={orbiting}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${orbiting
-                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
-                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
-        >
-            <OrbitIcon className="h-4 w-4" />
-            <span>Orbite</span>
-        </button>
     );
 }
 

@@ -1,14 +1,14 @@
 import { EyeIcon, EyeOffIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import { MapSlot } from '@/components/map/MapSlot';
 import { AppHeaderBox } from '@/components/shell/AppHeaderBox';
+import { TopBarActions } from '@/components/shell/TopBarActions';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useMapStore } from '@/stores/mapStore';
 import type { LoadedLidarCloud } from '@/stores/slices/lidarSlice';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
-import { ShowcaseGallery } from './ShowcaseGallery';
-import { OrbitTopBarButton, StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
+import { StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -49,23 +49,8 @@ function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
                 <AppHeaderBox />
             </div>
 
-            {/* Studio action group : Orbite + Export + Galerie + aide. */}
-            <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
-                <OrbitTopBarButton />
-                <ShowcaseExport />
-                <ShowcaseGallery />
-                <button
-                    type="button"
-                    onClick={onHelp}
-                    title="Revoir le tutoriel"
-                    aria-label="Revoir le tutoriel"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-black/5 text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.94 6.94a1.5 1.5 0 0 1 2.56 1.06c0 .58-.34.92-.93 1.36-.66.5-1.07 1-1.07 1.89v.25a.75.75 0 0 0 1.5 0v-.16c0-.4.18-.62.74-1.04.66-.5 1.26-1.13 1.26-2.3a3 3 0 0 0-5.86-.9.75.75 0 0 0 1.43.46c.04-.13.1-.26.18-.38ZM10 15.25a.94.94 0 1 0 0-1.88.94.94 0 0 0 0 1.88Z" clipRule="evenodd" />
-                    </svg>
-                </button>
-            </div>
+            {/* Shared action group: Orbite + galleries + full scene export + aide. */}
+            <TopBarActions view="lidar" exportSlot={<ShowcaseExport />} onHelp={onHelp} />
 
             {/* View switch (replaces the old "Quitter le studio" button). */}
             <div data-tutorial="exit" className="pointer-events-auto ml-auto">

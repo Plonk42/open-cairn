@@ -1,5 +1,6 @@
-import { ExportDialog, type ExportResolutionScale, type ExportTarget } from '@/components/lidar/ExportDialog';
+import { ExportDialog, type ExportTarget } from '@/components/lidar/ExportDialog';
 import { saveScene } from '@/lib/savedScenes';
+import { downloadMapScreenshot, timestampId, triggerDownload, type ExportResolutionScale } from '@/lib/screenshot';
 import { extractAmbiance } from '@/lib/showcaseAmbiance';
 import { encodeShowcaseGeometry, serializeShowcaseManifest, type ShowcaseScene } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
@@ -17,23 +18,6 @@ function DownloadIcon({ className }: Readonly<{ className?: string }>) {
     );
 }
 
-function timestampId(): string {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `scene-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-}
-
 /** Best-effort webp thumbnail of the current rendered frame. */
 async function captureThumbnail(): Promise<Uint8Array | null> {
     const map = useMapStore.getState().mapInstance;
@@ -48,69 +32,6 @@ async function captureThumbnail(): Promise<Uint8Array | null> {
     });
     if (!blob) return null;
     return new Uint8Array(await blob.arrayBuffer());
-}
-
-/** Resolves after two animation frames — enough for a Zustand store update to
- *  flow through a subscribed component's `useEffect` (here, `LidarCloudOverlay`
- *  pushing `lodForceLevel` into its `LidarWebGLLayer.setConfig`) and land in
- *  time for the next real paint. */
-function waitTwoFrames(): Promise<void> {
-    return new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    });
-}
-
-/**
- * Download the current rendered frame straight to a standard `.png` image.
- *
- * Temporary overrides are applied for the capture, then restored once the
- * frame's been read back:
- *  - the distance-based point/mesh LOD is pinned to level 0 (full detail) —
- *    exported screenshots shouldn't bake in the decimation used to keep
- *    interactive framerates smooth while panning/zooming;
- *  - when `resolution` is greater than 1, the map's pixel ratio is boosted
- *    (supersampled) so the exported image is sharper than what's currently
- *    on screen — and the point-size multiplier is boosted by the same
- *    factor, since `gl_PointSize` is in drawing-buffer pixels: without this,
- *    non-ground points (rendered as GL points, unlike the ground mesh) would
- *    shrink relative to the exported image.
- */
-async function downloadFrame(filename: string, resolution: ExportResolutionScale): Promise<boolean> {
-    const map = useMapStore.getState().mapInstance;
-    if (!map) return false;
-
-    const originalLodForceLevel = useMapStore.getState().lidarLodForceLevel;
-    const originalPointSizeMultiplier = useMapStore.getState().lidarPointSizeMultiplier;
-    useMapStore.getState().setLidarLodForceLevel(0);
-    useMapStore.getState().setLidarPointSizeMultiplier(resolution);
-    await waitTwoFrames();
-
-    const originalRatio = map.getPixelRatio();
-    const boosted = resolution > 1;
-    if (boosted) map.setPixelRatio(originalRatio * resolution);
-
-    await new Promise<void>((resolve) => {
-        map.once('render', () => resolve());
-        map.triggerRepaint();
-    });
-
-    const canvas = map.getCanvas();
-    const blob = await new Promise<Blob | null>((resolve) => {
-        try {
-            canvas.toBlob((b) => resolve(b), 'image/png');
-        } catch {
-            resolve(null);
-        }
-    });
-
-    if (boosted) map.setPixelRatio(originalRatio);
-    useMapStore.getState().setLidarLodForceLevel(originalLodForceLevel);
-    useMapStore.getState().setLidarPointSizeMultiplier(originalPointSizeMultiplier);
-    map.triggerRepaint();
-
-    if (!blob) return false;
-    triggerDownload(blob, filename);
-    return true;
 }
 
 /** Bundle the baked geometry, manifest and thumbnail into a single `.zip`. */
@@ -214,7 +135,7 @@ export function ShowcaseExport() {
     // no "Mes vues" entry, no zip.
     const onDownloadImage = async (resolution: ExportResolutionScale) => {
         setError(null);
-        const ok = await downloadFrame(`${timestampId()}.png`, resolution);
+        const ok = await downloadMapScreenshot(`${timestampId()}.png`, resolution);
         if (!ok) setError('Capture d’écran indisponible.');
     };
 
