@@ -1,6 +1,5 @@
 import { CursorCoordinates } from '@/components/map/CursorCoordinates';
 import { SearchBox } from '@/components/map/SearchBox';
-import { useShare } from '@/lib/useShare';
 import { useMapStore } from '@/stores/mapStore';
 
 /** Sun (→ switch to light) / moon (→ switch to dark) glyph for the theme toggle. */
@@ -30,17 +29,18 @@ function ThemeToggle() {
 }
 
 /**
- * Shared top-left chrome box: app logo + name + theme toggle + Share button +
- * search field + cursor coordinates. Theme-aware (light default + `dark:`
- * variants) so it can be composed into both the classic Itinéraire view and
- * the LiDAR Studio, both following `uiTheme`.
+ * Shared top-left chrome box: app logo + name + theme toggle + search field +
+ * cursor coordinates. Theme-aware (light default + `dark:` variants) so it can
+ * be composed into both the classic Itinéraire view and the LiDAR Studio, both
+ * following `uiTheme`.
  *
- * Self-contained — owns its own `useShare` so both views get identical
- * share-copy behaviour without threading props through.
+ * The "Partager" (copy-link) action deliberately lives NOT here but in the
+ * Itinéraire view's action group (`RouteShareButton`, beside "Exporter cette
+ * vue"): a share URL can't carry a LiDAR cloud, so it only makes sense in the
+ * Itinéraire view — keeping it out of this shared box avoids implying it works
+ * in the Studio.
  */
 export function AppHeaderBox() {
-    const { shareTooltip, handleShare } = useShare();
-
     return (
         <div className="w-72">
             <div className="overflow-hidden rounded-lg bg-white/85 shadow-sm ring-1 ring-black/5 backdrop-blur-md dark:bg-slate-900/75 dark:ring-white/10">
@@ -53,23 +53,6 @@ export function AppHeaderBox() {
                     </svg>
                     <span className="text-slate-700 dark:text-slate-100">open-cairn</span>
                     <ThemeToggle />
-                    <button
-                        type="button"
-                        onClick={handleShare}
-                        className="pointer-events-auto relative flex items-center gap-1 rounded-md bg-green-600/10 px-2 py-0.5 text-xs font-medium text-green-700 transition hover:bg-green-600/20 dark:bg-emerald-400/10 dark:text-emerald-300 dark:hover:bg-emerald-400/20"
-                        title="Partager la vue actuelle"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
-                            <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                        </svg>
-                        Partager
-                        {shareTooltip && (
-                            <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white shadow dark:bg-slate-700">
-                                Lien copié !
-                            </span>
-                        )}
-                    </button>
                 </div>
                 <div className="border-t border-black/5 dark:border-white/10">
                     <SearchBox flat />

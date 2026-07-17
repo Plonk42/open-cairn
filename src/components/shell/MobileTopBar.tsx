@@ -1,6 +1,5 @@
 import { SearchBox } from '@/components/map/SearchBox';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
-import { useShare } from '@/lib/useShare';
 import { useMapStore } from '@/stores/mapStore';
 import { useState, type ReactNode } from 'react';
 
@@ -31,15 +30,16 @@ function ThemeToggle() {
 }
 
 /**
- * Shared compact mobile top overlay: app badge (logo + theme toggle + share +
- * search toggle) on the left, an optional `actions` node and the `ViewSwitch`
- * on the right, and an expandable IGN search field. Theme-aware — composed
- * identically into the Itinéraire and Studio mobile shells so switching views
- * keeps the chrome in place.
+ * Shared compact mobile top overlay: app badge (logo + theme toggle + search
+ * toggle) on the left, an optional `actions` node and the `ViewSwitch` on the
+ * right, and an expandable IGN search field. Theme-aware — composed identically
+ * into the Itinéraire and Studio mobile shells so switching views keeps the
+ * chrome in place. The "Partager" (copy-link) action is NOT here — it lives in
+ * the Itinéraire view's actions menu only (see `RouteShareButton`), since a
+ * share URL can't carry a LiDAR cloud.
  */
 export function MobileTopBar({ actions }: Readonly<{ actions?: ReactNode }>) {
     const [searchOpen, setSearchOpen] = useState(false);
-    const { shareTooltip, handleShare } = useShare();
 
     return (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-1.5 p-2">
@@ -52,23 +52,6 @@ export function MobileTopBar({ actions }: Readonly<{ actions?: ReactNode }>) {
                         <circle cx="8" cy="4.5" r="2" opacity="0.9" />
                     </svg>
                     <ThemeToggle />
-                    <button
-                        type="button"
-                        onClick={handleShare}
-                        title="Partager la vue actuelle"
-                        aria-label="Partager la vue actuelle"
-                        className="relative flex h-7 w-7 items-center justify-center rounded-md text-green-700 transition hover:bg-green-600/10 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                            <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
-                            <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                        </svg>
-                        {shareTooltip && (
-                            <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-0.5 text-[10px] text-white shadow dark:bg-slate-700">
-                                Lien copié !
-                            </span>
-                        )}
-                    </button>
                     <button
                         type="button"
                         onClick={() => setSearchOpen((o) => !o)}

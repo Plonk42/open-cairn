@@ -3,6 +3,7 @@ import { MobileLayout } from './components/MobileLayout';
 import { AppHeaderBox } from './components/shell/AppHeaderBox';
 import { RouteBottomBar } from './components/shell/RouteBottomBar';
 import { RouteExportButton } from './components/shell/RouteExportButton';
+import { RouteShareButton } from './components/shell/RouteShareButton';
 import { TopBarActions } from './components/shell/TopBarActions';
 import { ViewSwitch } from './components/shell/ViewSwitch';
 import { useIsMobile } from './lib/useIsMobile';
@@ -25,7 +26,7 @@ export function App() {
                 <div className="pointer-events-auto">
                     <AppHeaderBox />
                 </div>
-                <TopBarActions view="map" exportSlot={<RouteExportButton />} />
+                <TopBarActions view="map" exportSlot={<><RouteExportButton /><RouteShareButton /></>} />
                 <div className="pointer-events-auto ml-auto">
                     <ViewSwitch />
                 </div>
