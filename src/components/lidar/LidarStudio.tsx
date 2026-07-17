@@ -1,14 +1,19 @@
 import { EyeIcon, EyeOffIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import { MapSlot } from '@/components/map/MapSlot';
 import { AppHeaderBox } from '@/components/shell/AppHeaderBox';
+import { MobileActionsMenu } from '@/components/shell/MobileActionsMenu';
+import { MobileToolbar } from '@/components/shell/MobileToolbar';
+import { MobileTopBar } from '@/components/shell/MobileTopBar';
 import { TopBarActions } from '@/components/shell/TopBarActions';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import type { LoadedLidarCloud } from '@/stores/slices/lidarSlice';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
 import { StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
+import { QuickBasemapSwitch, ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -201,7 +206,7 @@ function CloudListRow({ cloud, onScreen }: Readonly<{ cloud: LoadedLidarCloud; o
 }
 
 /** Single-cloud pill: today's familiar compact layout (recenter + delete). */
-function SingleCloudPill({ cloud, onScreen }: Readonly<{ cloud: LoadedLidarCloud; onScreen: boolean }>) {
+function SingleCloudPill({ cloud, onScreen, anchorClassName }: Readonly<{ cloud: LoadedLidarCloud; onScreen: boolean; anchorClassName: string }>) {
     const footprint = cloudFootprint(cloud);
     const pointCount = cloud.shaded?.pointCount ?? null;
     const triangleCount = cloud.mesh?.triangleCount ?? null;
@@ -213,7 +218,7 @@ function SingleCloudPill({ cloud, onScreen }: Readonly<{ cloud: LoadedLidarCloud
     };
 
     return (
-        <div className="pointer-events-none absolute bottom-20 right-4 z-30 flex justify-end">
+        <div className={`pointer-events-none absolute z-30 flex justify-end ${anchorClassName}`}>
             <div
                 className={`pointer-events-auto inline-flex items-center gap-1 rounded-full py-1 pl-1 pr-1 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${onScreen
                     ? 'bg-slate-950/80 text-slate-200 ring-white/15'
@@ -315,13 +320,13 @@ function CloudListPanel({
 
 /** Multi-cloud pill: count badge that expands into the full list. */
 function MultiCloudPill({
-    clouds, onScreenById,
-}: Readonly<{ clouds: readonly LoadedLidarCloud[]; onScreenById: Record<string, boolean> }>) {
+    clouds, onScreenById, anchorClassName,
+}: Readonly<{ clouds: readonly LoadedLidarCloud[]; onScreenById: Record<string, boolean>; anchorClassName: string }>) {
     const [expanded, setExpanded] = useState(false);
     const anyOnScreen = clouds.some((c) => onScreenById[c.id]);
 
     return (
-        <div className="pointer-events-none absolute bottom-20 right-4 z-30 flex flex-col items-end gap-2">
+        <div className={`pointer-events-none absolute z-30 flex flex-col items-end gap-2 ${anchorClassName}`}>
             {expanded && (
                 <CloudListPanel clouds={clouds} onScreenById={onScreenById} onCollapse={() => setExpanded(false)} />
             )}
@@ -349,7 +354,7 @@ function MultiCloudPill({
  * (recenter / show-hide / delete per cloud, plus "tout recentrer"/"tout
  * effacer").
  */
-function StudioCloudLocator() {
+function StudioCloudLocator({ anchorClassName = 'bottom-20 right-4' }: Readonly<{ anchorClassName?: string }>) {
     const clouds = useMapStore((s) => s.lidarClouds);
     const [onScreenById, setOnScreenById] = useState<Record<string, boolean>>({});
 
@@ -375,11 +380,44 @@ function StudioCloudLocator() {
 
     if (clouds.length === 0) return null;
     if (clouds.length === 1) {
-        return <SingleCloudPill cloud={clouds[0]} onScreen={onScreenById[clouds[0].id] ?? true} />;
+        return <SingleCloudPill cloud={clouds[0]} onScreen={onScreenById[clouds[0].id] ?? true} anchorClassName={anchorClassName} />;
     }
-    return <MultiCloudPill clouds={clouds} onScreenById={onScreenById} />;
+    return <MultiCloudPill clouds={clouds} onScreenById={onScreenById} anchorClassName={anchorClassName} />;
 }
 
+/**
+ * Mobile LiDAR Studio shell. Same persistent map + cloud state as the desktop
+ * studio, presented with the shared mobile chrome: the compact top bar (with a
+ * `⋯` menu holding the galleries + scene export) and the generic bottom toolbar
+ * of render-setting sheets. Capture keeps the desktop floating FAB — raised
+ * above the toolbar — with the cloud locator stacked just above it.
+ */
+function StudioMobileShell() {
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const handleSelect = (id: string) => setActiveId((cur) => (cur === id ? null : id));
+
+    return (
+        <div className="relative h-[100dvh] w-screen overflow-hidden bg-slate-950">
+            <MapSlot />
+            <MobileTopBar actions={<MobileActionsMenu exportSlot={<ShowcaseExport />} />} />
+            {/* The floating capture FAB + cloud locator only show over the bare
+                map, so an open render sheet never fights them for the bottom. */}
+            {activeId === null && (
+                <>
+                    <StudioCloudLocator anchorClassName="bottom-36 right-4" />
+                    <StudioCaptureButton anchorClassName="bottom-20 right-4" />
+                </>
+            )}
+            <MobileToolbar
+                tools={STUDIO_RENDER_SETTINGS}
+                activeId={activeId}
+                onSelect={handleSelect}
+                leading={<QuickBasemapSwitch />}
+                trailing={<ResetSettingsButton />}
+            />
+        </div>
+    );
+}
 
 /**
  * Dedicated full-screen LiDAR Studio shell (`?view=lidar`). Reuses the shared
@@ -393,6 +431,7 @@ export function LidarStudio() {
     const tutorialSeen = useMapStore((s) => s.studioTutorialSeen);
     const setTutorialSeen = useMapStore((s) => s.setStudioTutorialSeen);
     const hasData = shaded !== null || mesh !== null;
+    const isMobile = useIsMobile();
 
     const [tutorialOpen, setTutorialOpen] = useState(false);
 
@@ -401,8 +440,9 @@ export function LidarStudio() {
     // Auto-launch the onboarding tutorial once, on a newcomer's first visit,
     // and only when nothing is loaded yet (a shared link with a cloud skips it).
     // Runs a single time per mount — loading a cloud mid-tutorial won't reopen.
+    // Desktop only: the tutorial spotlights desktop chrome, absent on mobile.
     useEffect(() => {
-        if (!tutorialSeen && !hasData && !loading) setTutorialOpen(true);
+        if (!tutorialSeen && !hasData && !loading && !isMobile) setTutorialOpen(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -410,6 +450,8 @@ export function LidarStudio() {
         setTutorialOpen(false);
         setTutorialSeen(true);
     };
+
+    if (isMobile) return <StudioMobileShell />;
 
     return (
         <div className="relative h-screen w-screen overflow-hidden bg-slate-950">

@@ -1,27 +1,17 @@
-import { useState } from 'react';
 import { MapSlot } from './components/map/MapSlot';
 import { MobileLayout } from './components/MobileLayout';
-import { type MobileTab } from './components/panels/PanelTabs';
 import { AppHeaderBox } from './components/shell/AppHeaderBox';
 import { RouteBottomBar } from './components/shell/RouteBottomBar';
 import { RouteExportButton } from './components/shell/RouteExportButton';
 import { TopBarActions } from './components/shell/TopBarActions';
 import { ViewSwitch } from './components/shell/ViewSwitch';
 import { useIsMobile } from './lib/useIsMobile';
-import { useShare } from './lib/useShare';
 
 export function App() {
     const isMobile = useIsMobile();
-    const { shareTooltip, handleShare } = useShare();
-    const [mobileTab, setMobileTab] = useState<MobileTab>('map');
 
     if (isMobile) {
-        return <MobileLayout
-            mobileTab={mobileTab}
-            setMobileTab={setMobileTab}
-            shareTooltip={shareTooltip}
-            handleShare={handleShare}
-        />;
+        return <MobileLayout />;
     }
 
     return (

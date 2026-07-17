@@ -7,6 +7,7 @@ import {
 } from '@/components/lidar/StudioRenderSettings';
 import { BottomBar, BottomBarPill } from '@/components/shell/BottomBar';
 import { LidarCaptureControls } from '@/components/ui/lidar/LidarCaptureControls';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 
@@ -55,8 +56,9 @@ export function StudioBottomBar() {
  * pressed. The menu stays open while panning so the zone can be positioned, and
  * only closes via the button or its close control.
  */
-export function StudioCaptureButton() {
+export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Readonly<{ anchorClassName?: string }>) {
     const [open, setOpen] = useState(false);
+    const isMobile = useIsMobile();
 
     // The load-zone preview footprint is shown only while this menu is open.
     useEffect(() => {
@@ -87,10 +89,24 @@ export function StudioCaptureButton() {
         prevLoadingRef.current = loading;
     }, [loading, loadingError]);
 
+    // On mobile the capture menu floats over the map, so pad the map bottom
+    // while it's open — the centred capture footprint + "Charger ici" load point
+    // follow the padded screen centre, keeping them in the uncovered area.
+    useEffect(() => {
+        if (!isMobile) return;
+        const map = useMapStore.getState().mapInstance;
+        if (!map) return;
+        const bottom = open ? Math.round(globalThis.innerHeight * 0.55) : 0;
+        map.setPadding({ top: 0, right: 0, bottom, left: 0 });
+    }, [open, isMobile]);
+    useEffect(() => () => {
+        useMapStore.getState().mapInstance?.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
+    }, []);
+
     return (
-        <div className="absolute bottom-4 right-4 z-30 flex flex-col items-end gap-3">
+        <div className={`absolute z-30 flex flex-col items-end gap-3 ${anchorClassName}`}>
             {open && (
-                <div className="flex max-h-[70vh] w-80 flex-col overflow-hidden rounded-xl border border-black/5 bg-white/95 text-slate-800 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:text-slate-100 dark:ring-white/10">
+                <div className={`flex ${isMobile ? 'max-h-[58vh]' : 'max-h-[70vh]'} w-80 flex-col overflow-hidden rounded-xl border border-black/5 bg-white/95 text-slate-800 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:text-slate-100 dark:ring-white/10`}>
                     <div className="flex shrink-0 items-center justify-between border-b border-black/5 px-3 py-2.5 dark:border-white/10">
                         <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Capture</h2>
                         <button
@@ -108,21 +124,25 @@ export function StudioCaptureButton() {
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-2">
-                <button
-                    type="button"
-                    data-tutorial="capture"
-                    onClick={() => setOpen((o) => !o)}
-                    title="Capturer une zone LiDAR"
-                    aria-label="Capturer une zone LiDAR"
-                    aria-pressed={open}
-                    className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg ring-1 transition ${open
-                        ? 'bg-emerald-400 text-emerald-950 ring-emerald-300'
-                        : 'bg-emerald-500 text-white ring-emerald-400/60 hover:bg-emerald-400'}`}
-                >
-                    <CaptureIcon className="h-7 w-7" />
-                </button>
-            </div>
+            {/* Hide the FAB while the menu is open on mobile so the menu can
+                drop into its place — closing is then via the panel's × control. */}
+            {!(open && isMobile) && (
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        data-tutorial="capture"
+                        onClick={() => setOpen((o) => !o)}
+                        title="Capturer une zone LiDAR"
+                        aria-label="Capturer une zone LiDAR"
+                        aria-pressed={open}
+                        className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg ring-1 transition ${open
+                            ? 'bg-emerald-400 text-emerald-950 ring-emerald-300'
+                            : 'bg-emerald-500 text-white ring-emerald-400/60 hover:bg-emerald-400'}`}
+                    >
+                        <CaptureIcon className="h-7 w-7" />
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

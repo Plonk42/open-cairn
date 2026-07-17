@@ -10,7 +10,7 @@ import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAU
 import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
-    screenUpAzimuthDeg, type CaptureRectDims,
+    screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
@@ -681,12 +681,12 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             const state = get();
             const map = state.mapInstance;
             // Use screen center (not map.getCenter) so the loaded area matches the
-            // preview rectangle when the camera is pitched.
+            // preview rectangle when the camera is pitched, and honours any map
+            // padding (the mobile capture sheet pads the bottom so the footprint
+            // stays in the uncovered map area).
             let center: { lng: number; lat: number };
             if (map) {
-                const canvas = map.getCanvas();
-                const screenCenter = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
-                center = { lng: screenCenter.lng, lat: screenCenter.lat };
+                center = screenCenterLngLat(map);
             } else {
                 center = { lng: state.view.longitude, lat: state.view.latitude };
             }

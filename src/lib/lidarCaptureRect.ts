@@ -79,10 +79,29 @@ export function rectPreviewGeoJson(
     };
 }
 
-/** Screen-centre ground point (accounts for pitch, unlike map.getCenter). */
-export function screenCenterLngLat(map: maplibregl.Map): { lng: number; lat: number } {
+/**
+ * Pixel coordinates of the visible-area centre, accounting for the map's
+ * `padding`. Padding is `0` on all sides by default (desktop), so this is the
+ * plain canvas centre there; the mobile Studio sets a bottom padding while the
+ * capture sheet is open so the footprint + load stay in the uncovered map area.
+ */
+function screenCentrePx(map: maplibregl.Map): { cx: number; cy: number } {
     const canvas = map.getCanvas();
-    const p = map.unproject([canvas.clientWidth / 2, canvas.clientHeight / 2]);
+    const pad = map.getPadding();
+    const top = pad.top ?? 0;
+    const bottom = pad.bottom ?? 0;
+    const left = pad.left ?? 0;
+    const right = pad.right ?? 0;
+    return {
+        cx: (left + (canvas.clientWidth - right)) / 2,
+        cy: (top + (canvas.clientHeight - bottom)) / 2,
+    };
+}
+
+/** Screen-centre ground point (accounts for pitch + padding, unlike map.getCenter). */
+export function screenCenterLngLat(map: maplibregl.Map): { lng: number; lat: number } {
+    const { cx, cy } = screenCentrePx(map);
+    const p = map.unproject([cx, cy]);
     return { lng: p.lng, lat: p.lat };
 }
 
@@ -97,9 +116,7 @@ export function screenCenterLngLat(map: maplibregl.Map): { lng: number; lat: num
  * preview during camera moves.
  */
 export function screenUpAzimuthDeg(map: maplibregl.Map): number {
-    const canvas = map.getCanvas();
-    const cx = canvas.clientWidth / 2;
-    const cy = canvas.clientHeight / 2;
+    const { cx, cy } = screenCentrePx(map);
     // Keep the baseline well clear of the horizon under pitch.
     const base = Math.min(cy * 0.5, 160);
     const up = map.unproject([cx, cy - base]);

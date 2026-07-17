@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 /** Orbit auto-wiggle toggle. Works in both views (it circles the camera around
  *  the map centre, independent of any loaded LiDAR cloud). */
-function OrbitTopBarButton() {
+export function OrbitTopBarButton() {
     const { orbiting, setOrbiting } = useOrbit();
     return (
         <button
