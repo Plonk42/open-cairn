@@ -39,9 +39,6 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),
   enrichissement par essence via la BD Forêt IGN, panneau de diagnostic dédié à la classification
   falaise / pente / surplomb
-- **Coupe falaise** — cross-section verticale du nuage LiDAR le long d'une polyligne, graphe
-  Canvas 2D à échelle 1:1, relais cliquables et calcul de cordes recommandées (escalade,
-  canyon, rappel)
 - **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs) pour la vue carte
   classique ; le Studio LiDAR est desktop uniquement
 
@@ -157,8 +154,6 @@ Documentation détaillée par fonctionnalité, organisée en **sections utilisat
   cache IndexedDB, frontière Web Worker (déjà existant, mis à jour)
 - [docs/LIDAR_RENDERING.md](docs/LIDAR_RENDERING.md) — Rendu WebGL 2 du nuage : shaders,
   Eye-Dome Lighting, masque de classification, projection Mercator depuis offsets mètres
-- [docs/CLIFF_SLICE.md](docs/CLIFF_SLICE.md) — Coupe falaise : projection du nuage sur un
-  plan vertical, graphe 1:1, relais et calcul de cordes
 - [docs/SUN_LIGHTING.md](docs/SUN_LIGHTING.md) — Position solaire NOAA, intensité et tint
   appliqués au LiDAR
 - [docs/POISSON_WASM.md](docs/POISSON_WASM.md) — Portage WebAssembly de PoissonRecon (builds

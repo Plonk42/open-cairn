@@ -35,6 +35,15 @@ export interface ViewSlice {
     setView: (view: Partial<MapView>) => void;
 
     /**
+     * Whether the resizable route/elevation bottom panel is expanded. Lives in
+     * the store (not component state) so it survives `App` unmounting when the
+     * user switches to the LiDAR Studio and back — otherwise the panel would
+     * always re-open on return.
+     */
+    bottomOpen: boolean;
+    setBottomOpen: (v: boolean) => void;
+
+    /**
      * Top-level view mirrored from the URL `?view=` param. Used to know which
      * copy of the per-view map-style bundle the style setters should write to.
      */
@@ -57,6 +66,9 @@ export interface ViewSlice {
 export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, get) => ({
     view: persisted.view ?? DEFAULT_VIEW,
     setView: (view) => set((s) => ({ view: { ...s.view, ...view } })),
+
+    bottomOpen: false,
+    setBottomOpen: (bottomOpen) => set({ bottomOpen }),
 
     appView: initialAppView,
     setAppView: (view) =>

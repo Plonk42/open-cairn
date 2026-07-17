@@ -26,16 +26,6 @@ if (shared) {
     map.setTerrainExaggeration(shared.terrainExaggeration);
     map.setContourLinesEnabled(shared.contourLinesEnabled);
     map.setContourLinesOpacity(shared.contourLinesOpacity);
-    // Cliff slice (only restore when a slice was actually shared)
-    if (shared.cliffSlicePoints.length > 0) {
-        map.setCliffSlicePoints(shared.cliffSlicePoints);
-        map.setCliffSliceCorridor(shared.cliffSliceCorridor);
-        map.setCliffSliceClasses(shared.cliffSliceClasses);
-        map.setCliffSliceColorClass(shared.cliffSliceColorClass);
-        map.setCliffSliceColorDepth(shared.cliffSliceColorDepth);
-        map.setCliffSliceRopeSafety(shared.cliffSliceRopeSafety);
-        map.setCliffSliceStations(shared.cliffSliceStations);
-    }
     const route = useRouteStore.getState();
     route.setActive(false); // Always start in read mode when opening a shared link
     route.setMode(shared.routeMode);

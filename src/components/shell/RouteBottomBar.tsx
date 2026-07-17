@@ -1,68 +1,39 @@
 import { BottomPanelContent } from '@/components/panels/PanelTabs';
 import { BottomBar, BottomBarButton, BottomBarPill } from '@/components/shell/BottomBar';
-import { CliffIcon, ROUTE_SETTING_SECTIONS, RouteIcon } from '@/components/shell/routeSections';
+import { ROUTE_SETTING_SECTIONS, RouteIcon } from '@/components/shell/routeSections';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Popover = string | null;
 
-// Track auto-expand transitions at MODULE scope (not component state/refs) so
-// they survive `RouteBottomBar` unmounting when the user switches to the
+// Track the waypoint-count transition at MODULE scope (not component state/refs)
+// so it survives `RouteBottomBar` unmounting when the user switches to the
 // LiDAR Studio and back — otherwise a plain useRef resets on remount and
-// wrongly re-detects a "0 → N" / "not ready → ready" transition that already
-// happened earlier in the session, forcing the panel back open even after
-// the user explicitly collapsed it.
+// wrongly re-detects a "0 → N" transition that already happened earlier in the
+// session, forcing the panel back open even after the user explicitly
+// collapsed it.
 let prevRouteWaypointCount = 0;
-let prevCliffSliceReady = false;
 
 /**
  * Itinéraire bottom bar (mirrors the Studio bottom bar): Couches + Réglages
- * popovers, then Itinéraire / Coupe falaise pills that open the resizable
- * editing panel above the bar. Theme-aware — no `dark` wrapper, so it follows
- * `uiTheme`.
+ * popovers, then the Itinéraire pill that opens the resizable editing panel
+ * above the bar. Theme-aware — no `dark` wrapper, so it follows `uiTheme`.
  */
 export function RouteBottomBar() {
     const [popover, setPopover] = useState<Popover>(null);
     const [bottomHeight, setBottomHeight] = useState(330);
 
-    const bottomMode = useMapStore((s) => s.bottomMode);
-    const setBottomMode = useMapStore((s) => s.setBottomMode);
     const bottomOpen = useMapStore((s) => s.bottomOpen);
     const setBottomOpen = useMapStore((s) => s.setBottomOpen);
-    const setActiveSlice = useMapStore((s) => s.setCliffSliceActive);
-    const setActiveRoute = useRouteStore((s) => s.setActive);
-    const lidarLoaded = useMapStore((s) => s.lidarShaded !== null || s.lidarMesh !== null);
 
     const togglePopover = (id: Exclude<Popover, null>) =>
         setPopover((cur) => (cur === id ? null : id));
 
     const handleOpenRoute = useCallback(() => {
         setPopover(null);
-        if (bottomMode === 'route' && bottomOpen) {
-            setBottomOpen(false);
-        } else {
-            setBottomMode('route');
-            setBottomOpen(true);
-            // Leaving cliff mode: turn off the slice tracé so a stray click on
-            // the map doesn't add a slice point.
-            setActiveSlice(false);
-        }
-    }, [bottomMode, bottomOpen, setBottomMode, setActiveSlice]);
-
-    const handleOpenCliff = useCallback(() => {
-        setPopover(null);
-        if (bottomMode === 'cliff' && bottomOpen) {
-            setBottomOpen(false);
-        } else {
-            setBottomMode('cliff');
-            setBottomOpen(true);
-            setActiveSlice(true);
-            // Leaving route mode: turn off the route tracé so a stray click on
-            // the map doesn't add a waypoint.
-            setActiveRoute(false);
-        }
-    }, [bottomMode, bottomOpen, setBottomMode, setActiveSlice, setActiveRoute]);
+        setBottomOpen(!bottomOpen);
+    }, [bottomOpen, setBottomOpen]);
 
     // Auto-expand the Itinéraire panel when the first waypoint is added.
     const waypoints = useRouteStore((s) => s.waypoints);
@@ -72,20 +43,6 @@ export function RouteBottomBar() {
         }
         prevRouteWaypointCount = waypoints.length;
     }, [waypoints.length, setBottomOpen]);
-
-    // Auto-expand bottom panel when the cliff-slice polyline has ≥2 points
-    // (covers share-link reload and the case where the user keeps adding points
-    // after collapsing the panel). Guarded on the not-ready→ready transition
-    // (see `prevCliffSliceReady` above) so it doesn't re-fire on every remount.
-    const slicePointCount = useMapStore((s) => s.cliffSlicePoints.length);
-    const sliceReady = slicePointCount >= 2;
-    useEffect(() => {
-        if (sliceReady && !prevCliffSliceReady) {
-            setBottomMode('cliff');
-            setBottomOpen(true);
-        }
-        prevCliffSliceReady = sliceReady;
-    }, [sliceReady, setBottomMode, setBottomOpen]);
 
     const resizingRef = useRef(false);
     const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
@@ -134,7 +91,7 @@ export function RouteBottomBar() {
                         <div className="h-0.5 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
                     </button>
                     <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
-                        <BottomPanelContent mode={bottomMode} />
+                        <BottomPanelContent />
                     </div>
                 </div>
             )}
@@ -156,15 +113,8 @@ export function RouteBottomBar() {
                 <BottomBarButton
                     label="Itinéraire"
                     Icon={RouteIcon}
-                    active={bottomMode === 'route' && bottomOpen}
+                    active={bottomOpen}
                     onSelect={handleOpenRoute}
-                />
-                <BottomBarButton
-                    label="Coupe falaise"
-                    Icon={CliffIcon}
-                    active={bottomMode === 'cliff' && bottomOpen}
-                    onSelect={handleOpenCliff}
-                    title={lidarLoaded ? undefined : 'Chargez un nuage de points LiDAR (Studio LiDAR) pour utiliser ce mode'}
                 />
             </BottomBar>
         </>

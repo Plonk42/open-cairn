@@ -150,7 +150,7 @@ If bandwidth is limited, do these first, in order:
 **Evidence.** `find src -name '*.test.tsx'` → 0; no test imports `@testing-library/react`.
 
 **Action steps.**
-- [ ] Add slice tests for `viewSlice`, `terrainSlice`, `settingsSlice`, `lidarSlice`, `cliffSliceSlice` (pure reducers, no DOM).
+- [ ] Add slice tests for `viewSlice`, `terrainSlice`, `settingsSlice`, `lidarSlice` (pure reducers, no DOM).
 - [ ] Add a share round-trip test: `encodeShare(state) → applySharedState → assert store equality` (pairs with P2-1).
 - [ ] Cover the mirroring invariants (`lidarShaded` ↔ `lidarClouds[0]`, flat map-style ↔ `mapStyleByView[view]`).
 

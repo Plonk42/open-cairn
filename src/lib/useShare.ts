@@ -29,13 +29,6 @@ export function useShare(): { shareTooltip: boolean; handleShare: () => void } {
             colorElevationBySlope: route.colorElevationBySlope,
             waypoints: route.waypoints,
             selectionRange: route.selectionRange,
-            cliffSlicePoints: map.cliffSlicePoints,
-            cliffSliceCorridor: map.cliffSliceCorridor,
-            cliffSliceClasses: map.cliffSliceClasses,
-            cliffSliceColorClass: map.cliffSliceColorClass,
-            cliffSliceColorDepth: map.cliffSliceColorDepth,
-            cliffSliceRopeSafety: map.cliffSliceRopeSafety,
-            cliffSliceStations: map.cliffSliceStations,
         });
         navigator.clipboard.writeText(url);
         setShareTooltip(true);

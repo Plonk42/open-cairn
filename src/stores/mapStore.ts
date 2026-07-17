@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { savePersistedSettings } from './persistence';
-import { createCliffSliceSlice, selectCliffSlicePersisted, type CliffSliceSlice } from './slices/cliffSliceSlice';
 import { createLidarSlice, selectLidarPersisted, type LidarSlice } from './slices/lidarSlice';
 import { createSettingsSlice, selectSettingsPersisted, type SettingsSlice } from './slices/settingsSlice';
 import { createTerrainSlice, type TerrainSlice } from './slices/terrainSlice';
@@ -23,14 +22,13 @@ export {
 export type { MapView } from './slices/viewSlice';
 
 /** Full store shape — the union of every feature slice. */
-export type MapState = ViewSlice & TerrainSlice & SettingsSlice & LidarSlice & CliffSliceSlice;
+export type MapState = ViewSlice & TerrainSlice & SettingsSlice & LidarSlice;
 
 export const useMapStore = create<MapState>()((...a) => ({
     ...createViewSlice(...a),
     ...createTerrainSlice(...a),
     ...createSettingsSlice(...a),
     ...createLidarSlice(...a),
-    ...createCliffSliceSlice(...a),
 }));
 
 // Auto-save all persistent settings to localStorage whenever they change.
@@ -45,7 +43,6 @@ useMapStore.subscribe((state) => {
             ...selectViewPersisted(state),
             ...selectSettingsPersisted(state),
             ...selectLidarPersisted(state),
-            ...selectCliffSlicePersisted(state),
         });
     }, 500);
 });

@@ -21,13 +21,6 @@ function baseState(): SharedState {
             { id: 'wp-2', coordinate: [6.87, 45.84], modeFromPrevious: 'free' },
         ],
         selectionRange: [120.5, 850.2],
-        cliffSlicePoints: [],
-        cliffSliceCorridor: 2,
-        cliffSliceClasses: [],
-        cliffSliceColorClass: false,
-        cliffSliceColorDepth: false,
-        cliffSliceRopeSafety: 0.15,
-        cliffSliceStations: [],
     };
 }
 
@@ -55,40 +48,6 @@ describe('shareView round-trip', () => {
         // first waypoint never carries a mode-from-previous
         expect(decoded.waypoints[0].modeFromPrevious).toBeUndefined();
         expect(decoded.waypoints[1].modeFromPrevious).toBe('free');
-    });
-
-    it('round-trips cliff-slice geometry, stations and flags', () => {
-        const state = baseState();
-        state.cliffSlicePoints = [[6.861, 45.831], [6.862, 45.832]];
-        state.cliffSliceCorridor = 3.5;
-        state.cliffSliceClasses = [2, 6];
-        state.cliffSliceColorClass = true;
-        state.cliffSliceColorDepth = true;
-        state.cliffSliceRopeSafety = 0.2;
-        state.cliffSliceStations = [
-            { id: 's-1', d: 0, e: 1000 },
-            { id: 's-2', d: 25.4, e: 1042.8, label: 'R1' },
-        ];
-        const decoded = decodeShareState(encodeShareState(state))!;
-        expect(decoded.cliffSlicePoints).toHaveLength(2);
-        expect(decoded.cliffSlicePoints[0][0]).toBeCloseTo(6.861, 6);
-        expect(decoded.cliffSliceCorridor).toBeCloseTo(3.5, 1);
-        expect(decoded.cliffSliceClasses).toEqual([2, 6]);
-        expect(decoded.cliffSliceColorClass).toBe(true);
-        expect(decoded.cliffSliceColorDepth).toBe(true);
-        expect(decoded.cliffSliceRopeSafety).toBeCloseTo(0.2, 2);
-        expect(decoded.cliffSliceStations).toHaveLength(2);
-        expect(decoded.cliffSliceStations[1].label).toBe('R1');
-        expect(decoded.cliffSliceStations[1].d).toBeCloseTo(25.4, 1);
-    });
-
-    it('applies defaults for omitted optional cliff-slice fields', () => {
-        const decoded = decodeShareState(encodeShareState(baseState()))!;
-        expect(decoded.cliffSlicePoints).toEqual([]);
-        expect(decoded.cliffSliceCorridor).toBe(2);
-        expect(decoded.cliffSliceClasses).toEqual([]);
-        expect(decoded.cliffSliceRopeSafety).toBe(0.15);
-        expect(decoded.cliffSliceStations).toEqual([]);
     });
 
     it('produces a URL-safe payload (no +, /, or = characters)', () => {

@@ -70,14 +70,6 @@ export function RouteIcon({ className }: IconProps): ReactElement {
     );
 }
 
-export function CliffIcon({ className }: IconProps): ReactElement {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2 16l4-8 3 4 3-7 6 11" />
-        </svg>
-    );
-}
-
 /** One collapsible map-styling section (a pill on desktop, a sheet tab on mobile). */
 export interface RouteSettingSection {
     id: string;

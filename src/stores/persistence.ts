@@ -79,11 +79,6 @@ export type PersistedSettings = {
     lidarForestHiddenLegend?: number[];
     /** Whether the species legend filter is active. */
     lidarForestSpeciesFilterOn?: boolean;
-    cliffSliceCorridor?: number;
-    cliffSliceColorClass?: boolean;
-    cliffSliceColorDepth?: boolean;
-    cliffSliceClasses?: number[];
-    cliffSliceRopeSafety?: number;
 };
 
 export function loadPersistedSettings(): PersistedSettings {
