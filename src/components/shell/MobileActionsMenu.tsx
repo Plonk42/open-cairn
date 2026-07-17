@@ -8,6 +8,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * the view's export dialog) so they don't crowd the toolbar. The gallery/export
  * children render their own modals (portalled to `document.body`), so they work
  * unchanged here. Theme-aware; dismisses on outside tap.
+ *
+ * IMPORTANT: the dropdown content stays MOUNTED (just visually hidden) even
+ * when the menu is "closed" — see the CSS-only hide below. Conditionally
+ * UNMOUNTING it (`{open && (...)}`) used to destroy `<ShowcaseGallery/>`'s own
+ * state the instant its portalled modal was opened: a tap anywhere inside that
+ * modal (attached to `document.body`, i.e. outside `rootRef`) tripped this
+ * component's own outside-pointerdown dismiss, closing `open` and unmounting
+ * the gallery — which silently closed its modal too, making it look like the
+ * gallery "disappeared" on any click (reported on mobile).
  */
 export function MobileActionsMenu({ exportSlot }: Readonly<{ exportSlot: ReactNode }>) {
     const [open, setOpen] = useState(false);
@@ -39,13 +48,14 @@ export function MobileActionsMenu({ exportSlot }: Readonly<{ exportSlot: ReactNo
                 </svg>
             </button>
 
-            {open && (
-                <div className="absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10">
-                    <OrbitTopBarButton />
-                    <ShowcaseGallery />
-                    {exportSlot}
-                </div>
-            )}
+            <div
+                aria-hidden={!open}
+                className={`absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10 ${open ? '' : 'invisible opacity-0'}`}
+            >
+                <OrbitTopBarButton />
+                <ShowcaseGallery />
+                {exportSlot}
+            </div>
         </div>
     );
 }
