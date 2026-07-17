@@ -1,11 +1,10 @@
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
 import { OrbitTopBarButton } from '@/components/shell/TopBarActions';
-import { SavedRoutesGallery } from '@/components/ui/SavedRoutesGallery';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
  * Compact "more actions" menu for the mobile top bar: a `⋯` button that opens a
- * dropdown grouping the cross-view actions (orbit toggle, the two galleries and
+ * dropdown grouping the cross-view actions (orbit toggle, the unified gallery and
  * the view's export dialog) so they don't crowd the toolbar. The gallery/export
  * children render their own modals (portalled to `document.body`), so they work
  * unchanged here. Theme-aware; dismisses on outside tap.
@@ -44,7 +43,6 @@ export function MobileActionsMenu({ exportSlot }: Readonly<{ exportSlot: ReactNo
                 <div className="absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10">
                     <OrbitTopBarButton />
                     <ShowcaseGallery />
-                    <SavedRoutesGallery />
                     {exportSlot}
                 </div>
             )}

@@ -1,6 +1,5 @@
 import { OrbitIcon } from '@/components/icons/LidarIcons';
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
-import { SavedRoutesGallery } from '@/components/ui/SavedRoutesGallery';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import type { AppView } from '@/lib/useView';
 import type { ReactNode } from 'react';
@@ -67,7 +66,6 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
             <OrbitTopBarButton />
             <ShowcaseGallery />
-            <SavedRoutesGallery />
             {exportSlot}
             <HelpButton onClick={studio ? onHelp : undefined} />
         </div>

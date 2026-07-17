@@ -1,7 +1,10 @@
 import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
+import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
+import { formatDistance, formatElevation } from '@/lib/geo';
 import { ignStaticMapUrl } from '@/lib/ign';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import { CLOUD_MODE_LABELS, type SavedCloud } from '@/lib/savedClouds';
+import { deleteSavedRoute, renameSavedRoute, type SavedRoute } from '@/lib/savedRoutes';
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
 import type { SceneLoadProgress } from '@/lib/showcaseScene';
 import { useEffect, useState } from 'react';
@@ -359,6 +362,126 @@ export function RecentGalleryBody({
     );
 }
 
+function formatDate(iso: string): string {
+    try {
+        return new Date(iso).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+        return iso;
+    }
+}
+
+/** One saved-route tile: preview thumbnail + name (rename on double-click) + stats + delete. */
+function RouteTile({ route, onLoad }: Readonly<{ route: SavedRoute; onLoad: (r: SavedRoute) => void }>) {
+    const [renaming, setRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState(route.name);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    const commitRename = () => {
+        const next = renameValue.trim();
+        if (next) renameSavedRoute(route.id, next);
+        setRenaming(false);
+    };
+
+    return (
+        <div className="group relative flex flex-col overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
+            <button
+                type="button"
+                onClick={() => onLoad(route)}
+                title="Charger cet itinéraire"
+                className="flex items-center justify-center p-2"
+            >
+                <PreviewThumb preview={route.preview} />
+            </button>
+            <div className="flex flex-1 flex-col px-2.5 pb-2.5">
+                {renaming ? (
+                    <input
+                        type="text"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename();
+                            else if (e.key === 'Escape') setRenaming(false);
+                        }}
+                        autoFocus
+                        className="w-full rounded bg-white px-1.5 py-0.5 text-xs text-slate-800 ring-1 ring-emerald-400 focus:outline-none dark:bg-slate-900 dark:text-slate-100"
+                    />
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => onLoad(route)}
+                        onDoubleClick={() => { setRenameValue(route.name); setRenaming(true); }}
+                        title="Charger (clic) ou renommer (double-clic)"
+                        className="truncate text-left text-xs font-semibold text-slate-700 hover:text-emerald-700 dark:text-slate-200 dark:hover:text-emerald-400"
+                    >
+                        {route.name}
+                    </button>
+                )}
+                <p className="mt-0.5 text-[10.5px] text-slate-400 dark:text-slate-500">{formatDate(route.createdAt)}</p>
+                <p className="mt-0.5 text-[11px] tabular-nums text-slate-600 dark:text-slate-300">
+                    {formatDistance(route.stats.distance)}
+                    {route.stats.ascent > 0 && (
+                        <span className="text-emerald-600 dark:text-emerald-400"> ↑ {formatElevation(route.stats.ascent)}</span>
+                    )}
+                    {route.stats.descent > 0 && (
+                        <span className="text-rose-500 dark:text-rose-400"> ↓ {formatElevation(route.stats.descent)}</span>
+                    )}
+                </p>
+            </div>
+
+            {confirmDelete ? (
+                <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => { deleteSavedRoute(route.id); setConfirmDelete(false); }}
+                        title="Confirmer la suppression"
+                        className="rounded bg-rose-600 px-1.5 py-0.5 text-[10.5px] font-medium text-white transition hover:bg-rose-700"
+                    >
+                        OK
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        title="Annuler"
+                        className="rounded bg-slate-200 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600 transition hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                    >
+                        ✕
+                    </button>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    title="Supprimer"
+                    className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded bg-white/90 text-rose-600 opacity-0 shadow-sm ring-1 ring-black/5 transition hover:bg-rose-50 group-hover:opacity-100 dark:bg-slate-900/90 dark:text-rose-400 dark:ring-white/10 dark:hover:bg-rose-600/20"
+                >
+                    <TrashGlyph />
+                </button>
+            )}
+        </div>
+    );
+}
+
+export function RouteGalleryBody({
+    routes,
+    onLoad,
+}: Readonly<{ routes: SavedRoute[]; onLoad: (r: SavedRoute) => void }>) {
+    if (routes.length === 0) {
+        return (
+            <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                Aucun itinéraire sauvegardé pour le moment.
+            </p>
+        );
+    }
+    return (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {routes.map((r) => (
+                <RouteTile key={r.id} route={r} onLoad={onLoad} />
+            ))}
+        </div>
+    );
+}
+
 export function TabButton({
     active,
     onClick,
@@ -368,7 +491,7 @@ export function TabButton({
         <button
             type="button"
             onClick={onClick}
-            className={`-mb-px rounded-t-md border-b-2 px-3 py-1.5 text-xs font-medium transition ${active
+            className={`-mb-px shrink-0 rounded-t-md border-b-2 px-3 py-1.5 text-xs font-medium transition ${active
                 ? 'border-emerald-400 text-slate-900 dark:text-white'
                 : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}

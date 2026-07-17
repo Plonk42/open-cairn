@@ -8,8 +8,10 @@ import {
     GalleryIcon,
     LocalGalleryBody,
     RecentGalleryBody,
+    RouteGalleryBody,
     TabButton,
 } from '@/components/lidar/gallery/tiles';
+import { importGpxFile } from '@/lib/gpx';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import {
     clearAllSavedClouds,
@@ -18,6 +20,7 @@ import {
     type SavedCloud,
     useSavedClouds,
 } from '@/lib/savedClouds';
+import { type SavedRoute, useSavedRoutes } from '@/lib/savedRoutes';
 import {
     deleteSavedScene,
     importSceneFromUrl,
@@ -28,8 +31,14 @@ import {
 } from '@/lib/savedScenes';
 import { loadShowcaseScene, type SceneLoadProgress } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
+import { useRouteStore } from '@/stores/routeStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+/** Suffix like " (3)" shown after a tab label when the tab has entries. */
+function tabCount(n: number): string {
+    return n > 0 ? ` (${n})` : '';
+}
 
 /**
  * Showcase gallery — lists baked scenes from `public/showcase/index.json` and
@@ -42,7 +51,7 @@ import { createPortal } from 'react-dom';
 export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{ variant?: 'dark' | 'light'; inline?: boolean }>) {
     const [open, setOpen] = useState(false);
     const isOpen = inline || open;
-    const [tab, setTab] = useState<'featured' | 'mine' | 'recent'>('featured');
+    const [tab, setTab] = useState<'featured' | 'mine' | 'recent' | 'routes'>('featured');
     const [entries, setEntries] = useState<GalleryEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -50,6 +59,9 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const [sceneProgress, setSceneProgress] = useState<SceneLoadProgress | null>(null);
     const localScenes = useSavedScenes();
     const recentClouds = useSavedClouds();
+    const routes = useSavedRoutes();
+    const gpxImportWaypoints = useRouteStore((s) => s.gpxImportWaypoints);
+    const setGpxImportWaypoints = useRouteStore((s) => s.setGpxImportWaypoints);
     const [confirmClearRecent, setConfirmClearRecent] = useState(false);
     const [importing, setImporting] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
@@ -161,6 +173,40 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         }
     };
 
+    const handleLoadRoute = (route: SavedRoute) => {
+        const rs = useRouteStore.getState();
+        rs.importRoute(route.waypoints, route.segments);
+        rs.setLoadedRouteId(route.id);
+        rs.setActive(true);
+        if (route.preview.bbox?.some((v) => v !== 0)) {
+            const [w, s, e, n] = route.preview.bbox;
+            useMapStore.getState().fitBounds([w, s, e, n], { padding: 60 });
+        }
+        setOpen(false);
+    };
+
+    // Import an external `.gpx` straight into the current route. The file
+    // chooser is opened FIRST (on the raw click) so the browser's transient
+    // user activation isn't consumed by the replace confirm() — that ordering
+    // is what makes `input.click()` allowed. Confirm afterwards.
+    const handleImportGpx = async () => {
+        const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
+        const result = await importGpxFile(maxWp);
+        if (!result || result.waypoints.length === 0) return;
+        const rs = useRouteStore.getState();
+        if (rs.waypoints.length > 0 && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
+        if (result.segments) rs.importRoute(result.waypoints, result.segments);
+        else rs.restoreWaypoints(result.waypoints);
+        rs.setActive(true);
+        const lngs = result.waypoints.map((wp) => wp.coordinate[0]);
+        const lats = result.waypoints.map((wp) => wp.coordinate[1]);
+        useMapStore.getState().fitBounds([
+            Math.min(...lngs), Math.min(...lats),
+            Math.max(...lngs), Math.max(...lats),
+        ]);
+        setOpen(false);
+    };
+
     const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         e.target.value = ''; // allow re-importing the same file
@@ -202,7 +248,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const galleryPanel = (
         <>
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10">
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Galerie de scènes</h2>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Galerie</h2>
                 {!inline && (
                     <button
                         type="button"
@@ -216,15 +262,18 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                     </button>
                 )}
             </div>
-            <div className="flex gap-1 border-b border-slate-200 px-4 pt-2 dark:border-white/10">
+            <div className="scrollbar-slim flex gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200 px-4 pt-2 dark:border-white/10">
                 <TabButton active={tab === 'featured'} onClick={() => setTab('featured')}>
                     Mis en avant
                 </TabButton>
                 <TabButton active={tab === 'mine'} onClick={() => setTab('mine')}>
-                    Mes vues{localScenes.length > 0 ? ` (${localScenes.length})` : ''}
+                    Mes vues{tabCount(localScenes.length)}
                 </TabButton>
                 <TabButton active={tab === 'recent'} onClick={() => setTab('recent')}>
-                    Nuages récents{recentClouds.length > 0 ? ` (${recentClouds.length})` : ''}
+                    Nuages récents{tabCount(recentClouds.length)}
+                </TabButton>
+                <TabButton active={tab === 'routes'} onClick={() => setTab('routes')}>
+                    Itinéraires{tabCount(routes.length)}
                 </TabButton>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
@@ -384,6 +433,44 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         />
                     </>
                 )}
+                {tab === 'routes' && (
+                    <>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Itinéraires enregistrés dans ce navigateur.
+                            </p>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                                <label className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15">
+                                    <span className="whitespace-nowrap">Points interm.</span>
+                                    <input
+                                        aria-label="Nombre de points intermédiaires à l'import GPX"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={gpxImportWaypoints}
+                                        onChange={(e) => {
+                                            const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                                            setGpxImportWaypoints(v);
+                                        }}
+                                        className="w-12 rounded bg-white px-1.5 py-0.5 text-center text-xs text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-600"
+                                    />
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => { handleImportGpx(); }}
+                                    className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                        <path d="M10 1a.75.75 0 01.75.75v7.69l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 011.06-1.06l2.22 2.22V1.75A.75.75 0 0110 1z" />
+                                        <path d="M3.5 12.75a.75.75 0 01.75.75v2.5c0 .138.112.25.25.25h11a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0115.5 17.75h-11A1.75 1.75 0 012.75 16v-2.5a.75.75 0 01.75-.75z" />
+                                    </svg>
+                                    Importer un GPX
+                                </button>
+                            </div>
+                        </div>
+                        <RouteGalleryBody routes={routes} onLoad={handleLoadRoute} />
+                    </>
+                )}
             </div>
         </>
     );
@@ -409,7 +496,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 }
             >
                 <GalleryIcon className="h-4 w-4" />
-                <span>Galerie LiDAR</span>
+                <span>Galerie</span>
             </button>
 
             {open && createPortal(
