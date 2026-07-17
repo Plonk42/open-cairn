@@ -409,7 +409,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 }
             >
                 <GalleryIcon className="h-4 w-4" />
-                <span>Galerie</span>
+                <span>Galerie LiDAR</span>
             </button>
 
             {open && createPortal(

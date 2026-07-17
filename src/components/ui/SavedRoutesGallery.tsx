@@ -151,7 +151,7 @@ export function SavedRoutesGallery() {
                 className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
             >
                 <GalleryIcon className="h-4 w-4" />
-                <span>Itinéraires</span>
+                <span>Mes itinéraires</span>
             </button>
 
             {open && createPortal(
