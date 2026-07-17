@@ -41,14 +41,6 @@ export interface TerrainSlice {
     hillshadeIntensity: number;
     setHillshadeIntensity: (v: number) => void;
 
-    /**
-     * Dynamic, sun-driven hillshade on the terrain DEM. Unlike the pre-baked
-     * LiDAR HD shadow raster, this MapLibre hillshade layer follows the sun
-     * date/time selected in the LiDAR panel (azimuth + altitude + warm tint).
-     */
-    sunHillshadeEnabled: boolean;
-    setSunHillshadeEnabled: (v: boolean) => void;
-
     /** 3D terrain on the base layer. */
     terrainEnabled: boolean;
     setTerrainEnabled: (v: boolean) => void;
@@ -79,9 +71,6 @@ export const createTerrainSlice: StateCreator<MapState, [], [], TerrainSlice> = 
 
     hillshadeBlend: initialActiveStyle.hillshadeBlend,
     setHillshadeBlend: (hillshadeBlend) => patchActiveStyle(set, { hillshadeBlend }),
-
-    sunHillshadeEnabled: initialActiveStyle.sunHillshadeEnabled,
-    setSunHillshadeEnabled: (sunHillshadeEnabled) => patchActiveStyle(set, { sunHillshadeEnabled }),
 
     hillshadeIntensity: initialActiveStyle.hillshadeIntensity,
     setHillshadeIntensity: (hillshadeIntensity) => patchActiveStyle(set, { hillshadeIntensity }),

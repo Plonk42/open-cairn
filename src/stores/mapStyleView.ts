@@ -24,7 +24,6 @@ export interface MapStyleSettings {
     hillshadeSource: HillshadeSource;
     hillshadeBlend: BlendMode;
     hillshadeIntensity: number;
-    sunHillshadeEnabled: boolean;
     terrainEnabled: boolean;
     terrainExaggeration: number;
     terrainDemSource: TerrainDemSource;
@@ -39,7 +38,6 @@ export const MAP_STYLE_DEFAULTS: MapStyleSettings = {
     hillshadeSource: 'mns',
     hillshadeBlend: 'lidar-neutral',
     hillshadeIntensity: 0.85,
-    sunHillshadeEnabled: false,
     terrainEnabled: true,
     terrainExaggeration: 1,
     terrainDemSource: 'auto',
