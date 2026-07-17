@@ -8,6 +8,7 @@ import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 
@@ -523,9 +524,21 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
-    // Move LiDAR layer under route layers so the itinerary is visible on top.
-    if (map.getLayer('lidar-shaded-cloud') && map.getLayer('open-cairn-route-line-casing')) {
-        try { map.moveLayer('lidar-shaded-cloud', 'open-cairn-route-line-casing'); } catch { /* ignore */ }
+    // Keep the LiDAR cloud layers directly above the basemap but under the
+    // route layers, so the itinerary stays visible on top. A style diff (e.g.
+    // a per-view Photo/Plan switch) re-adds the `base` raster layer at the TOP
+    // of the stack — ABOVE our custom LiDAR layers — which drops the 3D mesh
+    // below the basemap. Runs on every `styledata`, so re-assert the order
+    // here. We reposition exactly the layers we own (derived from the loaded
+    // clouds via the shared `lidarCloudLayerId`), rather than string-matching
+    // layer ids, so the naming stays single-sourced with LidarCloudOverlay.
+    if (map.getLayer('open-cairn-route-line-casing')) {
+        for (const cloud of useMapStore.getState().lidarClouds) {
+            const id = lidarCloudLayerId(cloud.id);
+            if (map.getLayer(id)) {
+                try { map.moveLayer(id, 'open-cairn-route-line-casing'); } catch { /* ignore */ }
+            }
+        }
     }
 }
 

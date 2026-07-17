@@ -6,6 +6,7 @@ import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { lidarCloudLayerId } from './lidarLayerId';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
 
 /**
@@ -30,7 +31,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     // height-scale value with its own cloud's auto target, ping-ponging the
     // store forever ("Maximum update depth exceeded").
     const isPrimaryCloud = useMapStore((s) => s.lidarClouds[0]?.id === cloudId);
-    const layerId = `lidar-cloud-${cloudId}`;
+    const layerId = lidarCloudLayerId(cloudId);
     const basePointSize = useMapStore((s) => s.lidarCloudPointSize);
     const sizeCompensation = useMapStore((s) => s.lidarCloudSizeCompensation);
     const edl = useMapStore((s) => s.lidarCloudEdl);
