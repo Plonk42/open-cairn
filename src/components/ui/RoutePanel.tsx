@@ -229,26 +229,28 @@ export function RoutePanel() {
                     <button
                         type="button"
                         onClick={async () => {
-                            if (waypoints.length > 0) {
-                                if (!globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
-                            }
+                            // Open the file chooser FIRST (on the raw click) so the
+                            // browser's transient user activation isn't consumed by the
+                            // replace confirm() — otherwise input.click() is blocked and
+                            // fails on the first attempt.
                             const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
                             const result = await importGpxFile(maxWp);
-                            if (result && result.waypoints.length > 0) {
-                                if (result.segments) {
-                                    useRouteStore.getState().importRoute(result.waypoints, result.segments);
-                                } else {
-                                    restoreWaypoints(result.waypoints);
-                                }
-                                // Center map on imported waypoints
-                                const coords = result.waypoints.map((wp) => wp.coordinate);
-                                const lngs = coords.map((c) => c[0]);
-                                const lats = coords.map((c) => c[1]);
-                                useMapStore.getState().fitBounds([
-                                    Math.min(...lngs), Math.min(...lats),
-                                    Math.max(...lngs), Math.max(...lats),
-                                ]);
+                            if (!result || result.waypoints.length === 0) return;
+                            if (useRouteStore.getState().waypoints.length > 0
+                                && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
+                            if (result.segments) {
+                                useRouteStore.getState().importRoute(result.waypoints, result.segments);
+                            } else {
+                                restoreWaypoints(result.waypoints);
                             }
+                            // Center map on imported waypoints
+                            const coords = result.waypoints.map((wp) => wp.coordinate);
+                            const lngs = coords.map((c) => c[0]);
+                            const lats = coords.map((c) => c[1]);
+                            useMapStore.getState().fitBounds([
+                                Math.min(...lngs), Math.min(...lats),
+                                Math.max(...lngs), Math.max(...lats),
+                            ]);
                         }}
                         className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
                         title="Importer un GPX"

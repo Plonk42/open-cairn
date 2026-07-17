@@ -1,6 +1,6 @@
-import { ExportDialog, type ExportTarget } from '@/components/lidar/ExportDialog';
+import { ExportDialog } from '@/components/lidar/ExportDialog';
 import { saveScene } from '@/lib/savedScenes';
-import { downloadMapScreenshot, timestampId, triggerDownload, type ExportResolutionScale } from '@/lib/screenshot';
+import { timestampId, triggerDownload } from '@/lib/screenshot';
 import { extractAmbiance } from '@/lib/showcaseAmbiance';
 import { encodeShowcaseGeometry, serializeShowcaseManifest, type ShowcaseScene } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
@@ -8,6 +8,31 @@ import { zipSync, type Zippable } from 'fflate';
 import { useState } from 'react';
 
 const MAX_BLOB_BYTES = 500 * 1024 * 1024;
+
+/** Persisted export destination choice (survives across exports). */
+const TARGET_KEY = 'open-cairn-export-target';
+
+export interface ExportTarget {
+    local: boolean;
+    download: boolean;
+}
+
+function readTarget(): ExportTarget {
+    try {
+        const raw = localStorage.getItem(TARGET_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw) as Partial<ExportTarget>;
+            return { local: parsed.local ?? true, download: parsed.download ?? false };
+        }
+    } catch { /* ignore */ }
+    return { local: true, download: false };
+}
+
+function writeTarget(target: ExportTarget): void {
+    try {
+        localStorage.setItem(TARGET_KEY, JSON.stringify(target));
+    } catch { /* ignore quota */ }
+}
 
 function DownloadIcon({ className }: Readonly<{ className?: string }>) {
     return (
@@ -76,6 +101,102 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
     };
 }
 
+function ExportChoice({
+    checked,
+    onChange,
+    title,
+    desc,
+}: Readonly<{ checked: boolean; onChange: (v: boolean) => void; title: string; desc: string }>) {
+    return (
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg bg-black/5 px-3 py-2.5 ring-1 ring-black/5 transition hover:bg-black/10 hover:ring-green-400/50 dark:bg-white/5 dark:ring-white/10 dark:hover:bg-white/10 dark:hover:ring-emerald-400/50">
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                aria-label={title}
+                className="mt-0.5 h-4 w-4 flex-shrink-0 accent-emerald-500"
+            />
+            <span>
+                <span className="block text-sm font-medium text-slate-900 dark:text-white">{title}</span>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{desc}</span>
+            </span>
+        </label>
+    );
+}
+
+/**
+ * "Scène" tab of the export dialog: names the scene and picks where it goes
+ * (local "Mes vues" and/or a downloaded `.zip`). Owns the form state and
+ * persists the destination choice; `onExport` runs the actual export.
+ */
+function SceneExportForm({ onExport }: Readonly<{ onExport: (title: string, description: string, target: ExportTarget) => void }>) {
+    const [title, setTitle] = useState('');
+    const [description, setDescription] = useState('');
+    const [target, setTarget] = useState<ExportTarget>(() => readTarget());
+
+    const updateTarget = (patch: Partial<ExportTarget>) => {
+        setTarget((prev) => {
+            const next = { ...prev, ...patch };
+            writeTarget(next);
+            return next;
+        });
+    };
+
+    return (
+        <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+                Donnez un titre et une description, puis choisissez où enregistrer la scène.
+            </p>
+            <div className="mt-4 space-y-3">
+                <label className="block">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Titre</span>
+                    <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Ex. Rocher de Chalves"
+                        autoFocus
+                        className="mt-1 w-full rounded-md bg-gray-50 px-2.5 py-1.5 text-sm text-slate-900 ring-1 ring-gray-200 placeholder:text-slate-400 focus:outline-none focus:ring-green-400/60 dark:bg-white/5 dark:text-white dark:ring-white/15 dark:placeholder:text-slate-500"
+                    />
+                </label>
+                <label className="block">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Description <span className="text-slate-400 dark:text-slate-500">(optionnel)</span></span>
+                    <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Ex. Les Rochers de Chalves, au coucher du soleil."
+                        rows={2}
+                        className="mt-1 w-full resize-none rounded-md bg-gray-50 px-2.5 py-1.5 text-sm text-slate-900 ring-1 ring-gray-200 placeholder:text-slate-400 focus:outline-none focus:ring-green-400/60 dark:bg-white/5 dark:text-white dark:ring-white/15 dark:placeholder:text-slate-500"
+                    />
+                </label>
+            </div>
+            <p className="mt-4 text-xs font-medium text-slate-500 dark:text-slate-400">Enregistrer&nbsp;:</p>
+            <div className="mt-2 space-y-2">
+                <ExportChoice
+                    checked={target.local}
+                    onChange={(v) => updateTarget({ local: v })}
+                    title="Stocker dans « Mes vues »"
+                    desc="Enregistre la scène dans le navigateur pour la rouvrir instantanément."
+                />
+                <ExportChoice
+                    checked={target.download}
+                    onChange={(v) => updateTarget({ download: v })}
+                    title="Télécharger"
+                    desc="Télécharge un fichier .zip (à publier dans la galerie showcase)."
+                />
+            </div>
+            <button
+                type="button"
+                onClick={() => { onExport(title, description, target); }}
+                disabled={!target.local && !target.download}
+                className="mt-4 w-full rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-emerald-400 disabled:opacity-40"
+            >
+                Exporter
+            </button>
+        </div>
+    );
+}
+
 /**
  * "Exporter cette vue" — bakes the current LiDAR geometry + ambiance + camera
  * into a showcase scene. The user picks where it goes:
@@ -86,6 +207,9 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
  *                — unzip into `public/showcase/` and add the `<id>` to
  *                `public/showcase/index.json` to publish it;
  *  - "both"    : stored locally *and* downloaded.
+ *
+ * The dialog shares its first "Image" tab (a plain `.png` screenshot) with the
+ * Itinéraire view; this "Scène" export lives on the second tab.
  */
 export function ShowcaseExport() {
     const hasData = useMapStore((s) => s.lidarClouds.some((c) => c.visible && (c.shaded !== null || c.mesh !== null)));
@@ -131,18 +255,10 @@ export function ShowcaseExport() {
         }
     };
 
-    // Standalone shortcut: just grab the current frame as a .png, no scene,
-    // no "Mes vues" entry, no zip.
-    const onDownloadImage = async (resolution: ExportResolutionScale) => {
-        setError(null);
-        const ok = await downloadMapScreenshot(`${timestampId()}.png`, resolution);
-        if (!ok) setError('Capture d’écran indisponible.');
-    };
-
     const cloudSuffix = cloudCount > 1 ? 's' : '';
     const exportTitle = hasData
-        ? `Exporter la vue actuelle (${cloudCount} nuage${cloudSuffix}) en scène showcase`
-        : 'Chargez un nuage pour exporter';
+        ? `Exporter la vue actuelle (${cloudCount} nuage${cloudSuffix})`
+        : 'Chargez un nuage pour exporter la scène';
 
     return (
         <div className="flex items-center gap-2">
@@ -150,7 +266,7 @@ export function ShowcaseExport() {
                 type="button"
                 data-tutorial="export"
                 onClick={() => { setError(null); setPrompting(true); }}
-                disabled={!hasData || busy}
+                disabled={busy}
                 title={exportTitle}
                 className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 disabled:opacity-40 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
             >
@@ -161,8 +277,16 @@ export function ShowcaseExport() {
 
             {prompting && (
                 <ExportDialog
-                    onExport={(title, description, target) => { runExport(title, description, target); }}
-                    onDownloadImage={(resolution) => { onDownloadImage(resolution); }}
+                    secondTabLabel="Scène"
+                    secondTab={
+                        hasData ? (
+                            <SceneExportForm onExport={(title, description, target) => { runExport(title, description, target); }} />
+                        ) : (
+                            <p className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                                Chargez un nuage LiDAR pour exporter la scène.
+                            </p>
+                        )
+                    }
                     onClose={() => setPrompting(false)}
                 />
             )}

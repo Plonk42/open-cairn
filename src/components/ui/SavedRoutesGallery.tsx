@@ -1,6 +1,7 @@
 import { GalleryIcon } from '@/components/lidar/gallery/tiles';
 import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
 import { formatDistance, formatElevation } from '@/lib/geo';
+import { importGpxFile } from '@/lib/gpx';
 import {
     deleteSavedRoute,
     renameSavedRoute,
@@ -141,34 +142,70 @@ export function SavedRoutesGallery() {
         setOpen(false);
     };
 
+    // Import an external `.gpx` straight into the current route — mirrors the
+    // LiDAR gallery's ".zip" import (and the elevation panel's GPX import).
+    // The file chooser is opened FIRST (on the raw click) so the browser's
+    // transient user activation isn't consumed by the replace confirm() — that
+    // ordering is what makes `input.click()` allowed. Confirm afterwards.
+    const handleImportGpx = async () => {
+        const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
+        const result = await importGpxFile(maxWp);
+        if (!result || result.waypoints.length === 0) return;
+        const state = useRouteStore.getState();
+        if (state.waypoints.length > 0 && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
+        if (result.segments) state.importRoute(result.waypoints, result.segments);
+        else state.restoreWaypoints(result.waypoints);
+        state.setActive(true);
+        const lngs = result.waypoints.map((wp) => wp.coordinate[0]);
+        const lats = result.waypoints.map((wp) => wp.coordinate[1]);
+        fitBounds([
+            Math.min(...lngs), Math.min(...lats),
+            Math.max(...lngs), Math.max(...lats),
+        ]);
+        setOpen(false);
+    };
+
     return (
         <>
             <button
                 type="button"
                 data-tutorial="routes-gallery"
                 onClick={() => setOpen(true)}
-                title="Mes itinéraires"
+                title="Galerie d’itinéraires"
                 className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
             >
                 <GalleryIcon className="h-4 w-4" />
-                <span>Mes itinéraires</span>
+                <span>Galerie d’itinéraires</span>
             </button>
 
             {open && createPortal(
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
                     <div className="flex h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white text-slate-900 shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:text-slate-100 dark:ring-white/10">
                         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10">
-                            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Mes itinéraires</h2>
-                            <button
-                                type="button"
-                                onClick={() => setOpen(false)}
-                                title="Fermer"
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                </svg>
-                            </button>
+                            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Galerie d’itinéraires</h2>
+                            <div className="flex items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => { handleImportGpx(); }}
+                                    className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                        <path d="M10 1a.75.75 0 01.75.75v7.69l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 011.06-1.06l2.22 2.22V1.75A.75.75 0 0110 1z" />
+                                        <path d="M3.5 12.75a.75.75 0 01.75.75v2.5c0 .138.112.25.25.25h11a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0115.5 17.75h-11A1.75 1.75 0 012.75 16v-2.5a.75.75 0 01.75-.75z" />
+                                    </svg>
+                                    Importer un GPX
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen(false)}
+                                    title="Fermer"
+                                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <div className="min-h-0 flex-1 overflow-y-auto p-4">
                             {routes.length === 0 ? (

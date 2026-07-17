@@ -4,7 +4,7 @@ import { MobileLayout } from './components/MobileLayout';
 import { type MobileTab } from './components/panels/PanelTabs';
 import { AppHeaderBox } from './components/shell/AppHeaderBox';
 import { RouteBottomBar } from './components/shell/RouteBottomBar';
-import { ScreenshotButton } from './components/shell/ScreenshotButton';
+import { RouteExportButton } from './components/shell/RouteExportButton';
 import { TopBarActions } from './components/shell/TopBarActions';
 import { ViewSwitch } from './components/shell/ViewSwitch';
 import { useIsMobile } from './lib/useIsMobile';
@@ -35,7 +35,7 @@ export function App() {
                 <div className="pointer-events-auto">
                     <AppHeaderBox />
                 </div>
-                <TopBarActions view="map" exportSlot={<ScreenshotButton />} />
+                <TopBarActions view="map" exportSlot={<RouteExportButton />} />
                 <div className="pointer-events-auto ml-auto">
                     <ViewSwitch />
                 </div>

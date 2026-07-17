@@ -1,177 +1,64 @@
-import {
-    RESOLUTION_OPTIONS,
-    readResolution,
-    writeResolution,
-    type ExportResolutionScale,
-} from '@/lib/screenshot';
-import { useState } from 'react';
+import { ScreenshotTab } from '@/components/shell/ScreenshotTab';
+import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export type { ExportResolutionScale } from '@/lib/screenshot';
-
-/** Persisted export destination choice (survives across exports). */
-const TARGET_KEY = 'open-cairn-export-target';
-
-export interface ExportTarget {
-    local: boolean;
-    download: boolean;
-}
-
-function readTarget(): ExportTarget {
-    try {
-        const raw = localStorage.getItem(TARGET_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw) as Partial<ExportTarget>;
-            return { local: parsed.local ?? true, download: parsed.download ?? false };
-        }
-    } catch { /* ignore */ }
-    return { local: true, download: false };
-}
-
-function writeTarget(target: ExportTarget): void {
-    try {
-        localStorage.setItem(TARGET_KEY, JSON.stringify(target));
-    } catch { /* ignore quota */ }
-}
-
-function ExportChoice({
-    checked,
-    onChange,
-    title,
-    desc,
-}: Readonly<{ checked: boolean; onChange: (v: boolean) => void; title: string; desc: string }>) {
+function TabButton({ active, onClick, children }: Readonly<{ active: boolean; onClick: () => void; children: ReactNode }>) {
     return (
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg bg-white/5 px-3 py-2.5 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-emerald-400/50">
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={(e) => onChange(e.target.checked)}
-                aria-label={title}
-                className="mt-0.5 h-4 w-4 flex-shrink-0 accent-emerald-500"
-            />
-            <span>
-                <span className="block text-sm font-medium text-white">{title}</span>
-                <span className="mt-0.5 block text-xs text-slate-400">{desc}</span>
-            </span>
-        </label>
+        <button
+            type="button"
+            onClick={onClick}
+            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${active
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+        >
+            {children}
+        </button>
     );
 }
 
 /**
- * Modal prompting for a scene title/description and export destination
- * (local "Mes vues" and/or downloaded .zip). Self-contained: owns the form
- * state and persists the destination choice; calls back when the user
- * confirms an export or asks for a one-off .png frame.
+ * Tabbed export dialog shared by both views. Tab 1 ("Image") is the shared
+ * screenshot download (identical in every view); tab 2 is view-specific — a
+ * LiDAR "Scène" export form in the Studio, a "GPX" export/import panel in the
+ * Itinéraire view — supplied by the caller via `secondTab`. Theme-aware
+ * (light default + `dark:` variants).
  */
 export function ExportDialog({
-    onExport,
-    onDownloadImage,
+    secondTabLabel,
+    secondTab,
     onClose,
+    title = 'Exporter cette vue',
 }: Readonly<{
-    onExport: (title: string, description: string, target: ExportTarget) => void;
-    onDownloadImage: (resolution: ExportResolutionScale) => void;
+    secondTabLabel: string;
+    secondTab: ReactNode;
     onClose: () => void;
+    title?: string;
 }>) {
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [target, setTarget] = useState<ExportTarget>(() => readTarget());
-    const [resolution, setResolution] = useState<ExportResolutionScale>(() => readResolution());
-
-    const updateTarget = (patch: Partial<ExportTarget>) => {
-        setTarget((prev) => {
-            const next = { ...prev, ...patch };
-            writeTarget(next);
-            return next;
-        });
-    };
+    const [tab, setTab] = useState<'image' | 'second'>('image');
 
     return createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-            <div className="dark w-full max-w-sm rounded-2xl bg-slate-900 p-5 text-slate-100 shadow-2xl ring-1 ring-white/10">
-                <h3 className="text-sm font-semibold text-white">Exporter cette vue</h3>
-                <p className="mt-1 text-xs text-slate-400">
-                    Donnez un titre et une description, puis choisissez où enregistrer la scène.
-                </p>
-                <div className="mt-4 space-y-3">
-                    <label className="block">
-                        <span className="text-xs font-medium text-slate-300">Titre</span>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Ex. Rocher de Chalves"
-                            autoFocus
-                            className="mt-1 w-full rounded-md bg-white/5 px-2.5 py-1.5 text-sm text-white ring-1 ring-white/15 placeholder:text-slate-500 focus:outline-none focus:ring-emerald-400/60"
-                        />
-                    </label>
-                    <label className="block">
-                        <span className="text-xs font-medium text-slate-300">Description <span className="text-slate-500">(optionnel)</span></span>
-                        <textarea
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Ex. Les Rochers de Chalves, au coucher du soleil."
-                            rows={2}
-                            className="mt-1 w-full resize-none rounded-md bg-white/5 px-2.5 py-1.5 text-sm text-white ring-1 ring-white/15 placeholder:text-slate-500 focus:outline-none focus:ring-emerald-400/60"
-                        />
-                    </label>
-                </div>
-                <p className="mt-4 text-xs font-medium text-slate-400">Enregistrer&nbsp;:</p>
-                <div className="mt-2 space-y-2">
-                    <ExportChoice
-                        checked={target.local}
-                        onChange={(v) => updateTarget({ local: v })}
-                        title="Stocker dans « Mes vues »"
-                        desc="Enregistre la scène dans le navigateur pour la rouvrir instantanément."
-                    />
-                    <ExportChoice
-                        checked={target.download}
-                        onChange={(v) => updateTarget({ download: v })}
-                        title="Télécharger"
-                        desc="Télécharge un fichier .zip (à publier dans la galerie showcase)."
-                    />
-                </div>
-                <div className="mt-4 flex items-center gap-2">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-slate-900 shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:text-slate-100 dark:ring-white/10">
+                <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="flex-1 rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 ring-1 ring-white/15 transition hover:bg-white/10"
+                        title="Fermer"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
                     >
-                        Annuler
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => { onExport(title, description, target); }}
-                        disabled={!target.local && !target.download}
-                        className="flex-1 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-emerald-400 disabled:opacity-40"
-                    >
-                        Exporter
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                        </svg>
                     </button>
                 </div>
-                <label className="mt-3 flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-slate-300">Résolution de l’image</span>
-                    <select
-                        value={resolution}
-                        onChange={(e) => {
-                            const v = Number(e.target.value) as ExportResolutionScale;
-                            setResolution(v);
-                            writeResolution(v);
-                        }}
-                        className="rounded-md bg-white/5 px-2 py-1 text-xs text-white ring-1 ring-white/15 focus:outline-none focus:ring-emerald-400/60"
-                    >
-                        {RESOLUTION_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value} className="bg-slate-900">
-                                {opt.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <button
-                    type="button"
-                    onClick={() => { onDownloadImage(resolution); }}
-                    className="mt-2 w-full rounded-md bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10"
-                >
-                    Télécharger seulement l’image (.png)
-                </button>
+                <div className="mt-3 flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+                    <TabButton active={tab === 'image'} onClick={() => setTab('image')}>Image</TabButton>
+                    <TabButton active={tab === 'second'} onClick={() => setTab('second')}>{secondTabLabel}</TabButton>
+                </div>
+                <div className="mt-4">
+                    {tab === 'image' ? <ScreenshotTab /> : secondTab}
+                </div>
             </div>
         </div>,
         document.body,
