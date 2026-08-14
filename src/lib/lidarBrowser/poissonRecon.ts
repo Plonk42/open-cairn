@@ -38,6 +38,13 @@ export interface PoissonOptions {
     samplesPerNode?: number;
     /** Interpolation weight. Default 4. */
     pointWeight?: number;
+    /**
+     * When true, pass `--confidence` so PoissonRecon treats each input normal's
+     * *magnitude* as a per-sample confidence weight (crisp points dominate the
+     * isosurface, noisy/zeroed ones contribute softly). Requires the caller to
+     * pre-scale normals by confidence — see `orientNormalsForPoisson`. Default off.
+     */
+    confidence?: boolean;
     /** Optional log sink for emcc print/printErr. */
     onLog?: (line: string) => void;
     /** Coarse progress callback driven by PoissonRecon's stdout phase markers. */
@@ -217,6 +224,11 @@ export async function reconstructPoisson(
             // Mono-thread WASM build → parallel must be 1.
             '--parallel', '1',
         ];
+        // `--confidence` is a boolean flag (no value): it makes the solver use
+        // each normal's magnitude as a per-sample confidence weight. Verified
+        // present in both the wasm32 and wasm64 v18.76 builds. Only meaningful
+        // when the input normals are pre-scaled by confidence (see pipeline.ts).
+        if (opts.confidence) args.push('--confidence');
         try {
             Module.callMain(args);
         } catch (e) {

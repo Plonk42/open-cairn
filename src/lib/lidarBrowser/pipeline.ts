@@ -770,6 +770,11 @@ export async function fetchLidarPoisson(
         depth,
         samplesPerNode: params.poissonSamplesPerNode,
         pointWeight: params.poissonPointWeight,
+        // Ground normals are already scaled by PCA fit quality in
+        // orientNormalsForPoisson (weightByQuality); `--confidence` makes the
+        // solver honor that magnitude instead of normalizing it away, so crisp
+        // points drive the isosurface and uncertain ones interpolate softly.
+        confidence: true,
         onPhase: (label, fraction) => onProgress({
             stage: 'mesh',
             message: STAGE_LABELS.mesh,
