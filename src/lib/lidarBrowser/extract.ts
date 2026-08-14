@@ -280,37 +280,60 @@ interface CollectCtx {
     cls: Uint8Array;
 }
 
+/** Non-exempt classes are still decimated by `safeStride` within the walk. */
+function isIndexConsidered(exempt: Set<number> | null, isExempt: boolean, i: number, safeStride: number): boolean {
+    return !exempt || isExempt || i % safeStride === 0;
+}
+
+function passesCropAndClass(
+    p: { dx: number; dy: number; x: number; y: number; c: number },
+    rect: ExtractParams['rect'], bbox: CropBbox,
+    classFilter: Set<number> | null, getC: ((i: number) => number) | null,
+): boolean {
+    if (!isInsideCrop(p.dx, p.dy, p.x, p.y, rect, bbox)) return false;
+    if (classFilter && getC && !classFilter.has(p.c)) return false;
+    return true;
+}
+
+function writeScanSample(scan: ReturnType<typeof makeScanReaders>, idx: number, i: number): void {
+    if (!scan) return;
+    scan.scanAngle[idx] = scan.getSA(i);
+    scan.sourceId[idx] = scan.getPSID(i);
+    scan.gpsTime[idx] = scan.getGT(i);
+}
+
 /**
  * Walk a decoded node, applying the (class-aware) stride, bbox/rect crop and
  * class filter, writing kept points into the preallocated `pos`/`cls`/`scan`
- * buffers. Returns the number of points written.
+ * buffers. Returns the number of points written, split by whether they came
+ * from an exempt (full-density) class or a strided one — needed by the
+ * caller to estimate the true pre-stride in-bbox count when the two are
+ * mixed within the same node (see `inBbox` in `processNode`).
  */
-function collectNodePoints(ctx: CollectCtx): number {
+function collectNodePoints(ctx: CollectCtx): { kept: number; keptExempt: number; keptNonExempt: number } {
     const { n, safeStride, exempt, getX, getY, getZ, getC, classFilter, rect, bbox, x0, y0, scan, pos, cls } = ctx;
     const step = exempt ? 1 : safeStride;
     let kept = 0;
+    let keptExempt = 0;
+    let keptNonExempt = 0;
     for (let i = 0; i < n; i += step) {
         const c = getC ? getC(i) : 0;
-        // Non-exempt classes are still decimated by safeStride within the walk.
-        if (exempt && !exempt.has(c) && i % safeStride !== 0) continue;
+        const isExempt = !!exempt && exempt.has(c);
+        if (!isIndexConsidered(exempt, isExempt, i, safeStride)) continue;
         const x = getX(i);
         const y = getY(i);
         const dx = x - x0;
         const dy = y - y0;
-        if (!isInsideCrop(dx, dy, x, y, rect, bbox)) continue;
-        if (classFilter && getC && !classFilter.has(c)) continue;
+        if (!passesCropAndClass({ dx, dy, x, y, c }, rect, bbox, classFilter, getC)) continue;
         pos[kept * 3] = dx;
         pos[kept * 3 + 1] = dy;
         pos[kept * 3 + 2] = getZ(i);
         cls[kept] = c;
-        if (scan) {
-            scan.scanAngle[kept] = scan.getSA(i);
-            scan.sourceId[kept] = scan.getPSID(i);
-            scan.gpsTime[kept] = scan.getGT(i);
-        }
+        writeScanSample(scan, kept, i);
         kept++;
+        if (isExempt) keptExempt++; else keptNonExempt++;
     }
-    return kept;
+    return { kept, keptExempt, keptNonExempt };
 }
 
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
@@ -484,20 +507,24 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         const pos = new Float32Array(maxKept * 3);
         const cls = new Uint8Array(maxKept);
         const scan = needScan ? makeScanReaders(view, maxKept) : null;
-        const kept = collectNodePoints({
+        const { kept, keptExempt, keptNonExempt } = collectNodePoints({
             n, safeStride, exempt, getX, getY, getZ, getC,
             classFilter, rect, bbox, x0, y0, scan, pos, cls,
         });
-        // `inBbox` is estimated as kept × stride (the actual ratio is identical
-        // up to a class-filter rounding effect, since we only sample every Nth
-        // point in the node). For the exempt walk we kept most points, so the
-        // count itself is the best estimate.
+        // `inBbox` is estimated as keptNonExempt × stride + keptExempt (the
+        // actual ratio is identical up to a class-filter rounding effect,
+        // since we only sample every Nth non-exempt point in the node).
+        // Exempt (full-density) points are already at their true in-bbox
+        // count and must NOT be multiplied by stride — doing so (or, as
+        // before, skipping the multiplier entirely for the whole node) both
+        // give a wrong estimate as soon as a node mixes exempt and
+        // stride-decimated classes.
         return {
             positions: pos.subarray(0, kept * 3),
             classifications: cls.subarray(0, kept),
             ...finalizeScan(scan, kept),
             raw: n,
-            inBbox: exempt ? kept : kept * safeStride,
+            inBbox: keptExempt + keptNonExempt * safeStride,
         };
     }
 
