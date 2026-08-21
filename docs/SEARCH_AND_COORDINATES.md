@@ -16,12 +16,14 @@ avec ↑ / ↓, validez avec **Entrée**, ou cliquez. La carte zoome alors sur l
 ### Coordonnées du curseur
 
 En bas à gauche, un encadré affiche en temps réel la **longitude / latitude** sous le
-curseur. Cliquez dessus pour basculer entre :
+curseur. Un petit sélecteur juste à côté permet de choisir le format d'affichage :
 
 - **Décimal** : `45.92143, 6.86781` (5 décimales ≈ 1 m)
 - **DMS** : `45°55'17.2"N, 6°52'04.1"E` (degrés-minutes-secondes)
+- **DDM** : `45°55.287'N, 6°52.069'E` (degrés + minutes décimales)
 
-**Clic droit** sur la carte copie les coordonnées du point cliqué dans le presse-papier.
+**Clic droit** sur la carte copie les coordonnées du point cliqué dans le presse-papier,
+dans le format actuellement sélectionné.
 
 ### Limitations
 

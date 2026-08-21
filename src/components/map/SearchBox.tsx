@@ -1,6 +1,7 @@
 import { parseCoordinates, type ParsedCoordinate } from '@/lib/coordinates';
 import { ignAutocomplete, ignSearch, type IgnSuggestion } from '@/lib/ignGeocoding';
 import { useMapStore } from '@/stores/mapStore';
+import maplibregl from 'maplibre-gl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface SearchBoxProps {
@@ -20,6 +21,7 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const coordMarkerRef = useRef<maplibregl.Marker | null>(null);
 
     // Direct GPS coordinate parse (decimal, DMS, DDM, with or without hemispheres).
     // When set, surfaced as the first suggestion and used as a fallback on submit.
@@ -67,6 +69,13 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
         return () => document.removeEventListener('mousedown', onDown);
     }, [open]);
 
+    const clearCoordMarker = useCallback(() => {
+        coordMarkerRef.current?.remove();
+        coordMarkerRef.current = null;
+    }, []);
+
+    useEffect(() => clearCoordMarker, [clearCoordMarker]);
+
     const flyTo = useCallback((s: IgnSuggestion) => {
         if (!mapInstance) return;
         if (s.bbox) {
@@ -83,17 +92,25 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
     const flyToCoord = useCallback((c: ParsedCoordinate) => {
         if (!mapInstance) return;
         mapInstance.flyTo({ center: [c.lng, c.lat], zoom: Math.max(mapInstance.getZoom(), 14), duration: 900 });
-        setQuery(c.label);
+        if (coordMarkerRef.current) {
+            coordMarkerRef.current.setLngLat([c.lng, c.lat]);
+        } else {
+            coordMarkerRef.current = new maplibregl.Marker({ color: '#16a34a' })
+                .setLngLat([c.lng, c.lat])
+                .addTo(mapInstance);
+        }
+        coordMarkerRef.current.getElement().title = c.label;
         setSuggestions([]);
         setOpen(false);
     }, [mapInstance]);
 
     const pick = useCallback((s: IgnSuggestion) => {
+        clearCoordMarker();
         setQuery(s.fulltext);
         setSuggestions([]);
         setOpen(false);
         flyTo(s);
-    }, [flyTo]);
+    }, [clearCoordMarker, flyTo]);
 
     const onSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
@@ -160,7 +177,7 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
                 {query && (
                     <button
                         type="button"
-                        onClick={() => { setQuery(''); setSuggestions([]); setOpen(false); }}
+                        onClick={() => { setQuery(''); setSuggestions([]); setOpen(false); clearCoordMarker(); }}
                         className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                         title="Effacer"
                         aria-label="Effacer"

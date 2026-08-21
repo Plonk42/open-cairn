@@ -25,13 +25,44 @@ function formatDMS(value: number, isLat: boolean): string {
     return `${deg}°${String(min).padStart(2, '0')}'${sec.toFixed(1)}"${hemi}`;
 }
 
+function formatDDM(value: number, isLat: boolean): string {
+    let hemi: string;
+    if (isLat) hemi = value >= 0 ? 'N' : 'S';
+    else hemi = value >= 0 ? 'E' : 'O';
+    const abs = Math.abs(value);
+    const deg = Math.floor(abs);
+    const min = (abs - deg) * 60;
+    return `${deg}°${min.toFixed(3)}'${hemi}`;
+}
+
+type CoordFormat = 'dec' | 'dms' | 'ddm';
+
+const FORMAT_LABELS: Record<CoordFormat, string> = {
+    dec: 'Décimal',
+    dms: 'DMS',
+    ddm: 'DDM',
+};
+
+function formatByMode(mode: CoordFormat, lat: number, lng: number): string {
+    switch (mode) {
+        case 'dms':
+            return `${formatDMS(lat, true)} ${formatDMS(lng, false)}`;
+        case 'ddm':
+            return `${formatDDM(lat, true)} ${formatDDM(lng, false)}`;
+        default:
+            return `${formatCoord(lat)}, ${formatCoord(lng)}`;
+    }
+}
+
 export function CursorCoordinates({ compact = false, flat = false }: Readonly<CursorCoordinatesProps>) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const [coords, setCoords] = useState<{ lng: number; lat: number } | null>(null);
     const [copied, setCopied] = useState(false);
-    const [mode, setMode] = useState<'dec' | 'dms'>('dec');
+    const [mode, setMode] = useState<CoordFormat>('dec');
     const routeActive = useRouteStore((s) => s.active);
     const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const modeRef = useRef(mode);
+    modeRef.current = mode;
 
     useEffect(() => {
         if (!mapInstance) return undefined;
@@ -51,7 +82,7 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
     useEffect(() => {
         if (!mapInstance) return undefined;
         const copyCoords = (lngLat: { lng: number; lat: number }) => {
-            const text = `${formatCoord(lngLat.lat)}, ${formatCoord(lngLat.lng)}`;
+            const text = formatByMode(modeRef.current, lngLat.lat, lngLat.lng);
             navigator.clipboard.writeText(text).catch(() => { /* ignore */ });
             setCopied(true);
             if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -68,22 +99,9 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
         };
     }, [mapInstance, routeActive]);
 
-    if (!coords) {
-        const sizeClass = compact ? 'text-[10px]' : '';
-        const placeholderClass = flat
-            ? `pointer-events-none select-none px-1 py-0.5 text-[11px] font-mono text-slate-400 dark:text-slate-500 ${sizeClass}`
-            : `pointer-events-none select-none rounded-lg bg-white/80 px-2.5 py-1 text-[11px] font-mono text-slate-400 shadow-sm ring-1 ring-black/5 backdrop-blur-md dark:bg-slate-900/70 dark:text-slate-500 dark:ring-white/10 ${sizeClass}`;
-        return (
-            <div className={placeholderClass}>
-                — , —
-            </div>
-        );
-    }
-
-    const decimalText = `${formatCoord(coords.lat)}, ${formatCoord(coords.lng)}`;
-    const display = mode === 'dec'
-        ? decimalText
-        : `${formatDMS(coords.lat, true)} ${formatDMS(coords.lng, false)}`;
+    // Keep last-known text when the pointer leaves the map (e.g. moving onto this
+    // very overlay, which also fires the map's mouseout) so the selector never disappears.
+    const display = coords ? formatByMode(mode, coords.lat, coords.lng) : '— , —';
 
     const sizeClass = compact ? 'text-[10px]' : '';
     const containerClass = flat
@@ -91,20 +109,27 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
         : `pointer-events-none flex select-none items-center gap-1.5 rounded-lg bg-white/85 px-2 py-1 font-mono text-[11px] text-slate-700 shadow-sm ring-1 ring-black/5 backdrop-blur-md dark:bg-slate-900/75 dark:text-slate-200 dark:ring-white/10 ${sizeClass}`;
     return (
         <div className={containerClass}>
-            <button
-                type="button"
-                onClick={() => setMode((m) => m === 'dec' ? 'dms' : 'dec')}
-                title="Basculer décimal / DMS"
-                className="pointer-events-auto cursor-pointer tabular-nums"
+            <span
+                className="pointer-events-auto cursor-help whitespace-nowrap tabular-nums"
+                title={routeActive ? undefined : 'Clic droit sur la carte = copier les coordonnées'}
             >
                 {display}
-            </button>
-            {copied && (
-                <span className="text-[10px] font-sans text-green-600 dark:text-emerald-400">copié ✓</span>
-            )}
-            {!copied && !routeActive && (
-                <span className="text-[10px] font-sans text-slate-400 dark:text-slate-500">clic droit = copier</span>
-            )}
+            </span>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {copied && (
+                    <span className="whitespace-nowrap text-[10px] font-sans text-green-600 dark:text-emerald-400">copié ✓</span>
+                )}
+                <select
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as CoordFormat)}
+                    title="Format d'affichage et de copie"
+                    className="pointer-events-auto cursor-pointer rounded border-none bg-transparent py-0 pl-0.5 pr-4 text-[10px] font-sans text-slate-500 focus:outline-none dark:text-slate-400"
+                >
+                    {(Object.keys(FORMAT_LABELS) as CoordFormat[]).map((f) => (
+                        <option key={f} value={f}>{FORMAT_LABELS[f]}</option>
+                    ))}
+                </select>
+            </div>
         </div>
     );
 }
