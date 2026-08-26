@@ -26,15 +26,6 @@ export function LayersIcon({ className }: IconProps): ReactElement {
     );
 }
 
-export function ShadingIcon({ className }: IconProps): ReactElement {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" className={className} aria-hidden="true">
-            <circle cx="10" cy="10" r="6.5" />
-            <path fill="currentColor" stroke="none" d="M10 3.5a6.5 6.5 0 000 13V3.5z" />
-        </svg>
-    );
-}
-
 export function ContourIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.2" className={className} aria-hidden="true">
@@ -79,24 +70,29 @@ export interface RouteSettingSection {
 }
 
 /**
+ * Everything that makes up the map background: the basemap picker plus the
+ * LiDAR HD hillshade and its blend mode. Shared verbatim by the Itinéraire
+ * « Fond » pill and the LiDAR Studio bottom bar.
+ */
+export function MapBackgroundSection(): ReactElement {
+    return (
+        <>
+            <BaseLayerSection />
+            <SectionDivider />
+            <HillshadeSection />
+            <SectionDivider />
+            <ShadingBlendSection />
+        </>
+    );
+}
+
+/**
  * Shared map-styling sections, composed identically into the desktop
  * `RouteBottomBar` (one popover pill each) and the mobile toolbar (one sheet
  * each) so the two shells stay a single source of truth.
  */
 export const ROUTE_SETTING_SECTIONS: ReadonlyArray<RouteSettingSection> = [
-    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <BaseLayerSection /> },
-    {
-        id: 'ombrage',
-        label: 'Ombrage',
-        Icon: ShadingIcon,
-        render: () => (
-            <>
-                <HillshadeSection />
-                <SectionDivider />
-                <ShadingBlendSection />
-            </>
-        ),
-    },
+    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <MapBackgroundSection /> },
     { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
     {
         id: 'terrain',

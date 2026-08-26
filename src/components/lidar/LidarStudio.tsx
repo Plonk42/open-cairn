@@ -13,7 +13,7 @@ import type maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
 import { StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
-import { QuickBasemapSwitch, ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
+import { ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -412,7 +412,6 @@ function StudioMobileShell() {
                 tools={STUDIO_RENDER_SETTINGS}
                 activeId={activeId}
                 onSelect={handleSelect}
-                leading={<QuickBasemapSwitch />}
                 trailing={<ResetSettingsButton />}
             />
         </div>

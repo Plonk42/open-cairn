@@ -1,6 +1,5 @@
 import { CaptureIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import {
-    QuickBasemapSwitch,
     ResetSettingsButton,
     STUDIO_RENDER_SETTINGS,
     type StudioRenderSettingId,
@@ -29,8 +28,6 @@ export function StudioBottomBar() {
 
     return (
         <BottomBar active={active !== null} onDismiss={() => setActive(null)} dataTutorial="render-settings">
-            <QuickBasemapSwitch />
-            <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
             {STUDIO_RENDER_SETTINGS.map((s) => (
                 <BottomBarPill
                     key={s.id}

@@ -10,6 +10,7 @@ import {
     SizeIcon,
     TreeIcon,
 } from '@/components/icons/LidarIcons';
+import { LayersIcon, MapBackgroundSection } from '@/components/shell/routeSections';
 import {
     ClassFilterSection,
     OpacityControls,
@@ -23,6 +24,7 @@ import { useMapStore } from '@/stores/mapStore';
 import type { ReactElement, ReactNode } from 'react';
 
 export type StudioRenderSettingId =
+    | 'fond'
     | 'opacite'
     | 'classes'
     | 'points'
@@ -41,6 +43,8 @@ interface StudioRenderSetting {
 
 /** Single source of truth for the bottom-bar render settings (one per button). */
 export const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
+    // Same basemap + hillshade menu as the Itinéraire view.
+    { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <MapBackgroundSection /> },
     { id: 'opacite', label: 'Opacité', Icon: OpacityIcon, render: () => <OpacityControls /> },
     { id: 'classes', label: 'Classes', Icon: ClassesIcon, render: () => <ClassFilterSection /> },
     { id: 'points', label: 'Points', Icon: SizeIcon, render: () => <PointSizeControls /> },
@@ -50,37 +54,6 @@ export const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
     { id: 'ombres', label: 'Ombres', Icon: ShadowIcon, render: () => <BoundShadowControls /> },
     { id: 'edl', label: 'EDL', Icon: EffectsIcon, render: () => <LidarEffectsControls /> },
 ];
-
-const BASEMAPS: ReadonlyArray<{ id: 'ortho' | 'plan'; label: string }> = [
-    { id: 'ortho', label: 'Photo' },
-    { id: 'plan', label: 'Plan' },
-];
-
-export function QuickBasemapSwitch(): ReactElement {
-    const baseLayer = useMapStore((s) => s.baseLayer);
-    const setBaseLayer = useMapStore((s) => s.setBaseLayer);
-
-    return (
-        <div className="flex items-center gap-1.5">
-            {/* Basemap layer selector (Photo / Plan). */}
-            <div className="inline-flex items-center overflow-hidden rounded-md ring-1 ring-black/10 dark:ring-white/15">
-                <fieldset className="inline-flex">
-                    {BASEMAPS.map(({ id, label }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => setBaseLayer(id)}
-                            aria-pressed={baseLayer === id}
-                            className={`px-2.5 py-1 text-xs transition ${baseLayer === id ? 'bg-emerald-500 text-white' : 'bg-black/5 text-slate-600 hover:bg-black/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'}`}
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </fieldset>
-            </div>
-        </div>
-    );
-}
 
 /** Resets every LiDAR render setting (opacity, classes, shader, lighting…) to defaults. */
 export function ResetSettingsButton(): ReactElement {
