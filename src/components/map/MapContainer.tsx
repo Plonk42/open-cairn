@@ -111,6 +111,17 @@ const ROUTE_SELECTION_SOURCE = 'open-cairn-route-selection';
 const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
 const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
 
+/** Classic map view: stay at MapLibre's traditional near-horizon ceiling. */
+const MAP_MAX_PITCH = 85;
+/**
+ * LiDAR Studio: allow tilting past 90° so the camera can look upward when
+ * inspecting a mesh from below (overhangs, cliff undersides). MapLibre still
+ * pushes the pitch back down whenever the camera would end up inside the
+ * terrain, so the reachable angle depends on how far the camera sits from the
+ * ground.
+ */
+const STUDIO_MAX_PITCH = 150;
+
 registerCompositeProtocol();
 
 function syncCenterElevationToTerrain(map: maplibregl.Map): void {
@@ -504,9 +515,13 @@ export function MapContainer() {
             style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
-            pitch: view.pitch,
+            // MapLibre's below-terrain camera correction dereferences an
+            // uninitialised transform when the map is *constructed* above the
+            // horizon, throwing "Invalid LngLat (NaN, NaN)". Start below 90°
+            // and let the user tilt further once the map is alive.
+            pitch: Math.min(view.pitch, MAP_MAX_PITCH),
             bearing: view.bearing,
-            maxPitch: 85,
+            maxPitch: studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH,
             canvasContextAttributes: {
                 antialias: true,
                 powerPreference: 'high-performance',
@@ -736,6 +751,11 @@ export function MapContainer() {
             });
             terrainControlRef.current = control;
         }
+    }, [studio]);
+
+    // Only the studio may look above the horizon; leaving it tilts back down.
+    useEffect(() => {
+        mapRef.current?.setMaxPitch(studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH);
     }, [studio]);
 
     // Rebuild style when structural settings change (base layer, hillshade on/off,
