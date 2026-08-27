@@ -1,7 +1,7 @@
 import { setTileCacheMaxSize } from '@/lib/compositeProtocol';
 import type { StateCreator } from 'zustand';
-import { persisted, type PersistedSettings } from '../persistence';
 import type { MapState } from '../mapStore';
+import { persisted, type PersistedSettings } from '../persistence';
 
 export type RenderQuality = 'balanced' | 'sharp';
 
@@ -29,6 +29,14 @@ export interface SettingsSlice {
     studioTutorialSeen: boolean;
     setStudioTutorialSeen: (v: boolean) => void;
 
+    /**
+     * Studio "caméra libre": lets the camera cross the terrain surface instead of
+     * being pushed back out by MapLibre. Session-only on purpose — it changes how
+     * navigation feels, so it should not silently persist across reloads.
+     */
+    freeCamera: boolean;
+    setFreeCamera: (v: boolean) => void;
+
     /** IGN API key for SCAN 25 (private WMTS). */
     ignScanApiKey: string;
     setIgnScanApiKey: (v: string) => void;
@@ -53,6 +61,9 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
 
     studioTutorialSeen: persisted.studioTutorialSeen ?? false,
     setStudioTutorialSeen: (studioTutorialSeen) => set({ studioTutorialSeen }),
+
+    freeCamera: false,
+    setFreeCamera: (freeCamera) => set({ freeCamera }),
 
     ignScanApiKey: persisted.ignScanApiKey ?? '',
     setIgnScanApiKey: (ignScanApiKey) => set({ ignScanApiKey }),

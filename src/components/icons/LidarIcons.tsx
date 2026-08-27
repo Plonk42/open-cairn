@@ -96,6 +96,16 @@ export function OrbitIcon({ className }: IconProps): ReactElement {
     );
 }
 
+export function FreeCameraIcon({ className }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" className={className} aria-hidden="true">
+            <path d="M1.5 13.5 7 8l3 3 3.5-3.5 4.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity="0.45" />
+            <circle cx="10" cy="10.5" r="2.4" fill="currentColor" />
+            <path d="M10 5.6V2.6M8.6 4 10 2.4 11.4 4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
 export function ResetIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">

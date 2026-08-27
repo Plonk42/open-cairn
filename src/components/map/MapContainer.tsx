@@ -1,4 +1,5 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
+import { setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
 import { buildMapStyle, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
 import { useView } from '@/lib/useView';
@@ -496,6 +497,7 @@ export function MapContainer() {
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
+    const freeCamera = useMapStore((s) => s.freeCamera);
 
     // Keep composite protocol in sync with the current SCAN API key.
     useEffect(() => { setScanApiKey(ignScanApiKey); }, [ignScanApiKey]);
@@ -757,6 +759,15 @@ export function MapContainer() {
     useEffect(() => {
         mapRef.current?.setMaxPitch(studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH);
     }, [studio]);
+
+    // "Caméra libre": studio-only opt-out of MapLibre's terrain camera collision,
+    // which otherwise rewrites pitch AND zoom every frame when the eye grazes the
+    // ground — the jitter that makes close-range inspection unusable.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        setTerrainCameraCollision(map, !(studio && freeCamera));
+    }, [studio, freeCamera]);
 
     // Rebuild style when structural settings change (base layer, hillshade on/off,
     // render quality, contour lines). Uses diff mode to preserve terrain mesh.

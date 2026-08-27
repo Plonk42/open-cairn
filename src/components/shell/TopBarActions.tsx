@@ -1,7 +1,8 @@
-import { OrbitIcon } from '@/components/icons/LidarIcons';
+import { FreeCameraIcon, OrbitIcon } from '@/components/icons/LidarIcons';
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import type { AppView } from '@/lib/useView';
+import { useMapStore } from '@/stores/mapStore';
 import type { ReactNode } from 'react';
 
 /** Orbit auto-wiggle toggle. Works in both views (it circles the camera around
@@ -22,6 +23,34 @@ export function OrbitTopBarButton() {
         >
             <OrbitIcon className="h-4 w-4" />
             <span>Orbite</span>
+        </button>
+    );
+}
+
+/**
+ * Studio-only "caméra libre" toggle. MapLibre normally shoves the camera back
+ * out of the terrain whenever the eye dips below the surface, and it pays for it
+ * with pitch + zoom rewrites on every frame — close to the ground that reads as
+ * the view snapping around while you orbit. Turning it off lets the camera pass
+ * through the ground so inspecting a cloud or a slope from up close stays
+ * steady (and unlocks the full above-the-horizon pitch range).
+ */
+function FreeCameraTopBarButton() {
+    const freeCamera = useMapStore((s) => s.freeCamera);
+    const setFreeCamera = useMapStore((s) => s.setFreeCamera);
+    return (
+        <button
+            type="button"
+            onClick={() => setFreeCamera(!freeCamera)}
+            title="Caméra libre : traverse le terrain au lieu d’être repoussée — vue stable en inspection rapprochée"
+            aria-label="Caméra libre"
+            aria-pressed={freeCamera}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${freeCamera
+                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
+                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
+        >
+            <FreeCameraIcon className="h-4 w-4" />
+            <span>Cam. libre</span>
         </button>
     );
 }
@@ -65,6 +94,7 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
     return (
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
             <OrbitTopBarButton />
+            {studio && <FreeCameraTopBarButton />}
             <ShowcaseGallery />
             {exportSlot}
             <HelpButton onClick={studio ? onHelp : undefined} />
