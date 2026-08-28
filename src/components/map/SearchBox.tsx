@@ -95,7 +95,7 @@ export function SearchBox({ compact = false, flat = false }: Readonly<SearchBoxP
         if (coordMarkerRef.current) {
             coordMarkerRef.current.setLngLat([c.lng, c.lat]);
         } else {
-            coordMarkerRef.current = new maplibregl.Marker({ color: '#16a34a' })
+            coordMarkerRef.current = new maplibregl.Marker({ color: '#dc2626' })
                 .setLngLat([c.lng, c.lat])
                 .addTo(mapInstance);
         }
