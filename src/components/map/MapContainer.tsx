@@ -624,6 +624,8 @@ export function MapContainer() {
         map.on('click', (event) => {
             // The LiDAR Studio shares this map but must never edit the itinerary.
             if (studioRef.current) return;
+            // The tap ending a mobile long-press coordinate readout isn't an edit.
+            if (useMapStore.getState().coordPickActive) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -637,6 +639,7 @@ export function MapContainer() {
 
         map.on('dblclick', (event) => {
             if (studioRef.current) return;
+            if (useMapStore.getState().coordPickActive) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -652,6 +655,7 @@ export function MapContainer() {
 
         map.on('contextmenu', (event) => {
             if (studioRef.current) return;
+            if (useMapStore.getState().coordPickActive) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -663,6 +667,7 @@ export function MapContainer() {
         const startDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
             // Dragging waypoints only makes sense in route mode.
             if (studioRef.current) return;
+            if (useMapStore.getState().coordPickActive) return;
             const route = useRouteStore.getState();
             if (!route.active || route.deleteMode) return;
             const waypointId = waypointAt(event.point);

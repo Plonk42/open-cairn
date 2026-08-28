@@ -56,6 +56,14 @@ export interface ViewSlice {
     baseLayer: BaseLayerId;
     setBaseLayer: (id: BaseLayerId) => void;
 
+    /**
+     * Set by the mobile long-press coordinate readout (`TouchCoordinates`) for
+     * the span between the press firing and the finger lifting, so the click
+     * synthesised by that touch doesn't also edit the route. Session-only.
+     */
+    coordPickActive: boolean;
+    setCoordPickActive: (v: boolean) => void;
+
     /** Map instance reference for imperative operations. */
     mapInstance: maplibregl.Map | null;
     setMapInstance: (map: maplibregl.Map | null) => void;
@@ -77,6 +85,9 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
 
     baseLayer: initialActiveStyle.baseLayer,
     setBaseLayer: (baseLayer) => patchActiveStyle(set, { baseLayer }),
+
+    coordPickActive: false,
+    setCoordPickActive: (coordPickActive) => set({ coordPickActive }),
 
     mapInstance: null,
     setMapInstance: (mapInstance) => set({ mapInstance }),

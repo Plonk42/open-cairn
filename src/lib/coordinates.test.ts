@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { parseCoordinates } from '@/lib/coordinates';
+import { describe, expect, it } from 'vitest';
 
 describe('parseCoordinates', () => {
     it('returns null for empty or junk input', () => {
@@ -55,6 +55,12 @@ describe('parseCoordinates', () => {
         const r = parseCoordinates("45°49.957'N 6°51.912'E");
         expect(r!.lat).toBeCloseTo(45 + 49.957 / 60, 4);
         expect(r!.lng).toBeCloseTo(6 + 51.912 / 60, 4);
+    });
+
+    it('parses leading-hemisphere DDM without a comma separator', () => {
+        const r = parseCoordinates('N 45° 14.194 E 005° 41.209');
+        expect(r!.lat).toBeCloseTo(45 + 14.194 / 60, 4);
+        expect(r!.lng).toBeCloseTo(5 + 41.209 / 60, 4);
     });
 
     it('rejects out-of-range latitude', () => {

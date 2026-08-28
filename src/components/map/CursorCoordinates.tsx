@@ -1,3 +1,4 @@
+import { COORD_FORMAT_LABELS, formatCoordByMode, type CoordFormat } from '@/lib/coordinateFormat';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import type maplibregl from 'maplibre-gl';
@@ -7,51 +8,6 @@ interface CursorCoordinatesProps {
     compact?: boolean;
     /** Flat variant: no own background/ring/shadow (for nesting in a parent card). */
     flat?: boolean;
-}
-
-function formatCoord(value: number): string {
-    return value.toFixed(5);
-}
-
-function formatDMS(value: number, isLat: boolean): string {
-    let hemi: string;
-    if (isLat) hemi = value >= 0 ? 'N' : 'S';
-    else hemi = value >= 0 ? 'E' : 'O';
-    const abs = Math.abs(value);
-    const deg = Math.floor(abs);
-    const minF = (abs - deg) * 60;
-    const min = Math.floor(minF);
-    const sec = (minF - min) * 60;
-    return `${deg}°${String(min).padStart(2, '0')}'${sec.toFixed(1)}"${hemi}`;
-}
-
-function formatDDM(value: number, isLat: boolean): string {
-    let hemi: string;
-    if (isLat) hemi = value >= 0 ? 'N' : 'S';
-    else hemi = value >= 0 ? 'E' : 'O';
-    const abs = Math.abs(value);
-    const deg = Math.floor(abs);
-    const min = (abs - deg) * 60;
-    return `${deg}°${min.toFixed(3)}'${hemi}`;
-}
-
-type CoordFormat = 'dec' | 'dms' | 'ddm';
-
-const FORMAT_LABELS: Record<CoordFormat, string> = {
-    dec: 'Décimal',
-    dms: 'DMS',
-    ddm: 'DDM',
-};
-
-function formatByMode(mode: CoordFormat, lat: number, lng: number): string {
-    switch (mode) {
-        case 'dms':
-            return `${formatDMS(lat, true)} ${formatDMS(lng, false)}`;
-        case 'ddm':
-            return `${formatDDM(lat, true)} ${formatDDM(lng, false)}`;
-        default:
-            return `${formatCoord(lat)}, ${formatCoord(lng)}`;
-    }
 }
 
 export function CursorCoordinates({ compact = false, flat = false }: Readonly<CursorCoordinatesProps>) {
@@ -82,7 +38,7 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
     useEffect(() => {
         if (!mapInstance) return undefined;
         const copyCoords = (lngLat: { lng: number; lat: number }) => {
-            const text = formatByMode(modeRef.current, lngLat.lat, lngLat.lng);
+            const text = formatCoordByMode(modeRef.current, lngLat.lat, lngLat.lng);
             navigator.clipboard.writeText(text).catch(() => { /* ignore */ });
             setCopied(true);
             if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -101,7 +57,7 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
 
     // Keep last-known text when the pointer leaves the map (e.g. moving onto this
     // very overlay, which also fires the map's mouseout) so the selector never disappears.
-    const display = coords ? formatByMode(mode, coords.lat, coords.lng) : '— , —';
+    const display = coords ? formatCoordByMode(mode, coords.lat, coords.lng) : '— , —';
 
     const sizeClass = compact ? 'text-[10px]' : '';
     const containerClass = flat
@@ -125,11 +81,12 @@ export function CursorCoordinates({ compact = false, flat = false }: Readonly<Cu
                     title="Format d'affichage et de copie"
                     className="pointer-events-auto cursor-pointer rounded border-none bg-transparent py-0 pl-0.5 pr-4 text-[10px] font-sans text-slate-500 focus:outline-none dark:text-slate-400"
                 >
-                    {(Object.keys(FORMAT_LABELS) as CoordFormat[]).map((f) => (
-                        <option key={f} value={f}>{FORMAT_LABELS[f]}</option>
+                    {(Object.keys(COORD_FORMAT_LABELS) as CoordFormat[]).map((f) => (
+                        <option key={f} value={f}>{COORD_FORMAT_LABELS[f]}</option>
                     ))}
                 </select>
             </div>
         </div>
     );
 }
+

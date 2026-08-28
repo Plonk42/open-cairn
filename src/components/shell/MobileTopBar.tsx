@@ -1,4 +1,5 @@
 import { SearchBox } from '@/components/map/SearchBox';
+import { TouchCoordinates } from '@/components/map/TouchCoordinates';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useMapStore } from '@/stores/mapStore';
 import { useState, type ReactNode } from 'react';
@@ -79,6 +80,10 @@ export function MobileTopBar({ actions }: Readonly<{ actions?: ReactNode }>) {
                     <SearchBox flat />
                 </div>
             )}
+
+            <TouchCoordinates />
         </div>
     );
 }
+
+

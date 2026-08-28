@@ -10,6 +10,7 @@
  *   45°49'57.4"N 6°51'54.7"E   (DMS)
  *   45°49.957'N 6°51.912'E     (DDM, degrees + decimal minutes)
  *   45 49 57 N, 6 51 54 E      (space-separated DMS)
+ *   N 45° 14.194 E 005° 41.209 (leading hemisphere, no comma)
  *
  * Tolerates Unicode prime/double-prime (′ ″), curly quotes, and non-breaking
  * spaces, since copy-paste from Wikipedia / Google Maps often produces them.
@@ -60,6 +61,19 @@ export function parseCoordinates(input: string): ParsedCoordinate | null {
     return { lat, lng, label: formatLatLng(lat, lng) };
 }
 
+// Hemisphere letter that STARTS a coordinate (preceded by start-of-string or
+// whitespace, followed by a digit): matches the "N" in "N 45° 14.194" or
+// "N45.8326", but not the "N" trailing a number like "45.83N".
+const HEMISPHERE_LEAD = /(?:^|\s)([NSEWnsew])(?=\s*[\d.])/g;
+
+function findHemisphereLeadPositions(s: string): number[] {
+    const positions: number[] = [];
+    for (const match of s.matchAll(HEMISPHERE_LEAD)) {
+        positions.push(match.index + match[0].length - 1);
+    }
+    return positions;
+}
+
 function splitTwoCoords(s: string): [string, string] | null {
     // Comma / semicolon: unambiguous.
     const sep = /[,;]/.exec(s);
@@ -67,12 +81,18 @@ function splitTwoCoords(s: string): [string, string] | null {
         const i = sep.index;
         return [s.slice(0, i).trim(), s.slice(i + 1).trim()];
     }
-    // Hemisphere as terminator: `45.83N 6.86E`, `45°49'N 6°51'E`
-    const trail = /^(.*?[NSEWnsew])\s+(\S.*)$/.exec(s);
+    // Hemisphere as terminator: `45.83N 6.86E`, `45°49'N 6°51'E` (letter must
+    // immediately follow a digit/quote, so it can't be confused with a
+    // leading hemisphere like the "N" in "N 45° 14.194 E 005° 41.209").
+    const trail = /^(.*?[\d'"][NSEWnsew])\s+(\S.*)$/.exec(s);
     if (trail) return [trail[1].trim(), trail[2].trim()];
-    // Hemisphere at the start of each: `N45.83 E6.86`
-    const lead = /^([NSEWnsew]\s*\S+)\s+([NSEWnsew]\s*\S+)$/.exec(s);
-    if (lead) return [lead[1].trim(), lead[2].trim()];
+    // Hemisphere at the start of each coordinate, no separator: `N45.83
+    // E6.86` or `N 45° 14.194 E 005° 41.209` (each part may itself contain
+    // several whitespace-separated tokens, e.g. degrees + decimal minutes).
+    const leadPositions = findHemisphereLeadPositions(s);
+    if (leadPositions.length === 2 && leadPositions[1] > 0) {
+        return [s.slice(0, leadPositions[1]).trim(), s.slice(leadPositions[1]).trim()];
+    }
     // Two whitespace-separated decimal numbers.
     const dec = /^(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/.exec(s);
     if (dec) return [dec[1], dec[2]];
