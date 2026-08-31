@@ -16,7 +16,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 
 ## ✨ Fonctionnalités
 
-- **Cartographie multi-fonds** — SCAN 25 Tour, Plan IGN, Orthophotos, OpenStreetMap, ombrage LiDAR brut
+- **Cartographie multi-fonds** — SCAN 25, Plan IGN, Orthophotos, OpenStreetMap, ombrage LiDAR brut
 - **Ombrage LiDAR HD** — composition temps réel (mode *multiply* ou *neutre*) des couches MNS / MNT / MNH
   IGN sur le fond choisi, via un protocole MapLibre custom `composite://`
 - **Relief 3D** — terrain MapLibre alimenté par le MNT haute résolution IGN (TerrainRGB), exagération réglable
@@ -63,7 +63,7 @@ contrôle de types, utiliser `npm run build` (ou `npx tsc -b`) et
 
 Aucune clé d'API n'est requise pour les fonctionnalités de base — la quasi-totalité de la
 Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut être saisie dans
-*Réglages* pour les couches privées (SCAN 25 Tour, MNT haute résolution interpolé linéairement).
+*Réglages* pour les couches privées (SCAN 25, MNT haute résolution interpolé linéairement).
 
 ---
 

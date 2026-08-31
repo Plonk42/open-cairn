@@ -7,7 +7,7 @@ hébergée par le projet ; toutes les requêtes partent du navigateur de l'utili
 ## Pour les utilisateurs
 
 La quasi-totalité des données est en accès libre, sans inscription. Quelques couches
-(SCAN 25 Tour, MNT haute résolution interpolé linéaire) demandent une clé d'API que
+(SCAN 25, MNT haute résolution interpolé linéaire) demandent une clé d'API que
 vous pouvez saisir dans **Réglages → Clés API IGN**. La demande de clé se fait
 gratuitement sur [geoservices.ign.fr](https://geoservices.ign.fr/services-geoplateforme).
 
@@ -21,7 +21,7 @@ Toutes les données restent la **propriété de l'IGN** ; leur usage est régi p
 | Service                    | Endpoint                                        | Méthode      | Usage open-cairn                       |
 |---------------------------|-------------------------------------------------|--------------|----------------------------------------|
 | WMTS public                | `https://data.geopf.fr/wmts`                   | GET tuile    | Plan IGN, Ortho, OSM, LiDAR HD ombrage |
-| WMTS privé (clé)           | `https://data.geopf.fr/private/wmts`           | GET tuile    | SCAN 25 Tour                            |
+| WMTS privé (clé)           | `https://data.geopf.fr/private/wmts`           | GET tuile    | SCAN 25                            |
 | WMS-r privé (clé)          | `https://data.geopf.fr/private/wms-r`          | GetMap       | DEM TerrainRGB haute résolution         |
 | Navigation                 | `https://data.geopf.fr/navigation/itineraire`  | GET          | Calcul itinéraire piéton (bdtopo-osrm)  |
 | Altimétrie                 | `https://data.geopf.fr/altimetrie/1.0/.../elevationLine.json` | POST | Profil altimétrique                    |

@@ -4,7 +4,7 @@
  * Three endpoints are used:
  *  - public WMTS (`/wmts`) for layers in the "découverte" tier (Plan IGN,
  *    Orthophotos, LiDAR HD shadow, …).
- *  - private WMTS (`/private/wmts`) for SCAN 25 Tour, gated by an `apikey`
+ *  - private WMTS (`/private/wmts`) for SCAN 25, gated by an `apikey`
  *    parameter. Users must supply their own key (e.g. `ign_scan_ws` from
  *    cartes.gouv.fr / geoportail.gouv.fr for SCAN access).
  *  - public WMS-r (`/wms-r`) for the high-resolution TerrainRGB DEM.
@@ -66,7 +66,7 @@ export const IGN_LAYERS = {
         // instead of requesting non-existent z17/z18 tiles (which flood the
         // console with 404s).
         maxZoom: 16,
-        label: 'SCAN 25 Tour',
+        label: 'SCAN 25',
         private: true,
     },
     planIgn: {

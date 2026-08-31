@@ -12,7 +12,7 @@ cinq fonds sont disponibles :
 
 | Fond            | Source                          | Pertinence                          |
 |-----------------|----------------------------------|-------------------------------------|
-| **SCAN 25**     | IGN SCAN 25 Tour                 | Carte topo de référence en montagne |
+| **SCAN 25**     | IGN SCAN 25                 | Carte topo de référence en montagne |
 | **Plan IGN**    | IGN Plan IGN                     | Cartographie générale, lisible      |
 | **Orthophotos** | IGN BD ORTHO                     | Imagerie aérienne                   |
 | **OSM**         | OpenStreetMap                    | Détail des sentiers / refuges       |

@@ -1,7 +1,7 @@
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { CaptureRectDims } from '@/lib/lidarCaptureRect';
-import type { AppView } from '@/lib/useView';
 import type { DrapeSource } from '@/lib/mapStyle';
+import type { AppView } from '@/lib/useView';
 import type { MapStyleSettings } from './mapStyleView';
 import type { LidarMode } from './slices/lidarSlice';
 import type { RenderQuality, UiTheme } from './slices/settingsSlice';

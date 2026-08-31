@@ -1,6 +1,6 @@
 import type { RenderQuality, TerrainDemSource } from '@/stores/mapStore';
-import maplibregl from 'maplibre-gl';
 import mlcontour from 'maplibre-contour';
+import maplibregl from 'maplibre-gl';
 import { compositeTileUrl, type BlendMode, type CompositeBaseKey, type ShadowKind } from './compositeProtocol';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
 
