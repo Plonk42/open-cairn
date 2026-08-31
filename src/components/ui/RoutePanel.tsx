@@ -1,3 +1,4 @@
+import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
 import { FlyoverController } from '@/lib/flyover';
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
@@ -146,35 +147,26 @@ export function RoutePanel() {
         <div className={isMobile ? 'flex flex-col gap-3 px-1 py-1' : 'flex h-full flex-col px-3 py-2'}>
             {/* Header bar: mode toggle + stats */}
             <div className="flex flex-wrap items-center gap-2">
-                {/* Tracé on/off */}
-                <button
-                    type="button"
-                    onClick={() => setActive(!active)}
-                    className={`rounded-md px-2 py-1 text-xs ring-1 transition ${active ? 'bg-green-50 text-green-700 ring-green-300 dark:bg-green-900/30 dark:text-emerald-400 dark:ring-green-700' : 'bg-gray-100 text-slate-400 ring-gray-200 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600'}`}
-                    title={active ? 'Le clic sur la carte ajoute des points' : 'Le clic sur la carte ne fait rien'}
-                >
-                    {active ? 'Édition' : 'Lecture'}
-                </button>
+                {/* Read vs edit — both states are spelled out so the current
+                    one, and what the other would do, are never a guess. */}
+                <SegmentedControl<'read' | 'edit'>
+                    value={active ? 'edit' : 'read'}
+                    onChange={(v) => setActive(v === 'edit')}
+                    options={[
+                        { value: 'read', label: 'Lecture', title: 'Le clic sur la carte ne modifie pas l\'itinéraire' },
+                        { value: 'edit', label: 'Édition', title: 'Le clic sur la carte ajoute un point' },
+                    ]}
+                />
 
                 {/* Mode selector */}
-                <div className="flex gap-0.5 rounded-md bg-gray-100 p-0.5 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-600">
-                    <button
-                        type="button"
-                        onClick={() => setMode('auto')}
-                        className={`rounded px-2 py-1 text-xs transition ${mode === 'auto' ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                        title="Les segments suivent les chemins existants (calcul IGN)"
-                    >
-                        Guidé
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setMode('free')}
-                        className={`rounded px-2 py-1 text-xs transition ${mode === 'free' ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                        title="Les segments sont des lignes droites entre les points"
-                    >
-                        Libre
-                    </button>
-                </div>
+                <SegmentedControl<RouteMode>
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                        { value: 'auto', label: 'Guidé', title: 'Les segments suivent les chemins existants (calcul IGN)' },
+                        { value: 'free', label: 'Libre', title: 'Les segments sont des lignes droites entre les points' },
+                    ]}
+                />
 
                 {/* Stats */}
                 <div className="flex items-center gap-2.5 text-xs text-slate-500">
@@ -305,11 +297,14 @@ export function RoutePanel() {
                     </button>
                 </div>
 
-                {/* Status message */}
+                {/* Status message — falls back to a hint on what edit mode does. */}
                 {statusMessage && (
                     <div className={`text-xs ${status === 'error' ? 'text-rose-500' : 'text-slate-400'}`}>
                         {status === 'loading' ? 'Calcul...' : statusMessage}
                     </div>
+                )}
+                {!statusMessage && active && waypoints.length === 0 && (
+                    <div className="text-xs text-slate-400">Cliquez sur la carte pour poser un point.</div>
                 )}
             </div>
 

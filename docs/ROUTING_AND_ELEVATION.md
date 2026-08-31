@@ -31,8 +31,12 @@ Vous pouvez basculer le mode au global, ou par segment via le menu segment.
 
 ### Profil altimétrique
 
-Le profil s'affiche dans le panneau bas dès qu'un itinéraire dépasse 2 waypoints :
+Le profil s'affiche dans le dock ancré sous la carte dès qu'un itinéraire dépasse
+2 waypoints. Le dock réduit la carte au lieu de la recouvrir, et se replie en une
+simple barre de résumé (chevron) ou se ferme complètement (croix) :
 
+- **Lecture / Édition** : deux boutons explicites. En *Lecture*, le clic sur la carte
+  ne modifie pas l'itinéraire ; en *Édition*, il ajoute un point.
 - **Coloration par pente** : palette qui passe du vert (plat) au jaune, orange, rouge
   selon la déclivité
 - **Survol synchronisé** : passez le curseur sur la courbe → un marqueur apparaît sur

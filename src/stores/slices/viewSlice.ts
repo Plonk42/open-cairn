@@ -35,13 +35,22 @@ export interface ViewSlice {
     setView: (view: Partial<MapView>) => void;
 
     /**
-     * Whether the resizable route/elevation bottom panel is expanded. Lives in
-     * the store (not component state) so it survives `App` unmounting when the
-     * user switches to the LiDAR Studio and back — otherwise the panel would
-     * always re-open on return.
+     * Whether the docked route/elevation panel is present at all. Lives in the
+     * store (not component state) so it survives `App` unmounting when the user
+     * switches to the LiDAR Studio and back — otherwise the panel would always
+     * re-open on return.
      */
     bottomOpen: boolean;
     setBottomOpen: (v: boolean) => void;
+
+    /**
+     * Whether the dock is reduced to its summary bar (route stats only, no
+     * chart). Distinct from `bottomOpen`: collapsing keeps the route context
+     * visible in ~40 px, closing removes the dock entirely and gives the
+     * height back to the map.
+     */
+    bottomCollapsed: boolean;
+    setBottomCollapsed: (v: boolean) => void;
 
     /**
      * Top-level view mirrored from the URL `?view=` param. Used to know which
@@ -77,6 +86,9 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
 
     bottomOpen: false,
     setBottomOpen: (bottomOpen) => set({ bottomOpen }),
+
+    bottomCollapsed: false,
+    setBottomCollapsed: (bottomCollapsed) => set({ bottomCollapsed }),
 
     appView: initialAppView,
     setAppView: (view) =>
