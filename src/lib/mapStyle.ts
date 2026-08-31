@@ -45,6 +45,13 @@ function getContourDemSource(): InstanceType<typeof mlcontour.DemSource> {
 
 export type BaseLayerId = 'scan25' | 'plan' | 'ortho' | 'osm' | 'lidar';
 
+/**
+ * Basemaps that can be draped as a texture over the LiDAR mesh/points (see
+ * `fetchDrapeMosaic`). `lidar` is excluded: the hillshade base is already a
+ * relief rendering, draping it over 3D relief would be meaningless.
+ */
+export type DrapeSource = Exclude<BaseLayerId, 'lidar'>;
+
 const BASE_DEFS = {
     scan25: IGN_LAYERS.scan25Tour,
     plan: IGN_LAYERS.planIgn,

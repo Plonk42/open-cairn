@@ -1,6 +1,6 @@
 import { isLodDebugEnabled } from '@/lib/debugFlags';
 import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
-import { fetchOrthoMosaic } from '@/lib/lidarBrowser/orthoTexture';
+import { fetchDrapeMosaic } from '@/lib/lidarBrowser/orthoTexture';
 import { detectTreetops } from '@/lib/lidarBrowser/treetops';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLighting } from '@/lib/sun';
@@ -41,6 +41,8 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const opacity = useMapStore((s) => s.lidarCloudOpacity);
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
+    const photoSource = useMapStore((s) => s.lidarCloudPhotoSource);
+    const scanApiKey = useMapStore((s) => s.ignScanApiKey);
     const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
     const pointSizeMultiplier = useMapStore((s) => s.lidarPointSizeMultiplier);
@@ -81,9 +83,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const recomputeVegHeights = useMapStore((s) => s.recomputeVegHeights);
 
     const webglRef = useRef<LidarWebGLLayer | null>(null);
-    // Geometry + style-epoch for which the orthophoto mosaic was last fetched, so
+    // Geometry + style-epoch for which the basemap mosaic was last fetched, so
     // we don't re-download it when only the opacity slider moves.
-    const orthoRef = useRef<{ source: unknown; epoch: number } | null>(null);
+    const orthoRef = useRef<{ source: unknown; epoch: number; basemap: string; key: string } | null>(null);
     // Incremented every time MapLibre rebuilds its style (base-layer switch,
     // hillshade toggle, …). setStyle({diff:true}) drops custom MapLibre layers,
     // so we re-add ours on 'style.load' and bump this counter to force the
@@ -384,16 +386,22 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
         return () => globalThis.clearTimeout(handle);
     }, [forestEdgeBlend, forestEdgeBandM, lidarShaded, styleEpoch]);
 
-    // ── Drapage orthophoto IGN sur le nuage / le mesh ─────────────────────────
-    // Récupère une mosaïque orthophoto couvrant l'emprise de la géométrie chargée
-    // et la fournit au calque WebGL. Le shader drape la photo aussi bien sur les
+    // ── Drapage d'un fond de carte IGN/OSM sur le nuage / le mesh ────────────
+    // Récupère une mosaïque (orthophoto, SCAN 25, Plan IGN ou OSM selon
+    // `lidarCloudPhotoSource`) couvrant l'emprise de la géométrie chargée et la
+    // fournit au calque WebGL. Le shader drape la texture aussi bien sur les
     // points (VS_POINTS/FS_POINTS) que sur le mesh, donc on prend le mesh quand
     // il existe (modes delaunay/poisson) sinon le nuage de points (mode shaded) ;
     // les deux partagent le même centre/rayon. Le téléchargement n'a lieu que
-    // lorsqu'une géométrie est chargée et que le drapage est activé (opacité > 0) ;
-    // bouger le slider ensuite ne re-télécharge rien (le shader mélange juste
-    // palette ↔ photo).
+    // lorsqu'une géométrie est chargée et que le drapage est activé ; bouger un
+    // slider ensuite ne re-télécharge rien (le shader mélange juste palette ↔
+    // texture), d'où le booléen `drapeEnabled` en dépendance plutôt que les deux
+    // opacités : sinon chaque cran du slider annulait le téléchargement en cours.
     const orthoSource = lidarMesh ?? lidarShaded;
+    const drapeEnabled = photoOpacity > 0 || photoOpacityNonGround > 0;
+    // Only SCAN 25 is key-gated, so an unrelated key edit (typed character by
+    // character in the settings panel) must not invalidate every mosaic.
+    const drapeKey = photoSource === 'scan25' ? scanApiKey : '';
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return undefined;
@@ -402,20 +410,41 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             orthoRef.current = null;
             return undefined;
         }
-        if (photoOpacity <= 0 && photoOpacityNonGround <= 0) return undefined;
+        if (!drapeEnabled) return undefined;
         const already = orthoRef.current;
-        if (already?.source === orthoSource && already?.epoch === styleEpoch) return undefined;
-        orthoRef.current = { source: orthoSource, epoch: styleEpoch };
+        if (already?.source === orthoSource && already.epoch === styleEpoch
+            && already.basemap === photoSource && already.key === drapeKey) {
+            return undefined;
+        }
+        const attempt = { source: orthoSource, epoch: styleEpoch, basemap: photoSource, key: drapeKey };
+        orthoRef.current = attempt;
         const controller = new AbortController();
+        let settled = false;
         let cancelled = false;
-        fetchOrthoMosaic(orthoSource.centerLng, orthoSource.centerLat, orthoSource.radius, controller.signal)
+        fetchDrapeMosaic({
+            source: photoSource,
+            lng: orthoSource.centerLng,
+            lat: orthoSource.centerLat,
+            radiusMeters: orthoSource.radius,
+            scanApiKey: drapeKey,
+            signal: controller.signal,
+        })
             .then((mosaic) => {
+                settled = true;
                 if (cancelled || !mosaic) return;
                 webglRef.current?.setOrthoTexture(mosaic.image, mosaic.lngLatRect);
             })
-            .catch(() => { /* couverture orthophoto indisponible : on ignore */ });
-        return () => { cancelled = true; controller.abort(); };
-    }, [orthoSource, photoOpacity, photoOpacityNonGround, styleEpoch]);
+            .catch(() => { settled = true; /* couverture indisponible : on ignore */ });
+        return () => {
+            cancelled = true;
+            controller.abort();
+            // Le téléchargement n'a jamais abouti : oublier la tentative, sinon le
+            // garde-fou ci-dessus la considérerait comme déjà satisfaite et ce
+            // nuage resterait définitivement sans texture (c'est ce qui laissait
+            // les nuages ajoutés en dernier sans drapage).
+            if (!settled && orthoRef.current === attempt) orthoRef.current = null;
+        };
+    }, [orthoSource, drapeEnabled, photoSource, drapeKey, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
     // Recompute the sun direction whenever the user picks a different date/time

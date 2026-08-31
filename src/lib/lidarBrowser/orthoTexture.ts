@@ -1,21 +1,25 @@
 /**
- * Fetches an IGN orthophoto mosaic covering a LiDAR cloud's footprint, to be
- * draped over the reconstructed ground mesh (Poisson / Delaunay modes).
+ * Fetches a basemap mosaic covering a LiDAR cloud's footprint, to be draped
+ * over the reconstructed ground mesh (Poisson / Delaunay modes) and over the
+ * points themselves.
  *
- * The orthophoto is a nadir (top-down) image, so the UV mapping onto the mesh
- * is a trivial planar projection from the vertex east/north position — no
- * server-baked UVs needed (unlike Relief Maps' pre-textured 3D Tiles).
+ * Any of the app's flat basemaps can be draped — orthophoto, SCAN 25, Plan IGN
+ * or OpenStreetMap (see {@link DrapeSource}) — since they are all nadir
+ * (top-down) rasters: the UV mapping onto the mesh is a trivial planar
+ * projection from the vertex east/north position, no server-baked UVs needed
+ * (unlike Relief Maps' pre-textured 3D Tiles).
  *
- * We assemble standard WMTS XYZ tiles (`ORTHOIMAGERY.ORTHOPHOTOS`, EPSG:3857 /
- * "PM" matrix set) into a single canvas, and return that canvas together with
- * the exact lng/lat extent the mosaic covers (tile-aligned), which the WebGL
- * layer converts to its meter-offset frame for the planar UV mapping.
+ * We assemble standard WMTS/XYZ tiles (EPSG:3857 / IGN "PM" matrix set) into a
+ * single canvas, and return that canvas together with the exact lng/lat extent
+ * the mosaic covers (tile-aligned), which the WebGL layer converts to its
+ * meter-offset frame for the planar UV mapping.
  */
 
-import { ignLayerUrl } from '@/lib/ign';
+import { IGN_LAYERS, ignLayerUrl, OSM_TILE_URL } from '@/lib/ign';
+import type { DrapeSource } from '@/lib/mapStyle';
 
-export interface OrthoMosaic {
-    /** Canvas holding the stitched orthophoto, ready for `texImage2D`. */
+export interface DrapeMosaic {
+    /** Canvas holding the stitched basemap, ready for `texImage2D`. */
     image: HTMLCanvasElement;
     /** Exact geographic extent covered by the mosaic (tile-aligned). */
     lngLatRect: { west: number; south: number; east: number; north: number };
@@ -26,6 +30,29 @@ const TILE_SIZE = 256;
 const MAX_TILES_PER_SIDE = 6;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 19;
+
+/** IGN WMTS layer backing each drapable basemap (`osm` is not an IGN layer). */
+const DRAPE_LAYER: Record<DrapeSource, keyof typeof IGN_LAYERS | 'osm'> = {
+    ortho: 'ortho',
+    scan25: 'scan25Tour',
+    plan: 'planIgn',
+    osm: 'osm',
+};
+
+/**
+ * XYZ template + finest usable zoom for a drapable basemap. Each layer stops at
+ * its own max zoom (SCAN 25 at z16, orthophotos at z19…), so we never request
+ * tiles that don't exist; SCAN 25 additionally needs the user's IGN `apikey`.
+ */
+function drapeTileTemplate(source: DrapeSource, scanApiKey?: string): { template: string; maxZoom: number } {
+    const key = DRAPE_LAYER[source];
+    if (key === 'osm') return { template: OSM_TILE_URL, maxZoom: MAX_ZOOM };
+    const def = IGN_LAYERS[key];
+    return {
+        template: ignLayerUrl(key, def.private ? scanApiKey : undefined),
+        maxZoom: Math.min(MAX_ZOOM, def.maxZoom),
+    };
+}
 
 function lngLatToTile(lng: number, lat: number, z: number): { x: number; y: number } {
     const n = 2 ** z;
@@ -57,18 +84,24 @@ function loadTileImage(url: string, signal?: AbortSignal): Promise<HTMLImageElem
 }
 
 /**
- * Build an orthophoto mosaic centered on (lng, lat) covering ±radius meters.
+ * Build a basemap mosaic centered on (lng, lat) covering ±radius meters.
  *
  * Picks the highest zoom whose tile span stays within `MAX_TILES_PER_SIDE`, so
  * the resolution is as fine as possible without stitching too many tiles.
- * Returns null if no tile could be loaded (e.g. area outside IGN coverage).
+ * Returns null if no tile could be loaded (e.g. area outside IGN coverage, or
+ * SCAN 25 requested without an API key).
  */
-export async function fetchOrthoMosaic(
-    lng: number,
-    lat: number,
-    radiusMeters: number,
-    signal?: AbortSignal,
-): Promise<OrthoMosaic | null> {
+export async function fetchDrapeMosaic(opts: {
+    source: DrapeSource;
+    lng: number;
+    lat: number;
+    radiusMeters: number;
+    /** IGN key for the private SCAN 25 layer; ignored by the public layers. */
+    scanApiKey?: string;
+    signal?: AbortSignal;
+}): Promise<DrapeMosaic | null> {
+    const { source, lng, lat, radiusMeters, scanApiKey, signal } = opts;
+    const { template, maxZoom } = drapeTileTemplate(source, scanApiKey);
     // Expand a little so the mesh (which can spill slightly past the request
     // radius) is fully covered; UVs outside [0,1] are ignored by the shader.
     const r = radiusMeters * 1.1;
@@ -81,7 +114,7 @@ export async function fetchOrthoMosaic(
 
     // Choose the finest zoom that keeps the tile span bounded.
     let z = MIN_ZOOM;
-    for (let cand = MAX_ZOOM; cand >= MIN_ZOOM; cand--) {
+    for (let cand = maxZoom; cand >= MIN_ZOOM; cand--) {
         const nw = lngLatToTile(west, north, cand);
         const se = lngLatToTile(east, south, cand);
         const tx = se.x - nw.x + 1;
@@ -104,7 +137,6 @@ export async function fetchOrthoMosaic(
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    const template = ignLayerUrl('ortho');
     const jobs: Promise<boolean>[] = [];
     for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {

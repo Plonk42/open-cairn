@@ -2,6 +2,8 @@ export interface SegmentOption<T extends string> {
     value: T;
     label: string;
     title?: string;
+    /** Greyed out and unselectable (e.g. a layer needing a missing API key). */
+    disabled?: boolean;
 }
 
 /**
@@ -27,9 +29,10 @@ export function SegmentedControl<T extends string>({ value, options, onChange }:
                     <button
                         key={opt.value}
                         type="button"
+                        disabled={opt.disabled}
                         onClick={() => onChange(opt.value)}
                         title={opt.title}
-                        className={`${roundCls} px-2.5 py-1 text-xs ${activeCls}`}
+                        className={`${roundCls} px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40 ${activeCls}`}
                     >
                         {opt.label}
                     </button>

@@ -42,6 +42,12 @@ Le panneau **LiDAR** offre trois modes de rendu :
   plat et les splats carrés.
 - **Filtre par classe** : cocher / décocher chaque classe LAS (sol, végétation basse,
   moyenne, haute, bâtiments, etc.)
+- **Texture drapée** : projette un fond de carte en nadir sur la géométrie 3D —
+  *Photo* (orthophotos IGN), *SCAN 25* (nécessite une clé IGN), *Plan* (Plan IGN v2)
+  ou *OSM*. Deux opacités séparées : *sol* (points classes 2/9 + mesh reconstruit) et
+  *non-sol* (végétation, bâti…). La mosaïque est téléchargée une fois par nuage
+  affiché, à la résolution la plus fine que la couche autorise (SCAN 25 s'arrête au
+  z16, les autres au z19).
 - **Date pour le soleil** : modifie la direction d'éclairage (ombrage Lambert)
 - **Masquer le fond** : bascule l'opacité du fond MapLibre à 0 pour voir le LiDAR seul
 

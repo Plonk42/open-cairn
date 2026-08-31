@@ -6,6 +6,7 @@ import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
+import type { DrapeSource } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
 
@@ -49,6 +50,14 @@ const FOREST_EDGE_OPTIONS = [
     { value: 'scatter', label: 'Dispersé', title: 'Les essences s’entremêlent point par point de part et d’autre de la limite sur la largeur choisie' },
 ] as const satisfies ReadonlyArray<{ value: ForestEdgeBlend; label: string; title: string }>;
 
+/** Fonds de carte drapables sur la géométrie 3D (voir `fetchDrapeMosaic`). */
+const DRAPE_SOURCE_OPTIONS = [
+    { value: 'ortho', label: 'Photo', title: 'Orthophotos IGN (BD ORTHO) — rendu photo-réaliste' },
+    { value: 'scan25', label: 'SCAN 25', title: 'Carte topographique SCAN 25 IGN drapée sur le relief (nécessite une clé IGN)' },
+    { value: 'plan', label: 'Plan', title: 'Plan IGN v2 drapé sur le relief' },
+    { value: 'osm', label: 'OSM', title: 'OpenStreetMap drapé sur le relief' },
+] as const satisfies ReadonlyArray<{ value: DrapeSource; label: string; title: string }>;
+
 export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
     const setClasses = useMapStore((s) => s.setLidarCloudClasses);
@@ -85,6 +94,9 @@ export function OpacityControls() {
     const setPhotoOpacity = useMapStore((s) => s.setLidarCloudPhotoOpacity);
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const setPhotoOpacityNonGround = useMapStore((s) => s.setLidarCloudPhotoOpacityNonGround);
+    const photoSource = useMapStore((s) => s.lidarCloudPhotoSource);
+    const setPhotoSource = useMapStore((s) => s.setLidarCloudPhotoSource);
+    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
     const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
     const contourEnabled = useMapStore((s) => s.contourLinesEnabled);
@@ -151,14 +163,28 @@ export function OpacityControls() {
                 />
             </label>
 
-            {/* Texture photo — drapage orthophoto IGN, séparé sol / hors-sol */}
+            {/* Texture drapée — fond de carte projeté en nadir sur la géométrie,
+                séparé sol / hors-sol. */}
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-slate-700 dark:text-slate-300">Texture drapée</span>
+                <SegmentedControl
+                    value={photoSource}
+                    options={DRAPE_SOURCE_OPTIONS.map((opt) => (
+                        opt.value === 'scan25' && !ignScanApiKey
+                            ? { ...opt, disabled: true, title: 'Nécessite une clé IGN (voir Réglages)' }
+                            : opt
+                    ))}
+                    onChange={setPhotoSource}
+                />
+            </div>
+
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Texture photo (sol)</span>
+                    <span>Texture (sol)</span>
                     <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacity * 100)}%</span>
                 </div>
                 <input
-                    aria-label="Opacité de la texture photo sur le sol (orthophoto IGN)"
+                    aria-label="Opacité de la texture drapée sur le sol"
                     type="range" min={0} max={1} step={0.05}
                     value={photoOpacity}
                     onChange={(e) => setPhotoOpacity(Number(e.target.value))}
@@ -166,14 +192,14 @@ export function OpacityControls() {
                 />
             </label>
 
-            {/* Texture photo hors-sol (végétation, bâti, …) */}
+            {/* Texture hors-sol (végétation, bâti, …) */}
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Texture photo (non-sol)</span>
+                    <span>Texture (non-sol)</span>
                     <span className="font-mono text-xs text-slate-400">{Math.round(photoOpacityNonGround * 100)}%</span>
                 </div>
                 <input
-                    aria-label="Opacité de la texture photo hors-sol (orthophoto IGN)"
+                    aria-label="Opacité de la texture drapée hors-sol"
                     type="range" min={0} max={1} step={0.05}
                     value={photoOpacityNonGround}
                     onChange={(e) => setPhotoOpacityNonGround(Number(e.target.value))}

@@ -26,6 +26,7 @@
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
 import type { ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
+import type { DrapeSource } from './mapStyle';
 
 const MAGIC = 0x4f435353; // "OCSS"
 const VERSION = 1;
@@ -102,6 +103,7 @@ export interface ShowcaseAmbiance {
     lidarCloudOpacity: number;
     lidarCloudPhotoOpacity: number;
     lidarCloudPhotoOpacityNonGround: number;
+    lidarCloudPhotoSource: DrapeSource;
     lidarCloudBasemapOpacity: number;
     lidarCloudClasses: number[];
     contourLinesEnabled: boolean;
@@ -172,6 +174,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarCloudOpacity: 1,
     lidarCloudPhotoOpacity: 0,
     lidarCloudPhotoOpacityNonGround: 0,
+    lidarCloudPhotoSource: 'ortho',
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [],
     contourLinesEnabled: false,
