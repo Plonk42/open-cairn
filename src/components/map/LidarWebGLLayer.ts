@@ -672,14 +672,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         depth: WebGLUniformLocation | null;
         sharedDepth: WebGLUniformLocation | null;
         texelSize: WebGLUniformLocation | null;
-        depthHalfTexel: WebGLUniformLocation | null;
+        depthTexSize: WebGLUniformLocation | null;
         strength: WebGLUniformLocation | null;
         radius: WebGLUniformLocation | null;
         farPlane: WebGLUniformLocation | null;
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
         opacity: WebGLUniformLocation | null;
-    } = { color: null, depth: null, sharedDepth: null, texelSize: null, depthHalfTexel: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
+    } = { color: null, depth: null, sharedDepth: null, texelSize: null, depthTexSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
     // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
     // by the main pass to attenuate the diffuse term where the mesh occludes
@@ -1073,7 +1073,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
-            gl2.uniform2f(this._locEdl.depthHalfTexel, 0.5 / fw, 0.5 / fh);
+            gl2.uniform2f(this._locEdl.depthTexSize, fw, fh);
             gl2.uniform1f(this._locEdl.strength, this.config.edlStrength);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1142,7 +1142,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
-            gl2.uniform2f(this._locEdl.depthHalfTexel, 0.5 / fw, 0.5 / fh);
+            gl2.uniform2f(this._locEdl.depthTexSize, fw, fh);
             gl2.uniform1f(this._locEdl.strength, 0);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1694,18 +1694,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._drawMeshWire(gl);
         } else {
             gl.uniform1f(this._locMesh.wireframe, 0);
-            // Le maillage Poisson est une surface FERMÉE et orientée : ses faces
-            // arrière sont son intérieur. Sans culling on les voit par le moindre
-            // trou du maillage — et, depuis qu'on écarte le socle en rendu
-            // photoréaliste, par tout le pourtour. Leur normale pointant vers le
-            // bas, elles sortent presque noires : d'où les mouchetures et les
-            // coins noirs sur la neige et en bordure. On les écarte donc ; un trou
-            // laisse alors voir le MNT derrière, bien plus lisible qu'une tache
-            // noire, et on économise au passage la moitié du remplissage.
-            gl.enable(gl.CULL_FACE);
-            gl.cullFace(gl.BACK);
+            // Surtout PAS de back-face culling : le maillage Poisson n'a pas un
+            // winding globalement cohérent, et le culler ouvrait de vrais trous
+            // dans les falaises, différents à chaque angle de vue. Les faces
+            // arrière ne ressortent plus noires pour autant — mesh.frag retourne
+            // la normale vers l'œil (gl_FrontFacing).
             this._drawMeshChunked(gl);
-            gl.disable(gl.CULL_FACE);
         }
     }
 
@@ -2147,7 +2141,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             depth: gl.getUniformLocation(this._progEdl, 'u_depth'),
             sharedDepth: gl.getUniformLocation(this._progEdl, 'u_sharedDepth'),
             texelSize: gl.getUniformLocation(this._progEdl, 'u_texelSize'),
-            depthHalfTexel: gl.getUniformLocation(this._progEdl, 'u_depthHalfTexel'),
+            depthTexSize: gl.getUniformLocation(this._progEdl, 'u_depthTexSize'),
             strength: gl.getUniformLocation(this._progEdl, 'u_strength'),
             radius: gl.getUniformLocation(this._progEdl, 'u_radius'),
             farPlane: gl.getUniformLocation(this._progEdl, 'u_farPlane'),
