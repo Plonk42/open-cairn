@@ -1657,7 +1657,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._drawMeshWire(gl);
         } else {
             gl.uniform1f(this._locMesh.wireframe, 0);
+            // Le maillage Poisson est une surface FERMÉE et orientée : ses faces
+            // arrière sont son intérieur. Sans culling on les voit par le moindre
+            // trou du maillage — et, depuis qu'on écarte le socle en rendu
+            // photoréaliste, par tout le pourtour. Leur normale pointant vers le
+            // bas, elles sortent presque noires : d'où les mouchetures et les
+            // coins noirs sur la neige et en bordure. On les écarte donc ; un trou
+            // laisse alors voir le MNT derrière, bien plus lisible qu'une tache
+            // noire, et on économise au passage la moitié du remplissage.
+            gl.enable(gl.CULL_FACE);
+            gl.cullFace(gl.BACK);
             this._drawMeshChunked(gl);
+            gl.disable(gl.CULL_FACE);
         }
     }
 
