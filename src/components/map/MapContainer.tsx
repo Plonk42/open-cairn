@@ -1,7 +1,10 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
-import { buildMapStyle, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
+import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
+import { buildMapStyle, DEFAULT_SKY, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
+import { skyFromAtmosphere } from '@/lib/skyPaint';
+import { sunLighting } from '@/lib/sun';
 import { useView } from '@/lib/useView';
 import { useMapStore, type MapState } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -83,6 +86,71 @@ function BasemapDimmer({ studio }: { studio: boolean }) {
         map.on('styledata', apply);
         return () => { map.off('styledata', apply); };
     }, [mapInstance, basemapOpacity, studio]);
+    return null;
+}
+
+/**
+ * Drives MapLibre's sky from the same lighting environment the photorealistic
+ * LiDAR mesh uses.
+ *
+ * Without this the sky is a fixed dark slate while the mesh is lit by a sun:
+ * the mismatch is glaring exactly where the eye checks it, on the horizon
+ * behind a distant ridge. Feeding both from `atmosphereFromSun` makes the
+ * horizon land on the very colour the mesh's aerial perspective converges to.
+ *
+ * Studio-only, and only on the photorealistic path — the itinerary view keeps
+ * the style's neutral sky. Re-applied on `styledata` because a base-layer
+ * switch rebuilds the style and takes the runtime sky with it (same reason as
+ * {@link BasemapDimmer}).
+ */
+function PhotorealSky({ studio }: { studio: boolean }) {
+    const mapInstance = useMapStore((s) => s.mapInstance);
+    const photoreal = useMapStore((s) => s.lidarPhotoreal);
+    const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
+    const sunDate = useMapStore((s) => s.lidarSunDate);
+    const exposure = useMapStore((s) => s.lidarExposure);
+    const ambient = useMapStore((s) => s.lidarAmbient);
+    const sunStrength = useMapStore((s) => s.lidarSunStrength);
+    useEffect(() => {
+        const map = mapInstance;
+        if (!map) return;
+        const date = new Date(sunDate);
+        const on = studio && photoreal && !Number.isNaN(date.getTime());
+        const apply = () => {
+            if (!on) {
+                map.setSky({ ...DEFAULT_SKY });
+                return;
+            }
+            const { lng, lat } = map.getCenter();
+            const { dir, intensity, color } = sunLighting(date, lat, lng);
+            const atmo = atmosphereFromSun({
+                sunDir: dir,
+                sunColor: color,
+                sunIntensity: intensity,
+                flat: sunEnabled ? 0 : 1,
+                ambient,
+                sunStrength,
+            });
+            map.setSky(skyFromAtmosphere(atmo, exposure));
+        };
+        // `setSky` throws outright while the style is still loading, and
+        // `styledata` fires *during* the load, so the guard has to be on every
+        // call. Waiting on `idle` is not enough either: with the LiDAR tiles
+        // still streaming it can be minutes away, and the style may finish
+        // loading without another `styledata` to trigger us — hence the poll.
+        let retry = 0;
+        const applyWhenReady = () => {
+            window.clearTimeout(retry);  // keeps a single poll chain alive
+            if (map.isStyleLoaded()) apply();
+            else retry = window.setTimeout(applyWhenReady, 200);
+        };
+        applyWhenReady();
+        map.on('styledata', applyWhenReady);
+        return () => {
+            window.clearTimeout(retry);
+            map.off('styledata', applyWhenReady);
+        };
+    }, [mapInstance, studio, photoreal, sunEnabled, sunDate, exposure, ambient, sunStrength]);
     return null;
 }
 
@@ -903,6 +971,7 @@ export function MapContainer() {
         <>
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
+            <PhotorealSky studio={studio} />
         </>
     );
 }

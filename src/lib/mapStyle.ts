@@ -173,6 +173,21 @@ export interface MapStyleOptions {
 }
 
 /**
+ * Neutral night-ish sky, tuned for the dark UI shell. The photorealistic LiDAR
+ * path overrides it at runtime with a sun-driven one (`skyFromAtmosphere`) and
+ * restores this when it is switched back off.
+ */
+export const DEFAULT_SKY = {
+    'sky-color': '#1e293b',
+    'horizon-color': '#94a3b8',
+    'fog-color': '#0b1220',
+    'fog-ground-blend': 0.5,
+    'horizon-fog-blend': 0.4,
+    'sky-horizon-blend': 0.5,
+    'atmosphere-blend': 0.6,
+} as const;
+
+/**
  * Build a MapLibre style. The base raster is either fetched directly from IGN
  * or — when hillshade is enabled — composited with the LiDAR HD shadow via
  * the custom `composite://` protocol so MapLibre can drape the result onto
@@ -223,15 +238,7 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
                 },
             },
         ],
-        sky: {
-            'sky-color': '#1e293b',
-            'horizon-color': '#94a3b8',
-            'fog-color': '#0b1220',
-            'fog-ground-blend': 0.5,
-            'horizon-fog-blend': 0.4,
-            'sky-horizon-blend': 0.5,
-            'atmosphere-blend': 0.6,
-        },
+        sky: { ...DEFAULT_SKY },
     };
 
     if (opts.contourLines) {
