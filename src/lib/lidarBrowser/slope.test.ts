@@ -89,6 +89,16 @@ describe('vertexColor — montagne preset', () => {
         expect(lum(north)).toBeGreaterThan(lum(south));
     });
 
+    it('gives open rock a warm granite tint rather than a neutral grey', () => {
+        // A 40° south face at 2200 m: above the turf limit, below the
+        // south-shifted snow line, so this is bare rock. Lichen, iron staining
+        // and sun-baked surfaces make it tan in the reference renders.
+        const [r, g, b] = vertexColor(0, -Math.sin(0.7), Math.cos(0.7), 2200, 'montagne');
+        expect(r).toBeGreaterThan(g);
+        expect(g).toBeGreaterThan(b);
+        expect(b / r).toBeLessThan(0.8);
+    });
+
     it('returns integer RGB channels in [0, 255]', () => {
         for (const z of [800, 1800, 2400, 3600]) {
             const c = vertexColor(0.5, 0.5, 0.7, z, 'montagne', 0.2);

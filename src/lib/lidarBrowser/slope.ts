@@ -103,10 +103,15 @@ export function slopeColor(slopeRad: number): [number, number, number] {
 // legacy presets do, to stay legible under a flat 0.35 ambient) cannot.
 const MTN_SNOW_FRESH: readonly [number, number, number] = [238, 240, 245];
 const MTN_SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
-const MTN_SCREE: readonly [number, number, number] = [150, 140, 126];
-const MTN_SLAB: readonly [number, number, number] = [140, 132, 121];
-const MTN_ROCK: readonly [number, number, number] = [108, 100, 92];
-const MTN_ROCK_STEEP: readonly [number, number, number] = [74, 70, 66];
+// Sunlit alpine granite is not grey: lichen, iron staining and sun-baked
+// surfaces give it a distinctly warm tan (R:G:B ≈ 1.00 : 0.90 : 0.73, sampled
+// off the reference renders). Freshly broken and overhanging rock never gets
+// that patina and stays a near-neutral, slightly cool grey — so the ramp
+// warms as it lightens and cools as it darkens.
+const MTN_SCREE: readonly [number, number, number] = [162, 146, 118];
+const MTN_SLAB: readonly [number, number, number] = [148, 133, 106];
+const MTN_ROCK: readonly [number, number, number] = [116, 106, 90];
+const MTN_ROCK_STEEP: readonly [number, number, number] = [72, 70, 68];
 const MTN_TURF: readonly [number, number, number] = [92, 100, 64];
 
 /** Snow line on a due-south face; north faces hold snow this much lower. */
