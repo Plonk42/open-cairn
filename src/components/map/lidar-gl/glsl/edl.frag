@@ -33,10 +33,17 @@ const vec2 NB8[8] = vec2[8](
     vec2(-0.707, -0.707), vec2(0.707, -0.707), vec2(-0.707, 0.707), vec2(0.707, 0.707)
 );
 
+// Linear depth, sign-stripped. The mesh shader negates its depth to flag
+// itself (see mesh.frag); every distance computation below wants the
+// magnitude, and abs() leaves the 0.0 no-data sentinel untouched.
+float depthAt(vec2 uv) {
+    return abs(texture(u_depth, uv).r);
+}
+
 float edlFactor() {
     // QGIS uses texelSize = 2.0 / textureSize, i.e. step unit = 2 pixels.
     vec2 step2 = 2.0 * u_texelSize;
-    float centerDepth = texture(u_depth, v_uv).r / u_farPlane;
+    float centerDepth = depthAt(v_uv) / u_farPlane;
 
     // Tangent-plane compensation (same idea as aoFactor below): without it,
     // a smooth surface viewed obliquely darkens uniformly because every
@@ -44,10 +51,10 @@ float edlFactor() {
     // depth gradient (dDepth/dPixel) via 1-pixel central differences and
     // subtract the plane-predicted depth from each neighbour, so EDL only
     // reacts to true relief / silhouettes — not to camera tilt.
-    float dRight = texture(u_depth, v_uv + vec2(u_texelSize.x, 0.0)).r;
-    float dLeft  = texture(u_depth, v_uv - vec2(u_texelSize.x, 0.0)).r;
-    float dUp    = texture(u_depth, v_uv + vec2(0.0, u_texelSize.y)).r;
-    float dDown  = texture(u_depth, v_uv - vec2(0.0, u_texelSize.y)).r;
+    float dRight = depthAt(v_uv + vec2(u_texelSize.x, 0.0));
+    float dLeft  = depthAt(v_uv - vec2(u_texelSize.x, 0.0));
+    float dUp    = depthAt(v_uv + vec2(0.0, u_texelSize.y));
+    float dDown  = depthAt(v_uv - vec2(0.0, u_texelSize.y));
     float gx = (dRight > 0.0 && dLeft > 0.0) ? (dRight - dLeft) * 0.5 / u_farPlane : 0.0;
     float gy = (dUp    > 0.0 && dDown > 0.0) ? (dUp    - dDown) * 0.5 / u_farPlane : 0.0;
     vec2 grad = vec2(gx, gy);
@@ -56,7 +63,7 @@ float edlFactor() {
     for (int i = 0; i < 4; i++) {
         vec2 offsetUv = u_radius * step2 * NB[i];
         vec2 nc = v_uv + offsetUv;
-        float nd = texture(u_depth, nc).r / u_farPlane;
+        float nd = depthAt(nc) / u_farPlane;
         if (nd != 0.0) {
             if (centerDepth == 0.0) {
                 factor += 1.0;
@@ -94,7 +101,7 @@ float hash12(vec2 p) {
 
 float aoFactor() {
     if (u_aoStrength <= 0.0) return 0.0;
-    float centerDepthRaw = texture(u_depth, v_uv).r;
+    float centerDepthRaw = depthAt(v_uv);
     if (centerDepthRaw <= 0.0) return 0.0;
     float centerDepth = centerDepthRaw / u_farPlane;
 
@@ -105,10 +112,10 @@ float aoFactor() {
     // local depth gradient (dDepth / dPixel) via central differences, then for
     // every disk sample we subtract the depth difference the tangent plane
     // alone would predict. Only deviations from the plane contribute to AO.
-    float dRight = texture(u_depth, v_uv + vec2(u_texelSize.x, 0.0)).r;
-    float dLeft  = texture(u_depth, v_uv - vec2(u_texelSize.x, 0.0)).r;
-    float dUp    = texture(u_depth, v_uv + vec2(0.0, u_texelSize.y)).r;
-    float dDown  = texture(u_depth, v_uv - vec2(0.0, u_texelSize.y)).r;
+    float dRight = depthAt(v_uv + vec2(u_texelSize.x, 0.0));
+    float dLeft  = depthAt(v_uv - vec2(u_texelSize.x, 0.0));
+    float dUp    = depthAt(v_uv + vec2(0.0, u_texelSize.y));
+    float dDown  = depthAt(v_uv - vec2(0.0, u_texelSize.y));
     // Per-pixel gradient in normalized depth units. Guard against no-data
     // (0.0) and against large discontinuities (edges) by using the smaller
     // one-sided difference whose magnitude is more plausible.
@@ -147,7 +154,7 @@ float aoFactor() {
         vec2 dir = rot * vec2(cos(theta), sin(theta));
         vec2 offsetUv = dir * r * pxScale * step2;
         vec2 uv = v_uv + offsetUv;
-        float sd = texture(u_depth, uv).r;
+        float sd = depthAt(uv);
         if (sd <= 0.0) continue;
         float dz = centerDepth - sd / u_farPlane;
         // Expected dz on the local tangent plane at this offset (in pixels):
@@ -176,6 +183,11 @@ void main() {
     float ownDepth = texture(u_depth, v_uv).g;
     float nearestDepth = texture(u_sharedDepth, v_uv).r;
     if (ownDepth > nearestDepth + 1e-6) discard;
-    float shade = exp(-edlFactor() * u_strength) * exp(-aoFactor() * u_aoStrength);
+    // Reconstructed mesh (negative depth): keep the ambient-occlusion lobe,
+    // which is a real cavity cue, but drop EDL. Its silhouettes are meant to
+    // separate discrete points; on a continuous surface they turn every crease
+    // and every seam into a black fissure.
+    float edl = texture(u_depth, v_uv).r < 0.0 ? 0.0 : edlFactor();
+    float shade = exp(-edl * u_strength) * exp(-aoFactor() * u_aoStrength);
     fragColor = vec4(color.rgb * shade, color.a * u_opacity);
 }

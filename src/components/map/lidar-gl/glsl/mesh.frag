@@ -23,7 +23,11 @@ uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mes
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
 uniform float u_wireframe;       // 1 = fil de fer debug (couleur plate, sans lumière/texture)
 layout(location = 0) out vec4 fragColor;
-// x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag);
+// x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag), stored
+// **negated** so the composite pass can tell mesh fragments from point ones:
+// EDL's black silhouettes are a point-cloud legibility trick and read as
+// cracks on a continuous surface, so edl.frag skips them here. Magnitude is
+// unchanged (edl.frag takes abs()), and 0 stays the no-data sentinel.
 // y = real hardware NDC depth (gl_FragCoord.z) — sampled in edl.frag as the
 // "own depth" and compared against the LiDAR-only shared depth texture so a
 // nearer cloud wins over a farther one where they overlap (multi-cloud
@@ -34,7 +38,7 @@ void main() {
     // Mode debug fil de fer : couleur plate lisible, aucune lumière ni photo.
     if (u_wireframe > 0.5) {
         fragColor = vec4(0.15, 1.0, 0.55, 1.0);
-        fragDepth = vec2(v_depth, gl_FragCoord.z);
+        fragDepth = vec2(-v_depth, gl_FragCoord.z);
         return;
     }
     float s = sampleShadow();
@@ -83,5 +87,5 @@ void main() {
         rgb = mix(rgb, rgb * 0.75, lineMask);
     }
     fragColor = vec4(rgb, v_alpha);
-    fragDepth = vec2(v_depth, gl_FragCoord.z);
+    fragDepth = vec2(-v_depth, gl_FragCoord.z);
 }
