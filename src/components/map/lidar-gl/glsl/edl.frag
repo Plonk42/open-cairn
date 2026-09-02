@@ -16,6 +16,8 @@ uniform float u_farPlane;   // depth normalization, in same units as v_depth
 uniform float u_aoStrength; // additional ambient-occlusion darkening (0 = off)
 uniform float u_aoRadius;   // AO sampling radius, in 2-pixel units
 uniform float u_opacity;    // overall layer opacity (0..1)
+// 1 sur le chemin photoréaliste, où l'AO remplace l'EDL sur le maillage.
+uniform float u_meshAo;
 out vec4 fragColor;
 
 // Port of QGIS 3D postprocess.frag::edlFactor (https://github.com/qgis/QGIS).
@@ -183,19 +185,19 @@ void main() {
     float ownDepth = texture(u_depth, v_uv).g;
     float nearestDepth = texture(u_sharedDepth, v_uv).r;
     if (ownDepth > nearestDepth + 1e-6) discard;
-    // The two screen-space cues are split by geometry kind, using the sign
-    // mesh.frag writes into the linear depth (see depthAt above).
+    // Les deux indices d'espace écran sont répartis selon le type de géométrie,
+    // via le signe que mesh.frag écrit dans la profondeur linéaire (cf. depthAt).
     //   points -> EDL. Its black silhouettes are what separates discrete
     //             samples; a cavity lobe would only mud them up.
-    //   mesh   -> AO. Occlusion is a real relief cue on a continuous surface,
-    //             whereas EDL turned every crease and seam into a fissure.
-    bool isMesh = texture(u_depth, v_uv).r < 0.0;
-    float edl = isMesh ? 0.0 : edlFactor();
-    float ao = isMesh ? aoFactor() : 0.0;
+    //   maillage -> AO en photoréaliste (l'occlusion est un vrai indice de relief
+    //             sur une surface continue, là où l'EDL transformait chaque pli
+    //             et chaque couture en fissure), EDL sinon — c'est le seul
+    //             ombrage du mode classique, qui n'a pas de terme d'occlusion.
+    bool meshAo = texture(u_depth, v_uv).r < 0.0 && u_meshAo > 0.5;
+    float edl = meshAo ? 0.0 : edlFactor();
+    float ao = meshAo ? aoFactor() : 0.0;
     float shade = exp(-edl * u_strength) * exp(-ao * u_aoStrength);
-    // `u_color` est prémultiplié (voir mesh.frag / points.frag) et la passe
-    // géométrique peut être suréchantillonnée : le filtrage LINEAR moyenne donc
-    // ici des couleurs prémultipliées, ce qui antialiase correctement les
-    // silhouettes. Le blend côté MapLibre est ONE / ONE_MINUS_SRC_ALPHA.
+    // `u_color` est prémultiplié (voir mesh.frag / points.frag) : le blend côté
+    // MapLibre est ONE / ONE_MINUS_SRC_ALPHA.
     fragColor = vec4(color.rgb * shade * u_opacity, color.a * u_opacity);
 }

@@ -656,7 +656,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
         opacity: WebGLUniformLocation | null;
-    } = { color: null, depth: null, sharedDepth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
+        meshAo: WebGLUniformLocation | null;
+    } = { color: null, depth: null, sharedDepth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null, meshAo: null };
 
     // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
     // by the main pass to attenuate the diffuse term where the mesh occludes
@@ -1049,6 +1050,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.aoStrength, this.config.aoStrength);
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
             gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
+            gl2.uniform1f(this._locEdl.meshAo, this.config.pbr);
 
             // NOT depth-tested against MapLibre's real (terrain-including) depth
             // buffer on purpose: LiDAR must always render on top of terrain, even
@@ -1115,6 +1117,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1f(this._locEdl.aoStrength, this.config.aoStrength);
             gl2.uniform1f(this._locEdl.aoRadius, this.config.aoRadius);
             gl2.uniform1f(this._locEdl.opacity, this.config.opacity);
+            gl2.uniform1f(this._locEdl.meshAo, this.config.pbr);
 
             // See comment in the EDL path above: never depth-test against
             // MapLibre's real (terrain-including) depth buffer — LiDAR must
@@ -2082,6 +2085,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             aoStrength: gl.getUniformLocation(this._progEdl, 'u_aoStrength'),
             aoRadius: gl.getUniformLocation(this._progEdl, 'u_aoRadius'),
             opacity: gl.getUniformLocation(this._progEdl, 'u_opacity'),
+            meshAo: gl.getUniformLocation(this._progEdl, 'u_meshAo'),
         };
 
         // ─── Fullscreen quad VAO ───
