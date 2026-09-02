@@ -333,6 +333,17 @@ export interface LidarSlice {
     lidarAo: number;
     setLidarAo: (v: number) => void;
     /**
+     * Supersampling factor for the LiDAR pass (1 = off, 2 = 4× the pixels).
+     *
+     * The LiDAR geometry is drawn into a private single-sample framebuffer, so
+     * it misses MapLibre's own antialiasing: every mesh silhouette and point
+     * edge is a hard staircase. Rendering that framebuffer bigger and letting
+     * the composite average it back down fixes it, at a quadratic fill cost —
+     * hence a user-facing knob rather than a constant.
+     */
+    lidarSuperSample: number;
+    setLidarSuperSample: (v: number) => void;
+    /**
      * Enhanced vegetation rendering: height-ramped foliage colours (trunk →
      * canopy), per-leaf colour jitter and a small
      * point-size boost. On by default; toggling off restores flat per-class
@@ -493,6 +504,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunStrength: 1,
     lidarHaze: 0.3,
     lidarAo: 0.5,
+    lidarSuperSample: 2,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
     lidarVegHeightScale: 25,
@@ -693,6 +705,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarHaze: (lidarHaze) => set({ lidarHaze }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
+        lidarSuperSample: persisted.lidarSuperSample ?? LIDAR_RENDER_DEFAULTS.lidarSuperSample,
+        setLidarSuperSample: (lidarSuperSample) => set({ lidarSuperSample }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
         setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
         lidarVegColorMode: ((): VegColorMode => {
@@ -955,6 +969,7 @@ export function selectLidarPersisted(
     | 'lidarSunStrength'
     | 'lidarHaze'
     | 'lidarAo'
+    | 'lidarSuperSample'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
     | 'lidarVegHeightScale'
@@ -1017,6 +1032,7 @@ export function selectLidarPersisted(
         lidarSunStrength: s.lidarSunStrength,
         lidarHaze: s.lidarHaze,
         lidarAo: s.lidarAo,
+        lidarSuperSample: s.lidarSuperSample,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,
         lidarVegHeightScale: s.lidarVegHeightScale,

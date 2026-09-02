@@ -193,5 +193,9 @@ void main() {
     float edl = isMesh ? 0.0 : edlFactor();
     float ao = isMesh ? aoFactor() : 0.0;
     float shade = exp(-edl * u_strength) * exp(-ao * u_aoStrength);
-    fragColor = vec4(color.rgb * shade, color.a * u_opacity);
+    // `u_color` est prémultiplié (voir mesh.frag / points.frag) et la passe
+    // géométrique peut être suréchantillonnée : le filtrage LINEAR moyenne donc
+    // ici des couleurs prémultipliées, ce qui antialiase correctement les
+    // silhouettes. Le blend côté MapLibre est ONE / ONE_MINUS_SRC_ALPHA.
+    fragColor = vec4(color.rgb * shade * u_opacity, color.a * u_opacity);
 }

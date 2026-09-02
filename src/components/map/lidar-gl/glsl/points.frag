@@ -42,7 +42,9 @@ void main() {
     // Mode diagnostic « Analyse hauteur » : couleur plate émissive — on bypasse
     // l'ombrage, l'EDL via la profondeur restant écrite pour garder le relief.
     if (v_emissive > 0.5) {
-        fragColor = vec4(v_albedo, v_alpha);
+        // Couleur prémultipliée : voir mesh.frag (le suréchantillonnage impose
+        // de moyenner des couleurs prémultipliées).
+        fragColor = vec4(v_albedo * v_alpha, v_alpha);
         fragDepth = vec2(v_depth, gl_FragCoord.z);
         return;
     }
@@ -78,6 +80,6 @@ void main() {
     // en le poussant vers la lumière fixe, comme dans le modèle historique.
     float direct = mix(v_diff, v_flatDirect, flatVeg) * s;
     rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_nz, direct, v_distM)), u_pbr);
-    fragColor = vec4(rgb, v_alpha);
+    fragColor = vec4(rgb * v_alpha, v_alpha);
     fragDepth = vec2(v_depth, gl_FragCoord.z);
 }

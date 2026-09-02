@@ -55,6 +55,8 @@ export function PhotorealControls(): ReactElement {
     const setHaze = useMapStore((s) => s.setLidarHaze);
     const ao = useMapStore((s) => s.lidarAo);
     const setAo = useMapStore((s) => s.setLidarAo);
+    const superSample = useMapStore((s) => s.lidarSuperSample);
+    const setSuperSample = useMapStore((s) => s.setLidarSuperSample);
 
     const stops = (v: number): string => `${v.toFixed(2)}×`;
 
@@ -114,6 +116,17 @@ export function PhotorealControls(): ReactElement {
                     onChange={setHaze}
                 />
             </fieldset>
+            {/* Hors du fieldset : l'anticrénelage s'applique aux deux modèles
+                d'ombrage, il ne doit pas être grisé avec le reste. */}
+            <div className="mt-2">
+                <TuneSlider
+                    label="Anticrénelage"
+                    title="Rend le nuage/maillage dans un tampon plus grand puis le réduit : supprime l'escalier des silhouettes et des arêtes. Coût en pixels quadratique — baisser si le rendu devient saccadé."
+                    value={superSample} min={1} max={2} step={0.5}
+                    format={(v) => (v <= 1 ? 'off' : `${v}×`)}
+                    onChange={setSuperSample}
+                />
+            </div>
         </div>
     );
 }

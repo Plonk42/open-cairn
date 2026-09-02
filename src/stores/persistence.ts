@@ -66,6 +66,7 @@ export type PersistedSettings = {
     lidarSunStrength?: number;
     lidarHaze?: number;
     lidarAo?: number;
+    lidarSuperSample?: number;
     lidarVegEnhance?: boolean;
     lidarVegColorMode?: 'natural' | 'height' | 'species';
     lidarVegHeightScale?: number;

@@ -96,6 +96,11 @@ void main() {
         float lineMask = 1.0 - smoothstep(0.5, 1.0, dist); // trait fin d'~1 px
         rgb = mix(rgb, rgb * 0.75, lineMask);
     }
-    fragColor = vec4(rgb, v_alpha);
+    // Couleur PRÉMULTIPLIÉE par l'alpha : la passe géométrique peut être rendue
+    // en suréchantillonnage, et seule une couleur prémultipliée se moyenne
+    // correctement — sinon les silhouettes, moyennées avec le fond effacé à
+    // (0,0,0,0), ressortent assombries. Le compositing (edl.frag) applique donc
+    // un blend prémultiplié.
+    fragColor = vec4(rgb * v_alpha, v_alpha);
     fragDepth = vec2(-v_depth, gl_FragCoord.z);
 }
