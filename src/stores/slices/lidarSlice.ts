@@ -283,6 +283,12 @@ export interface LidarSlice {
      *  the underside is flat instead of a bulging cushion. Default true. */
     lidarCloudPoissonFlatBase: boolean;
     setLidarCloudPoissonFlatBase: (v: boolean) => void;
+    /** Feed unclassified (class 1) returns to the mesh reconstruction on top of
+     *  ground + water. Above the tree line those returns are the rock walls,
+     *  which the ground class barely covers; lower down they are mostly
+     *  unclassified vegetation, so this is off by default. */
+    lidarSurfaceUnclassified: boolean;
+    setLidarSurfaceUnclassified: (v: boolean) => void;
     /**
      * Sun position date/time as a naive local-datetime string
      * ("YYYY-MM-DDTHH:mm"). Drives the per-vertex Lambert lighting term in
@@ -685,6 +691,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
         lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
         setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
+        lidarSurfaceUnclassified: persisted.lidarSurfaceUnclassified ?? false,
+        setLidarSurfaceUnclassified: (lidarSurfaceUnclassified) => set({ lidarSurfaceUnclassified }),
         lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
         setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
         lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
@@ -776,6 +784,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     stride: state.lidarCloudStride,
                     classes: state.lidarCloudClasses,
                     shader: state.lidarShader,
+                    surfaceUnclassified: state.lidarSurfaceUnclassified,
                 };
                 let shadedResult: LidarShadedCloudData | null;
                 let meshResult: LidarMeshData | null;
@@ -810,6 +819,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
                         poissonPointWeight: state.lidarCloudPoissonPointWeight,
                         poissonFlatBase: state.lidarCloudPoissonFlatBase,
+                        surfaceUnclassified: state.lidarSurfaceUnclassified,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         shader: state.lidarShader,
@@ -959,6 +969,7 @@ export function selectLidarPersisted(
     | 'lidarCloudPoissonSamplesPerNode'
     | 'lidarCloudPoissonPointWeight'
     | 'lidarCloudPoissonFlatBase'
+    | 'lidarSurfaceUnclassified'
     | 'lidarSunDate'
     | 'lidarSunEnabled'
     | 'lidarShadows'
@@ -1022,6 +1033,7 @@ export function selectLidarPersisted(
         lidarCloudPoissonSamplesPerNode: s.lidarCloudPoissonSamplesPerNode,
         lidarCloudPoissonPointWeight: s.lidarCloudPoissonPointWeight,
         lidarCloudPoissonFlatBase: s.lidarCloudPoissonFlatBase,
+        lidarSurfaceUnclassified: s.lidarSurfaceUnclassified,
         lidarSunDate: s.lidarSunDate,
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,
