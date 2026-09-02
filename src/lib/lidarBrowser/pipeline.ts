@@ -580,6 +580,57 @@ export async function fetchLidarDelaunay(
 }
 
 /**
+ * Umbrella (Laplacian) smoothing passes applied to the mesh SHADING normals.
+ *
+ * Airborne LiDAR only grazes the steep alpine faces, so the Poisson surface
+ * there is genuinely shredded: neighbouring vertices get normals pointing in
+ * wildly different directions and the render breaks into per-vertex speckle,
+ * by far the most visible artefact on a north face. Smoothing the normal field
+ * (and only the normal field — positions, and therefore the silhouette and the
+ * cast shadows, are untouched) removes the high-frequency shading noise while
+ * keeping the real relief. Two passes is the point where the speckle is gone
+ * but arêtes are still crisp.
+ */
+const NORMAL_SMOOTHING_PASSES = 2;
+
+/**
+ * Average each vertex normal with its one-ring neighbours, `passes` times.
+ *
+ * Neighbours are enumerated straight from the index buffer — every triangle
+ * contributes its three normals to each of its three vertices — which is a
+ * valence-weighted umbrella operator. That is deliberately cheap: the meshes
+ * here reach ten million vertices, so building an explicit adjacency structure
+ * would cost more memory than the mesh itself. One scratch buffer is reused
+ * across passes.
+ */
+function smoothVertexNormals(indices: Uint32Array, normals: Float32Array, passes: number): void {
+    if (passes <= 0) return;
+    const n = normals.length / 3;
+    const acc = new Float32Array(normals.length);
+    for (let p = 0; p < passes; p++) {
+        acc.fill(0);
+        for (let t = 0; t < indices.length; t += 3) {
+            const ia = indices[t] * 3, ib = indices[t + 1] * 3, ic = indices[t + 2] * 3;
+            const sx = normals[ia] + normals[ib] + normals[ic];
+            const sy = normals[ia + 1] + normals[ib + 1] + normals[ic + 1];
+            const sz = normals[ia + 2] + normals[ib + 2] + normals[ic + 2];
+            acc[ia] += sx; acc[ia + 1] += sy; acc[ia + 2] += sz;
+            acc[ib] += sx; acc[ib + 1] += sy; acc[ib + 2] += sz;
+            acc[ic] += sx; acc[ic + 1] += sy; acc[ic + 2] += sz;
+        }
+        for (let i = 0; i < n; i++) {
+            const x = acc[i * 3], y = acc[i * 3 + 1], z = acc[i * 3 + 2];
+            const len = Math.hypot(x, y, z);
+            // A vertex with no surviving triangle keeps whatever it had.
+            if (len === 0) continue;
+            normals[i * 3] = x / len;
+            normals[i * 3 + 1] = y / len;
+            normals[i * 3 + 2] = z / len;
+        }
+    }
+}
+
+/**
  * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
  * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
  * output PLY contains only positions + faces.
@@ -634,14 +685,12 @@ function normalsAndColorsFromMesh(
         } else {
             normals[i * 3 + 2] = 1;
         }
+    }
+    smoothVertexNormals(indices, normals, NORMAL_SMOOTHING_PASSES);
+    for (let i = 0; i < n; i++) {
         // Rocky-outcrop detection: coherence = |Σ face_normals| / Σ|face_normals|.
-        // Near 1 = smooth slab; near 0 = faces diverge = boulder / crevice.
-        // We blend the palette colour toward dark grey so rough surfaces pop
-        // sharply against the surrounding material regardless of slope.
-        // Parameters are intentionally aggressive to create visible rock texture:
-        //   dead-zone < 0.05: perfectly smooth mesh cells are untouched
-        //   ramp 0.05 → 0.32: transitions quickly
-        //   max blend 80 %: fully rough = almost dark grey
+        // Near 1 = smooth slab; near 0 = boulder / crevice / reconstruction noise.
+        // The palette uses it as a weak albedo cue (see `montagneGround`).
         const z = positions[i * 3 + 2];
         const [cr, cg, cb] = vertexColor(
             normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2],

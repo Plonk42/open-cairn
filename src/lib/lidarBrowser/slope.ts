@@ -111,7 +111,11 @@ const MTN_SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
 const MTN_SCREE: readonly [number, number, number] = [162, 146, 118];
 const MTN_SLAB: readonly [number, number, number] = [148, 133, 106];
 const MTN_ROCK: readonly [number, number, number] = [116, 106, 90];
-const MTN_ROCK_STEEP: readonly [number, number, number] = [72, 70, 68];
+// Even a shaded, freshly broken granite wall keeps a reflectance around 0.15;
+// nothing on a mountain is a light trap. Pushing this darker used to read as
+// "dramatic", but under the physical lighting path it collapses to black as
+// soon as the face turns away from the sun.
+const MTN_ROCK_STEEP: readonly [number, number, number] = [88, 84, 80];
 const MTN_TURF: readonly [number, number, number] = [92, 100, 64];
 
 /** Snow line on a due-south face; north faces hold snow this much lower. */
@@ -144,7 +148,13 @@ function montagneGround(slopeDeg: number, z: number, roughness: number): [number
     // Broken rock traps light between facets, so it reads darker than a slab
     // of the same mineral — the one place where a geometric cue is a genuine
     // albedo cue rather than shading.
-    rock = lerp3(rock, MTN_ROCK_STEEP, Math.min(0.55, Math.max(0, (roughness - 0.06) / 0.3)));
+    //
+    // The coupling is deliberately weak: on the steep faces the airborne scan
+    // only grazes, the reconstructed surface is shredded and the coherence
+    // metric measures reconstruction noise far more than it measures real
+    // rock. A strong coupling turns that noise into per-vertex speckle, which
+    // is the dominant artefact on the north faces.
+    rock = lerp3(rock, MTN_ROCK_STEEP, Math.min(0.22, Math.max(0, (roughness - 0.1) / 0.45)));
     // Alpine turf only on gentle ground below the vegetation limit.
     const turf = smoothstep01((MTN_TURF_TOP - z) / 500) * smoothstep01((32 - slopeDeg) / 12);
     return lerp3(rock, MTN_TURF, turf);
