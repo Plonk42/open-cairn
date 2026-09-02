@@ -1,4 +1,5 @@
 import { useMapStore } from '@/stores/mapStore';
+import { PhotorealControls } from './PhotorealControls';
 import { ShadowControls } from './ShadowControls';
 import { SunDateControl } from './SunDateControl';
 
@@ -16,33 +17,36 @@ export function SunControls() {
     const center = shaded ?? mesh;
 
     return (
-        <div>
-            <div className="flex items-center justify-between">
-                <span
-                    className="text-sm text-slate-700 dark:text-slate-300"
-                    title="Active un éclairage directionnel selon la position du soleil. Désactivé : éclairage global neutre."
+        <div className="flex flex-col gap-3">
+            <PhotorealControls />
+            <div>
+                <div className="flex items-center justify-between">
+                    <span
+                        className="text-sm text-slate-700 dark:text-slate-300"
+                        title="Active un éclairage directionnel selon la position du soleil. Désactivé : éclairage global neutre."
+                    >
+                        Éclairage soleil
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setSunEnabled(!sunEnabled)}
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sunEnabled ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                        role="switch"
+                        aria-checked={sunEnabled}
+                    >
+                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sunEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                    </button>
+                </div>
+                <fieldset
+                    disabled={!sunEnabled}
+                    className={`m-0 mt-2 min-w-0 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50 ${sunEnabled ? '' : 'opacity-50'}`}
                 >
-                    Éclairage soleil
-                </span>
-                <button
-                    type="button"
-                    onClick={() => setSunEnabled(!sunEnabled)}
-                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sunEnabled ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600'}`}
-                    role="switch"
-                    aria-checked={sunEnabled}
-                >
-                    <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sunEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                </button>
+                    <SunDateControl
+                        centerLng={center?.centerLng ?? view.longitude}
+                        centerLat={center?.centerLat ?? view.latitude}
+                    />
+                </fieldset>
             </div>
-            <fieldset
-                disabled={!sunEnabled}
-                className={`m-0 mt-2 min-w-0 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50 ${sunEnabled ? '' : 'opacity-50'}`}
-            >
-                <SunDateControl
-                    centerLng={center?.centerLng ?? view.longitude}
-                    centerLat={center?.centerLat ?? view.latitude}
-                />
-            </fieldset>
         </div>
     );
 }

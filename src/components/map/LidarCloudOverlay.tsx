@@ -10,6 +10,14 @@ import { lidarCloudLayerId } from './lidarLayerId';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
 
 /**
+ * Extinction per metre reached when the "brume" slider is at 1. At 5.9e-4 the
+ * aerial perspective has washed a surface out to half the haze colour after
+ * ~1.2 km — a strong, hazy-summer-afternoon look. The default (0.3) lands
+ * around 1/5600 m, which only starts to read past a kilometre.
+ */
+const HAZE_MAX_DENSITY = 5.9e-4;
+
+/**
  * Manages one `LidarWebGLLayer` instance for a single loaded cloud/mesh entry
  * (see `lidarClouds` in the store). Several instances can be mounted at once
  * — one per entry, keyed by `cloudId` — so multiple clouds render, cull and
@@ -53,6 +61,11 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
     const shadows = useMapStore((s) => s.lidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
+    const photoreal = useMapStore((s) => s.lidarPhotoreal);
+    const exposure = useMapStore((s) => s.lidarExposure);
+    const ambient = useMapStore((s) => s.lidarAmbient);
+    const sunStrength = useMapStore((s) => s.lidarSunStrength);
+    const haze = useMapStore((s) => s.lidarHaze);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
     const vegHeightScale = useMapStore((s) => s.lidarVegHeightScale);
@@ -312,6 +325,19 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             shadowStrength,
         });
     }, [sunEnabled, shadows, shadowStrength, styleEpoch]);
+
+    useEffect(() => {
+        webglRef.current?.setConfig({
+            pbr: photoreal ? 1 : 0,
+            exposure,
+            ambient,
+            sunStrength,
+            // The slider is a 0..1 "amount"; HAZE_MAX_DENSITY is the extinction
+            // at 1, chosen so a ridge ~1.7 km away is half-way to the sky colour
+            // (a strong but still plausible summer-afternoon haze).
+            hazeDensity: haze * HAZE_MAX_DENSITY,
+        });
+    }, [photoreal, exposure, ambient, sunStrength, haze, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

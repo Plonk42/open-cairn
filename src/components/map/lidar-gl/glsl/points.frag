@@ -3,15 +3,19 @@ precision highp float;
 in vec3 v_albedo;
 in float v_diff;
 in float v_flatDiff;
+in float v_flatDirect;
 in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
+in float v_distM;
+in float v_nz;
 in float v_alpha;
 in float v_isVeg;
 in float v_isGround;
 in float v_emissive;
 
 #include ./lib/sampleShadow.glsl;
+#include ./lib/pbr.glsl;
 
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
@@ -67,6 +71,13 @@ void main() {
     // soleil est actif : 1 = soleil directionnel pur (inchangé), plus bas = part
     // croissante d'éclairage neutre/normale pour adoucir le rendu.
     float flatVeg = (v_isVeg > 0.5) ? max(u_flatLight, 1.0 - u_vegNormalShade) : u_flatLight;
-    fragColor = vec4(mix(lit, neutral, flatVeg), v_alpha);
+    vec3 rgb = mix(lit, neutral, flatVeg);
+    // Chemin photoréaliste : même décomposition, résolue en radiance linéaire
+    // (ambiante hémisphérique + perspective aérienne + tone mapping filmique).
+    // Le slider « ombrage feuillage » continue d'aplatir la normale du feuillage
+    // en le poussant vers la lumière fixe, comme dans le modèle historique.
+    float direct = mix(v_diff, v_flatDirect, flatVeg) * s;
+    rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_nz, direct, v_distM)), u_pbr);
+    fragColor = vec4(rgb, v_alpha);
     fragDepth = vec2(v_depth, gl_FragCoord.z);
 }

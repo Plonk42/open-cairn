@@ -305,6 +305,27 @@ export interface LidarSlice {
     lidarShadowStrength: number;
     setLidarShadowStrength: (v: number) => void;
     /**
+     * Photorealistic render path: shade in linear radiance with a hemispheric
+     * sky/ground ambient, aerial perspective and filmic tone mapping instead of
+     * the historical `ambient 0.35 + diffuse 0.75` sRGB model. This is what
+     * turns shadowed snow blue and stops highlights clipping to flat white.
+     * See `src/lib/lidarAtmosphere.ts` and `glsl/lib/pbr.glsl`.
+     */
+    lidarPhotoreal: boolean;
+    setLidarPhotoreal: (v: boolean) => void;
+    /** Linear exposure applied before the tone curve (0.3..3, 1 = nominal). */
+    lidarExposure: number;
+    setLidarExposure: (v: number) => void;
+    /** Multiplier on the hemispheric ambient (0..2.5, 1 = nominal). */
+    lidarAmbient: number;
+    setLidarAmbient: (v: number) => void;
+    /** Multiplier on the direct sun/key light (0..2.5, 1 = nominal). */
+    lidarSunStrength: number;
+    setLidarSunStrength: (v: number) => void;
+    /** Aerial perspective amount, 0..1 (mapped to an extinction per metre). */
+    lidarHaze: number;
+    setLidarHaze: (v: number) => void;
+    /**
      * Enhanced vegetation rendering: height-ramped foliage colours (trunk →
      * canopy), per-leaf colour jitter and a small
      * point-size boost. On by default; toggling off restores flat per-class
@@ -456,6 +477,11 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunEnabled: false,
     lidarShadows: true,
     lidarShadowStrength: 0.7,
+    lidarPhotoreal: true,
+    lidarExposure: 1,
+    lidarAmbient: 1,
+    lidarSunStrength: 1,
+    lidarHaze: 0.3,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
     lidarVegHeightScale: 25,
@@ -644,6 +670,16 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarShadows: (lidarShadows) => set({ lidarShadows }),
         lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
         setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
+        lidarPhotoreal: persisted.lidarPhotoreal ?? LIDAR_RENDER_DEFAULTS.lidarPhotoreal,
+        setLidarPhotoreal: (lidarPhotoreal) => set({ lidarPhotoreal }),
+        lidarExposure: persisted.lidarExposure ?? LIDAR_RENDER_DEFAULTS.lidarExposure,
+        setLidarExposure: (lidarExposure) => set({ lidarExposure }),
+        lidarAmbient: persisted.lidarAmbient ?? LIDAR_RENDER_DEFAULTS.lidarAmbient,
+        setLidarAmbient: (lidarAmbient) => set({ lidarAmbient }),
+        lidarSunStrength: persisted.lidarSunStrength ?? LIDAR_RENDER_DEFAULTS.lidarSunStrength,
+        setLidarSunStrength: (lidarSunStrength) => set({ lidarSunStrength }),
+        lidarHaze: persisted.lidarHaze ?? LIDAR_RENDER_DEFAULTS.lidarHaze,
+        setLidarHaze: (lidarHaze) => set({ lidarHaze }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
         setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
         lidarVegColorMode: ((): VegColorMode => {
@@ -900,6 +936,11 @@ export function selectLidarPersisted(
     | 'lidarSunEnabled'
     | 'lidarShadows'
     | 'lidarShadowStrength'
+    | 'lidarPhotoreal'
+    | 'lidarExposure'
+    | 'lidarAmbient'
+    | 'lidarSunStrength'
+    | 'lidarHaze'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
     | 'lidarVegHeightScale'
@@ -956,6 +997,11 @@ export function selectLidarPersisted(
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,
         lidarShadowStrength: s.lidarShadowStrength,
+        lidarPhotoreal: s.lidarPhotoreal,
+        lidarExposure: s.lidarExposure,
+        lidarAmbient: s.lidarAmbient,
+        lidarSunStrength: s.lidarSunStrength,
+        lidarHaze: s.lidarHaze,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,
         lidarVegHeightScale: s.lidarVegHeightScale,

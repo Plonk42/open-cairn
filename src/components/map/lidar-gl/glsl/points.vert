@@ -44,12 +44,20 @@ uniform int   u_catMixCount[32];   // category → mix candidate count
 uniform int   u_mixSpecies[32];    // flattened mix candidate species ids
 uniform uint  u_speciesMask[8];    // 256-bit legend-id visibility mask
 
+// Position de l'œil dans le MÊME espace que `pos` (unités Mercator relatives à
+// l'origine du nuage, Y inversé) — reconstruite depuis la matrice par
+// `cameraFromMatrix()`. Divisée par u_mpu, la distance devient métrique.
+uniform vec3 u_camPos;
+
 out vec3 v_albedo;
 out float v_diff;
 out float v_flatDiff;
+out float v_flatDirect; // N·L non replié pour la lumière fixe (chemin PBR)
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
+out float v_distM;      // distance caméra→point en mètres (perspective aérienne)
+out float v_nz;         // composante verticale de la normale (ambiante hémisphérique)
 out float v_alpha;
 out float v_isVeg;
 out float v_isGround;
@@ -188,9 +196,12 @@ void main() {
         v_albedo = vec3(0.0);
         v_diff = 0.0;
         v_flatDiff = 0.0;
+        v_flatDirect = 0.0;
         v_uv = vec2(-1.0);
         v_lightPos = vec4(0.0);
         v_depth = 0.0;
+        v_distM = 0.0;
+        v_nz = 1.0;
         v_alpha = 0.0;
         v_isVeg = 0.0;
         v_isGround = 0.0;
@@ -213,12 +224,19 @@ void main() {
     float ps = (v_isVeg > 0.5) ? u_ps * u_vegSizeBoost : u_ps;
     gl_PointSize = max(ps, 1.0);
     v_depth = gl_Position.w;
+    // gl_Position.w n'est PAS métrique (MapLibre y replie worldSize = 512·2^zoom),
+    // d'où la distance euclidienne à l'œil ramenée en mètres par u_mpu.
+    v_distM = distance(pos, u_camPos) / max(u_mpu, 1e-20);
 
     vec3 nrm = normalize(a_normal);
+    v_nz = nrm.z;
     v_diff = max(0.0, dot(nrm, u_sunDir)) * u_sunIntensity;
     // Éclairage neutre : wrap-lighting doux (le terme négatif est replié pour
     // que les faces opposées restent éclairées) → relief lisible sans dureté.
     v_flatDiff = dot(nrm, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
+    // Le chemin PBR a déjà un plancher (ambiante hémisphérique) : il lui faut un
+    // N·L franc, pas le wrap, sous peine d'écraser le relief.
+    v_flatDirect = max(0.0, dot(nrm, normalize(FLAT_LIGHT_DIR)));
     // Coloration du feuillage calculée sur le GPU : « Dégradé feuillage »
     // (intensité) et « Hauteur max » (échelle) sont de simples uniforms → les
     // sliders sont instantanés, sans recalcul CPU ni ré-upload du nuage.

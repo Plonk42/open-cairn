@@ -9,6 +9,8 @@ import {
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
 import { isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
+import { cameraFromMatrix } from '@/lib/cameraFromMatrix';
+import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
 import { buildForestGpuTables, buildForestPalette, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { requestMeshLods } from '@/lib/lidarBrowser/lodWorkerClient';
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
@@ -357,6 +359,57 @@ export interface LidarWebGLLayerConfig {
      * Enabled from the `?debug=mesh` URL flag.
      */
     meshWireframe: boolean;
+    /**
+     * Blend toward the physically-flavoured render path (0 = the historical
+     * sRGB-space `ambient 0.35 + diffuse 0.75` model, 1 = linear-space
+     * hemispheric lighting + aerial perspective + filmic tone mapping). Kept
+     * as a continuous 0..1 mix rather than a boolean so the two models can be
+     * A/B'd side by side while tuning. See `glsl/lib/pbr.glsl`.
+     */
+    pbr: number;
+    /** Linear exposure applied before the tone curve (PBR path only). */
+    exposure: number;
+    /** Multiplier on the hemispheric ambient term (PBR path only). */
+    ambient: number;
+    /** Multiplier on the direct sun/key light (PBR path only). */
+    sunStrength: number;
+    /**
+     * Aerial-perspective extinction, per metre. 0 disables the haze; 1/2500
+     * (4e-4) already washes a ridge 2 km away halfway to the sky colour.
+     */
+    hazeDensity: number;
+}
+
+/** Uniform locations of the shared `glsl/lib/pbr.glsl` block. */
+interface PbrLocations {
+    pbr: WebGLUniformLocation | null;
+    exposure: WebGLUniformLocation | null;
+    ambSky: WebGLUniformLocation | null;
+    ambGround: WebGLUniformLocation | null;
+    sunRadiance: WebGLUniformLocation | null;
+    hazeColor: WebGLUniformLocation | null;
+    hazeDensity: WebGLUniformLocation | null;
+    camPos: WebGLUniformLocation | null;
+}
+
+function pbrLocations(gl: WebGL2RenderingContext, prog: WebGLProgram): PbrLocations {
+    return {
+        pbr: gl.getUniformLocation(prog, 'u_pbr'),
+        exposure: gl.getUniformLocation(prog, 'u_exposure'),
+        ambSky: gl.getUniformLocation(prog, 'u_ambSky'),
+        ambGround: gl.getUniformLocation(prog, 'u_ambGround'),
+        sunRadiance: gl.getUniformLocation(prog, 'u_sunRadiance'),
+        hazeColor: gl.getUniformLocation(prog, 'u_hazeColor'),
+        hazeDensity: gl.getUniformLocation(prog, 'u_hazeDensity'),
+        camPos: gl.getUniformLocation(prog, 'u_camPos'),
+    };
+}
+
+function pbrLocationsNull(): PbrLocations {
+    return {
+        pbr: null, exposure: null, ambSky: null, ambGround: null,
+        sunRadiance: null, hazeColor: null, hazeDensity: null, camPos: null,
+    };
 }
 
 /**
@@ -693,7 +746,22 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         forestMixCellSize: 6,
         forestSpeciesFilterOn: false,
         meshWireframe: false,
+        pbr: 1,
+        exposure: 1,
+        ambient: 1,
+        sunStrength: 1,
+        hazeDensity: 1 / 9000,
     };
+
+    /** Uniform locations of the shared PBR block, per program. */
+    private _locPbrPoints: PbrLocations = pbrLocationsNull();
+    private _locPbrMesh: PbrLocations = pbrLocationsNull();
+    /**
+     * Eye position in the shader's `pos` space (Mercator units relative to the
+     * cloud origin, Y flipped), refreshed once per frame in `render()` from the
+     * translated matrix. Lets the vertex shaders derive a true metric distance.
+     */
+    private readonly _camPos = new Float32Array(3);
 
     constructor(id: string) {
         this.id = id;
@@ -707,6 +775,31 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
     onRemove(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
         this._cleanup(gl as WebGL2RenderingContext);
+    }
+
+    /**
+     * Push the shared `lib/pbr.glsl` uniforms into the currently-active
+     * program. The lighting environment is derived from the sun on every call
+     * rather than cached: it is a couple of dozen flops, versus the bug surface
+     * of invalidating a cache from `setConfig` and the per-frame sun update.
+     */
+    private _bindPbrToProgram(gl: WebGL2RenderingContext, loc: PbrLocations): void {
+        const atmo = atmosphereFromSun({
+            sunDir: this.config.sunDir,
+            sunColor: this.config.sunColor,
+            sunIntensity: this.config.sunIntensity,
+            flat: this.config.sunLightingEnabled ? 0 : 1,
+            ambient: this.config.ambient,
+            sunStrength: this.config.sunStrength,
+        });
+        gl.uniform1f(loc.pbr, this.config.pbr);
+        gl.uniform1f(loc.exposure, this.config.exposure);
+        gl.uniform3fv(loc.ambSky, atmo.sky);
+        gl.uniform3fv(loc.ambGround, atmo.bounce);
+        gl.uniform3fv(loc.sunRadiance, atmo.sun);
+        gl.uniform3fv(loc.hazeColor, atmo.haze);
+        gl.uniform1f(loc.hazeDensity, this.config.hazeDensity);
+        gl.uniform3fv(loc.camPos, this._camPos);
     }
 
     /** Bind point program uniforms (incl. shadows). Caller binds the VAO. */
@@ -753,6 +846,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locPoints.ortho, 3);
         this._bindShadowToProgram(gl, this._locPoints);
+        this._bindPbrToProgram(gl, this._locPbrPoints);
     }
 
     /** Populate the static category→group/species/mix lookup tables (once). */
@@ -854,6 +948,17 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // skip the entire pass — drawing millions of off-screen vertices plus
         // the mesh shadow map every frame was the main cause of the stutter.
         if (this._isOutsideFrustum(translatedMatrix)) return;
+
+        // Eye position in the shader's `pos` space, recovered analytically from
+        // the matrix (see cameraFromMatrix). Needed for the metric camera
+        // distance the aerial perspective is based on — `gl_Position.w` carries
+        // MapLibre's zoom-dependent worldSize factor and is not in metres.
+        const eye = cameraFromMatrix(translatedMatrix);
+        if (eye) {
+            this._camPos[0] = eye[0];
+            this._camPos[1] = eye[1];
+            this._camPos[2] = eye[2];
+        }
 
         // Distance-based LOD: pick the point/mesh detail level for the current
         // zoom once per frame (see pickLodLevel doc comment). Disabled ⇒ always
@@ -1545,6 +1650,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locMesh.ortho, 3);
         this._bindShadowToProgram(gl, this._locMesh);
+        this._bindPbrToProgram(gl, this._locPbrMesh);
         gl.bindVertexArray(this._vaoMesh);
         if (this.config.meshWireframe && this._meshWireCount[0] > 0) {
             gl.uniform1f(this._locMesh.wireframe, 1);
@@ -1844,6 +1950,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             mixSpecies: gl.getUniformLocation(this._progPoints, 'u_mixSpecies[0]'),
             speciesMask: gl.getUniformLocation(this._progPoints, 'u_speciesMask[0]'),
         };
+        this._locPbrPoints = pbrLocations(gl, this._progPoints);
         this._initForestTables();
 
         // ─── Point buffers & VAO ───
@@ -1912,6 +2019,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
             wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
         };
+        this._locPbrMesh = pbrLocations(gl, this._progMesh);
 
         // Texture orthophoto (1×1 par défaut, remplie par setOrthoTexture).
         this._orthoTex = gl.createTexture();

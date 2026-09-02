@@ -3,15 +3,18 @@ precision highp float;
 in vec3 v_albedo;
 in float v_diff;
 in float v_flatDiff;
+in float v_flatDirect;
 in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
+in float v_distM;
 in float v_alpha;
 in float v_up;
 in float v_base;
 in vec3 v_wpos;
 
 #include ./lib/sampleShadow.glsl;
+#include ./lib/pbr.glsl;
 
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
@@ -61,6 +64,11 @@ void main() {
     // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
     vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
     vec3 rgb = mix(lit, neutral, u_flatLight);
+    // Chemin photoréaliste : même décomposition (direct × ombre, soleil ou
+    // lumière fixe) mais résolue en radiance linéaire avec ambiante
+    // hémisphérique, perspective aérienne et tone mapping filmique.
+    float direct = mix(v_diff, v_flatDirect, u_flatLight) * s;
+    rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_up, direct, v_distM)), u_pbr);
     // Hachures à 45° gravées sur les murs du socle synthétique. En espace-monde
     // (v_wpos, mètres) : les lignes suivent le mesh (elles restent fixées à la
     // paroi quand la caméra bouge). L'épaisseur est mesurée en pixels via fwidth
