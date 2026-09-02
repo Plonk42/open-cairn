@@ -41,6 +41,16 @@ void main() {
         fragDepth = vec2(-v_depth, gl_FragCoord.z);
         return;
     }
+    // Le socle synthétique (murs du pourtour + fond fermé du mesh Poisson) est
+    // un artifice cartographique : il donne au nuage l'aspect d'un bloc posé
+    // sur la carte, ce qui est lisible en vue oblique de carte mais trahit
+    // immédiatement le pavé rectangulaire dès qu'on cherche une image de
+    // paysage. En rendu photoréaliste on le supprime, pour que le maillage se
+    // raccorde visuellement au terrain autour au lieu de flotter dessus.
+    // Deux familles de faces : les murs marqués par le masque (v_base) et le
+    // fond, reconnaissable à sa normale qui regarde le sol (même critère que
+    // le fondu du drapage photo plus bas).
+    if (u_pbr > 0.5 && (v_base > 0.5 || v_up < -0.25)) discard;
     float s = sampleShadow();
     vec3 albedo = v_albedo;
     // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et
