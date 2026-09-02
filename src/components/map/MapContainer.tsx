@@ -1,3 +1,4 @@
+import { basemapRelight, NEUTRAL_RELIGHT, type RasterRelight } from '@/lib/basemapRelight';
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
 import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
@@ -90,20 +91,47 @@ function BasemapDimmer({ studio }: { studio: boolean }) {
 }
 
 /**
- * Drives MapLibre's sky from the same lighting environment the photorealistic
- * LiDAR mesh uses.
+ * Applies one {@link RasterRelight} to every raster layer of the current style.
+ * Transitions are forced to 0 ms so scrubbing the time-of-day slider tracks
+ * instantly instead of trailing a 300 ms fade per property.
+ */
+function paintRelight(map: maplibregl.Map, relight: RasterRelight): void {
+    const style = map.getStyle();
+    if (!style?.layers) return;
+    for (const layer of style.layers) {
+        if (layer.type !== 'raster') continue;
+        try {
+            map.setPaintProperty(layer.id, 'raster-brightness-min-transition', { duration: 0 });
+            map.setPaintProperty(layer.id, 'raster-brightness-max-transition', { duration: 0 });
+            map.setPaintProperty(layer.id, 'raster-saturation-transition', { duration: 0 });
+            map.setPaintProperty(layer.id, 'raster-brightness-min', relight.brightnessMin);
+            map.setPaintProperty(layer.id, 'raster-brightness-max', relight.brightnessMax);
+            map.setPaintProperty(layer.id, 'raster-saturation', relight.saturation);
+        } catch { /* layer might not accept the property */ }
+    }
+}
+
+/**
+ * Drives MapLibre's sky AND the basemap's exposure from the same lighting
+ * environment the photorealistic LiDAR mesh uses.
  *
  * Without this the sky is a fixed dark slate while the mesh is lit by a sun:
  * the mismatch is glaring exactly where the eye checks it, on the horizon
  * behind a distant ridge. Feeding both from `atmosphereFromSun` makes the
  * horizon land on the very colour the mesh's aerial perspective converges to.
  *
+ * The orthophoto has the same problem, one step worse: it is a midday
+ * photograph and cannot follow the sun at all, so any hour but noon left the
+ * mesh visibly darker than the terrain it sits in — which is what pinned the
+ * render to a flat, high-sun lighting. {@link basemapRelight} re-exposes it so
+ * the two agree and raking light becomes usable.
+ *
  * Studio-only, and only on the photorealistic path — the itinerary view keeps
- * the style's neutral sky. Re-applied on `styledata` because a base-layer
- * switch rebuilds the style and takes the runtime sky with it (same reason as
- * {@link BasemapDimmer}).
+ * the style's neutral sky and its unmodified basemap. Re-applied on
+ * `styledata` because a base-layer switch rebuilds the style and takes the
+ * runtime sky and paint overrides with it (same reason as {@link BasemapDimmer}).
  */
-function PhotorealSky({ studio }: { studio: boolean }) {
+function PhotorealAmbiance({ studio }: { studio: boolean }) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const photoreal = useMapStore((s) => s.lidarPhotoreal);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
@@ -119,19 +147,21 @@ function PhotorealSky({ studio }: { studio: boolean }) {
         const apply = () => {
             if (!on) {
                 map.setSky({ ...DEFAULT_SKY });
+                paintRelight(map, NEUTRAL_RELIGHT);
                 return;
             }
             const { lng, lat } = map.getCenter();
             const { dir, intensity, color } = sunLighting(date, lat, lng);
-            const atmo = atmosphereFromSun({
+            const params = {
                 sunDir: dir,
                 sunColor: color,
                 sunIntensity: intensity,
                 flat: sunEnabled ? 0 : 1,
                 ambient,
                 sunStrength,
-            });
-            map.setSky(skyFromAtmosphere(atmo, exposure));
+            };
+            map.setSky(skyFromAtmosphere(atmosphereFromSun(params), exposure));
+            paintRelight(map, basemapRelight(params, exposure));
         };
         // `setSky` throws outright while the style is still loading, and
         // `styledata` fires *during* the load, so the guard has to be on every
@@ -971,7 +1001,7 @@ export function MapContainer() {
         <>
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
-            <PhotorealSky studio={studio} />
+            <PhotorealAmbiance studio={studio} />
         </>
     );
 }
