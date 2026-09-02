@@ -510,7 +510,10 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunStrength: 1,
     lidarHaze: 0.3,
     lidarAo: 0.5,
-    lidarSuperSample: 2,
+    // Off by default: measured ~30 % of the frame budget on a multi-million
+    // triangle mesh, for a gain that only really shows on the sky silhouette.
+    // Worth turning on for a still export, not for navigating.
+    lidarSuperSample: 1,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
     lidarVegHeightScale: 25,

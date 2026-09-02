@@ -8,8 +8,8 @@ import {
     linkProgram,
     VS_MESH, VS_POINTS, VS_QUAD, VS_SHADOW,
 } from '@/components/map/lidar-gl/shaders';
-import { isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { cameraFromMatrix } from '@/lib/cameraFromMatrix';
+import { isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
 import { buildForestGpuTables, buildForestPalette, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { requestMeshLods } from '@/lib/lidarBrowser/lodWorkerClient';
@@ -672,13 +672,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         depth: WebGLUniformLocation | null;
         sharedDepth: WebGLUniformLocation | null;
         texelSize: WebGLUniformLocation | null;
+        depthHalfTexel: WebGLUniformLocation | null;
         strength: WebGLUniformLocation | null;
         radius: WebGLUniformLocation | null;
         farPlane: WebGLUniformLocation | null;
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
         opacity: WebGLUniformLocation | null;
-    } = { color: null, depth: null, sharedDepth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
+    } = { color: null, depth: null, sharedDepth: null, texelSize: null, depthHalfTexel: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
     // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
     // by the main pass to attenuate the diffuse term where the mesh occludes
@@ -1072,6 +1073,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
+            gl2.uniform2f(this._locEdl.depthHalfTexel, 0.5 / fw, 0.5 / fh);
             gl2.uniform1f(this._locEdl.strength, this.config.edlStrength);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1140,6 +1142,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
+            gl2.uniform2f(this._locEdl.depthHalfTexel, 0.5 / fw, 0.5 / fh);
             gl2.uniform1f(this._locEdl.strength, 0);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1943,20 +1946,26 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * `w`/`h` are ALREADY device pixels, so on a 2× DPR screen a 2× supersample
      * means rendering at 4× DPR. Both the driver's texture limit and a fixed
      * pixel budget therefore clamp the factor, so a large window on a retina
-     * display degrades to a smaller factor (or to none) instead of blowing up
-     * VRAM and the fill rate.
+     * display degrades to no supersampling instead of blowing up VRAM and the
+     * fill rate.
+     *
+     * The factor is forced to an INTEGER. The composite resolves this buffer
+     * with a single bilinear tap, which is an exact box filter only when each
+     * screen pixel covers a whole number of sub-texels; at any fractional ratio
+     * the number of sub-texels feeding a pixel alternates across the screen and
+     * beats into visible moiré lines.
      */
     private _superSampledSize(gl: WebGL2RenderingContext, w: number, h: number): [number, number] {
-        const wanted = this.config.superSample;
+        const wanted = Math.floor(this.config.superSample);
         if (wanted <= 1 || w === 0 || h === 0) return [w, h];
         this._maxTexSize ||= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-        const factor = Math.min(
+        const factor = Math.floor(Math.min(
             wanted,
             Math.sqrt(SUPERSAMPLE_PIXEL_BUDGET / (w * h)),
             this._maxTexSize / Math.max(w, h),
-        );
+        ));
         if (factor <= 1) return [w, h];
-        return [Math.round(w * factor), Math.round(h * factor)];
+        return [w * factor, h * factor];
     }
 
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
@@ -2138,6 +2147,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             depth: gl.getUniformLocation(this._progEdl, 'u_depth'),
             sharedDepth: gl.getUniformLocation(this._progEdl, 'u_sharedDepth'),
             texelSize: gl.getUniformLocation(this._progEdl, 'u_texelSize'),
+            depthHalfTexel: gl.getUniformLocation(this._progEdl, 'u_depthHalfTexel'),
             strength: gl.getUniformLocation(this._progEdl, 'u_strength'),
             radius: gl.getUniformLocation(this._progEdl, 'u_radius'),
             farPlane: gl.getUniformLocation(this._progEdl, 'u_farPlane'),

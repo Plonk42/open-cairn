@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { cameraFromMatrix } from './cameraFromMatrix';
 
 /** Column-major 4×4 multiply: returns a ∘ b (i.e. apply `b` first). */

@@ -121,8 +121,8 @@ export function PhotorealControls(): ReactElement {
             <div className="mt-2">
                 <TuneSlider
                     label="Anticrénelage"
-                    title="Rend le nuage/maillage dans un tampon plus grand puis le réduit : supprime l'escalier des silhouettes et des arêtes. Coût en pixels quadratique — baisser si le rendu devient saccadé."
-                    value={superSample} min={1} max={2} step={0.5}
+                    title="Rend le nuage/maillage dans un tampon deux fois plus grand puis le réduit : supprime l'escalier des silhouettes et des arêtes. Coût en pixels quadruplé — désactiver si le rendu devient saccadé."
+                    value={superSample} min={1} max={2} step={1}
                     format={(v) => (v <= 1 ? 'off' : `${v}×`)}
                     onChange={setSuperSample}
                 />

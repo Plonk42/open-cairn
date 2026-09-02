@@ -10,6 +10,12 @@ uniform sampler2D u_depth;
 // _writeSharedDepth in LidarWebGLLayer.ts).
 uniform sampler2D u_sharedDepth;
 uniform vec2 u_texelSize;
+// Half a texel of u_depth. That buffer is NEAREST-filtered (RG32F is not
+// filterable) and may be supersampled, in which case a screen-pixel centre
+// lands exactly on a sub-texel boundary where the rounding is
+// implementation-defined — and flips periodically across the screen, beating
+// into moiré lines. Biasing every fetch by this lands it inside one sub-texel.
+uniform vec2 u_depthHalfTexel;
 uniform float u_strength;   // QGIS-equivalent edlStrength (default ~1000)
 uniform float u_radius;     // QGIS-equivalent edlDistance (in 2-pixel units)
 uniform float u_farPlane;   // depth normalization, in same units as v_depth
@@ -37,7 +43,7 @@ const vec2 NB8[8] = vec2[8](
 // itself (see mesh.frag); every distance computation below wants the
 // magnitude, and abs() leaves the 0.0 no-data sentinel untouched.
 float depthAt(vec2 uv) {
-    return abs(texture(u_depth, uv).r);
+    return abs(texture(u_depth, uv + u_depthHalfTexel).r);
 }
 
 float edlFactor() {
@@ -180,7 +186,7 @@ void main() {
     // already claimed this pixel this frame, let it win instead of painting
     // over it — order-independent regardless of which LidarWebGLLayer
     // instance MapLibre happens to render first/last.
-    float ownDepth = texture(u_depth, v_uv).g;
+    float ownDepth = texture(u_depth, v_uv + u_depthHalfTexel).g;
     float nearestDepth = texture(u_sharedDepth, v_uv).r;
     if (ownDepth > nearestDepth + 1e-6) discard;
     // The two screen-space cues are split by geometry kind, using the sign
@@ -189,7 +195,7 @@ void main() {
     //             samples; a cavity lobe would only mud them up.
     //   mesh   -> AO. Occlusion is a real relief cue on a continuous surface,
     //             whereas EDL turned every crease and seam into a fissure.
-    bool isMesh = texture(u_depth, v_uv).r < 0.0;
+    bool isMesh = texture(u_depth, v_uv + u_depthHalfTexel).r < 0.0;
     float edl = isMesh ? 0.0 : edlFactor();
     float ao = isMesh ? aoFactor() : 0.0;
     float shade = exp(-edl * u_strength) * exp(-ao * u_aoStrength);
