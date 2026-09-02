@@ -83,7 +83,6 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const sunStrength = useMapStore((s) => s.lidarSunStrength);
     const haze = useMapStore((s) => s.lidarHaze);
     const ao = useMapStore((s) => s.lidarAo);
-    const superSample = useMapStore((s) => s.lidarSuperSample);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
     const vegHeightScale = useMapStore((s) => s.lidarVegHeightScale);
@@ -333,7 +332,6 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             // which had no occlusion term at all.
             aoStrength: photoreal ? ao * AO_MAX_STRENGTH : 0,
             aoRadius: AO_RADIUS,
-            superSample,
             opacity,
             photoOpacityGround: photoOpacity,
             photoOpacityNonGround,
@@ -342,7 +340,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             pointSizeMultiplier,
             meshWireframe,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, pointSizeMultiplier, meshWireframe, ao, superSample, photoreal, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, pointSizeMultiplier, meshWireframe, ao, photoreal, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

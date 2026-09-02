@@ -25,10 +25,9 @@ uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
 uniform vec3 u_camPos;
 
 out vec3 v_albedo;
-// N·L NON repliés : le maillage est dessiné deux faces, et mesh.frag retourne
-// la normale vers l'œil avant de replier (voir gl_FrontFacing là-bas).
-out float v_ndotl;
-out float v_flatNdotl;
+out float v_diff;
+out float v_flatDiff;
+out float v_flatDirect; // N·L non replié pour la lumière fixe (chemin PBR)
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
@@ -48,8 +47,13 @@ void main() {
     // d'où la distance euclidienne à l'œil ramenée en mètres par u_mpu.
     v_distM = distance(pos, u_camPos) / max(u_mpu, 1e-20);
     vec3 n = normalize(a_normal);
-    v_ndotl = dot(n, u_sunDir) * u_sunIntensity;
-    v_flatNdotl = dot(n, normalize(FLAT_LIGHT_DIR));
+    v_diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
+    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    v_flatDiff = dot(n, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
+    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
+    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
+    // sur les faces détournées de la lumière et écraserait le relief).
+    v_flatDirect = max(0.0, dot(n, normalize(FLAT_LIGHT_DIR)));
     // Composante « vers le haut » de la normale (frame est/nord/up) : +1 face
     // au ciel, -1 face au sol. Sert à ne pas draper la photo nadir sur les
     // surfaces orientées vers le bas (fond fermé « fantôme » du mesh Poisson,

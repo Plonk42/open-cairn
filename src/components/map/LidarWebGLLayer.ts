@@ -190,13 +190,6 @@ function computeBbox(positions: Float32Array): Bbox | null {
 // neutral hillshade.
 const FLAT_LIGHT_DIR: [number, number, number] = [-0.5, 0.5, 0.7071];
 
-/**
- * Hard ceiling on the supersampled geometry FBO, in pixels (~16 MP ≈ 4000×4000).
- * Sized so a 2× supersample stays available on a full-screen retina window while
- * capping the two float textures + depth buffer at a couple hundred MB.
- */
-const SUPERSAMPLE_PIXEL_BUDGET = 16e6;
-
 function buildLightMatrix(sunDir: [number, number, number], bbox: Bbox): Float32Array {
     // Camera basis: forward = -sunDir (looking from sun TOWARDS scene).
     const fx = -sunDir[0], fy = -sunDir[1], fz = -sunDir[2];
@@ -278,8 +271,8 @@ export interface LidarWebGLLayerConfig {
     referenceZoom: number;
     /**
      * Final multiplier applied to the computed point size, AFTER the normal
-     * 1..16 device-pixel clamp — used to compensate for a supersampled export
-     * capture (see `ShowcaseExport.downloadFrame`). `gl_PointSize` is set in
+     * 1..16 device-pixel clamp — used to compensate for a higher-resolution
+     * export capture (see `ShowcaseExport.downloadFrame`). `gl_PointSize` is set in
      * drawing-buffer (device) pixels, not CSS pixels, so boosting the map's
      * pixel ratio for a higher-resolution screenshot without also scaling
      * this up would shrink every point (proportionally to the resolution
@@ -296,19 +289,6 @@ export interface LidarWebGLLayerConfig {
     aoStrength: number;
     /** Screen-space radius of the AO sampling kernel, in 2-pixel units. */
     aoRadius: number;
-    /**
-     * Supersampling factor for the geometry pass (1 = off, 2 = 4x the pixels).
-     *
-     * MapLibre antialiases its own framebuffer, but the LiDAR geometry is drawn
-     * into a private single-sample FBO and composited as a textured quad, so
-     * without this every mesh silhouette and every point edge is a hard
-     * staircase — the single most "computer-graphics" tell left in the
-     * photorealistic path. Rendering the FBO larger and letting the composite's
-     * LINEAR filter average it back down is the simplest fix that also
-     * antialiases the *interior* (albedo, snow line, shadow edges), which MSAA
-     * would not.
-     */
-    superSample: number;
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     opacity: number;
     /**
@@ -665,21 +645,18 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _rbDepth: WebGLRenderbuffer | null = null;
     private _fboWidth = 0;
     private _fboHeight = 0;
-    /** `MAX_TEXTURE_SIZE`, queried lazily (a GL round-trip we don't want per frame). */
-    private _maxTexSize = 0;
     private _locEdl: {
         color: WebGLUniformLocation | null;
         depth: WebGLUniformLocation | null;
         sharedDepth: WebGLUniformLocation | null;
         texelSize: WebGLUniformLocation | null;
-        depthTexSize: WebGLUniformLocation | null;
         strength: WebGLUniformLocation | null;
         radius: WebGLUniformLocation | null;
         farPlane: WebGLUniformLocation | null;
         aoStrength: WebGLUniformLocation | null;
         aoRadius: WebGLUniformLocation | null;
         opacity: WebGLUniformLocation | null;
-    } = { color: null, depth: null, sharedDepth: null, texelSize: null, depthTexSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
+    } = { color: null, depth: null, sharedDepth: null, texelSize: null, strength: null, radius: null, farPlane: null, aoStrength: null, aoRadius: null, opacity: null };
 
     // Shadow pass: depth-only render of the mesh into a dedicated FBO, sampled
     // by the main pass to attenuate the diffuse term where the mesh occludes
@@ -744,7 +721,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         edlFarPlane: 350,
         aoStrength: 0,
         aoRadius: 3,
-        superSample: 1,
         opacity: 1,
         lodEnabled: true,
         lodForceLevel: null,
@@ -1020,13 +996,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._renderShadowPass(gl2, prevFBO);
 
             // ─── Pass 1: Render mesh (if any) then points into the FBO ───
-            // Optionally supersampled: the composite below samples this texture
-            // with LINEAR filtering at the screen resolution, which averages the
-            // sub-pixels back down (see `_superSampledSize`).
-            const [fw, fh] = this._superSampledSize(gl2, w, h);
-            this._ensureFboSize(gl2, fw, fh);
+            this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
-            gl2.viewport(0, 0, fw, fh);
+            gl2.viewport(0, 0, w, h);
             gl2.depthRange(0, 1);
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
@@ -1038,9 +1010,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
             this._drawMesh(gl2, translatedMatrix);
 
-            // `gl_PointSize` is in FBO pixels, so a supersampled pass needs
-            // proportionally bigger splats to cover the same screen area.
-            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize * (fw / w));
+            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
             this._drawPointsChunked(gl2);
@@ -1073,7 +1043,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
-            gl2.uniform2f(this._locEdl.depthTexSize, fw, fh);
             gl2.uniform1f(this._locEdl.strength, this.config.edlStrength);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1095,10 +1064,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         } else if (this._fbo && this._progEdl) {
             // ─── Direct rendering (no EDL) ───
             this._renderShadowPass(gl2, prevFBO);
-            const [fw, fh] = this._superSampledSize(gl2, w, h);
-            this._ensureFboSize(gl2, fw, fh);
+            this._ensureFboSize(gl2, w, h);
             gl2.bindFramebuffer(gl2.FRAMEBUFFER, this._fbo);
-            gl2.viewport(0, 0, fw, fh);
+            gl2.viewport(0, 0, w, h);
             gl2.depthRange(0, 1);
             gl2.clearColor(0, 0, 0, 0);
             gl2.clearDepth(1);
@@ -1110,8 +1078,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
             this._drawMesh(gl2, translatedMatrix);
 
-            // See the EDL path: point size scales with the supersample factor.
-            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize * (fw / w));
+            this._bindPointsUniforms(gl2, translatedMatrix, effectivePointSize);
 
             gl2.bindVertexArray(this._vao);
             this._drawPointsChunked(gl2);
@@ -1142,7 +1109,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             gl2.uniform1i(this._locEdl.sharedDepth, 2);
 
             gl2.uniform2f(this._locEdl.texelSize, 1 / w, 1 / h);
-            gl2.uniform2f(this._locEdl.depthTexSize, fw, fh);
             gl2.uniform1f(this._locEdl.strength, 0);
             gl2.uniform1f(this._locEdl.radius, this.config.edlRadius);
             gl2.uniform1f(this._locEdl.farPlane, this.config.edlFarPlane);
@@ -1694,11 +1660,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._drawMeshWire(gl);
         } else {
             gl.uniform1f(this._locMesh.wireframe, 0);
-            // Surtout PAS de back-face culling : le maillage Poisson n'a pas un
-            // winding globalement cohérent, et le culler ouvrait de vrais trous
-            // dans les falaises, différents à chaque angle de vue. Les faces
-            // arrière ne ressortent plus noires pour autant — mesh.frag retourne
-            // la normale vers l'œil (gl_FrontFacing).
+            // Pas de back-face culling : la sortie Poisson n'a pas un winding
+            // globalement cohérent, et culler y ouvre de vrais trous, différents
+            // à chaque angle de vue.
             this._drawMeshChunked(gl);
         }
     }
@@ -1877,9 +1841,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         effectivePointSize: number,
     ): void {
         gl.bindFramebuffer(gl.FRAMEBUFFER, destFbo);
-        // The geometry pass may have left a supersampled viewport behind; this
-        // one draws into MapLibre's own framebuffer, so it must be at canvas
-        // resolution.
+        // This one draws into MapLibre's own framebuffer, not the private FBO,
+        // so it must be at canvas resolution.
         const canvas = gl.canvas as HTMLCanvasElement;
         gl.viewport(0, 0, canvas.width, canvas.height);
         const prevRange = gl.getParameter(gl.DEPTH_RANGE) as Float32Array;
@@ -1932,34 +1895,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
 
         gl.colorMask(true, true, true, true);
         gl.depthRange(prevRange[0], prevRange[1]);
-    }
-
-    /**
-     * Size of the geometry FBO for a `w`×`h` canvas, honouring `superSample`.
-     *
-     * `w`/`h` are ALREADY device pixels, so on a 2× DPR screen a 2× supersample
-     * means rendering at 4× DPR. Both the driver's texture limit and a fixed
-     * pixel budget therefore clamp the factor, so a large window on a retina
-     * display degrades to no supersampling instead of blowing up VRAM and the
-     * fill rate.
-     *
-     * The factor is forced to an INTEGER. The composite resolves this buffer
-     * with a single bilinear tap, which is an exact box filter only when each
-     * screen pixel covers a whole number of sub-texels; at any fractional ratio
-     * the number of sub-texels feeding a pixel alternates across the screen and
-     * beats into visible moiré lines.
-     */
-    private _superSampledSize(gl: WebGL2RenderingContext, w: number, h: number): [number, number] {
-        const wanted = Math.floor(this.config.superSample);
-        if (wanted <= 1 || w === 0 || h === 0) return [w, h];
-        this._maxTexSize ||= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-        const factor = Math.floor(Math.min(
-            wanted,
-            Math.sqrt(SUPERSAMPLE_PIXEL_BUDGET / (w * h)),
-            this._maxTexSize / Math.max(w, h),
-        ));
-        if (factor <= 1) return [w, h];
-        return [w * factor, h * factor];
     }
 
     private _ensureFboSize(gl: WebGL2RenderingContext, w: number, h: number): void {
@@ -2141,7 +2076,6 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             depth: gl.getUniformLocation(this._progEdl, 'u_depth'),
             sharedDepth: gl.getUniformLocation(this._progEdl, 'u_sharedDepth'),
             texelSize: gl.getUniformLocation(this._progEdl, 'u_texelSize'),
-            depthTexSize: gl.getUniformLocation(this._progEdl, 'u_depthTexSize'),
             strength: gl.getUniformLocation(this._progEdl, 'u_strength'),
             radius: gl.getUniformLocation(this._progEdl, 'u_radius'),
             farPlane: gl.getUniformLocation(this._progEdl, 'u_farPlane'),
