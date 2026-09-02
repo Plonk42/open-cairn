@@ -105,8 +105,6 @@ export interface SavedCloudParams {
     stride: number;
     classes: number[];
     shader: string;
-    /** Poisson mode: unclassified returns were reconstructed as terrain. */
-    surfaceUnclassified?: boolean;
 }
 
 const clouds = createSavedCollection<SavedCloud>(SAVED_CLOUDS_KEY);
@@ -127,8 +125,7 @@ export function makeCloudKey(p: SavedCloudParams): string {
     // that happen to share the same enclosing radius (e.g. 500×300 vs a
     // near-square rect) don't dedupe together.
     const size = `${p.widthM.toFixed(0)}x${p.lengthM.toFixed(0)}`;
-    const surf = p.surfaceUnclassified ? ':rock' : '';
-    return `${p.mode}:${lng}:${lat}:${size}:${p.stride}:${cls}:${p.shader}${surf}`;
+    return `${p.mode}:${lng}:${lat}:${size}:${p.stride}:${cls}:${p.shader}`;
 }
 
 function defaultName(p: SavedCloudParams): string {

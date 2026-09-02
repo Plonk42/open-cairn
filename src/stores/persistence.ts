@@ -56,7 +56,6 @@ export type PersistedSettings = {
     lidarCloudPoissonSamplesPerNode?: number;
     lidarCloudPoissonPointWeight?: number;
     lidarCloudPoissonFlatBase?: boolean;
-    lidarSurfaceUnclassified?: boolean;
     lidarSunDate?: string;
     lidarSunEnabled?: boolean;
     lidarShadows?: boolean;

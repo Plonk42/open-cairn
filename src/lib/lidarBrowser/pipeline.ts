@@ -52,11 +52,6 @@ export interface BrowserFetchParams {
      *  under the terrain so the underside is flat instead of a bulging cushion.
      *  Default true. */
     poissonFlatBase?: boolean;
-    /** Poisson mode only: also feed unclassified (class 1) returns to the
-     *  reconstruction. Above the tree line those returns ARE the rock walls,
-     *  which the ground class does not cover; lower down they are mostly
-     *  unclassified vegetation, so this is off by default. */
-    surfaceUnclassified?: boolean;
     /** Colour shader preset applied to all geometry. */
     shader?: ShaderPreset;
     /** Delaunay mode: smooth the ground surface via a regular grid heightfield
@@ -187,22 +182,6 @@ function copyScanPoint(c: CommonCloud, dst: ScanData | null, gi: number, i: numb
 const GROUND_WATER_CLASSES = new Set([2, 9]);
 
 /**
- * Same, plus unclassified (1). Above the tree line an airborne scanner only
- * grazes the walls, and IGN's classifier leaves nearly every wall return in
- * class 1 — so a ground-only reconstruction has no data at all on a north
- * face and bridges it with vertical curtains. Adding class 1 gives the solver
- * the real rock. It is opt-in because lower down class 1 also collects
- * unclassified vegetation and building returns, which would then be baked into
- * the terrain surface.
- */
-const ROCK_SURFACE_CLASSES = new Set([1, 2, 9]);
-
-/** Classes fed to the mesh reconstruction for this capture. */
-function surfaceClasses(withUnclassified: boolean | undefined): Set<number> {
-    return withUnclassified ? ROCK_SURFACE_CLASSES : GROUND_WATER_CLASSES;
-}
-
-/**
  * Split the merged cloud into ground (class 2) + water (class 9, fed to the
  * mesh reconstruction) and everything else (kept as a shaded overlay), in a
  * single pass. Water points lie on the terrain surface and must be included so
@@ -211,9 +190,9 @@ function surfaceClasses(withUnclassified: boolean | undefined): Set<number> {
  * alongside so Poisson's flight-line orientation operates on exactly the mesh
  * input points (null in Delaunay mode, which decodes no scan dimensions).
  */
-function splitGround(c: CommonCloud, classes: Set<number> = GROUND_WATER_CLASSES): GroundSplit {
+function splitGround(c: CommonCloud): GroundSplit {
     let groundCount = 0;
-    for (let i = 0; i < c.pointCount; i++) if (classes.has(c.classifications[i])) groundCount++;
+    for (let i = 0; i < c.pointCount; i++) if (c.classifications[i] === 2 || c.classifications[i] === 9) groundCount++;
     const groundPos = new Float32Array(groundCount * 3);
     const ngPos = new Float32Array((c.pointCount - groundCount) * 3);
     const ngCls = new Uint8Array(c.pointCount - groundCount);
@@ -221,7 +200,7 @@ function splitGround(c: CommonCloud, classes: Set<number> = GROUND_WATER_CLASSES
     let gi = 0; let ni = 0;
     for (let i = 0; i < c.pointCount; i++) {
         const x = c.positions[i * 3], y = c.positions[i * 3 + 1], z = c.positions[i * 3 + 2];
-        if (classes.has(c.classifications[i])) {
+        if (c.classifications[i] === 2 || c.classifications[i] === 9) {
             groundPos[gi * 3] = x; groundPos[gi * 3 + 1] = y; groundPos[gi * 3 + 2] = z;
             copyScanPoint(c, groundScan, gi, i);
             gi++;
@@ -739,7 +718,6 @@ export async function fetchLidarPoisson(
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
     const shader = params.shader ?? 'cliff';
-    const surface = surfaceClasses(params.surfaceUnclassified);
     const total = startTimer();
 
     // Fetch every class. Ground+water are kept at FULL density (exempt from the
@@ -749,12 +727,11 @@ export async function fetchLidarPoisson(
     // flight-line orientation.
     const c = await fetchCommon(
         { ...params, classes: undefined },
-        { needScan: true, fullDensityClasses: surface },
+        { needScan: true, fullDensityClasses: GROUND_WATER_CLASSES },
     );
 
-    // Split the reconstruction input (ground/water, optionally unclassified
-    // rock) from the rest, which stays a shaded point overlay.
-    const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGround(c, surface);
+    // Split ground (class 2) from the rest (with the ground scan subset).
+    const { groundPos, groundCount, ngPos, ngCls, groundScan } = splitGround(c);
     const nonGroundCount = ngCls.length;
 
     // Curvature-adaptive decimation of the (full-density) ground before the slow

@@ -42,8 +42,6 @@ function PoissonControls() {
     const setPoissonPointWeight = useMapStore((s) => s.setLidarCloudPoissonPointWeight);
     const flatBase = useMapStore((s) => s.lidarCloudPoissonFlatBase);
     const setFlatBase = useMapStore((s) => s.setLidarCloudPoissonFlatBase);
-    const surfaceUnclassified = useMapStore((s) => s.lidarSurfaceUnclassified);
-    const setSurfaceUnclassified = useMapStore((s) => s.setLidarSurfaceUnclassified);
     return (
         <div className="space-y-3">
             <label className="block">
@@ -105,20 +103,6 @@ function PoissonControls() {
             </label>
             <p className="-mt-1 text-[10px] text-slate-400">
                 Grave le relief sur une brique à base plate au lieu d'un dessous bombé.
-            </p>
-            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-                <input
-                    type="checkbox"
-                    checked={surfaceUnclassified}
-                    onChange={(e) => setSurfaceUnclassified(e.target.checked)}
-                    className="accent-green-600"
-                />
-                <span>Parois rocheuses</span>
-            </label>
-            <p className="-mt-1 text-[10px] text-slate-400">
-                Reconstruit aussi les points non classés. En haute montagne ce sont
-                les parois : sans eux le maillage tend des rideaux verticaux. Plus
-                bas ils contiennent de la végétation, à laisser décoché.
             </p>
         </div>
     );
