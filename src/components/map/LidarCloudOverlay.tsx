@@ -18,6 +18,22 @@ import { LidarWebGLLayer } from './LidarWebGLLayer';
 const HAZE_MAX_DENSITY = 5.9e-4;
 
 /**
+ * Exponent applied to the AO factor when the "occlusion" slider is at 1.
+ * The composite does `exp(-ao * strength)`, so 2.4 takes a fully occluded
+ * fragment down to ~9 % — deep enough for the back of a couloir, short of the
+ * black-hole look a higher value gives on the mesh's own micro-relief.
+ */
+const AO_MAX_STRENGTH = 2.4;
+
+/**
+ * AO search radius, in the "2 pixels at unit normalized depth" unit edl.frag
+ * uses (it divides by depth/farPlane, so the lobe stays roughly constant in
+ * world units). 6 spans a few metres of terrain at usual capture distances:
+ * wide enough to catch a gully, narrow enough not to bleed across a ridge.
+ */
+const AO_RADIUS = 6;
+
+/**
  * Manages one `LidarWebGLLayer` instance for a single loaded cloud/mesh entry
  * (see `lidarClouds` in the store). Several instances can be mounted at once
  * — one per entry, keyed by `cloudId` — so multiple clouds render, cull and
@@ -66,6 +82,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const ambient = useMapStore((s) => s.lidarAmbient);
     const sunStrength = useMapStore((s) => s.lidarSunStrength);
     const haze = useMapStore((s) => s.lidarHaze);
+    const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
     const vegHeightScale = useMapStore((s) => s.lidarVegHeightScale);
@@ -306,8 +323,15 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             edlStrength,
             edlRadius,
             edlFarPlane,
-            aoStrength: 0, // AO disabled
-            aoRadius: 0,
+            // The AO lobe now only ever lands on the reconstructed mesh: edl.frag
+            // skips EDL there (its silhouettes cracked the surface) and this fills
+            // the gap with the cue that actually belongs on a continuous surface.
+            // The slider is a 0..1 "amount"; AO_MAX_STRENGTH is the exponent that
+            // takes a fully occluded pixel to roughly a tenth of its open value.
+            // Gated on the photoreal toggle: off restores the historical shading,
+            // which had no occlusion term at all.
+            aoStrength: photoreal ? ao * AO_MAX_STRENGTH : 0,
+            aoRadius: AO_RADIUS,
             opacity,
             photoOpacityGround: photoOpacity,
             photoOpacityNonGround,
@@ -316,7 +340,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             pointSizeMultiplier,
             meshWireframe,
         });
-    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, pointSizeMultiplier, meshWireframe, styleEpoch]);
+    }, [basePointSize, sizeCompensation, edl, edlStrength, edlRadius, edlFarPlane, opacity, photoOpacity, photoOpacityNonGround, lodEnabled, lodForceLevel, pointSizeMultiplier, meshWireframe, ao, photoreal, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

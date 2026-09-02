@@ -183,11 +183,15 @@ void main() {
     float ownDepth = texture(u_depth, v_uv).g;
     float nearestDepth = texture(u_sharedDepth, v_uv).r;
     if (ownDepth > nearestDepth + 1e-6) discard;
-    // Reconstructed mesh (negative depth): keep the ambient-occlusion lobe,
-    // which is a real cavity cue, but drop EDL. Its silhouettes are meant to
-    // separate discrete points; on a continuous surface they turn every crease
-    // and every seam into a black fissure.
-    float edl = texture(u_depth, v_uv).r < 0.0 ? 0.0 : edlFactor();
-    float shade = exp(-edl * u_strength) * exp(-aoFactor() * u_aoStrength);
+    // The two screen-space cues are split by geometry kind, using the sign
+    // mesh.frag writes into the linear depth (see depthAt above).
+    //   points -> EDL. Its black silhouettes are what separates discrete
+    //             samples; a cavity lobe would only mud them up.
+    //   mesh   -> AO. Occlusion is a real relief cue on a continuous surface,
+    //             whereas EDL turned every crease and seam into a fissure.
+    bool isMesh = texture(u_depth, v_uv).r < 0.0;
+    float edl = isMesh ? 0.0 : edlFactor();
+    float ao = isMesh ? aoFactor() : 0.0;
+    float shade = exp(-edl * u_strength) * exp(-ao * u_aoStrength);
     fragColor = vec4(color.rgb * shade, color.a * u_opacity);
 }

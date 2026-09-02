@@ -325,6 +325,13 @@ export interface LidarSlice {
     /** Aerial perspective amount, 0..1 (mapped to an extinction per metre). */
     lidarHaze: number;
     setLidarHaze: (v: number) => void;
+
+    /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
+     *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
+     *  of a wall. Only useful on the reconstructed mesh — on discrete points
+     *  EDL already plays that role. */
+    lidarAo: number;
+    setLidarAo: (v: number) => void;
     /**
      * Enhanced vegetation rendering: height-ramped foliage colours (trunk →
      * canopy), per-leaf colour jitter and a small
@@ -485,6 +492,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarAmbient: 1,
     lidarSunStrength: 1,
     lidarHaze: 0.3,
+    lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
     lidarVegHeightScale: 25,
@@ -683,6 +691,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarSunStrength: (lidarSunStrength) => set({ lidarSunStrength }),
         lidarHaze: persisted.lidarHaze ?? LIDAR_RENDER_DEFAULTS.lidarHaze,
         setLidarHaze: (lidarHaze) => set({ lidarHaze }),
+        lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
+        setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
         setLidarVegEnhance: (lidarVegEnhance) => set({ lidarVegEnhance }),
         lidarVegColorMode: ((): VegColorMode => {
@@ -944,6 +954,7 @@ export function selectLidarPersisted(
     | 'lidarAmbient'
     | 'lidarSunStrength'
     | 'lidarHaze'
+    | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
     | 'lidarVegHeightScale'
@@ -1005,6 +1016,7 @@ export function selectLidarPersisted(
         lidarAmbient: s.lidarAmbient,
         lidarSunStrength: s.lidarSunStrength,
         lidarHaze: s.lidarHaze,
+        lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,
         lidarVegHeightScale: s.lidarVegHeightScale,

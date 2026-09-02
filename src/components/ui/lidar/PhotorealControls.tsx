@@ -53,6 +53,8 @@ export function PhotorealControls(): ReactElement {
     const setSunStrength = useMapStore((s) => s.setLidarSunStrength);
     const haze = useMapStore((s) => s.lidarHaze);
     const setHaze = useMapStore((s) => s.setLidarHaze);
+    const ao = useMapStore((s) => s.lidarAo);
+    const setAo = useMapStore((s) => s.setLidarAo);
 
     const stops = (v: number): string => `${v.toFixed(2)}×`;
 
@@ -96,6 +98,13 @@ export function PhotorealControls(): ReactElement {
                     title="Intensité de la lumière directe. Un rapport soleil/ciel élevé donne le contraste franc des photos de montagne."
                     value={sunStrength} min={0} max={2.5} step={0.05}
                     format={stops} onChange={setSunStrength}
+                />
+                <TuneSlider
+                    label="Occlusion"
+                    title="Assombrit ce que la lumière du ciel n'atteint pas : fond des couloirs, fissures, pied des parois. Ne s'applique qu'au maillage — sur les points, l'EDL joue déjà ce rôle."
+                    value={ao} min={0} max={1} step={0.02}
+                    format={(v) => (v <= 0 ? 'off' : `${Math.round(v * 100)}%`)}
+                    onChange={setAo}
                 />
                 <TuneSlider
                     label="Brume"
