@@ -459,6 +459,9 @@ function rebuildVegGrid(cloud: LidarShadedCloudData): VegGroundGrid | null {
  * Only render settings live here; capture parameters (radius, stride, poisson
  * depth…) are deliberately excluded since reset does not touch them.
  */
+/** Every shader preset the picker offers, used to validate persisted state. */
+const SHADER_PRESETS: ReadonlySet<ShaderPreset> = new Set<ShaderPreset>(['base', 'cliff', 'winter', 'montagne', 'slope']);
+
 export const LIDAR_RENDER_DEFAULTS = {
     lidarMode: 'shaded' as LidarMode,
     lidarShader: 'cliff' as ShaderPreset,
@@ -519,7 +522,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
     return {
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
         setLidarMode: (lidarMode) => set({ lidarMode }),
-        lidarShader: (persisted.lidarShader === 'base' || persisted.lidarShader === 'cliff' || persisted.lidarShader === 'winter' || persisted.lidarShader === 'slope') ? persisted.lidarShader : LIDAR_RENDER_DEFAULTS.lidarShader,
+        lidarShader: SHADER_PRESETS.has(persisted.lidarShader as ShaderPreset) ? persisted.lidarShader as ShaderPreset : LIDAR_RENDER_DEFAULTS.lidarShader,
         setLidarShader: (shader) => {
             // Recolor EVERY loaded cloud/mesh (not just the "primary" one) —
             // the shader is a global render setting shown for all simultaneously

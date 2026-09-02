@@ -30,6 +30,7 @@ const SHADER_OPTIONS = [
     { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
     { value: 'cliff', label: 'Été', title: 'Rupture nette herbe/calcaire gris avec texture rocheuse' },
     { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
+    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche (pente + altitude + orientation), sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
     { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 

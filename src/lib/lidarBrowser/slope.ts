@@ -6,6 +6,12 @@
  *   'cliff'  — sharp grass/grey-limestone break at ~30° with roughness detail
  *   'winter' — snow on flat/north-facing areas, brown rock on cliffs,
  *              driven by slope + elevation + cardinal aspect
+ *   'montagne' — same slope/altitude/aspect logic as 'winter' but the output is
+ *              a **pure albedo**: no baked shading, no aspect darkening, and
+ *              reflectances kept in the physical range (snow ~0.9, alpine rock
+ *              ~0.2). Meant for the photorealistic render path, which supplies
+ *              all the light itself — a preset that pre-darkens north faces
+ *              would be lit a second time and read as dirt.
  *   'slope'  — standard steepness map: green (plat) → jaune → orange → rouge
  *              → violet/rose clair (vertical), the conventional gradient used
  *              for avalanche/ski-touring slope-angle shading (CalTopo,
@@ -14,7 +20,7 @@
  *              fading to near-black, which stays legible on cliffs.
  */
 
-export type ShaderPreset = 'base' | 'cliff' | 'winter' | 'slope';
+export type ShaderPreset = 'base' | 'cliff' | 'winter' | 'montagne' | 'slope';
 
 // ─── BASE palette (original CloudCompare-inspired warm gradient) ──────────────
 const BASE_PALETTE: Array<[number, [number, number, number]]> = [
@@ -88,6 +94,87 @@ export function slopeColor(slopeRad: number): [number, number, number] {
     return interpolatePalette(CLIFF_PALETTE, slopeRad);
 }
 
+// ─── MONTAGNE albedo (photorealistic path) ───────────────────────────────────
+// Diffuse reflectances of real alpine surfaces, expressed as sRGB display
+// values. Nothing here is shading: the render multiplies these by the sky +
+// sun irradiance, so any brightness variation baked in would be counted twice.
+// Rock sits around ρ ≈ 0.2 and snow around ρ ≈ 0.85, which is what gives the
+// reference renders their range — a palette that puts rock at 0.55 (as the
+// legacy presets do, to stay legible under a flat 0.35 ambient) cannot.
+const MTN_SNOW_FRESH: readonly [number, number, number] = [238, 240, 245];
+const MTN_SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
+const MTN_SCREE: readonly [number, number, number] = [150, 140, 126];
+const MTN_SLAB: readonly [number, number, number] = [140, 132, 121];
+const MTN_ROCK: readonly [number, number, number] = [108, 100, 92];
+const MTN_ROCK_STEEP: readonly [number, number, number] = [74, 70, 66];
+const MTN_TURF: readonly [number, number, number] = [92, 100, 64];
+
+/** Snow line on a due-south face; north faces hold snow this much lower. */
+const MTN_SNOW_LOW = 2000;
+const MTN_SNOW_HIGH = 2600;
+const MTN_ASPECT_SHIFT = 300;
+/** Above the turf top nothing grows; below it gentle ground is alpine grass. */
+const MTN_TURF_TOP = 2100;
+
+function lerp3(
+    a: readonly [number, number, number],
+    b: readonly [number, number, number],
+    t: number,
+): [number, number, number] {
+    const k = Math.min(1, Math.max(0, t));
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+}
+
+const smoothstep01 = (x: number): number => {
+    const t = Math.min(1, Math.max(0, x));
+    return t * t * (3 - 2 * t);
+};
+
+/** Bare-ground reflectance: scree on benches, slabs, then dark broken faces. */
+function montagneGround(slopeDeg: number, z: number, roughness: number): [number, number, number] {
+    let rock: [number, number, number];
+    if (slopeDeg <= 25) rock = lerp3(MTN_SCREE, MTN_SLAB, slopeDeg / 25);
+    else if (slopeDeg <= 55) rock = lerp3(MTN_SLAB, MTN_ROCK, (slopeDeg - 25) / 30);
+    else rock = lerp3(MTN_ROCK, MTN_ROCK_STEEP, (slopeDeg - 55) / 30);
+    // Broken rock traps light between facets, so it reads darker than a slab
+    // of the same mineral — the one place where a geometric cue is a genuine
+    // albedo cue rather than shading.
+    rock = lerp3(rock, MTN_ROCK_STEEP, Math.min(0.55, Math.max(0, (roughness - 0.06) / 0.3)));
+    // Alpine turf only on gentle ground below the vegetation limit.
+    const turf = smoothstep01((MTN_TURF_TOP - z) / 500) * smoothstep01((32 - slopeDeg) / 12);
+    return lerp3(rock, MTN_TURF, turf);
+}
+
+/**
+ * Texture-free alpine albedo: snow versus rock from slope, altitude and
+ * orientation only — the same three inputs the reference renders use.
+ *
+ * Unlike {@link vertexColor}'s 'winter' branch this bakes **no** lighting: no
+ * north-face darkening, no blue lift in the shadows. Those belong to the
+ * lighting model, which the photorealistic path applies afterwards.
+ */
+function montagneAlbedo(
+    nx: number, ny: number,
+    z: number, slopeDeg: number, roughness: number,
+): [number, number, number] {
+    const ground = montagneGround(slopeDeg, z, roughness);
+    // +1 = due north (shaded, holds snow lower), -1 = due south.
+    const northFacing = Math.cos(Math.atan2(nx, ny));
+    const shift = northFacing * MTN_ASPECT_SHIFT;
+
+    // Snow sheds progressively above 32° and never sticks past 58°.
+    const retention = smoothstep01((58 - slopeDeg) / 26);
+    const elevation = smoothstep01((z - (MTN_SNOW_LOW - shift)) / (MTN_SNOW_HIGH - MTN_SNOW_LOW));
+    const snow = retention * elevation;
+    if (snow <= 0.01) return ground.map(Math.round) as [number, number, number];
+
+    // Higher and flatter accumulations stay fresh and bright; wind-scoured
+    // ridges and lower patches are packed, slightly darker snow.
+    const freshness = smoothstep01((z - MTN_SNOW_HIGH) / 600) * 0.6 + retention * 0.4;
+    const snowColor = lerp3(MTN_SNOW_PACKED, MTN_SNOW_FRESH, freshness);
+    return lerp3(ground, snowColor, snow).map(Math.round) as [number, number, number];
+}
+
 /**
  * Full per-vertex colorizer. For 'base' and 'cliff' only slope is needed.
  * For 'winter', elevation (z in local metres) and normal (nx,ny,nz) are
@@ -125,12 +212,23 @@ export function vertexColor(
         ];
     }
 
-    // ── WINTER ────────────────────────────────────────────────────────────────
-    // Alpine winter render — aim for sharp contrast: pure-white snow on
-    // anything not too steep above the snow line, warm tan/brown rock
-    // exposures on cliffs and crests.
-    const slopeDeg = slope * (180 / Math.PI);
+    if (preset === 'montagne') {
+        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI), roughness);
+    }
 
+    return winterColor(nx, ny, z, slope * (180 / Math.PI));
+}
+
+/**
+ * Alpine winter render — sharp contrast: near-white snow on anything not too
+ * steep above the snow line, warm tan/brown rock on cliffs and crests. Keeps a
+ * mild aspect darkening baked into the colour, which is why it is *not* the
+ * preset to use with the photorealistic lighting (see 'montagne').
+ */
+function winterColor(
+    nx: number, ny: number,
+    z: number, slopeDeg: number,
+): [number, number, number] {
     // Aspect: atan2(nx, ny) horizontal-plane bearing; +Y is north in L93.
     // northFacing in [-1, +1] : +1 pure north, -1 pure south.
     const aspect = Math.atan2(nx, ny);
