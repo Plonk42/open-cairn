@@ -590,43 +590,155 @@ export async function fetchLidarDelaunay(
  * cast shadows, are untouched) removes the high-frequency shading noise while
  * keeping the real relief. Two passes is the point where the speckle is gone
  * but arêtes are still crisp.
+ *
+ * The passes are crease-aware (see `smoothVertexNormals`), so they no longer
+ * erode the edges they used to round off. See
+ * `docs/ROCK_AND_CLIFF_DETAIL.md` §2.B.3.
  */
 const NORMAL_SMOOTHING_PASSES = 2;
 
 /**
- * Average each vertex normal with its one-ring neighbours, `passes` times.
+ * Beyond this angle between two vertex normals, the pair is considered to sit
+ * across a crease and is not averaged. cos 35° ≈ 0.82: below that the two
+ * facets still belong to the same slab, above it we are on an arête, a block
+ * edge or a ledge — exactly the features the old isotropic pass melted.
+ */
+const NORMAL_EDGE_COS = 0.82;
+
+/**
+ * Mean neighbour agreement below which a vertex is treated as *shredded*
+ * rather than *featured*. On a real arête roughly half the one-ring still
+ * agrees, so agreement stays well above this; in a patch of pure
+ * reconstruction noise almost nothing agrees, and there the crease-aware pass
+ * would preserve the speckle it is supposed to remove. Such vertices fall back
+ * to plain isotropic averaging.
+ */
+const NORMAL_SHRED_AGREE = 0.35;
+
+/** smoothstep(0,1,x) sur un x déjà normalisé. */
+function smoothstep01(x: number): number {
+    const t = Math.min(1, Math.max(0, x));
+    return t * t * (3 - 2 * t);
+}
+
+/**
+ * Poids d'un voisin en fonction du cosinus entre les deux normales : 1 quand
+ * elles coïncident, 0 dès qu'on franchit `NORMAL_EDGE_COS` (l'arête).
+ */
+function creaseWeight(cosine: number, invEdge: number): number {
+    return cosine <= NORMAL_EDGE_COS ? 0 : (cosine - NORMAL_EDGE_COS) * invEdge;
+}
+
+/** Une passe Jacobi : accumule les deux moyennes (isotrope et anisotrope). */
+function accumulateNormalPass(
+    indices: Uint32Array,
+    normals: Float32Array,
+    accAniso: Float32Array,
+    accIso: Float32Array,
+    agreeSum: Float32Array,
+    agreeCount: Float32Array,
+): void {
+    const invEdge = 1 / (1 - NORMAL_EDGE_COS);
+    for (let t = 0; t < indices.length; t += 3) {
+        const ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
+        const a = ia * 3, b = ib * 3, c = ic * 3;
+        const ax = normals[a], ay = normals[a + 1], az = normals[a + 2];
+        const bx = normals[b], by = normals[b + 1], bz = normals[b + 2];
+        const cx = normals[c], cy = normals[c + 1], cz = normals[c + 2];
+
+        const sx = ax + bx + cx, sy = ay + by + cy, sz = az + bz + cz;
+        accIso[a] += sx; accIso[a + 1] += sy; accIso[a + 2] += sz;
+        accIso[b] += sx; accIso[b + 1] += sy; accIso[b + 2] += sz;
+        accIso[c] += sx; accIso[c + 1] += sy; accIso[c + 2] += sz;
+
+        // Les normales sont unitaires ici : le produit scalaire EST le cosinus.
+        const wab = creaseWeight(ax * bx + ay * by + az * bz, invEdge);
+        const wac = creaseWeight(ax * cx + ay * cy + az * cz, invEdge);
+        const wbc = creaseWeight(bx * cx + by * cy + bz * cz, invEdge);
+
+        // Le sommet lui-même garde le poids 1 (une fois par triangle incident,
+        // exactement comme dans l'accumulateur isotrope : les deux restent
+        // ainsi comparables).
+        accAniso[a] += ax + wab * bx + wac * cx;
+        accAniso[a + 1] += ay + wab * by + wac * cy;
+        accAniso[a + 2] += az + wab * bz + wac * cz;
+        accAniso[b] += bx + wab * ax + wbc * cx;
+        accAniso[b + 1] += by + wab * ay + wbc * cy;
+        accAniso[b + 2] += bz + wab * az + wbc * cz;
+        accAniso[c] += cx + wac * ax + wbc * bx;
+        accAniso[c + 1] += cy + wac * ay + wbc * by;
+        accAniso[c + 2] += cz + wac * az + wbc * bz;
+
+        agreeSum[ia] += wab + wac; agreeCount[ia] += 2;
+        agreeSum[ib] += wab + wbc; agreeCount[ib] += 2;
+        agreeSum[ic] += wac + wbc; agreeCount[ic] += 2;
+    }
+}
+
+/** Mélange les deux moyennes selon l'accord du voisinage, et réécrit `normals`. */
+function resolveNormalPass(
+    normals: Float32Array,
+    accAniso: Float32Array,
+    accIso: Float32Array,
+    agreeSum: Float32Array,
+    agreeCount: Float32Array,
+): void {
+    const n = normals.length / 3;
+    for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const agree = agreeCount[i] > 0 ? agreeSum[i] / agreeCount[i] : 1;
+        const toIso = 1 - smoothstep01(agree / NORMAL_SHRED_AGREE);
+        // Les deux accumulateurs sont renormalisés avant mélange : leurs
+        // magnitudes brutes diffèrent par construction (l'isotrope n'est jamais
+        // amputé des voisins rejetés) et, sans ça, le mélange serait dominé par
+        // le plus long des deux.
+        const la = Math.hypot(accAniso[i3], accAniso[i3 + 1], accAniso[i3 + 2]);
+        const li = Math.hypot(accIso[i3], accIso[i3 + 1], accIso[i3 + 2]);
+        const ka = la > 0 ? (1 - toIso) / la : 0;
+        const ki = li > 0 ? toIso / li : 0;
+        const x = accAniso[i3] * ka + accIso[i3] * ki;
+        const y = accAniso[i3 + 1] * ka + accIso[i3 + 1] * ki;
+        const z = accAniso[i3 + 2] * ka + accIso[i3 + 2] * ki;
+        const len = Math.hypot(x, y, z);
+        // Un sommet sans triangle survivant garde ce qu'il avait.
+        if (len === 0) continue;
+        normals[i3] = x / len;
+        normals[i3 + 1] = y / len;
+        normals[i3 + 2] = z / len;
+    }
+}
+
+/**
+ * Average each vertex normal with its one-ring neighbours, `passes` times,
+ * *without crossing creases*.
  *
  * Neighbours are enumerated straight from the index buffer — every triangle
  * contributes its three normals to each of its three vertices — which is a
  * valence-weighted umbrella operator. That is deliberately cheap: the meshes
  * here reach ten million vertices, so building an explicit adjacency structure
- * would cost more memory than the mesh itself. One scratch buffer is reused
- * across passes.
+ * would cost more memory than the mesh itself. Scratch buffers are reused
+ * across passes, and each pass is Jacobi (it reads the previous state only).
+ *
+ * Each neighbour is weighted by how well it agrees with the vertex being
+ * smoothed, the weight falling to zero past `NORMAL_EDGE_COS`. A vertex whose
+ * one-ring agrees with it almost nowhere is not on a feature but in a patch of
+ * reconstruction noise, and blends back toward the isotropic mean so the
+ * speckle is still removed.
  */
 function smoothVertexNormals(indices: Uint32Array, normals: Float32Array, passes: number): void {
     if (passes <= 0) return;
     const n = normals.length / 3;
-    const acc = new Float32Array(normals.length);
+    const accAniso = new Float32Array(normals.length);
+    const accIso = new Float32Array(normals.length);
+    const agreeSum = new Float32Array(n);
+    const agreeCount = new Float32Array(n);
     for (let p = 0; p < passes; p++) {
-        acc.fill(0);
-        for (let t = 0; t < indices.length; t += 3) {
-            const ia = indices[t] * 3, ib = indices[t + 1] * 3, ic = indices[t + 2] * 3;
-            const sx = normals[ia] + normals[ib] + normals[ic];
-            const sy = normals[ia + 1] + normals[ib + 1] + normals[ic + 1];
-            const sz = normals[ia + 2] + normals[ib + 2] + normals[ic + 2];
-            acc[ia] += sx; acc[ia + 1] += sy; acc[ia + 2] += sz;
-            acc[ib] += sx; acc[ib + 1] += sy; acc[ib + 2] += sz;
-            acc[ic] += sx; acc[ic + 1] += sy; acc[ic + 2] += sz;
-        }
-        for (let i = 0; i < n; i++) {
-            const x = acc[i * 3], y = acc[i * 3 + 1], z = acc[i * 3 + 2];
-            const len = Math.hypot(x, y, z);
-            // A vertex with no surviving triangle keeps whatever it had.
-            if (len === 0) continue;
-            normals[i * 3] = x / len;
-            normals[i * 3 + 1] = y / len;
-            normals[i * 3 + 2] = z / len;
-        }
+        accAniso.fill(0);
+        accIso.fill(0);
+        agreeSum.fill(0);
+        agreeCount.fill(0);
+        accumulateNormalPass(indices, normals, accAniso, accIso, agreeSum, agreeCount);
+        resolveNormalPass(normals, accAniso, accIso, agreeSum, agreeCount);
     }
 }
 
