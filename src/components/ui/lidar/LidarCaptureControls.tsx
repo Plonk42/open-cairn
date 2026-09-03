@@ -40,6 +40,8 @@ function PoissonControls() {
     const setPoissonSamplesPerNode = useMapStore((s) => s.setLidarCloudPoissonSamplesPerNode);
     const poissonPointWeight = useMapStore((s) => s.lidarCloudPoissonPointWeight);
     const setPoissonPointWeight = useMapStore((s) => s.setLidarCloudPoissonPointWeight);
+    const poissonSharpen = useMapStore((s) => s.lidarCloudPoissonSharpen);
+    const setPoissonSharpen = useMapStore((s) => s.setLidarCloudPoissonSharpen);
     const flatBase = useMapStore((s) => s.lidarCloudPoissonFlatBase);
     const setFlatBase = useMapStore((s) => s.setLidarCloudPoissonFlatBase);
     return (
@@ -90,6 +92,24 @@ function PoissonControls() {
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
                     Adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
+                </p>
+            </label>
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Netteté</span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {poissonSharpen <= 0 ? 'off' : `${Math.round(poissonSharpen * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Netteté du maillage reconstruit"
+                    type="range" min={0} max={1} step={0.05}
+                    value={poissonSharpen}
+                    onChange={(e) => setPoissonSharpen(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                    Récupère le relief fin que le solveur lisse &middot; 50 % (défaut).
                 </p>
             </label>
             <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">

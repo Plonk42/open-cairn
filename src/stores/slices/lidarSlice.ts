@@ -279,6 +279,15 @@ export interface LidarSlice {
     /** Interpolation weight for PoissonRecon. Default 4. */
     lidarCloudPoissonPointWeight: number;
     setLidarCloudPoissonPointWeight: (v: number) => void;
+    /**
+     * Post-Poisson unsharp masking of the mesh positions, 0..1. The solver
+     * resolves a smooth scalar field and systematically attenuates the high
+     * frequencies — the ledges, cracks and steps that make rock read as rock.
+     * This pushes each vertex away from its one-ring mean to recover part of
+     * them. Capture-time, so it needs a fresh capture to change. Default 0.5.
+     */
+    lidarCloudPoissonSharpen: number;
+    setLidarCloudPoissonSharpen: (v: number) => void;
     /** Synthesize a flat parallelepiped "brick" base under the Poisson mesh so
      *  the underside is flat instead of a bulging cushion. Default true. */
     lidarCloudPoissonFlatBase: boolean;
@@ -704,6 +713,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
         lidarCloudPoissonPointWeight: persisted.lidarCloudPoissonPointWeight ?? 4,
         setLidarCloudPoissonPointWeight: (lidarCloudPoissonPointWeight) => set({ lidarCloudPoissonPointWeight }),
+        lidarCloudPoissonSharpen: persisted.lidarCloudPoissonSharpen ?? 0.5,
+        setLidarCloudPoissonSharpen: (lidarCloudPoissonSharpen) => set({ lidarCloudPoissonSharpen }),
         lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
         setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
         lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
@@ -834,6 +845,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         poissonDepth: state.lidarCloudPoissonDepth,
                         poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
                         poissonPointWeight: state.lidarCloudPoissonPointWeight,
+                        poissonSharpen: state.lidarCloudPoissonSharpen,
                         poissonFlatBase: state.lidarCloudPoissonFlatBase,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
@@ -983,6 +995,7 @@ export function selectLidarPersisted(
     | 'lidarCloudPoissonDepth'
     | 'lidarCloudPoissonSamplesPerNode'
     | 'lidarCloudPoissonPointWeight'
+    | 'lidarCloudPoissonSharpen'
     | 'lidarCloudPoissonFlatBase'
     | 'lidarSunDate'
     | 'lidarSunEnabled'
@@ -1048,6 +1061,7 @@ export function selectLidarPersisted(
         lidarCloudPoissonDepth: s.lidarCloudPoissonDepth,
         lidarCloudPoissonSamplesPerNode: s.lidarCloudPoissonSamplesPerNode,
         lidarCloudPoissonPointWeight: s.lidarCloudPoissonPointWeight,
+        lidarCloudPoissonSharpen: s.lidarCloudPoissonSharpen,
         lidarCloudPoissonFlatBase: s.lidarCloudPoissonFlatBase,
         lidarSunDate: s.lidarSunDate,
         lidarSunEnabled: s.lidarSunEnabled,

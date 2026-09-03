@@ -48,6 +48,10 @@ export interface BrowserFetchParams {
     poissonSamplesPerNode?: number;
     /** Interpolation weight for PoissonRecon. Default 4. */
     poissonPointWeight?: number;
+    /** Post-Poisson unsharp masking of the mesh positions, 0..1 (0 = off).
+     *  Recovers part of the high-frequency relief the solver smooths away.
+     *  See `sharpenMeshPositions`. Default 0.5. */
+    poissonSharpen?: number;
     /** Poisson mode: synthesize a flat parallelepiped "brick" base (floor + walls)
      *  under the terrain so the underside is flat instead of a bulging cushion.
      *  Default true. */
@@ -743,6 +747,77 @@ function smoothVertexNormals(indices: Uint32Array, normals: Float32Array, passes
 }
 
 /**
+ * Déplacement maximal autorisé par la netteté, en fraction de la longueur
+ * moyenne des arêtes incidentes. Le masque flou amplifie indistinctement le
+ * relief réel et le bruit de tessellation ; ce plafond garantit qu'aucun
+ * sommet ne peut se détacher en pointe de son voisinage, quel que soit le
+ * réglage.
+ */
+const MESH_SHARPEN_MAX_RATIO = 0.30;
+
+/**
+ * Masque flou (unsharp masking) sur le champ de POSITIONS du maillage.
+ *
+ * Le solveur de Poisson résout un champ scalaire lisse : il restitue
+ * fidèlement les basses fréquences du terrain mais atténue systématiquement
+ * les hautes — exactement les vires, les fissures et les ressauts qui font
+ * lire le rocher. On récupère une partie de cette atténuation comme un
+ * photographe récupère la netteté d'un scan : en soustrayant la version floue
+ * de l'original, c'est-à-dire en éloignant chaque sommet de la moyenne de son
+ * anneau de voisins.
+ *
+ * Effet nul sur toute surface localement plane (le sommet EST déjà sa
+ * moyenne) : le socle synthétique, son fond et ses murs verticaux ne bougent
+ * donc pas, sans qu'on ait besoin de les masquer explicitement. Les positions
+ * étant modifiées, silhouette et ombres portées suivent — c'est voulu, et
+ * c'est aussi pourquoi le déplacement est plafonné.
+ *
+ * Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.B.5.
+ */
+function sharpenMeshPositions(indices: Uint32Array, positions: Float32Array, amount: number): void {
+    if (amount <= 0) return;
+    const n = positions.length / 3;
+    const ring = new Float32Array(positions.length);
+    const ringCount = new Float32Array(n);
+    const edgeSum = new Float32Array(n);
+    for (let t = 0; t < indices.length; t += 3) {
+        for (let k = 0; k < 3; k++) {
+            const i3 = indices[t + k] * 3;
+            const j3 = indices[t + ((k + 1) % 3)] * 3;
+            const l3 = indices[t + ((k + 2) % 3)] * 3;
+            const jx = positions[j3] - positions[i3];
+            const jy = positions[j3 + 1] - positions[i3 + 1];
+            const jz = positions[j3 + 2] - positions[i3 + 2];
+            const lx = positions[l3] - positions[i3];
+            const ly = positions[l3 + 1] - positions[i3 + 1];
+            const lz = positions[l3 + 2] - positions[i3 + 2];
+            ring[i3] += positions[j3] + positions[l3];
+            ring[i3 + 1] += positions[j3 + 1] + positions[l3 + 1];
+            ring[i3 + 2] += positions[j3 + 2] + positions[l3 + 2];
+            // Chaque voisin est compté une fois par triangle incident : c'est
+            // une pondération par valence, la même que pour les normales.
+            ringCount[indices[t + k]] += 2;
+            edgeSum[indices[t + k]] += Math.hypot(jx, jy, jz) + Math.hypot(lx, ly, lz);
+        }
+    }
+    for (let i = 0; i < n; i++) {
+        const cnt = ringCount[i];
+        if (cnt === 0) continue;
+        const i3 = i * 3;
+        const dx = positions[i3] - ring[i3] / cnt;
+        const dy = positions[i3 + 1] - ring[i3 + 1] / cnt;
+        const dz = positions[i3 + 2] - ring[i3 + 2] / cnt;
+        const d = Math.hypot(dx, dy, dz);
+        if (d === 0) continue;
+        const maxD = MESH_SHARPEN_MAX_RATIO * (edgeSum[i] / cnt);
+        const scale = Math.min(amount * d, maxD) / d;
+        positions[i3] += dx * scale;
+        positions[i3 + 1] += dy * scale;
+        positions[i3 + 2] += dz * scale;
+    }
+}
+
+/**
  * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
  * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
  * output PLY contains only positions + faces.
@@ -946,6 +1021,10 @@ export async function fetchLidarPoisson(
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
     logStage('poisson', tPoisson(), `depth ${depth} → ${vertexCount.toLocaleString()} verts / ${triangleCount.toLocaleString()} tri`);
+    const tSharpen = startTimer();
+    const sharpen = params.poissonSharpen ?? 0.5;
+    sharpenMeshPositions(mesh.indices, mesh.positions, sharpen);
+    if (sharpen > 0) logStage('netteté', tSharpen(), `amount ${sharpen}`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
     const tMeshCol = startTimer();
     const { normals: meshNrm, colors: meshCols, roughness: meshRoughness } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
