@@ -129,9 +129,6 @@ en reçoivent le moins. C'est intrinsèque à l'acquisition, pas au solveur.
 13. **Cassure d'albédo** : bruit fractal en espace monde par-dessus la palette
     `montagne`, et seuil neige/roche piloté par la courbure et le bruit plutôt que
     par une rampe lisse pente/altitude.
-14. **Drapage triplanaire** pour que les parois cessent d'être un aplat : garder
-    l'ortho sur les surfaces tournées vers le ciel, mélanger une texture de roche
-    sur les faces raides là où `photoFacing` tombe à 0.
 
 ### Ordre d'attaque retenu
 
@@ -151,5 +148,5 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-03 | **3** — lissage des normales rendu sensible aux arêtes : voisins pondérés par leur accord (rejet au-delà de 35°), repli isotrope dans les zones réellement déchiquetées. Toujours 2 passes, mais elles n'érodent plus les arêtes. Nécessite une recapture. | ✅ |
 | 2026-09-03 | **5** — masque flou sur les positions post-Poisson, déplacement plafonné à 30 % de l'arête moyenne locale (curseur *Netteté*, panneau Capture, défaut 50 %). Nécessite une recapture. | ✅ (moitié « unsharp » ; le recalage sur le point d'entrée le plus proche reste à faire) |
 | 2026-09-03 | **9** — lobe spéculaire GGX (Smith corrélé en hauteur, Fresnel de Schlick), rugosité et F0 interpolés roche↔neige, élargissement anti-scintillement de Kaplanyan sur la variance de normale (curseur *Spéculaire*, section Shader, défaut 50 %). Chemin photoréaliste uniquement. Un lobe diélectrique exact étant quasi invisible (~3 % en valeur d'affichage), le curseur pilote un gain artistique ×6. | ✅ |
-| 2026-09-03 | **14** — strates et fractures procédurales en espace monde sur les faces de plus de ~65°, atténuées dès que le motif passe sous l'empreinte du pixel (curseur *Strates*, section Shader, défaut 100 %) | ✅ (texture procédurale plutôt que drapage triplanaire d'une vraie photo : pas de source oblique disponible côté IGN) |
 | 2026-09-03 | **10** — résolution de la shadow map exposée (Basse/Moyenne/Haute = 1024/2048/4096, section Ombres, défaut Moyenne). La carte couvrant toute l'emprise du nuage, 1024 texels sur 250 m noyaient les ombres de contact. | ✅ (moitié « ombres nettes » ; le preset de lumière rasante reste à faire) |
+| 2026-09-03 | **14** — drapage triplanaire / texture de roche sur les parois | ❌ abandonné : faute de source photo oblique, l'implémentation se réduisait à des strates procédurales, dont le rendu ne ressemblait pas à du rocher. Retiré des pistes. |

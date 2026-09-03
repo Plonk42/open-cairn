@@ -381,15 +381,6 @@ export interface LidarSlice {
      */
     lidarRockSpecular: number;
     setLidarRockSpecular: (v: number) => void;
-    /**
-     * Procedural strata / fracture texture on steep faces, 0..2. A nadir
-     * orthophoto degenerates to a handful of stretched pixels on a wall, so
-     * cliffs end up as the only surfaces with no albedo detail at all. The mask
-     * only opens past ~65° of slope, leaving genuinely draped ground alone.
-     * See `glsl/lib/cliffTexture.glsl`.
-     */
-    lidarCliffTexture: number;
-    setLidarCliffTexture: (v: number) => void;
 
     /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
      *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
@@ -562,7 +553,6 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarRockMicro: 1,
     lidarRockBreak: 1,
     lidarRockSpecular: 0.5,
-    lidarCliffTexture: 1,
     lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
@@ -774,8 +764,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarRockBreak: (lidarRockBreak) => set({ lidarRockBreak }),
         lidarRockSpecular: persisted.lidarRockSpecular ?? LIDAR_RENDER_DEFAULTS.lidarRockSpecular,
         setLidarRockSpecular: (lidarRockSpecular) => set({ lidarRockSpecular }),
-        lidarCliffTexture: persisted.lidarCliffTexture ?? LIDAR_RENDER_DEFAULTS.lidarCliffTexture,
-        setLidarCliffTexture: (lidarCliffTexture) => set({ lidarCliffTexture }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
@@ -1046,7 +1034,6 @@ export function selectLidarPersisted(
     | 'lidarRockMicro'
     | 'lidarRockBreak'
     | 'lidarRockSpecular'
-    | 'lidarCliffTexture'
     | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
@@ -1115,7 +1102,6 @@ export function selectLidarPersisted(
         lidarRockMicro: s.lidarRockMicro,
         lidarRockBreak: s.lidarRockBreak,
         lidarRockSpecular: s.lidarRockSpecular,
-        lidarCliffTexture: s.lidarCliffTexture,
         lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,

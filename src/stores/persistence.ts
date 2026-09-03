@@ -71,7 +71,6 @@ export type PersistedSettings = {
     lidarRockMicro?: number;
     lidarRockBreak?: number;
     lidarRockSpecular?: number;
-    lidarCliffTexture?: number;
     lidarAo?: number;
     lidarVegEnhance?: boolean;
     lidarVegColorMode?: 'natural' | 'height' | 'species';

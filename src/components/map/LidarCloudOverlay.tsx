@@ -87,7 +87,6 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
     const rockBreak = useMapStore((s) => s.lidarRockBreak);
     const specular = useMapStore((s) => s.lidarRockSpecular);
-    const cliffTex = useMapStore((s) => s.lidarCliffTexture);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
@@ -371,9 +370,8 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             microRelief: rockMicro,
             rockBreak,
             specular,
-            cliffTex,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, specular, cliffTex, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, specular, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;
