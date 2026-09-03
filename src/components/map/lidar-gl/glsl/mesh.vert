@@ -36,6 +36,7 @@ out float v_distM;      // distance caméra→fragment en mètres (perspective a
 out float v_alpha;
 out float v_base;
 out vec3 v_wpos;   // position monde (mètres est/nord/z) pour hachures ancrées au mesh
+out vec3 v_view;   // fragment → œil, mètres, même repère que v_wpos (lobe spéculaire)
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
@@ -49,6 +50,10 @@ void main() {
     v_normal = a_normal;
     v_base = a_base;
     v_wpos = a_pos;
+    // u_camPos est en unités Mercator, Y inversé (cf. `pos` ci-dessus) : on le
+    // ramène dans le repère est/nord/up métrique de a_pos.
+    vec3 camW = vec3(u_camPos.x, -u_camPos.y, u_camPos.z) / max(u_mpu, 1e-20);
+    v_view = camW - a_pos;
     v_albedo = a_color.rgb;
     v_alpha = a_color.a;
     // Projection planaire nadir : u suit l'est, v suit le nord. La première

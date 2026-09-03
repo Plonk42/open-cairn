@@ -364,6 +364,16 @@ export interface LidarSlice {
      */
     lidarRockBreak: number;
     setLidarRockBreak: (v: number) => void;
+    /**
+     * GGX specular strength on the reconstructed mesh, 0..2. Diffuse-only
+     * shading is what makes stone read as dry clay; a broad rough highlight is
+     * most of what says "mineral". Roughness is derived per fragment (snow
+     * smoother than rock) and widened by the pixel-scale normal variance so
+     * the micro-relief does not sparkle. Photoreal path only.
+     * See `pbrSpecular` in `glsl/lib/pbr.glsl`.
+     */
+    lidarRockSpecular: number;
+    setLidarRockSpecular: (v: number) => void;
 
     /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
      *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
@@ -534,6 +544,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarRockFacet: 0.6,
     lidarRockMicro: 1,
     lidarRockBreak: 1,
+    lidarRockSpecular: 0.5,
     lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
@@ -741,6 +752,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarRockMicro: (lidarRockMicro) => set({ lidarRockMicro }),
         lidarRockBreak: persisted.lidarRockBreak ?? LIDAR_RENDER_DEFAULTS.lidarRockBreak,
         setLidarRockBreak: (lidarRockBreak) => set({ lidarRockBreak }),
+        lidarRockSpecular: persisted.lidarRockSpecular ?? LIDAR_RENDER_DEFAULTS.lidarRockSpecular,
+        setLidarRockSpecular: (lidarRockSpecular) => set({ lidarRockSpecular }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
@@ -1009,6 +1022,7 @@ export function selectLidarPersisted(
     | 'lidarRockFacet'
     | 'lidarRockMicro'
     | 'lidarRockBreak'
+    | 'lidarRockSpecular'
     | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
@@ -1075,6 +1089,7 @@ export function selectLidarPersisted(
         lidarRockFacet: s.lidarRockFacet,
         lidarRockMicro: s.lidarRockMicro,
         lidarRockBreak: s.lidarRockBreak,
+        lidarRockSpecular: s.lidarRockSpecular,
         lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,

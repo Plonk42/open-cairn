@@ -221,6 +221,8 @@ export function ShaderControls() {
     const setRockMicro = useMapStore((s) => s.setLidarRockMicro);
     const rockBreak = useMapStore((s) => s.lidarRockBreak);
     const setRockBreak = useMapStore((s) => s.setLidarRockBreak);
+    const specular = useMapStore((s) => s.lidarRockSpecular);
+    const setSpecular = useMapStore((s) => s.setLidarRockSpecular);
 
     return (
         <div className="space-y-3">
@@ -282,6 +284,25 @@ export function ShaderControls() {
                     type="range" min={0} max={2} step={0.05}
                     value={rockBreak}
                     onChange={(e) => setRockBreak(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Lobe spéculaire GGX (chemin photoréaliste) */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Reflet minéral large, plus serré sur la neige que sur la roche. C'est ce qui distingue la pierre de l'argile : sans lui l'éclairage est purement diffus. N'agit que sur le rendu photoréaliste.">
+                        Spéculaire
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {specular <= 0 ? 'off' : `${Math.round(specular * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Lobe spéculaire de la roche"
+                    type="range" min={0} max={2} step={0.05}
+                    value={specular}
+                    onChange={(e) => setSpecular(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>

@@ -9,6 +9,7 @@ in float v_distM;
 in float v_alpha;
 in float v_base;
 in vec3 v_wpos;
+in vec3 v_view;
 
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
@@ -28,6 +29,8 @@ uniform float u_facet;
 uniform float u_microRelief;
 // Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
 uniform float u_rockBreak;
+// Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
+uniform float u_specular;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
@@ -112,13 +115,41 @@ void main() {
     albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
-    vec3 flatDir = normalize(FLAT_LIGHT_DIR);
-    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
     float flatDiff = dot(n, flatDir) * 0.5 + 0.5;
     // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
     // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
     // sur les faces détournées de la lumière et écraserait le relief).
     float flatDirect = max(0.0, dot(n, flatDir));
+
+    // ── Lobe spéculaire ───────────────────────────────────────────────────
+    // Le rocher n'est pas de l'argile : l'essentiel de son caractère minéral
+    // vient d'un reflet large qui suit la lumière rasante. La neige est plus
+    // lisse et moins réfléchissante que la roche (F0 diélectrique nu), d'où des
+    // paramètres interpolés sur `rockness`.
+    const float SPEC_ROUGH_ROCK = 0.42;
+    const float SPEC_ROUGH_SNOW = 0.22;
+    const float SPEC_F0_ROCK = 0.09;
+    const float SPEC_F0_SNOW = 0.03;
+    // Gain artistique. Un lobe diélectrique physiquement exact est presque
+    // invisible à côté du diffus (mesuré : ~3 % en valeur d'affichage), d'autant
+    // que l'anti-scintillement élargit le lobe. Le curseur pilote donc une
+    // exagération assumée, calibrée pour que 100 % lise « minéral » sans brûler.
+    const float SPEC_GAIN = 6.0;
+    vec3 dnx = dFdx(n);
+    vec3 dny = dFdy(n);
+    // Anti-scintillement (Kaplanyan) : la variance de la normale à l'échelle du
+    // pixel est convertie en rugosité supplémentaire, sinon le micro-relief
+    // ferait pétiller le lobe au moindre mouvement de caméra.
+    float nVar = min(dot(dnx, dnx) + dot(dny, dny), 0.12);
+    float rough = mix(SPEC_ROUGH_SNOW, SPEC_ROUGH_ROCK, rockness);
+    rough = min(1.0, sqrt(rough * rough + nVar));
+    vec3 lightDir = normalize(mix(u_sunDir, flatDir, u_flatLight));
+    float lightGain = mix(u_sunIntensity, 1.0, u_flatLight);
+    float spec = pbrSpecular(n, normalize(v_view), lightDir, rough,
+            mix(SPEC_F0_SNOW, SPEC_F0_ROCK, rockness))
+        * lightGain * s * u_specular * notBase * SPEC_GAIN;
+
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
@@ -131,7 +162,7 @@ void main() {
     // lumière fixe) mais résolue en radiance linéaire avec ambiante
     // hémisphérique, perspective aérienne et tone mapping filmique.
     float direct = mix(diff, flatDirect, u_flatLight) * s;
-    rgb = mix(rgb, pbrEncode(pbrShade(albedo, n.z, direct, v_distM)), u_pbr);
+    rgb = mix(rgb, pbrEncode(pbrShadeSpec(albedo, n.z, direct, v_distM, spec)), u_pbr);
     // Hachures à 45° gravées sur les murs du socle synthétique. En espace-monde
     // (v_wpos, mètres) : les lignes suivent le mesh (elles restent fixées à la
     // paroi quand la caméra bouge). L'épaisseur est mesurée en pixels via fwidth

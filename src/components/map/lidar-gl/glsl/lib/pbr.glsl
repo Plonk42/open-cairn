@@ -61,14 +61,49 @@ vec3 aerialPerspective(vec3 radiance, float distM) {
 }
 
 /**
- * Full linear shade: albedo (given in sRGB, as stored in the vertex colours)
- * lit by hemispheric ambient + `direct` × sun radiance, then hazed.
- * `direct` already carries N·L, the sun intensity and the cast-shadow factor.
+ * Cook-Torrance specular lobe: Trowbridge-Reitz (GGX) distribution, Smith
+ * height-correlated visibility and Schlick's Fresnel at a dielectric F0 of
+ * 0.04. Returns the BRDF **already multiplied by N·L**, so the caller only has
+ * to scale it by the light radiance and the cast-shadow factor.
+ *
+ * Purely diffuse shading is what makes wet or crystalline rock read as dry
+ * clay: stone owes most of its mineral character to a broad, rough highlight
+ * that follows the grazing light. See `docs/ROCK_AND_CLIFF_DETAIL.md` §2.C.9.
  */
-vec3 pbrShade(vec3 albedoSrgb, float nz, float direct, float distM) {
+float pbrSpecular(vec3 n, vec3 v, vec3 l, float rough, float f0) {
+    float nl = dot(n, l);
+    float nv = dot(n, v);
+    if (nl <= 0.0 || nv <= 0.0) return 0.0;
+    vec3 h = normalize(v + l);
+    float nh = max(dot(n, h), 0.0);
+    float vh = max(dot(v, h), 0.0);
+    float a = max(rough * rough, 1e-3);
+    float a2 = a * a;
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    float ndf = a2 / (3.14159265 * d * d);
+    // Smith height-correlated visibility, i.e. G / (4·N·L·N·V) folded together.
+    float gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    float gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    float vis = 0.5 / max(gv + gl, 1e-5);
+    float f = f0 + (1.0 - f0) * pow(1.0 - vh, 5.0);
+    return ndf * vis * f * nl;
+}
+
+/**
+ * Full linear shade: albedo (given in sRGB, as stored in the vertex colours)
+ * lit by hemispheric ambient + `direct` × sun radiance, plus an additive
+ * `spec` lobe, then hazed. `direct` and `spec` both already carry N·L, the sun
+ * intensity and the cast-shadow factor.
+ */
+vec3 pbrShadeSpec(vec3 albedoSrgb, float nz, float direct, float distM, float spec) {
     vec3 albedo = srgbToLinear(albedoSrgb);
     vec3 irradiance = hemisphericAmbient(nz) + u_sunRadiance * max(direct, 0.0);
-    return aerialPerspective(albedo * irradiance, distM);
+    return aerialPerspective(albedo * irradiance + u_sunRadiance * max(spec, 0.0), distM);
+}
+
+/** Diffuse-only shade (points, and any caller with no view vector). */
+vec3 pbrShade(vec3 albedoSrgb, float nz, float direct, float distM) {
+    return pbrShadeSpec(albedoSrgb, nz, direct, distM, 0.0);
 }
 
 /** Tone-map linear radiance and encode to display sRGB. */
