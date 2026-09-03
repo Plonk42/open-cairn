@@ -156,3 +156,125 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-03 | **14** — drapage triplanaire / texture de roche sur les parois | ❌ abandonné : faute de source photo oblique, l'implémentation se réduisait à des strates procédurales, dont le rendu ne ressemblait pas à du rocher. Retiré des pistes. |
 | 2026-09-03 | **6** — densifier les parois avec des retours supplémentaires | ❌ abandonné : tous les points sol utiles sont déjà exploités, et aller chercher de la classe 1 (non classée) ferait rentrer du bruit dans la reconstruction pour un gain incertain. Retiré des pistes. |
 | 2026-09-03 | **4** — ajustement de plan robuste pour les normales d'entrée du solveur : passes repondérées (`exp(-r²/2σ²)`) ancrées sur le point requête, σ dérivé des résidus eux-mêmes et resserré passe après passe, garde de planéité contre les voisinages effondrés en ligne (curseur *Arêtes*, panneau Capture, défaut 60 %). L'ACP à k fixe rendait la bissectrice des deux facettes de chaque rupture de pente : l'arête était arrondie avant même que Poisson ne voie la donnée. Le voisinage k-PPV faisant ~1 m à la densité LiDAR HD, l'arête récupérée est une vraie arête métrique — pas du facettage au triangle près comme le curseur *Facettes*. Nécessite une recapture. | ✅ |
+| 2026-09-03 | **Résolution apparente** — « on voit beaucoup de gros pixels ». Diagnostic mené, cause identifiée (quantification 2×2 par les dérivées écran), correctifs non implémentés. Voir §4. | 🔍 diagnostiqué, à faire |
+
+---
+
+## 4. Résolution apparente : les « gros pixels »
+
+Signalé le 2026-09-03 sur la vue `#18.18/45.934127/6.973118/-29.6/71`. **Diagnostic
+terminé, aucun correctif appliqué.** Repris ici pour ne pas avoir à refaire l'enquête.
+
+### 4.1 Pistes écartées, avec la mesure qui les écarte
+
+| Piste | Verdict |
+| --- | --- |
+| FBO sous-dimensionné | ❌ `LidarWebGLLayer.render()` le dimensionne sur `canvas.width/height`, donc en pixels device. Correct. |
+| Orthophoto drapée trop grossière | ❌ `lidarCloudPhotoOpacity = 0`, et **zéro requête `ORTHOPHOTOS`** observée via `performance.getEntriesByType('resource')`. La couleur est 100 % procédurale. |
+| Maillage trop grossier | ❌ Poisson profondeur 11 sur 250 m ⇒ triangles ~0,17 m, sous-pixel à cette échelle. |
+| Shadow map | ❌ 4096² sur 250 m ⇒ ~6 cm/texel. |
+
+À noter tout de même pour plus tard : `fetchDrapeMosaic` plafonne à
+`MAX_TILES_PER_SIDE = 6`, ce qui force z18 (~0,42 m/texel) sur une capture de 250 m
+alors que l'ortho IGN monte à z19. Sans effet ici puisque le drapage est éteint,
+mais ce sera le facteur limitant dès qu'on le rallumera.
+
+### 4.2 Cause réelle : l'ombrage du rocher est quantifié par blocs de 2×2 pixels
+
+Les deux effets qui portent tout le détail rocheux dérivent leur normale des
+**dérivées écran** :
+
+- le facettage, `mesh.frag` : `cross(dFdx(v_wpos), dFdy(v_wpos))` ;
+- le micro-relief (bump de Mikkelsen), `microRelief.glsl` : `hx = dFdx(h)`, `hy = dFdy(h)`.
+
+Or `dFdx`/`dFdy` sont des différences finies **sur le quad 2×2** du GPU : les quatre
+fragments reçoivent la même valeur. Toute la perturbation de normale — et avec elle
+le diffus, le spéculaire et l'AO — est donc constante sur chaque bloc de 2×2 pixels.
+Le relief rocheux est rendu, par construction, à la moitié de la résolution linéaire
+de l'écran. C'est algorithmique, pas matériel : vrai sur tous les GPU.
+
+Deux facteurs aggravants :
+
+- **`devicePixelRatio = 1`** (canvas mesuré à 1040×797) : un seul échantillon par
+  pixel, aucun MSAA. Réglage d'affichage, pas de carte graphique.
+- À z18.18 / lat 45,9, un pixel ≈ 0,37 m au centre (moins au premier plan avec le
+  pitch à 71°). La 1ʳᵉ octave du micro-relief est à λ = 1,6 m ≈ 4 px, et la **2ᵉ à
+  0,67 m ≈ 2 px, pile à la limite de Nyquist**, encore à moitié active : le fondu
+  `0.25λ → 0.9λ` la coupe trop tard.
+
+Le bruit lui-même est hors de cause : `mrValueNoise` interpole en Hermite
+(`u = f²(3−2f)`), son gradient est continu aux parois de cellule.
+
+### 4.3 Correctifs, par rapport qualité/prix
+
+1. **Gradient analytique du micro-relief.** Le bruit de valeur est dérivable en
+   forme close, et les 8 hash des coins sont *déjà* calculés : la dérivée ne coûte
+   que quelques `mix` de plus. On obtient un gradient **par pixel** au lieu de par
+   quad, pour ~+20 % sur `mesh.frag` au lieu de ×4. Meilleur levier, et il
+   supprime la cause principale.
+2. **Fondu d'octaves anticipé** (`0.5λ → 1.4λ`) : deux constantes, coût nul,
+   élimine l'octave qui bat à Nyquist.
+3. **SSAA ×2 du FBO LiDAR**, si 1+2 ne suffisent pas. Le FBO est privé et déjà
+   composité par un quad plein écran, et `_texColor` est en `LINEAR` : un rendu en
+   2w×2h redescendu au composite donne exactement une moyenne box 4 taps. Le quad
+   de dérivées devient alors 1 pixel de sortie. Seule solution pour le facettage
+   (intrinsèquement lié à `dFdx`) et l'aliasing des arêtes de triangles.
+
+Baisser `lidarRockFacet` atténuerait le symptôme mais sacrifierait les arêtes
+franches gagnées au levier 4 — non retenu.
+
+### 4.4 Ce que coûterait le SSAA ×2
+
+La géométrie est dessinée **4 fois par image**, et le SSAA n'en concerne qu'une :
+
+| Passe | Résolution | Shader |
+| --- | --- | --- |
+| Shadow map | 4096² = 16,8 M frag | trivial |
+| FBO principal | 829 k frag | **`mesh.frag`, lourd** |
+| `_exportDepthToMapLibre` | 829 k frag | profondeur seule |
+| `_writeSharedDepth` | 829 k frag | profondeur seule |
+
+Bonne nouvelle pour l'implémentation : `_exportDepthToMapLibre` et
+`_writeSharedDepth` fixent déjà eux-mêmes `gl.viewport(0, 0, canvas.width,
+canvas.height)`, ils sont donc immunisés d'office. Points de vigilance : restaurer
+le viewport pour le composite, et remettre à l'échelle `u_radius` / `u_aoRadius` de
+l'EDL qui sont exprimés en texels.
+
+- `mesh.frag` : 829 k → **3,3 M fragments** (×4).
+- VRAM du FBO : ~13 Mo → ~53 Mo (la shadow map 4096² en pèse déjà ~67 Mo).
+- **Coût géométrique inchangé** : ~17 M triangles/image (4,3 M × 4 passes), qui est
+  probablement déjà le vrai goulot.
+
+`EXT_disjoint_timer_query_webgl2` est disponible : mesurer par passe avant de
+trancher, plutôt que d'extrapoler.
+
+### 4.5 Piège d'environnement : la T1200 n'était pas utilisée
+
+Toutes les mesures ci-dessus ont été prises **sur l'iGPU**. La machine a deux GPU :
+
+| | Intel UHD TGL-H GT1 (utilisé) | NVIDIA T1200 (au repos) |
+| --- | --- | --- |
+| Unités | 32 EU ≈ 256 lanes | 1024 cœurs CUDA (TU117) |
+| FP32 | ~0,7 TFLOPS | ~2,9 TFLOPS |
+| Mémoire | DDR4 partagée avec le CPU | 4 Go GDDR6 dédiés |
+
+Sous **Wayland**, Ozone sélectionne l'iGPU, et la voie EGL NVIDIA part en boucle de
+crash (`eglCreateImage failed with 0x00003004` → `Restarting GPU process`). Recette
+vérifiée — `nvidia-smi` montrait alors le `chrome --type=gpu-process` occupant
+61 Mio sur la T1200 :
+
+```bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+  google-chrome --ozone-platform=x11 --use-angle=gl
+```
+
+XWayland est obligatoire ; sous Wayland natif ça ne tient pas. Pour que le
+navigateur piloté depuis VS Code en bénéficie, relancer **VS Code** avec ces
+variables : les enfants héritent de l'environnement.
+
+⚠️ Deux conséquences. D'abord, toute mesure « avant » est à refaire une fois
+basculé. Ensuite, ça ne change **rien au diagnostic** — la quantification 2×2 est
+algorithmique et `devicePixelRatio` est un réglage d'affichage : une T1200 dessine
+exactement la même image en blocs, simplement plus vite. Et les utilisateurs
+d'open-cairn seront souvent sur iGPU, ce qui reste une raison de préférer le
+gradient analytique (~+20 %) au SSAA (×4) quand les deux donnent le même résultat.
