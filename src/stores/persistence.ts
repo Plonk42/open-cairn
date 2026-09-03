@@ -61,6 +61,7 @@ export type PersistedSettings = {
     lidarSunEnabled?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
+    lidarShadowMapSize?: number;
     lidarPhotoreal?: boolean;
     lidarExposure?: number;
     lidarAmbient?: number;

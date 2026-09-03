@@ -61,6 +61,8 @@ export function BoundShadowControls() {
     const setShadows = useMapStore((s) => s.setLidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
     const setShadowStrength = useMapStore((s) => s.setLidarShadowStrength);
+    const shadowMapSize = useMapStore((s) => s.lidarShadowMapSize);
+    const setShadowMapSize = useMapStore((s) => s.setLidarShadowMapSize);
 
     return (
         <ShadowControls
@@ -68,6 +70,8 @@ export function BoundShadowControls() {
             setEnabled={setShadows}
             strength={shadowStrength}
             setStrength={setShadowStrength}
+            resolution={shadowMapSize}
+            setResolution={setShadowMapSize}
         />
     );
 }

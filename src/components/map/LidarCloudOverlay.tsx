@@ -77,6 +77,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
     const shadows = useMapStore((s) => s.lidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
+    const shadowMapSize = useMapStore((s) => s.lidarShadowMapSize);
     const photoreal = useMapStore((s) => s.lidarPhotoreal);
     const exposure = useMapStore((s) => s.lidarExposure);
     const ambient = useMapStore((s) => s.lidarAmbient);
@@ -352,8 +353,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             sunLightingEnabled: sunEnabled,
             shadowsEnabled: shadows,
             shadowStrength,
+            shadowMapSize,
         });
-    }, [sunEnabled, shadows, shadowStrength, styleEpoch]);
+    }, [sunEnabled, shadows, shadowStrength, shadowMapSize, styleEpoch]);
 
     useEffect(() => {
         webglRef.current?.setConfig({

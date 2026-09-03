@@ -314,6 +314,13 @@ export interface LidarSlice {
     lidarShadowStrength: number;
     setLidarShadowStrength: (v: number) => void;
     /**
+     * Shadow-map side in texels (1024 / 2048 / 4096). The map covers the whole
+     * cloud footprint, so on a 250 m capture 1024 texels means ~25 cm per texel
+     * and the contact shadows at the foot of every step or block dissolve.
+     */
+    lidarShadowMapSize: number;
+    setLidarShadowMapSize: (v: number) => void;
+    /**
      * Photorealistic render path: shade in linear radiance with a hemispheric
      * sky/ground ambient, aerial perspective and filmic tone mapping instead of
      * the historical `ambient 0.35 + diffuse 0.75` sRGB model. This is what
@@ -545,6 +552,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunEnabled: false,
     lidarShadows: true,
     lidarShadowStrength: 0.7,
+    lidarShadowMapSize: 2048,
     lidarPhotoreal: true,
     lidarExposure: 1,
     lidarAmbient: 1,
@@ -746,6 +754,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarShadows: (lidarShadows) => set({ lidarShadows }),
         lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
         setLidarShadowStrength: (lidarShadowStrength) => set({ lidarShadowStrength }),
+        lidarShadowMapSize: persisted.lidarShadowMapSize ?? LIDAR_RENDER_DEFAULTS.lidarShadowMapSize,
+        setLidarShadowMapSize: (lidarShadowMapSize) => set({ lidarShadowMapSize }),
         lidarPhotoreal: persisted.lidarPhotoreal ?? LIDAR_RENDER_DEFAULTS.lidarPhotoreal,
         setLidarPhotoreal: (lidarPhotoreal) => set({ lidarPhotoreal }),
         lidarExposure: persisted.lidarExposure ?? LIDAR_RENDER_DEFAULTS.lidarExposure,
@@ -1026,6 +1036,7 @@ export function selectLidarPersisted(
     | 'lidarSunEnabled'
     | 'lidarShadows'
     | 'lidarShadowStrength'
+    | 'lidarShadowMapSize'
     | 'lidarPhotoreal'
     | 'lidarExposure'
     | 'lidarAmbient'
@@ -1094,6 +1105,7 @@ export function selectLidarPersisted(
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,
         lidarShadowStrength: s.lidarShadowStrength,
+        lidarShadowMapSize: s.lidarShadowMapSize,
         lidarPhotoreal: s.lidarPhotoreal,
         lidarExposure: s.lidarExposure,
         lidarAmbient: s.lidarAmbient,
