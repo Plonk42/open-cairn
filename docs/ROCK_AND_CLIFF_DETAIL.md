@@ -146,3 +146,4 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | --- | --- | --- |
 | 2026-09-03 | Diagnostic + plan | ✅ ce document |
 | 2026-09-03 | **8** — ombrage du maillage par fragment + mélange vers la normale géométrique (curseur *Facettes*, section Shader, défaut 60 %) | ✅ |
+| 2026-09-03 | **12** — micro-relief procédural en espace monde, bump à la Mikkelsen, 3 octaves atténuées selon l'empreinte pixel, masqué hors rocher (curseur *Micro-relief*, section Shader, défaut 100 %) | ✅ |

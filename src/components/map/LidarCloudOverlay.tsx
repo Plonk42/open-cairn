@@ -83,6 +83,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const sunStrength = useMapStore((s) => s.lidarSunStrength);
     const haze = useMapStore((s) => s.lidarHaze);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
+    const rockMicro = useMapStore((s) => s.lidarRockMicro);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
@@ -362,8 +363,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             // (a strong but still plausible summer-afternoon haze).
             hazeDensity: haze * HAZE_MAX_DENSITY,
             facet: rockFacet,
+            microRelief: rockMicro,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

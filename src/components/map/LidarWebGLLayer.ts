@@ -386,6 +386,14 @@ export interface LidarWebGLLayerConfig {
      * `docs/ROCK_AND_CLIFF_DETAIL.md` §2.C.8.
      */
     facet: number;
+    /**
+     * Ground mesh only — amplitude of the procedural micro-relief that
+     * perturbs the shading normal (0 disables it). Poisson cannot resolve
+     * anything finer than the sample spacing, so sub-decimetre rock grain is
+     * restored in shading rather than in geometry. See
+     * `glsl/lib/microRelief.glsl` and `docs/ROCK_AND_CLIFF_DETAIL.md` §2.D.12.
+     */
+    microRelief: number;
 }
 
 /** Uniform locations of the shared `glsl/lib/pbr.glsl` block. */
@@ -635,7 +643,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         hasPhoto: WebGLUniformLocation | null;
         wireframe: WebGLUniformLocation | null;
         facet: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null };
+        microRelief: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -762,6 +771,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         sunStrength: 1,
         hazeDensity: 1 / 9000,
         facet: 0.6,
+        microRelief: 1,
     };
 
     /** Uniform locations of the shared PBR block, per program. */
@@ -1658,6 +1668,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
         gl.uniform1f(this._locMesh.flatLight, this.config.sunLightingEnabled ? 0 : 1);
         gl.uniform1f(this._locMesh.facet, this.config.facet);
+        gl.uniform1f(this._locMesh.microRelief, this.config.microRelief);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
@@ -2043,6 +2054,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
             wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
             facet: gl.getUniformLocation(this._progMesh, 'u_facet'),
+            microRelief: gl.getUniformLocation(this._progMesh, 'u_microRelief'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
 

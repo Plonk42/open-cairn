@@ -217,6 +217,8 @@ export function ShaderControls() {
     const setShader = useMapStore((s) => s.setLidarShader);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
+    const rockMicro = useMapStore((s) => s.lidarRockMicro);
+    const setRockMicro = useMapStore((s) => s.setLidarRockMicro);
 
     return (
         <div className="space-y-3">
@@ -240,6 +242,25 @@ export function ShaderControls() {
                     type="range" min={0} max={1} step={0.05}
                     value={rockFacet}
                     onChange={(e) => setRockFacet(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Micro-relief procédural sur la roche */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Grain décimétrique de la roche, restitué en éclairage : le LiDAR ne descend pas sous ~45 cm d'échantillonnage, et bien moins sur les parois. N'affecte ni la silhouette ni les ombres portées, et épargne la neige.">
+                        Micro-relief
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {rockMicro <= 0 ? 'off' : `${Math.round(rockMicro * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Micro-relief de la roche"
+                    type="range" min={0} max={2} step={0.05}
+                    value={rockMicro}
+                    onChange={(e) => setRockMicro(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>

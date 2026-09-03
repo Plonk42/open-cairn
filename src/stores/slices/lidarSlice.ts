@@ -335,6 +335,16 @@ export interface LidarSlice {
      */
     lidarRockFacet: number;
     setLidarRockFacet: (v: number) => void;
+    /**
+     * Procedural micro-relief amplitude on the ground mesh, 0..1. Poisson
+     * cannot resolve anything finer than the LiDAR sample spacing, so the
+     * sub-decimetre grain of rock is restored by perturbing the shading normal
+     * with a world-space fractal instead of by adding geometry. Snow and the
+     * synthetic base walls are excluded.
+     * See `glsl/lib/microRelief.glsl`.
+     */
+    lidarRockMicro: number;
+    setLidarRockMicro: (v: number) => void;
 
     /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
      *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
@@ -503,6 +513,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunStrength: 1,
     lidarHaze: 0.3,
     lidarRockFacet: 0.6,
+    lidarRockMicro: 1,
     lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
@@ -704,6 +715,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarHaze: (lidarHaze) => set({ lidarHaze }),
         lidarRockFacet: persisted.lidarRockFacet ?? LIDAR_RENDER_DEFAULTS.lidarRockFacet,
         setLidarRockFacet: (lidarRockFacet) => set({ lidarRockFacet }),
+        lidarRockMicro: persisted.lidarRockMicro ?? LIDAR_RENDER_DEFAULTS.lidarRockMicro,
+        setLidarRockMicro: (lidarRockMicro) => set({ lidarRockMicro }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
@@ -968,6 +981,7 @@ export function selectLidarPersisted(
     | 'lidarSunStrength'
     | 'lidarHaze'
     | 'lidarRockFacet'
+    | 'lidarRockMicro'
     | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
@@ -1031,6 +1045,7 @@ export function selectLidarPersisted(
         lidarSunStrength: s.lidarSunStrength,
         lidarHaze: s.lidarHaze,
         lidarRockFacet: s.lidarRockFacet,
+        lidarRockMicro: s.lidarRockMicro,
         lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,

@@ -12,6 +12,7 @@ in vec3 v_wpos;
 
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
+#include ./lib/microRelief.glsl;
 #include ./lib/pbr.glsl;
 
 uniform vec3 u_sunDir;
@@ -21,6 +22,8 @@ uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 // Mélange normale interpolée → normale géométrique (0 = lisse, 1 = facettes).
 // Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.C.8.
 uniform float u_facet;
+// Amplitude du micro-relief procédural (0 = aucun). §2.D.12.
+uniform float u_microRelief;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
@@ -46,37 +49,7 @@ void main() {
     }
     float s = sampleShadow();
 
-    // ── Normale de rendu ──────────────────────────────────────────────────
-    // La normale de sommet issue de Poisson est lisse par construction (le
-    // solveur résout un champ scalaire C², et le pipeline lui applique encore
-    // deux passes laplaciennes) : interpolée sur le triangle, elle donne au
-    // rocher un aspect de cire. La normale géométrique — constante sur chaque
-    // facette, reconstruite ici depuis les dérivées écran de la position monde
-    // — restitue au contraire la facettisation réelle du maillage. u_facet
-    // dose entre les deux.
     vec3 nSmooth = normalize(v_normal);
-    vec3 nGeom = nSmooth;
-    if (u_facet > 0.0) {
-        vec3 g = cross(dFdx(v_wpos), dFdy(v_wpos));
-        float gLen2 = dot(g, g);
-        // Triangle dégénéré / silhouette : pas de normale géométrique exploitable.
-        if (gLen2 > 1e-20) {
-            nGeom = g * inversesqrt(gLen2);
-            // Le signe dépend du bobinage à l'écran, pas de l'orientation réelle.
-            if (dot(nGeom, nSmooth) < 0.0) nGeom = -nGeom;
-        }
-    }
-    vec3 n = normalize(mix(nSmooth, nGeom, u_facet));
-
-    float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
-    vec3 flatDir = normalize(FLAT_LIGHT_DIR);
-    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
-    float flatDiff = dot(n, flatDir) * 0.5 + 0.5;
-    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
-    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
-    // sur les faces détournées de la lumière et écraserait le relief).
-    float flatDirect = max(0.0, dot(n, flatDir));
-
     vec3 albedo = v_albedo;
     // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et
     // seulement sur les surfaces qui « voient le ciel ». Une photo nadir n'a
@@ -97,6 +70,45 @@ void main() {
         vec3 photo = texture(u_ortho, v_uv).rgb;
         albedo = mix(v_albedo, photo, u_photoOpacityGround * photoFacing);
     }
+
+    // ── Normale de rendu ──────────────────────────────────────────────────
+    // La normale de sommet issue de Poisson est lisse par construction (le
+    // solveur résout un champ scalaire C², et le pipeline lui applique encore
+    // deux passes laplaciennes) : interpolée sur le triangle, elle donne au
+    // rocher un aspect de cire. La normale géométrique — constante sur chaque
+    // facette, reconstruite ici depuis les dérivées écran de la position monde
+    // — restitue au contraire la facettisation réelle du maillage. u_facet
+    // dose entre les deux.
+    vec3 nGeom = nSmooth;
+    if (u_facet > 0.0) {
+        vec3 g = cross(dFdx(v_wpos), dFdy(v_wpos));
+        float gLen2 = dot(g, g);
+        // Triangle dégénéré / silhouette : pas de normale géométrique exploitable.
+        if (gLen2 > 1e-20) {
+            nGeom = g * inversesqrt(gLen2);
+            // Le signe dépend du bobinage à l'écran, pas de l'orientation réelle.
+            if (dot(nGeom, nSmooth) < 0.0) nGeom = -nGeom;
+        }
+    }
+    vec3 n = normalize(mix(nSmooth, nGeom, u_facet));
+
+    // Micro-relief : uniquement sur la roche. La neige est lisse dans la
+    // nature, et les murs verticaux du socle synthétique ne sont pas du terrain
+    // — la luminance de l'albédo suffit à distinguer névé et rocher, palette ou
+    // photo drapée indifféremment. Multiplié plutôt que branché : `microReliefNormal`
+    // prend des dérivées d'écran, elles seraient indéfinies sous un branchement divergent.
+    float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+    float rockness = (1.0 - smoothstep(0.55, 0.80, lum)) * (1.0 - step(0.5, v_base));
+    n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
+
+    float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
+    vec3 flatDir = normalize(FLAT_LIGHT_DIR);
+    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    float flatDiff = dot(n, flatDir) * 0.5 + 0.5;
+    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
+    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
+    // sur les faces détournées de la lumière et écraserait le relief).
+    float flatDirect = max(0.0, dot(n, flatDir));
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
