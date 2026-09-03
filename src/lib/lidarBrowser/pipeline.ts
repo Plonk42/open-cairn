@@ -52,6 +52,9 @@ export interface BrowserFetchParams {
      *  Recovers part of the high-frequency relief the solver smooths away.
      *  See `sharpenMeshPositions`. Default 0.5. */
     poissonSharpen?: number;
+    /** Crease-preserving robust refit of the ground normals fed to the solver,
+     *  0..1 (0 = plain k-NN PCA). See `refineNormalRobust`. Default 0.6. */
+    poissonNormalRobust?: number;
     /** Poisson mode: synthesize a flat parallelepiped "brick" base (floor + walls)
      *  under the terrain so the underside is flat instead of a bulging cushion.
      *  Default true. */
@@ -951,10 +954,15 @@ export async function fetchLidarPoisson(
     // cascade a consistent orientation from the strongest cues outward
     // (laser scan-angle → +z prior → quality-weighted propagation) and weight
     // each normal by quality so crisp points drive the isosurface.
+    // The fit is robust (crease-preserving): a plain k-NN fit averages across
+    // ridges and ledges and hands the solver a smooth ramp where there is an
+    // edge — see `refineNormalRobust`.
     const groundQuality = new Float32Array(psCount);
-    const groundNormals = await computeNormalsKNNAsync(ps.pos, 12, 2, false, groundQuality);
+    const normalRobust = params.poissonNormalRobust ?? 0.6;
+    const groundNormals = await computeNormalsKNNAsync(ps.pos, 12, 2, false, groundQuality, normalRobust);
     orientNormalsForPoisson(ps.pos, groundNormals, groundQuality, ps.scan);
-    logStage('normals (sol)', tGroundNrm(), `${psCount.toLocaleString()} pts${ps.scan ? ' · scan' : ''}`);
+    const robustNote = normalRobust > 0 ? ` · arêtes ${normalRobust}` : '';
+    logStage('normals (sol)', tGroundNrm(), `${psCount.toLocaleString()} pts${ps.scan ? ' · scan' : ''}${robustNote}`);
     // Flat "brick" base: synthesize oriented floor + wall points below the
     // terrain so Poisson closes the underside into a flat parallelepiped instead
     // of a bulging cushion. Reused as the veg-height reference grid below.

@@ -15,10 +15,10 @@ import type { NormalsTileRequest, NormalsTileResponse } from './normalsWorkerPro
 declare const self: DedicatedWorkerGlobalScope;
 
 self.onmessage = (ev: MessageEvent<NormalsTileRequest>) => {
-    const { id, positions, queryLocalIndices, k, cellSize, forceUpward, origin, wantQuality } = ev.data;
+    const { id, positions, queryLocalIndices, k, cellSize, forceUpward, origin, wantQuality, robust } = ev.data;
     try {
         const { normals, quality } = computeNormalsTile(positions, queryLocalIndices, {
-            k, cellSize, forceUpward, origin, wantQuality,
+            k, cellSize, forceUpward, origin, wantQuality, robust,
         });
         const transfer: Transferable[] = [normals.buffer];
         if (quality) transfer.push(quality.buffer);

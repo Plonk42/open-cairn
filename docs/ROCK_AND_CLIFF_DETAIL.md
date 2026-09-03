@@ -61,7 +61,7 @@ en reçoivent le moins. C'est intrinsèque à l'acquisition, pas au solveur.
 2. **Normales d'entrée en ACP k-NN à k fixe (12).**
    Une ACP sur les 12 voisins moyenne de part et d'autre de toute arête : l'arrondi
    des angles vifs est inhérent à l'estimateur, avant même que le solveur ne voie
-   quoi que ce soit.
+   quoi que ce soit. *(Corrigé par le levier 4 — voir le journal §3.)*
 
 3. **Albédo purement fonctionnel, sans variation spatiale.**
    [`slope.ts`](../src/lib/lidarBrowser/slope.ts) `montagneAlbedo()` est une fonction
@@ -104,8 +104,12 @@ en reçoivent le moins. C'est intrinsèque à l'acquisition, pas au solveur.
    plus un masque flou (unsharp) laplacien sur le champ de positions. Récupère les
    hautes fréquences moyennées par le solveur sans toucher à la topologie.
    *Meilleur rapport effort/rendu de ce groupe.*
-6. **Alimenter les zones raides avec plus de retours** (classe 1 sur les parois — cf.
-   la note mémoire sur le revert `41fa9d7` / `685dd9c`).
+
+<!-- Le levier 6 (densifier les parois avec des retours non classés) a été écarté :
+     tous les points sol utiles sont déjà là, et réintroduire de la classe 1 fait
+     rentrer du bruit. Les numéros suivants ne sont pas décalés, le journal §3 et
+     la mémoire projet y renvoient. -->
+
 7. **À terme : dual contouring / extraction d'iso-surface préservant les arêtes.**
    Poisson + marching cubes ne peut littéralement pas représenter une arête vive.
 
@@ -150,3 +154,5 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-03 | **9** — lobe spéculaire GGX (Smith corrélé en hauteur, Fresnel de Schlick), rugosité et F0 interpolés roche↔neige, élargissement anti-scintillement de Kaplanyan sur la variance de normale (curseur *Spéculaire*, section Shader, défaut 50 %). Chemin photoréaliste uniquement. Un lobe diélectrique exact étant quasi invisible (~3 % en valeur d'affichage), le curseur pilote un gain artistique ×6. | ✅ |
 | 2026-09-03 | **10** — résolution de la shadow map exposée (Basse/Moyenne/Haute = 1024/2048/4096, section Ombres, défaut Moyenne). La carte couvrant toute l'emprise du nuage, 1024 texels sur 250 m noyaient les ombres de contact. | ✅ (moitié « ombres nettes » ; le preset de lumière rasante reste à faire) |
 | 2026-09-03 | **14** — drapage triplanaire / texture de roche sur les parois | ❌ abandonné : faute de source photo oblique, l'implémentation se réduisait à des strates procédurales, dont le rendu ne ressemblait pas à du rocher. Retiré des pistes. |
+| 2026-09-03 | **6** — densifier les parois avec des retours supplémentaires | ❌ abandonné : tous les points sol utiles sont déjà exploités, et aller chercher de la classe 1 (non classée) ferait rentrer du bruit dans la reconstruction pour un gain incertain. Retiré des pistes. |
+| 2026-09-03 | **4** — ajustement de plan robuste pour les normales d'entrée du solveur : passes repondérées (`exp(-r²/2σ²)`) ancrées sur le point requête, σ dérivé des résidus eux-mêmes et resserré passe après passe, garde de planéité contre les voisinages effondrés en ligne (curseur *Arêtes*, panneau Capture, défaut 60 %). L'ACP à k fixe rendait la bissectrice des deux facettes de chaque rupture de pente : l'arête était arrondie avant même que Poisson ne voie la donnée. Le voisinage k-PPV faisant ~1 m à la densité LiDAR HD, l'arête récupérée est une vraie arête métrique — pas du facettage au triangle près comme le curseur *Facettes*. Nécessite une recapture. | ✅ |

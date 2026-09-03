@@ -256,6 +256,9 @@ function scanCellRange(grid: CsrGrid, positions: Float32Array, start: number, en
  *                    local ellipsoid flatness with an outlier-rejection term —
  *                    used downstream to weight orientation votes and the final
  *                    Poisson confidence (normal magnitude).
+ * @param robust      Crease-preserving robust refit strength, 0..1. 0 (default)
+ *                    keeps the plain least-squares fit bit-for-bit. See
+ *                    {@link refineNormalRobust}.
  * @returns           Interleaved (nx, ny, nz) per point, normalized.
  */
 export function computeNormalsKNN(
@@ -264,6 +267,7 @@ export function computeNormalsKNN(
     cellSize = 2,
     forceUpward = true,
     quality?: Float32Array,
+    robust = 0,
 ): Float32Array {
     const n = positions.length / 3;
     const normals = new Float32Array(n * 3);
@@ -278,14 +282,48 @@ export function computeNormalsKNN(
     // 2. For each point, gather up to k neighbours from the 3×3×3 cell ring,
     // fit the local covariance and take its smallest eigenvector.
     const query = makeKnnQuery(k);
-    const eig = new Float64Array(3);
+    const scratch = makeFitScratch(k);
+    const fit: NormalFit = { forceUpward, robust };
     const out: NormalsOutput = { normals, index: 0, quality, qualityIndex: 0 };
     for (let i = 0; i < n; i++) {
         out.index = i;
         out.qualityIndex = i;
-        computeOneNormal(grid, positions, i, forceUpward, query, eig, out);
+        computeOneNormal(grid, positions, i, fit, query, scratch, out);
     }
     return normals;
+}
+
+/**
+ * How the local plane is fitted around one point. Bundled so the sequential and
+ * per-tile entry points hand `computeOneNormal` the exact same settings.
+ */
+interface NormalFit {
+    /** Flip each normal so nz ≥ 0. */
+    forceUpward: boolean;
+    /** Crease-preserving robust refit strength, 0..1 (0 = plain k-NN PCA). */
+    robust: number;
+}
+
+/**
+ * Per-point scratch buffers, allocated once per pass and mutated in place:
+ * `eig` holds the eigenvalues of the last accepted fit, `tmpEig` those of the
+ * pass being evaluated, `weights` the robust weights of the current refit pass,
+ * `center` its weighted centroid.
+ */
+interface FitScratch {
+    eig: Float64Array;
+    tmpEig: Float64Array;
+    weights: Float64Array;
+    center: Float64Array;
+}
+
+function makeFitScratch(k: number): FitScratch {
+    return {
+        eig: new Float64Array(3),
+        tmpEig: new Float64Array(3),
+        weights: new Float64Array(k),
+        center: new Float64Array(3),
+    };
 }
 
 function makeKnnQuery(k: number): KnnQuery {
@@ -313,9 +351,9 @@ function computeOneNormal(
     grid: CsrGrid,
     positions: Float32Array,
     i: number,
-    forceUpward: boolean,
+    fit: NormalFit,
     query: KnnQuery,
-    eig: Float64Array,
+    scratch: FitScratch,
     out: NormalsOutput,
 ): void {
     const x = positions[i * 3];
@@ -361,12 +399,165 @@ function computeOneNormal(
         cxy += ex * ey; cxz += ex * ez; cyz += ey * ez;
     }
 
+    const eig = scratch.eig;
+    const n = smallestEigenVec3(cxx, cyy, czz, cxy, cxz, cyz, eig);
+    let fitCount = count;
+    let perpDist = n[0] * (x - mx) + n[1] * (y - my) + n[2] * (z - mz);
+    if (fit.robust > 0) {
+        const w = refineNormalRobust(positions, query, fit.robust, n, scratch);
+        if (w > 0) {
+            const c = scratch.center;
+            fitCount = w;
+            perpDist = n[0] * (x - c[0]) + n[1] * (y - c[1]) + n[2] * (z - c[2]);
+        }
+    }
+    if (quality) quality[qualityIndex] = pcaQuality(eig, fitCount, perpDist);
+    const s = fit.forceUpward && n[2] < 0 ? -1 : 1;
+    outNormals[outIdx * 3] = n[0] * s;
+    outNormals[outIdx * 3 + 1] = n[1] * s;
+    outNormals[outIdx * 3 + 2] = n[2] * s;
+}
+
+/**
+ * Iteratively-reweighted plane refits (option 4 of `docs/ROCK_AND_CLIFF_DETAIL.md`).
+ *
+ * A plain least-squares fit over a fixed k-neighbourhood straddles any crease
+ * that falls inside that neighbourhood and returns the bisector of the two
+ * facets — every ridge, ledge and fault line is rounded off *before* the solver
+ * ever sees the data. Here each neighbour is instead weighted by
+ * `exp(-r²/2σ²)` on its distance `r` to the CURRENT plane, taken through the
+ * query point itself: after a pass or two the points on the far side of the
+ * crease have collapsed to ~0 weight and the fit sits squarely on the facet the
+ * query point belongs to.
+ *
+ * The rejection is self-limiting: on genuinely smooth ground every residual is
+ * within sensor noise, all weights stay ≈ 1 and the result is the plain fit.
+ * And because it works on the whole k-neighbourhood (≈ 1 m at LiDAR HD density,
+ * i.e. several octree cells across) the crease it recovers is a real
+ * metre-scale edge, not per-triangle faceting.
+ *
+ * `n` is refined in place. Returns the effective (summed) neighbour weight of
+ * the last accepted pass — also the sample count `pcaQuality` needs — or 0 when
+ * no pass was accepted, in which case `n` and `scratch.eig` still hold the
+ * plain fit.
+ */
+function refineNormalRobust(
+    positions: Float32Array,
+    query: KnnQuery,
+    robust: number,
+    n: [number, number, number],
+    scratch: FitScratch,
+): number {
+    // Graduated non-convexity: the first pass is barely selective (the starting
+    // plane IS the bisector, so on a crease every neighbour looks like an
+    // outlier), later passes tighten as the fit locks onto one facet. Jumping
+    // straight to the final tolerance would shed the good points too.
+    const finalTighten = ROBUST_TIGHTEN_LOOSE
+        + (ROBUST_TIGHTEN_TIGHT - ROBUST_TIGHTEN_LOOSE) * robust;
+    let accepted = 0;
+    for (let pass = 0; pass < ROBUST_PASSES; pass++) {
+        const t = ROBUST_TIGHTEN_LOOSE
+            * Math.pow(finalTighten / ROBUST_TIGHTEN_LOOSE, pass / (ROBUST_PASSES - 1));
+        const w = weightedPlaneFit(positions, query, n, t, scratch);
+        if (w <= 0) break;
+        accepted = w;
+    }
+    return accepted;
+}
+
+/** Number of reweighted passes over which the tolerance is tightened. */
+const ROBUST_PASSES = 4;
+/** Residual tolerance as a multiple of the mean absolute residual: first pass, then last pass at `robust` = 1. */
+const ROBUST_TIGHTEN_LOOSE = 1;
+const ROBUST_TIGHTEN_TIGHT = 0.25;
+/** Floor on the tolerance (m) — roughly the vertical noise of IGN LiDAR HD.
+ *  Without it a locally perfect plane would tighten to σ = 0 and reject everything. */
+const ROBUST_SIGMA_MIN_M = 0.06;
+/** Effective neighbour weight below which a refit is discarded as degenerate. */
+const ROBUST_MIN_WEIGHT = 3;
+/** Min λmid/λmax of the surviving neighbourhood: below this it has collapsed to
+ *  a line (e.g. a single scan column) and its "plane" normal is arbitrary. */
+const ROBUST_MIN_SPREAD = 0.02;
+
+/**
+ * One reweighted least-squares pass of {@link refineNormalRobust}: measure each
+ * neighbour's distance to the plane `n` through the query point, grade it by
+ * `exp(-r²/2σ²)` with σ = `tighten` × the mean absolute residual, then refit on
+ * the weighted covariance. Deriving σ from the residuals themselves is what
+ * makes the pass scale-free: on smooth ground they are all sensor noise, σ
+ * clamps to its floor, every weight stays ≈ 1 and the fit is left alone.
+ *
+ * Updates `n` (sign-locked to the incoming normal so successive passes can't
+ * oscillate), `scratch.eig` and `scratch.center`; returns the summed weight, or
+ * 0 when the surviving neighbourhood is too small or too degenerate to trust,
+ * leaving the previous fit in place.
+ */
+function weightedPlaneFit(
+    positions: Float32Array,
+    query: KnnQuery,
+    n: [number, number, number],
+    tighten: number,
+    scratch: FitScratch,
+): number {
+    const { x, y, z, k, idx } = query;
+    const w = scratch.weights;
+
+    let rsum = 0, rcount = 0;
+    for (let h = 0; h < k; h++) {
+        const j = idx[h];
+        if (j < 0) { w[h] = 0; continue; }
+        w[h] = n[0] * (positions[j * 3] - x)
+            + n[1] * (positions[j * 3 + 1] - y)
+            + n[2] * (positions[j * 3 + 2] - z);
+        rsum += Math.abs(w[h]);
+        rcount++;
+    }
+    if (rcount < 3) return 0;
+    const sigma = Math.max(ROBUST_SIGMA_MIN_M, (rsum / rcount) * tighten);
+    const invTwoSigma2 = 1 / (2 * sigma * sigma);
+
+    // Self carries weight 1: the plane is anchored on the query point, which is
+    // what keeps the fit on the facet that point actually belongs to.
+    let wsum = 1, mx = x, my = y, mz = z;
+    for (let h = 0; h < k; h++) {
+        const j = idx[h];
+        if (j < 0) continue;
+        const r = w[h];
+        const wj = Math.exp(-r * r * invTwoSigma2);
+        w[h] = wj;
+        wsum += wj;
+        mx += wj * positions[j * 3];
+        my += wj * positions[j * 3 + 1];
+        mz += wj * positions[j * 3 + 2];
+    }
+    if (wsum < ROBUST_MIN_WEIGHT) return 0;
+    mx /= wsum; my /= wsum; mz /= wsum;
+
+    let cxx = 0, cyy = 0, czz = 0, cxy = 0, cxz = 0, cyz = 0;
+    {
+        const ex = x - mx, ey = y - my, ez = z - mz;
+        cxx += ex * ex; cyy += ey * ey; czz += ez * ez;
+        cxy += ex * ey; cxz += ex * ez; cyz += ey * ez;
+    }
+    for (let h = 0; h < k; h++) {
+        const j = idx[h];
+        if (j < 0) continue;
+        const wj = w[h];
+        const ex = positions[j * 3] - mx;
+        const ey = positions[j * 3 + 1] - my;
+        const ez = positions[j * 3 + 2] - mz;
+        cxx += wj * ex * ex; cyy += wj * ey * ey; czz += wj * ez * ez;
+        cxy += wj * ex * ey; cxz += wj * ex * ez; cyz += wj * ey * ez;
+    }
+
+    const eig = scratch.tmpEig;
     const [nx, ny, nz] = smallestEigenVec3(cxx, cyy, czz, cxy, cxz, cyz, eig);
-    if (quality) quality[qualityIndex] = pcaQuality(eig, count, nx * (x - mx) + ny * (y - my) + nz * (z - mz));
-    const s = forceUpward && nz < 0 ? -1 : 1;
-    outNormals[outIdx * 3] = nx * s;
-    outNormals[outIdx * 3 + 1] = ny * s;
-    outNormals[outIdx * 3 + 2] = nz * s;
+    if (eig[1] < eig[2] * ROBUST_MIN_SPREAD) return 0;
+    const s = nx * n[0] + ny * n[1] + nz * n[2] < 0 ? -1 : 1;
+    n[0] = nx * s; n[1] = ny * s; n[2] = nz * s;
+    scratch.eig.set(eig);
+    scratch.center[0] = mx; scratch.center[1] = my; scratch.center[2] = mz;
+    return wsum;
 }
 
 /**
@@ -396,9 +587,11 @@ export function computeNormalsTile(
         forceUpward: boolean;
         origin: { minX: number; minY: number; minZ: number };
         wantQuality: boolean;
+        /** Crease-preserving robust refit strength, 0..1. Default 0 (plain fit). */
+        robust?: number;
     },
 ): { normals: Float32Array; quality?: Float32Array } {
-    const { k, cellSize, forceUpward, origin, wantQuality } = options;
+    const { k, cellSize, forceUpward, origin, wantQuality, robust = 0 } = options;
     const queryCount = queryLocalIndices.length;
     const normals = new Float32Array(queryCount * 3);
     const quality = wantQuality ? new Float32Array(queryCount) : undefined;
@@ -409,12 +602,13 @@ export function computeNormalsTile(
 
     const grid = new CsrGrid(positions, cellSize, origin);
     const query = makeKnnQuery(k);
-    const eig = new Float64Array(3);
+    const scratch = makeFitScratch(k);
+    const fit: NormalFit = { forceUpward, robust };
     const out: NormalsOutput = { normals, index: 0, quality, qualityIndex: 0 };
     for (let q = 0; q < queryCount; q++) {
         out.index = q;
         out.qualityIndex = q;
-        computeOneNormal(grid, positions, queryLocalIndices[q], forceUpward, query, eig, out);
+        computeOneNormal(grid, positions, queryLocalIndices[q], fit, query, scratch, out);
     }
     return { normals, quality };
 }

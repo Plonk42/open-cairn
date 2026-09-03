@@ -115,16 +115,17 @@ export async function computeNormalsKNNAsync(
     cellSize = 2,
     forceUpward = true,
     quality?: Float32Array,
+    robust = 0,
 ): Promise<Float32Array> {
     const n = positions.length / 3;
     const size = desiredPoolSize();
     if (size <= 1 || n < MIN_PARALLEL_POINTS || !poolSupported()) {
-        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality);
+        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality, robust);
     }
 
     const pool = ensurePool(size);
     if (pool.length === 0) {
-        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality);
+        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality, robust);
     }
 
     const tiles = planNormalsTiles(positions, pool.length, cellSize);
@@ -133,7 +134,7 @@ export async function computeNormalsKNNAsync(
         const results = await Promise.all(tiles.map((tile) => dispatchTile(pool, {
             positions: tile.localPositions,
             queryLocalIndices: tile.queryLocalIndices,
-            k, cellSize, forceUpward, origin: tile.origin, wantQuality,
+            k, cellSize, forceUpward, origin: tile.origin, wantQuality, robust,
         })));
 
         const normals = new Float32Array(n * 3);
@@ -153,7 +154,7 @@ export async function computeNormalsKNNAsync(
         // A worker crash or message error already marked the pool as failed via
         // handleError when applicable; recompute synchronously either way so
         // the caller always gets a correct (if slower) result.
-        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality);
+        return computeNormalsKNN(positions, k, cellSize, forceUpward, quality, robust);
     }
 }
 

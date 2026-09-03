@@ -83,3 +83,72 @@ describe('computeNormalsKNN', () => {
         expect(Array.from(normals)).toMatchSnapshot();
     });
 });
+
+/**
+ * A 90° roof ridge along y: the -x side rises at 45°, the +x side falls at 45°.
+ * Every point sits exactly on one of the two facets, so the "true" normal is
+ * known and the only ambiguity is which facet a near-ridge point belongs to.
+ */
+function ridgeCloud(halfWidth: number, length: number, spacing: number): Float32Array {
+    const cols = Math.round((2 * halfWidth) / spacing) + 1;
+    const rows = Math.round(length / spacing) + 1;
+    const out = new Float32Array(cols * rows * 3);
+    let p = 0;
+    for (let c = 0; c < cols; c++) {
+        const x = -halfWidth + c * spacing;
+        for (let r = 0; r < rows; r++) {
+            out[p++] = x;
+            out[p++] = r * spacing;
+            out[p++] = -Math.abs(x);
+        }
+    }
+    return out;
+}
+
+describe('computeNormalsKNN robust refit (crease preservation)', () => {
+    /** Angle (deg) between a point's normal and its facet's true normal. */
+    function tiltFromFacet(normals: Float32Array, i: number, x: number): number {
+        // z = -|x| ⇒ the x < 0 facet has normal (-1, 0, 1)/√2, the x > 0 one (1, 0, 1)/√2.
+        const s = x < 0 ? -1 : 1;
+        const tx = s * Math.SQRT1_2, tz = Math.SQRT1_2;
+        const dot = Math.abs(normals[i * 3] * tx + normals[i * 3 + 2] * tz);
+        return Math.acos(Math.min(1, dot)) * 180 / Math.PI;
+    }
+
+    it('keeps near-ridge normals on their own facet instead of the bisector', () => {
+        const spacing = 0.5;
+        const positions = ridgeCloud(4, 6, spacing);
+        const n = positions.length / 3;
+        const plain = computeNormalsKNN(positions, 12, 2, true);
+        const robust = computeNormalsKNN(positions, 12, 2, true, undefined, 1);
+
+        // Points off the ridge line but still inside their own k-neighbourhood of it.
+        let plainTilt = 0, robustTilt = 0, sampled = 0;
+        for (let i = 0; i < n; i++) {
+            const x = positions[i * 3];
+            const ax = Math.abs(x);
+            if (ax < spacing * 0.5 || ax > spacing * 2.5) continue;
+            plainTilt += tiltFromFacet(plain, i, x);
+            robustTilt += tiltFromFacet(robust, i, x);
+            sampled++;
+        }
+        expect(sampled).toBeGreaterThan(0);
+        expect(robustTilt / sampled).toBeLessThan(plainTilt / sampled * 0.5);
+    });
+
+    it('leaves a flat plane untouched (rejection is self-limiting)', () => {
+        const positions = flatGrid(8, 1, 0);
+        const plain = computeNormalsKNN(positions, 12, 2, true);
+        const robust = computeNormalsKNN(positions, 12, 2, true, undefined, 1);
+        for (let i = 0; i < positions.length / 3; i++) {
+            expect(robust[i * 3 + 2]).toBeCloseTo(plain[i * 3 + 2], 4);
+        }
+    });
+
+    it('is a no-op at robust = 0', () => {
+        const positions = ridgeCloud(4, 6, 0.5);
+        const plain = computeNormalsKNN(positions, 12, 2, true);
+        const off = computeNormalsKNN(positions, 12, 2, true, undefined, 0);
+        expect(Array.from(off)).toEqual(Array.from(plain));
+    });
+});

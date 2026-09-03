@@ -42,6 +42,8 @@ function PoissonControls() {
     const setPoissonPointWeight = useMapStore((s) => s.setLidarCloudPoissonPointWeight);
     const poissonSharpen = useMapStore((s) => s.lidarCloudPoissonSharpen);
     const setPoissonSharpen = useMapStore((s) => s.setLidarCloudPoissonSharpen);
+    const normalRobust = useMapStore((s) => s.lidarCloudPoissonNormalRobust);
+    const setNormalRobust = useMapStore((s) => s.setLidarCloudPoissonNormalRobust);
     const flatBase = useMapStore((s) => s.lidarCloudPoissonFlatBase);
     const setFlatBase = useMapStore((s) => s.setLidarCloudPoissonFlatBase);
     return (
@@ -92,6 +94,24 @@ function PoissonControls() {
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
                     Adhésion du maillage aux points &middot; 4 (défaut) &middot; min 0,5 / max 16.
+                </p>
+            </label>
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Arêtes</span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {normalRobust <= 0 ? 'off' : `${Math.round(normalRobust * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Préservation des arêtes dans l'estimation des normales"
+                    type="range" min={0} max={1} step={0.05}
+                    value={normalRobust}
+                    onChange={(e) => setNormalRobust(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                    Empêche les normales de moyenner de part et d&apos;autre des ruptures de pente &middot; 60 % (défaut).
                 </p>
             </label>
             <label className="block">

@@ -22,6 +22,8 @@ export interface NormalsTileRequest {
     forceUpward: boolean;
     origin: { minX: number; minY: number; minZ: number };
     wantQuality: boolean;
+    /** Crease-preserving robust refit strength, 0..1 (0 = plain k-NN PCA). */
+    robust: number;
 }
 
 /** worker → pool. */
