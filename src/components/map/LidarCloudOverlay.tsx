@@ -84,6 +84,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const haze = useMapStore((s) => s.lidarHaze);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
+    const rockBreak = useMapStore((s) => s.lidarRockBreak);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
@@ -364,8 +365,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             hazeDensity: haze * HAZE_MAX_DENSITY,
             facet: rockFacet,
             microRelief: rockMicro,
+            rockBreak,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

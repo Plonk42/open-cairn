@@ -219,6 +219,8 @@ export function ShaderControls() {
     const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
     const setRockMicro = useMapStore((s) => s.setLidarRockMicro);
+    const rockBreak = useMapStore((s) => s.lidarRockBreak);
+    const setRockBreak = useMapStore((s) => s.setLidarRockBreak);
 
     return (
         <div className="space-y-3">
@@ -261,6 +263,25 @@ export function ShaderControls() {
                     type="range" min={0} max={2} step={0.05}
                     value={rockMicro}
                     onChange={(e) => setRockMicro(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Cassure d'albédo : patine du rocher + bord de névé */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Casse l'aplat de la palette : patine fractale sur le rocher (bancs, veines, oxydation) et bord de névé dentelé au lieu d'un dégradé lisse. Couleur seulement, aucune lumière n'est cuite.">
+                        Patine
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {rockBreak <= 0 ? 'off' : `${Math.round(rockBreak * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Cassure d'albédo de la roche"
+                    type="range" min={0} max={2} step={0.05}
+                    value={rockBreak}
+                    onChange={(e) => setRockBreak(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>

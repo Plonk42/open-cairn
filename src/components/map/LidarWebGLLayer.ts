@@ -394,6 +394,14 @@ export interface LidarWebGLLayerConfig {
      * `glsl/lib/microRelief.glsl` and `docs/ROCK_AND_CLIFF_DETAIL.md` §2.D.12.
      */
     microRelief: number;
+    /**
+     * Ground mesh only — amplitude of the reflectance breakup applied to rock:
+     * a world-space fractal patina over the otherwise perfectly smooth
+     * `montagne` palette, plus a noisy re-threshold of the snow/rock boundary
+     * so snowfields stop looking gelatinous (0 disables it). See
+     * `glsl/lib/rockAlbedo.glsl` and `docs/ROCK_AND_CLIFF_DETAIL.md` §2.D.13.
+     */
+    rockBreak: number;
 }
 
 /** Uniform locations of the shared `glsl/lib/pbr.glsl` block. */
@@ -644,7 +652,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         wireframe: WebGLUniformLocation | null;
         facet: WebGLUniformLocation | null;
         microRelief: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null };
+        rockBreak: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -772,6 +781,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         hazeDensity: 1 / 9000,
         facet: 0.6,
         microRelief: 1,
+        rockBreak: 1,
     };
 
     /** Uniform locations of the shared PBR block, per program. */
@@ -1669,6 +1679,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locMesh.flatLight, this.config.sunLightingEnabled ? 0 : 1);
         gl.uniform1f(this._locMesh.facet, this.config.facet);
         gl.uniform1f(this._locMesh.microRelief, this.config.microRelief);
+        gl.uniform1f(this._locMesh.rockBreak, this.config.rockBreak);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
@@ -2055,6 +2066,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
             facet: gl.getUniformLocation(this._progMesh, 'u_facet'),
             microRelief: gl.getUniformLocation(this._progMesh, 'u_microRelief'),
+            rockBreak: gl.getUniformLocation(this._progMesh, 'u_rockBreak'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
 

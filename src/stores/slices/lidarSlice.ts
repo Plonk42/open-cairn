@@ -345,6 +345,16 @@ export interface LidarSlice {
      */
     lidarRockMicro: number;
     setLidarRockMicro: (v: number) => void;
+    /**
+     * Reflectance breakup on rock, 0..2. The `montagne` palette is a smooth
+     * function of slope, altitude and aspect, so a whole face gets exactly one
+     * colour; this adds a world-space fractal patina on top of it and
+     * re-thresholds the snow/rock boundary with noise so snowfields get a
+     * jagged edge instead of a gelatinous ramp. Pure reflectance — no light is
+     * baked. See `glsl/lib/rockAlbedo.glsl`.
+     */
+    lidarRockBreak: number;
+    setLidarRockBreak: (v: number) => void;
 
     /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
      *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
@@ -514,6 +524,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarHaze: 0.3,
     lidarRockFacet: 0.6,
     lidarRockMicro: 1,
+    lidarRockBreak: 1,
     lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
@@ -717,6 +728,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarRockFacet: (lidarRockFacet) => set({ lidarRockFacet }),
         lidarRockMicro: persisted.lidarRockMicro ?? LIDAR_RENDER_DEFAULTS.lidarRockMicro,
         setLidarRockMicro: (lidarRockMicro) => set({ lidarRockMicro }),
+        lidarRockBreak: persisted.lidarRockBreak ?? LIDAR_RENDER_DEFAULTS.lidarRockBreak,
+        setLidarRockBreak: (lidarRockBreak) => set({ lidarRockBreak }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
@@ -982,6 +995,7 @@ export function selectLidarPersisted(
     | 'lidarHaze'
     | 'lidarRockFacet'
     | 'lidarRockMicro'
+    | 'lidarRockBreak'
     | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
@@ -1046,6 +1060,7 @@ export function selectLidarPersisted(
         lidarHaze: s.lidarHaze,
         lidarRockFacet: s.lidarRockFacet,
         lidarRockMicro: s.lidarRockMicro,
+        lidarRockBreak: s.lidarRockBreak,
         lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,

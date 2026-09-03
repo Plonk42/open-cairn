@@ -13,6 +13,8 @@ in vec3 v_wpos;
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
 #include ./lib/microRelief.glsl;
+// rockAlbedo utilise mrValueNoise : il doit rester APRÈS microRelief.
+#include ./lib/rockAlbedo.glsl;
 #include ./lib/pbr.glsl;
 
 uniform vec3 u_sunDir;
@@ -24,6 +26,8 @@ uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform float u_facet;
 // Amplitude du micro-relief procédural (0 = aucun). §2.D.12.
 uniform float u_microRelief;
+// Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
+uniform float u_rockBreak;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
@@ -98,8 +102,14 @@ void main() {
     // photo drapée indifféremment. Multiplié plutôt que branché : `microReliefNormal`
     // prend des dérivées d'écran, elles seraient indéfinies sous un branchement divergent.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
-    float rockness = (1.0 - smoothstep(0.55, 0.80, lum)) * (1.0 - step(0.5, v_base));
+    float notBase = 1.0 - step(0.5, v_base);
+    float rockness = (1.0 - smoothstep(0.55, 0.80, lum)) * notBase;
     n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
+
+    // Cassure d'albédo : patine fractale sur le rocher + bord de névé dentelé.
+    // Purement réflectance — appliquée avant tout calcul de lumière.
+    float pixelM = max(length(dFdx(v_wpos)), length(dFdy(v_wpos)));
+    albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
     vec3 flatDir = normalize(FLAT_LIGHT_DIR);
