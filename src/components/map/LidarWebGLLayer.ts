@@ -412,6 +412,15 @@ export interface LidarWebGLLayerConfig {
      * `docs/ROCK_AND_CLIFF_DETAIL.md` §2.C.9.
      */
     specular: number;
+    /**
+     * Ground mesh only — amplitude of the procedural strata / fracture texture
+     * draped on steep faces (0 disables it). A nadir orthophoto degenerates to
+     * a few stretched pixels on a wall, so cliffs — the very surfaces that need
+     * the most detail — are the only ones left with no albedo information at
+     * all. See `glsl/lib/cliffTexture.glsl` and
+     * `docs/ROCK_AND_CLIFF_DETAIL.md` §2.D.14.
+     */
+    cliffTex: number;
 }
 
 /** Uniform locations of the shared `glsl/lib/pbr.glsl` block. */
@@ -664,7 +673,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         microRelief: WebGLUniformLocation | null;
         rockBreak: WebGLUniformLocation | null;
         specular: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, specular: null };
+        cliffTex: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, specular: null, cliffTex: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -794,6 +804,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         microRelief: 1,
         rockBreak: 1,
         specular: 0.5,
+        cliffTex: 1,
     };
 
     /** Uniform locations of the shared PBR block, per program. */
@@ -1693,6 +1704,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locMesh.microRelief, this.config.microRelief);
         gl.uniform1f(this._locMesh.rockBreak, this.config.rockBreak);
         gl.uniform1f(this._locMesh.specular, this.config.specular);
+        gl.uniform1f(this._locMesh.cliffTex, this.config.cliffTex);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
@@ -2081,6 +2093,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             microRelief: gl.getUniformLocation(this._progMesh, 'u_microRelief'),
             rockBreak: gl.getUniformLocation(this._progMesh, 'u_rockBreak'),
             specular: gl.getUniformLocation(this._progMesh, 'u_specular'),
+            cliffTex: gl.getUniformLocation(this._progMesh, 'u_cliffTex'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
 

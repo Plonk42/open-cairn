@@ -14,8 +14,10 @@ in vec3 v_view;
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
 #include ./lib/microRelief.glsl;
-// rockAlbedo utilise mrValueNoise : il doit rester APRÈS microRelief.
+// rockAlbedo et cliffTexture utilisent mrValueNoise : ils doivent rester APRÈS
+// microRelief.
 #include ./lib/rockAlbedo.glsl;
+#include ./lib/cliffTexture.glsl;
 #include ./lib/pbr.glsl;
 
 uniform vec3 u_sunDir;
@@ -31,6 +33,8 @@ uniform float u_microRelief;
 uniform float u_rockBreak;
 // Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
 uniform float u_specular;
+// Amplitude des strates et fractures procédurales sur les parois. §2.D.14.
+uniform float u_cliffTex;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
@@ -113,6 +117,14 @@ void main() {
     // Purement réflectance — appliquée avant tout calcul de lumière.
     float pixelM = max(length(dFdx(v_wpos)), length(dFdy(v_wpos)));
     albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase);
+
+    // Strates et fractures : sur une paroi raide, l'orthophoto nadir n'est plus
+    // qu'un étirement de quelques pixels et la palette un aplat — c'est le seul
+    // endroit du modèle qui n'a aucune information d'albédo. Le masque n'ouvre
+    // qu'au-delà de ~65° de pente, pour ne pas tatouer les surfaces réellement
+    // drapées.
+    float steepness = (1.0 - smoothstep(0.20, 0.60, nSmooth.z)) * rockness;
+    albedo = cliffTexture(albedo, v_wpos, pixelM, steepness, u_cliffTex);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
     vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.

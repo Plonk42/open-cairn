@@ -223,6 +223,8 @@ export function ShaderControls() {
     const setRockBreak = useMapStore((s) => s.setLidarRockBreak);
     const specular = useMapStore((s) => s.lidarRockSpecular);
     const setSpecular = useMapStore((s) => s.setLidarRockSpecular);
+    const cliffTex = useMapStore((s) => s.lidarCliffTexture);
+    const setCliffTex = useMapStore((s) => s.setLidarCliffTexture);
 
     return (
         <div className="space-y-3">
@@ -303,6 +305,25 @@ export function ShaderControls() {
                     type="range" min={0} max={2} step={0.05}
                     value={specular}
                     onChange={(e) => setSpecular(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
+
+            {/* Strates et fractures procédurales sur les parois */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Bancs et fractures dessinés sur les faces de plus de 65°. Vue du ciel, l'orthophoto ne couvre une paroi verticale que de quelques pixels étirés : sans ça les falaises sont les seules surfaces sans aucun détail de couleur.">
+                        Strates
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {cliffTex <= 0 ? 'off' : `${Math.round(cliffTex * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Strates et fractures des parois"
+                    type="range" min={0} max={2} step={0.05}
+                    value={cliffTex}
+                    onChange={(e) => setCliffTex(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>
