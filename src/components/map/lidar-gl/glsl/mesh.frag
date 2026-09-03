@@ -1,23 +1,26 @@
 #version 300 es
 precision highp float;
 in vec3 v_albedo;
-in float v_diff;
-in float v_flatDiff;
-in float v_flatDirect;
+in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_distM;
 in float v_alpha;
-in float v_up;
 in float v_base;
 in vec3 v_wpos;
 
 #include ./lib/sampleShadow.glsl;
+#include ./lib/flatLight.glsl;
 #include ./lib/pbr.glsl;
 
+uniform vec3 u_sunDir;
+uniform float u_sunIntensity;
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
+// Mélange normale interpolée → normale géométrique (0 = lisse, 1 = facettes).
+// Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.C.8.
+uniform float u_facet;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
 uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
 uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
@@ -42,6 +45,38 @@ void main() {
         return;
     }
     float s = sampleShadow();
+
+    // ── Normale de rendu ──────────────────────────────────────────────────
+    // La normale de sommet issue de Poisson est lisse par construction (le
+    // solveur résout un champ scalaire C², et le pipeline lui applique encore
+    // deux passes laplaciennes) : interpolée sur le triangle, elle donne au
+    // rocher un aspect de cire. La normale géométrique — constante sur chaque
+    // facette, reconstruite ici depuis les dérivées écran de la position monde
+    // — restitue au contraire la facettisation réelle du maillage. u_facet
+    // dose entre les deux.
+    vec3 nSmooth = normalize(v_normal);
+    vec3 nGeom = nSmooth;
+    if (u_facet > 0.0) {
+        vec3 g = cross(dFdx(v_wpos), dFdy(v_wpos));
+        float gLen2 = dot(g, g);
+        // Triangle dégénéré / silhouette : pas de normale géométrique exploitable.
+        if (gLen2 > 1e-20) {
+            nGeom = g * inversesqrt(gLen2);
+            // Le signe dépend du bobinage à l'écran, pas de l'orientation réelle.
+            if (dot(nGeom, nSmooth) < 0.0) nGeom = -nGeom;
+        }
+    }
+    vec3 n = normalize(mix(nSmooth, nGeom, u_facet));
+
+    float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
+    vec3 flatDir = normalize(FLAT_LIGHT_DIR);
+    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    float flatDiff = dot(n, flatDir) * 0.5 + 0.5;
+    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
+    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
+    // sur les faces détournées de la lumière et écraserait le relief).
+    float flatDirect = max(0.0, dot(n, flatDir));
+
     vec3 albedo = v_albedo;
     // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et
     // seulement sur les surfaces qui « voient le ciel ». Une photo nadir n'a
@@ -52,7 +87,9 @@ void main() {
     // synthétique (v_base, hachurés ci-dessous) ne « voient » pas le ciel non
     // plus mais leur normale est quasi-horizontale (v_up≈0) donc le lissage
     // ci-dessus les laisserait recevoir la photo — on les exclut explicitement.
-    float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, v_up);
+    // On utilise ici la normale LISSE : le drapage ne doit pas scintiller au
+    // gré de la facettisation.
+    float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, nSmooth.z);
     if (u_hasPhoto > 0.5
         && photoFacing > 0.0
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
@@ -61,18 +98,18 @@ void main() {
         albedo = mix(v_albedo, photo, u_photoOpacityGround * photoFacing);
     }
     vec3 ambient = albedo * 0.35;
-    vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
+    vec3 diffuse = albedo * (0.75 * diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
     // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
     // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
     // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
-    vec3 neutral = albedo * (0.2 + 0.8 * v_flatDiff * s);
+    vec3 neutral = albedo * (0.2 + 0.8 * flatDiff * s);
     vec3 rgb = mix(lit, neutral, u_flatLight);
     // Chemin photoréaliste : même décomposition (direct × ombre, soleil ou
     // lumière fixe) mais résolue en radiance linéaire avec ambiante
     // hémisphérique, perspective aérienne et tone mapping filmique.
-    float direct = mix(v_diff, v_flatDirect, u_flatLight) * s;
-    rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_up, direct, v_distM)), u_pbr);
+    float direct = mix(diff, flatDirect, u_flatLight) * s;
+    rgb = mix(rgb, pbrEncode(pbrShade(albedo, n.z, direct, v_distM)), u_pbr);
     // Hachures à 45° gravées sur les murs du socle synthétique. En espace-monde
     // (v_wpos, mètres) : les lignes suivent le mesh (elles restent fixées à la
     // paroi quand la caméra bouge). L'épaisseur est mesurée en pixels via fwidth

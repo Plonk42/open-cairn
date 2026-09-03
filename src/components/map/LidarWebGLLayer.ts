@@ -378,6 +378,14 @@ export interface LidarWebGLLayerConfig {
      * (4e-4) already washes a ridge 2 km away halfway to the sky colour.
      */
     hazeDensity: number;
+    /**
+     * Ground mesh only — blend from the interpolated (smooth) vertex normal
+     * toward the geometric per-triangle normal, reconstructed in the fragment
+     * shader from the screen-space derivatives of the world position. 0 keeps
+     * the historical waxy Poisson shading, 1 fully facets the surface. See
+     * `docs/ROCK_AND_CLIFF_DETAIL.md` §2.C.8.
+     */
+    facet: number;
 }
 
 /** Uniform locations of the shared `glsl/lib/pbr.glsl` block. */
@@ -626,7 +634,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         photoOpacityGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
         wireframe: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null };
+        facet: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -752,6 +761,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         ambient: 1,
         sunStrength: 1,
         hazeDensity: 1 / 9000,
+        facet: 0.6,
     };
 
     /** Uniform locations of the shared PBR block, per program. */
@@ -1647,6 +1657,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locMesh.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locMesh.sunColor, this.config.sunColor);
         gl.uniform1f(this._locMesh.flatLight, this.config.sunLightingEnabled ? 0 : 1);
+        gl.uniform1f(this._locMesh.facet, this.config.facet);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
@@ -2031,6 +2042,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             photoOpacityGround: gl.getUniformLocation(this._progMesh, 'u_photoOpacityGround'),
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
             wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
+            facet: gl.getUniformLocation(this._progMesh, 'u_facet'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
 

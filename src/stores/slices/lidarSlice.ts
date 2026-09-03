@@ -325,6 +325,16 @@ export interface LidarSlice {
     /** Aerial perspective amount, 0..1 (mapped to an extinction per metre). */
     lidarHaze: number;
     setLidarHaze: (v: number) => void;
+    /**
+     * Ground-mesh faceting, 0..1: blend from the smooth interpolated vertex
+     * normal toward the geometric per-triangle normal. Poisson solves a C²
+     * scalar field and the pipeline smooths the normals twice more on top, so
+     * rock ends up looking like wax; shading on the geometric normal instead
+     * restores the facets the mesh actually has.
+     * See `docs/ROCK_AND_CLIFF_DETAIL.md`.
+     */
+    lidarRockFacet: number;
+    setLidarRockFacet: (v: number) => void;
 
     /** Screen-space ambient-occlusion strength (0 = off). Darkens cavities the
      *  hemispheric ambient term alone cannot see: couloirs, crevices, the foot
@@ -492,6 +502,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarAmbient: 1,
     lidarSunStrength: 1,
     lidarHaze: 0.3,
+    lidarRockFacet: 0.6,
     lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural' as VegColorMode,
@@ -691,6 +702,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarSunStrength: (lidarSunStrength) => set({ lidarSunStrength }),
         lidarHaze: persisted.lidarHaze ?? LIDAR_RENDER_DEFAULTS.lidarHaze,
         setLidarHaze: (lidarHaze) => set({ lidarHaze }),
+        lidarRockFacet: persisted.lidarRockFacet ?? LIDAR_RENDER_DEFAULTS.lidarRockFacet,
+        setLidarRockFacet: (lidarRockFacet) => set({ lidarRockFacet }),
         lidarAo: persisted.lidarAo ?? LIDAR_RENDER_DEFAULTS.lidarAo,
         setLidarAo: (lidarAo) => set({ lidarAo }),
         lidarVegEnhance: persisted.lidarVegEnhance ?? LIDAR_RENDER_DEFAULTS.lidarVegEnhance,
@@ -954,6 +967,7 @@ export function selectLidarPersisted(
     | 'lidarAmbient'
     | 'lidarSunStrength'
     | 'lidarHaze'
+    | 'lidarRockFacet'
     | 'lidarAo'
     | 'lidarVegEnhance'
     | 'lidarVegColorMode'
@@ -1016,6 +1030,7 @@ export function selectLidarPersisted(
         lidarAmbient: s.lidarAmbient,
         lidarSunStrength: s.lidarSunStrength,
         lidarHaze: s.lidarHaze,
+        lidarRockFacet: s.lidarRockFacet,
         lidarAo: s.lidarAo,
         lidarVegEnhance: s.lidarVegEnhance,
         lidarVegColorMode: s.lidarVegColorMode,

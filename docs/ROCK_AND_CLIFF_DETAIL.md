@@ -145,3 +145,4 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | Date | Levier | État |
 | --- | --- | --- |
 | 2026-09-03 | Diagnostic + plan | ✅ ce document |
+| 2026-09-03 | **8** — ombrage du maillage par fragment + mélange vers la normale géométrique (curseur *Facettes*, section Shader, défaut 60 %) | ✅ |

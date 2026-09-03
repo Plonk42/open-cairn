@@ -82,6 +82,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const ambient = useMapStore((s) => s.lidarAmbient);
     const sunStrength = useMapStore((s) => s.lidarSunStrength);
     const haze = useMapStore((s) => s.lidarHaze);
+    const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
     const vegColorMode = useMapStore((s) => s.lidarVegColorMode);
@@ -360,8 +361,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             // at 1, chosen so a ridge ~1.7 km away is half-way to the sky colour
             // (a strong but still plausible summer-afternoon haze).
             hazeDensity: haze * HAZE_MAX_DENSITY,
+            facet: rockFacet,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

@@ -5,8 +5,13 @@
 // (vue de dessus). L'albédo de base (couleur de palette) et la photo sont
 // mélangés dans le fragment shader selon `u_photoOpacity`, puis éclairés par le
 // même modèle ambient/diffus + ombres que les points. Pour pouvoir mélanger
-// l'albédo *avant* l'éclairage, on transmet l'albédo brut (v_albedo) et le
-// facteur diffus scalaire (v_diff) au lieu des termes ambient/diffus pré-calculés.
+// l'albédo *avant* l'éclairage, on transmet l'albédo brut (v_albedo) au lieu
+// des termes ambient/diffus pré-calculés.
+//
+// L'éclairage lui-même est résolu PAR FRAGMENT (mesh.frag) : ce shader ne fait
+// que transmettre la normale. C'est la condition pour pouvoir la perturber à
+// l'échelle du pixel (mélange avec la normale géométrique, micro-relief) — un
+// terme diffus pré-calculé par sommet ne laisserait rien à perturber.
 precision highp float;
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
@@ -15,8 +20,6 @@ layout(location = 3) in float a_base; // 1 = mur du socle synthétique (à hachu
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
-uniform vec3 u_sunDir;
-uniform float u_sunIntensity;
 uniform mat4 u_lightMatrix;
 uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
 // Position de l'œil dans le MÊME espace que `pos` (unités Mercator relatives à
@@ -25,19 +28,14 @@ uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
 uniform vec3 u_camPos;
 
 out vec3 v_albedo;
-out float v_diff;
-out float v_flatDiff;
-out float v_flatDirect; // N·L non replié pour la lumière fixe (chemin PBR)
+out vec3 v_normal; // normale interpolée (frame est/nord/up), éclairage par fragment
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_distM;      // distance caméra→fragment en mètres (perspective aérienne)
 out float v_alpha;
-out float v_up;
 out float v_base;
 out vec3 v_wpos;   // position monde (mètres est/nord/z) pour hachures ancrées au mesh
-
-#include ./lib/flatLight.glsl;
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
@@ -46,19 +44,9 @@ void main() {
     // gl_Position.w n'est PAS métrique (MapLibre y replie worldSize = 512·2^zoom),
     // d'où la distance euclidienne à l'œil ramenée en mètres par u_mpu.
     v_distM = distance(pos, u_camPos) / max(u_mpu, 1e-20);
-    vec3 n = normalize(a_normal);
-    v_diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
-    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
-    v_flatDiff = dot(n, normalize(FLAT_LIGHT_DIR)) * 0.5 + 0.5;
-    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
-    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
-    // sur les faces détournées de la lumière et écraserait le relief).
-    v_flatDirect = max(0.0, dot(n, normalize(FLAT_LIGHT_DIR)));
-    // Composante « vers le haut » de la normale (frame est/nord/up) : +1 face
-    // au ciel, -1 face au sol. Sert à ne pas draper la photo nadir sur les
-    // surfaces orientées vers le bas (fond fermé « fantôme » du mesh Poisson,
-    // dessous de surplombs/grottes).
-    v_up = n.z;
+    // Non normalisée : l'interpolation la dénormalise de toute façon, mesh.frag
+    // normalise une seule fois côté fragment.
+    v_normal = a_normal;
     v_base = a_base;
     v_wpos = a_pos;
     v_albedo = a_color.rgb;

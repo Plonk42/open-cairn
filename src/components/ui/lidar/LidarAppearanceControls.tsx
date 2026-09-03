@@ -211,15 +211,38 @@ export function OpacityControls() {
     );
 }
 
-/** Shader preset selector: base / cliff / winter. */
+/** Shader preset selector + rock/cliff surface detail (see docs/ROCK_AND_CLIFF_DETAIL.md). */
 export function ShaderControls() {
     const shader = useMapStore((s) => s.lidarShader);
     const setShader = useMapStore((s) => s.setLidarShader);
+    const rockFacet = useMapStore((s) => s.lidarRockFacet);
+    const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
 
     return (
-        <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
-            <SegmentedControl value={shader} options={SHADER_OPTIONS} onChange={setShader} />
+        <div className="space-y-3">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
+                <SegmentedControl value={shader} options={SHADER_OPTIONS} onChange={setShader} />
+            </div>
+
+            {/* Facettisation du maillage reconstruit */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Éclaire le maillage sur la normale géométrique de chaque triangle plutôt que sur la normale lissée. La reconstruction Poisson est continue par construction, ce qui donne au rocher un aspect de cire ; les facettes lui rendent son grain.">
+                        Facettes
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {rockFacet <= 0 ? 'off' : `${Math.round(rockFacet * 100)}%`}
+                    </span>
+                </div>
+                <input
+                    aria-label="Facettisation du maillage"
+                    type="range" min={0} max={1} step={0.05}
+                    value={rockFacet}
+                    onChange={(e) => setRockFacet(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
         </div>
     );
 }
