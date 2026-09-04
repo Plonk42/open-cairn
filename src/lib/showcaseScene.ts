@@ -710,6 +710,10 @@ export async function fetchArrayBufferWithProgress(
 export async function fetchShowcaseManifest(url: string): Promise<ShowcaseManifest> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`showcase manifest: fetch failed (${res.status})`);
+    // Missing scene assets aren't 404s: the dev server and SPA hosting both answer
+    // with index.html and a 200, which would otherwise surface as a JSON.parse error.
+    const type = res.headers.get('Content-Type') ?? '';
+    if (!type.includes('json')) throw new Error(`showcase manifest: scène non publiée (${url})`);
     return parseShowcaseManifest(await res.text());
 }
 
