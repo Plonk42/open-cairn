@@ -31,7 +31,8 @@ export interface SettingsSlice {
 
     /**
      * Studio "caméra libre": lets the camera cross the terrain surface instead of
-     * being pushed back out by MapLibre. Session-only on purpose — it changes how
+     * being pushed back out by MapLibre, and unpins its altitude from the terrain
+     * so the arrow keys can climb. Session-only on purpose — it changes how
      * navigation feels, so it should not silently persist across reloads.
      */
     freeCamera: boolean;

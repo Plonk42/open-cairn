@@ -33,7 +33,9 @@ export function OrbitTopBarButton() {
  * with pitch + zoom rewrites on every frame — close to the ground that reads as
  * the view snapping around while you orbit. Turning it off lets the camera pass
  * through the ground so inspecting a cloud or a slope from up close stays
- * steady (and unlocks the full above-the-horizon pitch range).
+ * steady (and unlocks the full above-the-horizon pitch range). It also unpins
+ * the camera's altitude from the terrain, which is what lets the arrow keys
+ * climb a cliff face instead of panning.
  */
 function FreeCameraTopBarButton() {
     const freeCamera = useMapStore((s) => s.freeCamera);
@@ -42,7 +44,7 @@ function FreeCameraTopBarButton() {
         <button
             type="button"
             onClick={() => setFreeCamera(!freeCamera)}
-            title="Caméra libre : traverse le terrain au lieu d’être repoussée — vue stable en inspection rapprochée"
+            title="Caméra libre : traverse le terrain au lieu d’être repoussée — vue stable en inspection rapprochée, et flèches ↑/↓ pour monter ou descendre (Maj : pas x5)"
             aria-label="Caméra libre"
             aria-pressed={freeCamera}
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${freeCamera

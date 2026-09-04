@@ -1,5 +1,5 @@
 import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
-import { setTerrainCameraCollision } from '@/lib/freeCamera';
+import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
 import { buildMapStyle, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
 import { useView } from '@/lib/useView';
@@ -127,6 +127,7 @@ registerCompositeProtocol();
 
 function syncCenterElevationToTerrain(map: maplibregl.Map): void {
     if (!map.getTerrain()) return;
+    if (!map.getCenterClampedToGround()) return; // altitude flown manually — don't yank it back
     const elevation = map.queryTerrainElevation(map.getCenter());
     if (typeof elevation !== 'number' || !Number.isFinite(elevation)) return;
     if (Math.abs(map.getCenterElevation() - elevation) < 0.5) return;
@@ -765,13 +766,17 @@ export function MapContainer() {
         mapRef.current?.setMaxPitch(studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH);
     }, [studio]);
 
-    // "Caméra libre": studio-only opt-out of MapLibre's terrain camera collision,
-    // which otherwise rewrites pitch AND zoom every frame when the eye grazes the
-    // ground — the jitter that makes close-range inspection unusable.
+    // "Caméra libre": studio-only release of the camera from the ground, in both
+    // senses. MapLibre otherwise pushes the eye back out of the terrain — rewriting
+    // pitch AND zoom every frame when it grazes the surface — and pins the target's
+    // altitude to the DEM, which makes a purely vertical move impossible. Off that
+    // leash the arrows gain altitude instead of panning, like a drone.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        setTerrainCameraCollision(map, !(studio && freeCamera));
+        const free = studio && freeCamera;
+        setTerrainCameraCollision(map, !free);
+        return free ? bindAltitudeKeys(map) : undefined;
     }, [studio, freeCamera]);
 
     // Rebuild style when structural settings change (base layer, hillshade on/off,

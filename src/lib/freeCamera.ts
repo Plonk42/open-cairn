@@ -72,3 +72,65 @@ export function setTerrainCameraCollision(map: MapLibreMap, enabled: boolean): v
 export function isTerrainCameraCollisionDisabled(map: MapLibreMap): boolean {
     return suspended.has(map);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vertical camera moves — climbing a cliff face without changing the viewpoint.
+//
+// MapLibre's camera is `center (lng/lat) + zoom + pitch + bearing`, and with 3D
+// terrain the center's elevation is re-derived from the DEM on every frame. A
+// pure vertical translation of the whole rig is therefore unrepresentable:
+// measured, a `setCenterElevation(+300)` is undone before the next paint. The
+// altitude can only be changed by giving up the zoom (distance grows), the
+// pitch (the camera tips over) or the framing (the target slides away).
+//
+// Unclamping the center from the ground removes exactly that constraint, and
+// only that one: the elevation then holds, so raising it lifts eye and target
+// together — zoom, pitch and bearing untouched. The trade-off is that panning no
+// longer follows the relief, which is the intended behaviour here (a drone keeps
+// its altitude), and clamping is restored when the binding is disposed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Vertical travel per arrow press, as a span of ground at the current scale. */
+const ALTITUDE_STEP_PX = 20;
+const ALTITUDE_FAST_FACTOR = 5;
+
+function metersPerPixel(map: MapLibreMap): number {
+    const { lat } = map.getCenter();
+    return (156543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** map.getZoom();
+}
+
+/** Move the camera straight up (`deltaM > 0`) or down, like a drone. */
+export function raiseCamera(map: MapLibreMap, deltaM: number): void {
+    if (map.getCenterClampedToGround()) map.setCenterClampedToGround(false);
+    map.setCenterElevation(map.getCenterElevation() + deltaM);
+}
+
+function isTextEntry(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (!el?.tagName) return false;
+    return el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
+}
+
+/**
+ * Fly the camera up and down with the arrow keys (Shift for a coarse step).
+ *
+ * @returns Disposer that unbinds the keys and re-clamps the center to the ground.
+ */
+export function bindAltitudeKeys(map: MapLibreMap): () => void {
+    const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        if (e.ctrlKey || e.metaKey || e.altKey || isTextEntry(e.target)) return;
+        // MapLibre pans north/south on these keys from a listener on the canvas
+        // container; the capture phase is the only place to take them first.
+        e.preventDefault();
+        e.stopPropagation();
+        const step = metersPerPixel(map) * ALTITUDE_STEP_PX * (e.shiftKey ? ALTITUDE_FAST_FACTOR : 1);
+        raiseCamera(map, e.key === 'ArrowUp' ? step : -step);
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+        document.removeEventListener('keydown', onKeyDown, true);
+        map.setCenterClampedToGround(true);
+    };
+}
