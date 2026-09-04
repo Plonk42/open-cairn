@@ -156,14 +156,18 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-03 | **14** — drapage triplanaire / texture de roche sur les parois | ❌ abandonné : faute de source photo oblique, l'implémentation se réduisait à des strates procédurales, dont le rendu ne ressemblait pas à du rocher. Retiré des pistes. |
 | 2026-09-03 | **6** — densifier les parois avec des retours supplémentaires | ❌ abandonné : tous les points sol utiles sont déjà exploités, et aller chercher de la classe 1 (non classée) ferait rentrer du bruit dans la reconstruction pour un gain incertain. Retiré des pistes. |
 | 2026-09-03 | **4** — ajustement de plan robuste pour les normales d'entrée du solveur : passes repondérées (`exp(-r²/2σ²)`) ancrées sur le point requête, σ dérivé des résidus eux-mêmes et resserré passe après passe, garde de planéité contre les voisinages effondrés en ligne (curseur *Arêtes*, panneau Capture, défaut 60 %). L'ACP à k fixe rendait la bissectrice des deux facettes de chaque rupture de pente : l'arête était arrondie avant même que Poisson ne voie la donnée. Le voisinage k-PPV faisant ~1 m à la densité LiDAR HD, l'arête récupérée est une vraie arête métrique — pas du facettage au triangle près comme le curseur *Facettes*. Nécessite une recapture. | ✅ |
-| 2026-09-03 | **Résolution apparente** — « on voit beaucoup de gros pixels ». Diagnostic mené, cause identifiée (quantification 2×2 par les dérivées écran), correctifs non implémentés. Voir §4. | 🔍 diagnostiqué, à faire |
+| 2026-09-03 | **Résolution apparente** — « on voit beaucoup de gros pixels ». Diagnostic mené, cause identifiée (quantification 2×2 par les dérivées écran). Voir §4. | 🔍 diagnostiqué |
+| 2026-09-04 | **§4.3-1** — gradient analytique du bruit de valeur (`mrValueNoiseD`, forme trilinéaire développée `k0..k7`) : le micro-relief perturbe désormais la normale **par pixel** au lieu de par quad 2×2. `mrValueNoise` reste exposé en enveloppe fine pour `rockAlbedo.glsl`, le gradient inutilisé étant éliminé à la compilation. | ✅ |
+| 2026-09-04 | **§4.3-2** — fondu d'octaves anticipé, `0.25λ → 0.9λ` devient `0.5λ → 1.4λ` (`MR_FADE_LO` / `MR_FADE_HI`) : l'octave qui battait à la fréquence de Nyquist est éteinte avant d'y arriver. | ✅ |
+| 2026-09-04 | **§4.3-3** — SSAA ×2 du FBO LiDAR, seul remède au facettage (`u_facet`), intrinsèquement lié à `dFdx`. | ⏸️ non retenu pour l'instant : ×4 fragments sur `mesh.frag` alors que beaucoup d'utilisateurs sont sur iGPU. À rouvrir après mesure par passe (§4.4). |
 
 ---
 
 ## 4. Résolution apparente : les « gros pixels »
 
-Signalé le 2026-09-03 sur la vue `#18.18/45.934127/6.973118/-29.6/71`. **Diagnostic
-terminé, aucun correctif appliqué.** Repris ici pour ne pas avoir à refaire l'enquête.
+Signalé le 2026-09-03 sur la vue `#18.18/45.934127/6.973118/-29.6/71`. Diagnostic
+ci-dessous ; **correctifs 1 et 2 appliqués le 2026-09-04**, le 3 (SSAA) reste ouvert.
+Repris ici pour ne pas avoir à refaire l'enquête.
 
 ### 4.1 Pistes écartées, avec la mesure qui les écarte
 
@@ -181,11 +185,11 @@ mais ce sera le facteur limitant dès qu'on le rallumera.
 
 ### 4.2 Cause réelle : l'ombrage du rocher est quantifié par blocs de 2×2 pixels
 
-Les deux effets qui portent tout le détail rocheux dérivent leur normale des
+Les deux effets qui portent tout le détail rocheux dérivaient leur normale des
 **dérivées écran** :
 
-- le facettage, `mesh.frag` : `cross(dFdx(v_wpos), dFdy(v_wpos))` ;
-- le micro-relief (bump de Mikkelsen), `microRelief.glsl` : `hx = dFdx(h)`, `hy = dFdy(h)`.
+- le facettage, `mesh.frag` : `cross(dFdx(v_wpos), dFdy(v_wpos))` — toujours le cas ;
+- le micro-relief (bump de Mikkelsen), `microRelief.glsl` : `hx = dFdx(h)`, `hy = dFdy(h)` — **corrigé**, voir §4.3-1.
 
 Or `dFdx`/`dFdy` sont des différences finies **sur le quad 2×2** du GPU : les quatre
 fragments reçoivent la même valeur. Toute la perturbation de normale — et avec elle
@@ -207,14 +211,27 @@ Le bruit lui-même est hors de cause : `mrValueNoise` interpole en Hermite
 
 ### 4.3 Correctifs, par rapport qualité/prix
 
-1. **Gradient analytique du micro-relief.** Le bruit de valeur est dérivable en
+1. ✅ **Gradient analytique du micro-relief.** Le bruit de valeur est dérivable en
    forme close, et les 8 hash des coins sont *déjà* calculés : la dérivée ne coûte
    que quelques `mix` de plus. On obtient un gradient **par pixel** au lieu de par
    quad, pour ~+20 % sur `mesh.frag` au lieu de ×4. Meilleur levier, et il
    supprime la cause principale.
-2. **Fondu d'octaves anticipé** (`0.5λ → 1.4λ`) : deux constantes, coût nul,
-   élimine l'octave qui bat à Nyquist.
-3. **SSAA ×2 du FBO LiDAR**, si 1+2 ne suffisent pas. Le FBO est privé et déjà
+
+   Appliqué : `mrValueNoiseD(p, out grad)` développe la forme trilinéaire en
+   `k0..k7` — algébriquement identique aux `mix` imbriqués, donc le rendu de
+   `rockAlbedo.glsl` est inchangé — et `mrHeight` accumule le gradient octave par
+   octave (`grad += (amp·w/λ)·g`). `microReliefNormal` projette ensuite ce gradient
+   3D sur la surface (`∇h − n(n·∇h)`), ce qui est exactement ce que reconstruisait
+   l'ancienne base duale `(r1, r2, det)`, mais par pixel. Seule `pixelM` reste une
+   dérivée d'écran : grandeur basse fréquence, sa quantification par quad est sans
+   effet visible. Pas de sortie anticipée sur `amount <= 0` : un branchement
+   divergent contenant `dFdx` rendrait les dérivées indéfinies, et à amplitude
+   nulle la fonction retourne déjà `normalize(n)`.
+2. ✅ **Fondu d'octaves anticipé** (`0.5λ → 1.4λ`) : deux constantes, coût nul,
+   élimine l'octave qui bat à Nyquist. `raFbm` (`rockAlbedo.glsl`) garde son fondu
+   `0.25λ → 0.9λ` : à λ = 22 m et 6,5 m, très au-dessus de l'empreinte pixel, il ne
+   contribue pas au repliement.
+3. ⏸️ **SSAA ×2 du FBO LiDAR**, si 1+2 ne suffisent pas. Le FBO est privé et déjà
    composité par un quad plein écran, et `_texColor` est en `LINEAR` : un rendu en
    2w×2h redescendu au composite donne exactement une moyenne box 4 taps. Le quad
    de dérivées devient alors 1 pixel de sortie. Seule solution pour le facettage
