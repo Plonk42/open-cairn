@@ -14,6 +14,7 @@
 import { unzipSync } from 'fflate';
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
+import type { CaptureParams } from '@/lib/captureParams';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import { createSavedCollection } from '@/lib/savedStore';
 import { decodeShowcaseGeometry, fetchArrayBufferWithProgress, parseShowcaseManifest, type SceneLoadProgress, type ShowcaseAmbiance, type ShowcaseCamera } from '@/lib/showcaseScene';
@@ -36,6 +37,8 @@ export interface SavedScene {
     vertexCount?: number;
     /** Total number of clouds bundled in this scene (primary + extraClouds). */
     cloudCount: number;
+    /** Copie de l'ambiance : « Appliquer le style » n'a ainsi pas à tirer la géométrie depuis IndexedDB. */
+    ambiance: ShowcaseAmbiance;
 }
 
 /** One cloud of a scene: a shaded point cloud, a mesh, or both. */
@@ -52,6 +55,8 @@ export interface SavedSceneData {
     mesh: LidarMeshData | null;
     /** Extra clouds bundled alongside the primary one (multi-cloud export). */
     extraClouds?: SavedSceneCloud[];
+    /** Réglages de génération, primaire en premier (voir `showcaseScene.ts`). */
+    captureParams?: Array<CaptureParams | null>;
 }
 
 /**
@@ -91,6 +96,7 @@ export async function saveScene(
         pointCount: data.shaded?.pointCount ?? 0,
         vertexCount: data.mesh?.vertexCount,
         cloudCount: 1 + (data.extraClouds?.length ?? 0),
+        ambiance: data.ambiance,
     };
 
     // One record per cloud: a multi-cloud scene decodes to well over a gigabyte,
@@ -196,7 +202,7 @@ async function importSceneFromArchive(
     const id = `scene-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return saveScene(
         { id, title: manifest.title || fallbackName, description: manifest.description },
-        { camera: manifest.camera, ambiance: manifest.ambiance, shaded: geometry.shaded, mesh: geometry.mesh, extraClouds: geometry.extraClouds },
+        { camera: manifest.camera, ambiance: manifest.ambiance, shaded: geometry.shaded, mesh: geometry.mesh, extraClouds: geometry.extraClouds, captureParams: manifest.captureParams },
         thumbBytes ?? null,
     );
 }

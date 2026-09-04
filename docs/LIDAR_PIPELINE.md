@@ -42,6 +42,62 @@ Dans le panneau **LiDAR** :
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).
 
+### Réglages embarqués avec chaque capture
+
+Un nuage enregistré emporte les réglages qui ont servi à le générer, sous forme
+d'un petit JSON libre (`src/lib/captureParams.ts`). Deux conséquences :
+
+- **Deux captures de la même zone ne se marchent plus dessus.** L'empreinte des
+  réglages (`captureParamsSignature`) entre dans la clé de dédoublonnage
+  (`makeCloudKey`), donc relancer la même zone avec une profondeur d'octree ou
+  une netteté différente crée une seconde entrée au lieu d'écraser la première.
+- **La tuile affiche ce qui distingue.** Parmi les captures d'une même zone, la
+  galerie ne met en avant que les réglages dont la valeur varie d'une entrée à
+  l'autre (`differingCaptureParamKeys`) ; « Détails » déplie la liste complète,
+  emprise et centre compris. Les captures sont aussi datées à la minute.
+- **« Recapturer » rejoue le décor sans lancer la capture.**
+  `recallCaptureSetup` (lidarSlice) restaure le mode, l'emprise, le cadrage et
+  les réglages de génération, puis ouvre le panneau de capture — on peut donc
+  changer un curseur avant de relancer, ce qui est tout l'intérêt d'un A/B. Sa
+  table d'application est l'inverse de `captureParamsFromState` ; un réglage
+  absent ou d'un type inattendu laisse le curseur en place.
+
+### Génération et rendu : ce qui coûte une recapture, et ce qui ne coûte rien
+
+La frontière ne passe pas là où le nom des réglages le suggère. Un nuage récent
+n'emporte **que** les réglages de génération, parce qu'eux seuls exigent de
+relancer le worker : mode, emprise, densités, et les curseurs Poisson ou grille.
+
+Trois réglages sont cuits à la capture *et* rejoués à chaud, et n'ont donc rien
+à faire là :
+
+- `lidarShader` — `setLidarShader` recolore tous les nuages chargés via
+  `colorsFromNormals` / `recolorMeshVertices`, qui appellent le même
+  `vertexColor` que le worker : le résultat est identique.
+- `lidarCloudClasses` — aucun `fetchLidar*` ne reçoit ce paramètre ; c'est un
+  masque GPU (`LidarWebGLLayer.setClassMask`).
+- `lidarVegGroundGap` / `lidarVegGroundRough` — `recomputeVegHeights` refait les
+  hauteurs de végétation en place (~200 ms, voir `LidarCloudOverlay`).
+
+Ils appartiennent à l'**ambiance** d'une scène (`showcaseAmbiance.ts`), pas à
+l'identité d'une capture. Les exclure de `makeCloudKey` évite de stocker deux
+fois la même géométrie quand seule la couleur a changé.
+
+Conséquence côté galerie : « Nuages récents » ne parle que de géométrie (charger,
+recapturer, supprimer) et ne touche jamais au rendu courant — sans quoi rouvrir
+un nuage repeindrait celui auquel on est en train de le comparer, shader et
+masque de classes étant globaux. « Mes vues », sauvegardée explicitement, porte
+l'ambiance : la charger la restaure, et « Appliquer le style »
+(`applyAmbianceStyle`) l'applique aux nuages déjà affichés sans rien charger,
+`lidarMode` excepté puisqu'il ne concerne que la prochaine capture.
+
+Le format est délibérément un `Record<string, …>` et non une interface figée :
+une entrée écrite par une version antérieure garde ses clés, un réglage ajouté
+plus tard n'apparaît que sur les nouvelles entrées, et l'affichage retombe sur
+la clé brute pour un réglage qu'il ne connaît pas. Les réglages voyagent aussi
+dans l'export de scène (`captureParams` du manifeste) et reviennent intacts au
+rechargement.
+
 ### Limitations connues
 
 - **Aucune dalle** : si la zone n'est pas couverte par LiDAR HD, un toast

@@ -18,6 +18,7 @@
  */
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
+import { captureParamsSignature, type CaptureParams } from '@/lib/captureParams';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import { createSavedCollection } from '@/lib/savedStore';
 
@@ -49,14 +50,13 @@ export interface SavedCloud {
     /** Capture rectangle dimensions (m). */
     widthM: number;
     lengthM: number;
-    stride: number;
-    classes: number[];
-    shader: string;
     /** Point count (shaded cloud). */
     pointCount: number;
     /** Vertex count when a mesh is part of the snapshot. */
     vertexCount?: number;
     hasMesh: boolean;
+    /** Réglages de génération, en JSON libre (voir `captureParams.ts`). */
+    params?: CaptureParams;
 }
 
 /** Heavy binary snapshot kept in IndexedDB (structured-cloned typed arrays). */
@@ -102,9 +102,8 @@ export interface SavedCloudParams {
     centerLat: number;
     widthM: number;
     lengthM: number;
-    stride: number;
-    classes: number[];
-    shader: string;
+    /** Réglages de génération complets — font partie de l'identité de l'entrée. */
+    params?: CaptureParams;
 }
 
 const clouds = createSavedCollection<SavedCloud>(SAVED_CLOUDS_KEY);
@@ -120,12 +119,14 @@ export const useSavedClouds = clouds.useItems;
 export function makeCloudKey(p: SavedCloudParams): string {
     const lng = p.centerLng.toFixed(4);
     const lat = p.centerLat.toFixed(4);
-    const cls = p.classes.length > 0 ? [...p.classes].sort((a, b) => a - b).join(',') : 'all';
     // Include the rectangle dimensions so two differently-shaped rectangles
     // that happen to share the same enclosing radius (e.g. 500×300 vs a
     // near-square rect) don't dedupe together.
     const size = `${p.widthM.toFixed(0)}x${p.lengthM.toFixed(0)}`;
-    return `${p.mode}:${lng}:${lat}:${size}:${p.stride}:${cls}:${p.shader}`;
+    // Les réglages de génération en font partie eux aussi, sans quoi deux essais
+    // de la même zone à profondeur ou netteté différentes s'écraseraient. Ceux
+    // du rendu en sont absents : ils se rejouent à chaud (voir `captureParams.ts`).
+    return `${p.mode}:${lng}:${lat}:${size}:${captureParamsSignature(p.params)}`;
 }
 
 function defaultName(p: SavedCloudParams): string {
@@ -154,12 +155,10 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
         centerLat: params.centerLat,
         widthM: params.widthM,
         lengthM: params.lengthM,
-        stride: params.stride,
-        classes: [...params.classes],
-        shader: params.shader,
         pointCount: data.shaded?.pointCount ?? 0,
         vertexCount: data.mesh?.vertexCount,
         hasMesh: data.mesh !== null,
+        params: params.params,
     };
 
     // A handful of large Poisson meshes is enough to exhaust the origin's

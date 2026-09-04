@@ -1,3 +1,4 @@
+import type { CaptureParams } from '@/lib/captureParams';
 import {
     cancelLidarWorkerRequests,
     fetchLidarDelaunay,
@@ -14,7 +15,7 @@ import {
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
-import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
+import { makeCloudKey, saveLoadedCloud, type SavedCloud } from '@/lib/savedClouds';
 import { formatSunDate, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
@@ -75,6 +76,67 @@ function captureGeometry(
 /** Rendering mode: shaded point cloud, delaunay (2.5D ground mesh + points), or poisson (WASM ground mesh + points). */
 export type LidarMode = 'shaded' | 'delaunay' | 'poisson';
 
+/**
+ * Tous les réglages qui entrent dans la génération, figés au moment de la
+ * capture. Seuls ceux que le mode utilise réellement sont retenus : une clé
+ * inerte polluerait la clé de dédoublonnage et ferait croire à deux captures
+ * différentes là où le résultat est identique.
+ *
+ * Ce qui se rejoue à chaud en est exclu, même si le worker le cuit une
+ * première fois : le shader et le masque de classes se réappliquent sur la
+ * géométrie chargée, et `recomputeVegHeights` refait les hauteurs de
+ * végétation. Ces réglages-là appartiennent à l'ambiance d'une scène
+ * (`showcaseAmbiance.ts`), pas à l'identité d'une capture.
+ */
+function captureParamsFromState(state: MapState): CaptureParams {
+    const common = { stride: state.lidarCloudStride };
+    if (state.lidarMode === 'poisson') {
+        return {
+            ...common,
+            poissonGroundStride: state.lidarCloudGroundStride,
+            poissonDepth: state.lidarCloudPoissonDepth,
+            poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
+            poissonPointWeight: state.lidarCloudPoissonPointWeight,
+            poissonNormalRobust: state.lidarCloudPoissonNormalRobust,
+            poissonSharpen: state.lidarCloudPoissonSharpen,
+            poissonFlatBase: state.lidarCloudPoissonFlatBase,
+        };
+    }
+    if (state.lidarMode === 'delaunay') {
+        const gridMesh = state.lidarMeshSmooth;
+        return gridMesh ? { ...common, gridMesh, gridCell: state.lidarGridCell } : { ...common, gridMesh };
+    }
+    return common;
+}
+
+/**
+ * Inverse de `captureParamsFromState`. Chaque valeur est retypée à la volée :
+ * un enregistrement ancien peut porter n'importe quoi sous une clé connue, et
+ * un réglage absent doit laisser le curseur actuel en place.
+ *
+ * Les clés de rendu que portent les enregistrements antérieurs (`classes`,
+ * `shader`, `groundGapM`, `groundRoughM`) sont volontairement ignorées ici :
+ * reprendre une emprise ne doit pas repeindre les nuages déjà affichés.
+ */
+function applyCaptureParams(p: CaptureParams, st: MapState): void {
+    const num = (k: string): number | undefined => (typeof p[k] === 'number' ? p[k] : undefined);
+    const bool = (k: string): boolean | undefined => (typeof p[k] === 'boolean' ? p[k] : undefined);
+    const apply = <T,>(v: T | undefined, setter: (x: T) => void): void => {
+        if (v !== undefined) setter(v);
+    };
+
+    apply(num('stride'), st.setLidarCloudStride);
+    apply(num('poissonGroundStride'), st.setLidarCloudGroundStride);
+    apply(num('poissonDepth'), st.setLidarCloudPoissonDepth);
+    apply(num('poissonSamplesPerNode'), st.setLidarCloudPoissonSamplesPerNode);
+    apply(num('poissonPointWeight'), st.setLidarCloudPoissonPointWeight);
+    apply(num('poissonNormalRobust'), st.setLidarCloudPoissonNormalRobust);
+    apply(num('poissonSharpen'), st.setLidarCloudPoissonSharpen);
+    apply(bool('poissonFlatBase'), st.setLidarCloudPoissonFlatBase);
+    apply(bool('gridMesh'), st.setLidarMeshSmooth);
+    apply(num('gridCell'), st.setLidarGridCell);
+}
+
 /** Vegetation height-decision diagnostic render mode. 'off' uses the normal
  *  foliage colouring; the others paint a false-colour map driven by the
  *  per-point `vegDiag` buffer (see « Analyse hauteur »). */
@@ -99,6 +161,8 @@ export interface LoadedLidarCloud {
     sourceKey?: string;
     /** Matches a showcase `GalleryEntry.id` / `SavedScene.id` — used to badge/skip already-loaded Gallery scenes. */
     sourceSceneId?: string;
+    /** Réglages ayant servi à la génération, reportés tels quels à l'export. */
+    params?: CaptureParams;
 }
 
 export interface LidarSlice {
@@ -474,6 +538,11 @@ export interface LidarSlice {
     /** Load the point cloud centered on the current map view. */
     loadLidarCloud: () => Promise<void>;
     /**
+     * Rejoue le décor d'une capture passée — mode, emprise, cadrage et tous ses
+     * réglages — sans lancer la capture, pour pouvoir en changer un avant.
+     */
+    recallCaptureSetup: (cloud: SavedCloud) => void;
+    /**
      * Cancel an in-progress load (e.g. a Poisson reconstruction taking too
      * long). The WASM reconstruction can't be paused, so this terminates the
      * worker running it — the next `loadLidarCloud` call spins up a fresh one.
@@ -486,7 +555,7 @@ export interface LidarSlice {
      */
     addLidarCloudSnapshot: (
         data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null },
-        meta: { mode: LidarMode; sourceKey?: string; sourceSceneId?: string },
+        meta: { mode: LidarMode; sourceKey?: string; sourceSceneId?: string; params?: CaptureParams },
     ) => void;
     /** Remove a single loaded cloud/mesh from the display. */
     removeLidarCloud: (id: string) => void;
@@ -818,6 +887,19 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
         lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
         setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
+        recallCaptureSetup: (cloud) => {
+            const st = get();
+            st.setLidarMode(cloud.mode);
+            st.setLidarCaptureRect({ widthM: cloud.widthM, lengthM: cloud.lengthM });
+            applyCaptureParams(cloud.params ?? {}, st);
+            const radius = rectEnclosingRadiusM(cloud.widthM, cloud.lengthM);
+            const dLat = radius / 111320;
+            const dLng = radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
+            st.fitBounds(
+                [cloud.centerLng - dLng, cloud.centerLat - dLat, cloud.centerLng + dLng, cloud.centerLat + dLat],
+                { padding: 60 },
+            );
+        },
         loadLidarCloud: async () => {
             const state = get();
             const map = state.mapInstance;
@@ -844,9 +926,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     centerLat: center.lat,
                     widthM: capture.widthM,
                     lengthM: capture.lengthM,
-                    stride: state.lidarCloudStride,
-                    classes: state.lidarCloudClasses,
-                    shader: state.lidarShader,
+                    params: captureParamsFromState(state),
                 };
                 let shadedResult: LidarShadedCloudData | null;
                 let meshResult: LidarMeshData | null;
@@ -910,7 +990,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 // already-displayed cloud/mesh.
                 get().addLidarCloudSnapshot(
                     { shaded: shadedResult, mesh: meshResult },
-                    { mode: state.lidarMode, sourceKey: makeCloudKey(cloudParams) },
+                    { mode: state.lidarMode, sourceKey: makeCloudKey(cloudParams), params: cloudParams.params },
                 );
                 // Persist a "recently loaded" entry so it can be re-opened instantly.
                 void saveLoadedCloud(cloudParams, { shaded: shadedResult, mesh: meshResult });
@@ -952,6 +1032,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 mode: meta.mode,
                 sourceKey: meta.sourceKey,
                 sourceSceneId: meta.sourceSceneId,
+                params: meta.params,
             };
             const lidarClouds = [...get().lidarClouds, entry];
             set({

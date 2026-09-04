@@ -23,6 +23,7 @@
  * versions are accepted with a console warning rather than rejected.
  */
 
+import type { CaptureParams } from './captureParams';
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
 import type { ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
@@ -87,6 +88,9 @@ export interface ShowcaseAmbiance {
     lidarVegIntensity: number;
     lidarVegNormalShade: number;
     lidarVegSizeBoost: number;
+    /** Réglages de hauteur de végétation : cuits à la capture, mais rejoués à chaud par `recomputeVegHeights`. */
+    lidarVegGroundGap: number;
+    lidarVegGroundRough: number;
     lidarForestGrouping: ForestGrouping;
     lidarForestMixCellSize: number;
     lidarForestEdgeBlend: ForestEdgeBlend;
@@ -128,6 +132,13 @@ export interface ShowcaseScene {
      * single-cloud scenes, which stay byte-identical to the original format.
      */
     extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
+    /**
+     * Réglages de génération de chaque nuage, primaire en premier puis les
+     * `extraClouds` dans l'ordre (voir `captureParams.ts`). `null` pour un
+     * nuage dont les réglages sont inconnus — une scène exportée avant l'ajout
+     * de ce champ n'en a aucun, et se recharge sans rien perdre.
+     */
+    captureParams?: Array<CaptureParams | null>;
 }
 
 /**
@@ -140,6 +151,8 @@ export interface ShowcaseManifest {
     description?: string;
     camera: ShowcaseCamera;
     ambiance: ShowcaseAmbiance;
+    /** Voir `ShowcaseScene.captureParams`. */
+    captureParams?: Array<CaptureParams | null>;
 }
 
 /** Schema version of the sidecar manifest JSON. */
@@ -158,6 +171,8 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarVegIntensity: 0.85,
     lidarVegNormalShade: 1,
     lidarVegSizeBoost: 1.3,
+    lidarVegGroundGap: 3,
+    lidarVegGroundRough: 12,
     lidarForestGrouping: 'group',
     lidarForestMixCellSize: 6,
     lidarForestEdgeBlend: 'scatter',
@@ -388,6 +403,7 @@ export function buildShowcaseManifest(scene: ShowcaseScene): ShowcaseManifest {
         description: scene.description,
         camera: scene.camera,
         ambiance: scene.ambiance,
+        captureParams: scene.captureParams,
     };
 }
 
@@ -405,6 +421,7 @@ export function parseShowcaseManifest(json: string): ShowcaseManifest {
         description: raw.description,
         camera: raw.camera,
         ambiance: { ...DEFAULT_AMBIANCE, ...raw.ambiance },
+        captureParams: raw.captureParams,
     };
 }
 

@@ -98,6 +98,7 @@ function buildScene(id: string, title: string, description: string): ShowcaseSce
         shaded: primary.shaded,
         mesh: primary.mesh,
         extraClouds: rest.length > 0 ? rest.map((c) => ({ shaded: c.shaded, mesh: c.mesh })) : undefined,
+        captureParams: visibleClouds.some((c) => c.params) ? visibleClouds.map((c) => c.params ?? null) : undefined,
     };
 }
 
@@ -242,7 +243,7 @@ export function ShowcaseExport() {
             if (target.local) {
                 await saveScene(
                     { id, title: scene.title, description: scene.description },
-                    { camera: scene.camera, ambiance: scene.ambiance, shaded: scene.shaded, mesh: scene.mesh, extraClouds: scene.extraClouds },
+                    { camera: scene.camera, ambiance: scene.ambiance, shaded: scene.shaded, mesh: scene.mesh, extraClouds: scene.extraClouds, captureParams: scene.captureParams },
                     thumb,
                 );
             }

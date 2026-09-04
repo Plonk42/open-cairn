@@ -11,6 +11,7 @@ import {
     RouteGalleryBody,
     TabButton,
 } from '@/components/lidar/gallery/tiles';
+import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/StudioTutorial';
 import { importGpxFile } from '@/lib/gpx';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import {
@@ -29,6 +30,7 @@ import {
     type SavedScene,
     useSavedScenes,
 } from '@/lib/savedScenes';
+import { applyAmbianceStyle } from '@/lib/showcaseAmbiance';
 import { loadShowcaseScene, type SceneLoadProgress } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -138,6 +140,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 shaded: data.shaded,
                 mesh: data.mesh,
                 extraClouds: data.extraClouds,
+                captureParams: data.captureParams,
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la vue.');
@@ -145,6 +148,11 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             setBusyId(null);
             setSceneProgress(null);
         }
+    };
+
+    const onApplyLocalStyle = (saved: SavedScene) => {
+        applyAmbianceStyle(saved.ambiance);
+        setOpen(false);
     };
 
     const onSelectRecent = async (cloud: SavedCloud) => {
@@ -158,7 +166,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             }
             const st = useMapStore.getState();
             st.setLidarMode(cloud.mode);
-            st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key });
+            st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key, params: cloud.params });
             const radius = rectEnclosingRadiusM(cloud.widthM, cloud.lengthM);
             const dLat = radius / 111320;
             const dLng = radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
@@ -171,6 +179,14 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         } finally {
             setBusyId(null);
         }
+    };
+
+    const onRecaptureRecent = (cloud: SavedCloud) => {
+        useMapStore.getState().recallCaptureSetup(cloud);
+        setOpen(false);
+        // Le panneau de capture possède l'aperçu d'emprise : l'ouvrir est la
+        // seule façon de montrer le rectangle qu'on vient de restaurer.
+        globalThis.dispatchEvent(new CustomEvent(STUDIO_REVEAL_EVENT, { detail: 'capture' }));
     };
 
     const handleLoadRoute = (route: SavedRoute) => {
@@ -373,6 +389,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                             loadedIds={loadedSceneIds}
                             progress={sceneProgress}
                             onSelect={(s) => { onSelectLocal(s); }}
+                            onApplyStyle={onApplyLocalStyle}
                             onDelete={(s) => deleteSavedScene(s.id)}
                         />
                         <input
@@ -429,6 +446,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                             busyId={busyId}
                             loadedKeys={loadedCloudKeys}
                             onSelect={(c) => { onSelectRecent(c); }}
+                            onRecapture={onRecaptureRecent}
                             onDelete={(c) => deleteSavedCloud(c.id)}
                         />
                     </>

@@ -25,6 +25,8 @@ export function extractAmbiance(st: MapState): ShowcaseAmbiance {
         lidarVegIntensity: st.lidarVegIntensity,
         lidarVegNormalShade: st.lidarVegNormalShade,
         lidarVegSizeBoost: st.lidarVegSizeBoost,
+        lidarVegGroundGap: st.lidarVegGroundGap,
+        lidarVegGroundRough: st.lidarVegGroundRough,
         lidarForestGrouping: st.lidarForestGrouping,
         lidarForestMixCellSize: st.lidarForestMixCellSize,
         lidarForestEdgeBlend: st.lidarForestEdgeBlend,
@@ -63,6 +65,8 @@ const AMBIANCE_SETTERS: { [K in keyof ShowcaseAmbiance]: (s: MapState, v: Showca
     lidarVegIntensity: (s, v) => s.setLidarVegIntensity(v),
     lidarVegNormalShade: (s, v) => s.setLidarVegNormalShade(v),
     lidarVegSizeBoost: (s, v) => s.setLidarVegSizeBoost(v),
+    lidarVegGroundGap: (s, v) => s.setLidarVegGroundGap(v),
+    lidarVegGroundRough: (s, v) => s.setLidarVegGroundRough(v),
     lidarForestGrouping: (s, v) => s.setLidarForestGrouping(v),
     lidarForestMixCellSize: (s, v) => s.setLidarForestMixCellSize(v),
     lidarForestEdgeBlend: (s, v) => s.setLidarForestEdgeBlend(v),
@@ -90,10 +94,26 @@ function applyOne<K extends keyof ShowcaseAmbiance>(st: MapState, a: ShowcaseAmb
     AMBIANCE_SETTERS[key](st, a[key]);
 }
 
-/** Apply a saved ambiance to the live store (recolors the loaded geometry). */
-export function applyAmbiance(a: ShowcaseAmbiance): void {
+/** `lidarMode` décide de ce que fera la prochaine capture, pas de l'aspect des nuages déjà chargés. */
+const NOT_STYLE: ReadonlySet<keyof ShowcaseAmbiance> = new Set(['lidarMode']);
+
+function applyKeys(a: ShowcaseAmbiance, skip?: ReadonlySet<keyof ShowcaseAmbiance>): void {
     const st = useMapStore.getState();
     for (const key of Object.keys(AMBIANCE_SETTERS) as (keyof ShowcaseAmbiance)[]) {
-        applyOne(st, a, key);
+        if (!skip?.has(key)) applyOne(st, a, key);
     }
+}
+
+/** Apply a saved ambiance to the live store (recolors the loaded geometry). */
+export function applyAmbiance(a: ShowcaseAmbiance): void {
+    applyKeys(a);
+}
+
+/**
+ * Applique le seul aspect d'une scène aux nuages actuellement chargés, sans
+ * toucher au mode. Le shader et le masque de classes étant globaux, cela
+ * repeint toute la vue — il n'existe pas de style par nuage.
+ */
+export function applyAmbianceStyle(a: ShowcaseAmbiance): void {
+    applyKeys(a, NOT_STYLE);
 }

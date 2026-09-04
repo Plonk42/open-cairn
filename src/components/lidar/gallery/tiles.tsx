@@ -1,5 +1,6 @@
 import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
 import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
+import { captureParamEntries, differingCaptureParamKeys, type CaptureParamEntry } from '@/lib/captureParams';
 import { formatDistance, formatElevation } from '@/lib/geo';
 import { ignStaticMapUrl } from '@/lib/ign';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
@@ -7,7 +8,7 @@ import { CLOUD_MODE_LABELS, type SavedCloud } from '@/lib/savedClouds';
 import { deleteSavedRoute, renameSavedRoute, type SavedRoute } from '@/lib/savedRoutes';
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
 import type { SceneLoadProgress } from '@/lib/showcaseScene';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
 /** Overlay rendered on a tile while it is being loaded (download + decode). */
 function SceneProgressOverlay({ progress }: Readonly<{ progress: SceneLoadProgress | null }>) {
@@ -177,8 +178,9 @@ function LocalTile({
     loaded,
     progress,
     onSelect,
+    onApplyStyle,
     onDelete,
-}: Readonly<{ scene: SavedScene; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onDelete: () => void }>) {
+}: Readonly<{ scene: SavedScene; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onApplyStyle: () => void; onDelete: () => void }>) {
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
             <button
@@ -203,6 +205,17 @@ function LocalTile({
                     )}
                 </div>
             </button>
+            <div className="flex items-center justify-end border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
+                <button
+                    type="button"
+                    onClick={onApplyStyle}
+                    disabled={busy}
+                    title="Appliquer l'aspect de cette vue aux nuages actuellement chargés, sans rien charger"
+                    className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+                >
+                    Appliquer le style
+                </button>
+            </div>
             <button
                 type="button"
                 onClick={onDelete}
@@ -221,6 +234,7 @@ export function LocalGalleryBody({
     loadedIds,
     progress,
     onSelect,
+    onApplyStyle,
     onDelete,
 }: Readonly<{
     scenes: SavedScene[];
@@ -228,6 +242,7 @@ export function LocalGalleryBody({
     loadedIds: ReadonlySet<string>;
     progress: SceneLoadProgress | null;
     onSelect: (s: SavedScene) => void;
+    onApplyStyle: (s: SavedScene) => void;
     onDelete: (s: SavedScene) => void;
 }>) {
     if (scenes.length === 0) {
@@ -247,6 +262,7 @@ export function LocalGalleryBody({
                     loaded={loadedIds.has(s.id)}
                     progress={busyId === s.id ? progress : null}
                     onSelect={() => onSelect(s)}
+                    onApplyStyle={() => onApplyStyle(s)}
                     onDelete={() => onDelete(s)}
                 />
             ))}
@@ -284,13 +300,66 @@ function captureSizeLabel(cloud: SavedCloud): string {
     return `${Math.round(cloud.widthM)} × ${Math.round(cloud.lengthM)} m`;
 }
 
+/** Jour + heure : deux essais de la même zone ne se distinguent souvent que par là. */
+function captureTimeLabel(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+const ChevronGlyph = ({ open }: Readonly<{ open: boolean }>) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`}
+        aria-hidden="true"
+    >
+        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
+    </svg>
+);
+
+/** Liste dépliable de tous les réglages, plus le repère de la capture. */
+function CaptureDetails({ cloud, entries }: Readonly<{ cloud: SavedCloud; entries: readonly CaptureParamEntry[] }>) {
+    return (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 px-2.5 pb-2.5 text-[11px]">
+            <dt className="text-slate-500 dark:text-slate-400">Zone</dt>
+            <dd className="tabular-nums text-slate-700 dark:text-slate-200">{captureSizeLabel(cloud)}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Centre</dt>
+            <dd className="tabular-nums text-slate-700 dark:text-slate-200">
+                {cloud.centerLat.toFixed(5)}, {cloud.centerLng.toFixed(5)}
+            </dd>
+            {entries.map((e) => (
+                <Fragment key={e.key}>
+                    <dt className="text-slate-500 dark:text-slate-400">{e.label}</dt>
+                    <dd className="tabular-nums text-slate-700 dark:text-slate-200">{e.text}</dd>
+                </Fragment>
+            ))}
+        </dl>
+    );
+}
+
 function RecentTile({
     cloud,
     busy,
     loaded,
+    highlightKeys,
     onSelect,
+    onRecapture,
     onDelete,
-}: Readonly<{ cloud: SavedCloud; busy: boolean; loaded: boolean; onSelect: () => void; onDelete: () => void }>) {
+}: Readonly<{
+    cloud: SavedCloud;
+    busy: boolean;
+    loaded: boolean;
+    highlightKeys: readonly string[];
+    onSelect: () => void;
+    onRecapture: () => void;
+    onDelete: () => void;
+}>) {
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const allParams = captureParamEntries(cloud.params);
+    const highlighted = captureParamEntries(cloud.params, highlightKeys);
+    const paramsTitle = allParams.map((e) => `${e.label} : ${e.text}`).join('\n') || undefined;
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
             <button
@@ -306,14 +375,47 @@ function RecentTile({
                 </div>
                 <div className="p-2.5">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cloud.name}</div>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-300">
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-300" title={paramsTitle}>
                         <span className="rounded bg-slate-200/70 px-1 text-[10px] dark:bg-white/10">{CLOUD_MODE_LABELS[cloud.mode]}</span>
                         <span>{captureSizeLabel(cloud)}</span>
                         {cloud.pointCount > 0 && <span>· {formatCount(cloud.pointCount)} pts</span>}
                         {cloud.hasMesh && cloud.vertexCount && <span>· {formatCount(cloud.vertexCount)} v</span>}
+                        <span className="text-slate-400 dark:text-slate-400">· {captureTimeLabel(cloud.createdAt)}</span>
                     </p>
+                    {highlighted.length > 0 && (
+                        <p className="mt-1 flex flex-wrap items-center gap-1" title={paramsTitle}>
+                            {highlighted.map((e) => (
+                                <span
+                                    key={e.key}
+                                    className="rounded bg-amber-100 px-1 text-[10px] tabular-nums text-amber-800 dark:bg-amber-400/15 dark:text-amber-200"
+                                >
+                                    {e.label} {e.text}
+                                </span>
+                            ))}
+                        </p>
+                    )}
                 </div>
             </button>
+            <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
+                <button
+                    type="button"
+                    onClick={() => setDetailsOpen((v) => !v)}
+                    aria-expanded={detailsOpen}
+                    className="flex items-center gap-1 rounded text-[11px] font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                >
+                    <ChevronGlyph open={detailsOpen} />
+                    Détails
+                </button>
+                <button
+                    type="button"
+                    onClick={onRecapture}
+                    title="Reprendre l’emprise et les réglages de cette capture, sans la lancer"
+                    className="rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
+                >
+                    Recapturer
+                </button>
+            </div>
+            {detailsOpen && <CaptureDetails cloud={cloud} entries={allParams} />}
             <button
                 type="button"
                 onClick={onDelete}
@@ -326,19 +428,50 @@ function RecentTile({
     );
 }
 
+/** Regroupe les captures par zone : même mode, même centre, même rectangle. */
+function zoneGroupKey(c: SavedCloud): string {
+    return `${c.mode}:${c.centerLng.toFixed(4)}:${c.centerLat.toFixed(4)}:${Math.round(c.widthM)}x${Math.round(c.lengthM)}`;
+}
+
+/**
+ * Pour chaque nuage, les réglages qui le distinguent des *autres captures de la
+ * même zone*. Comparé à l'ensemble de la liste, presque tout différerait et la
+ * tuile deviendrait illisible ; entre voisins d'une même zone, il ne reste que
+ * la poignée de curseurs qu'on était justement en train de comparer.
+ */
+function useHighlightKeys(clouds: SavedCloud[]): ReadonlyMap<string, string[]> {
+    return useMemo(() => {
+        const groups = new Map<string, SavedCloud[]>();
+        for (const c of clouds) {
+            const existing = groups.get(zoneGroupKey(c));
+            if (existing) existing.push(c);
+            else groups.set(zoneGroupKey(c), [c]);
+        }
+        const byId = new Map<string, string[]>();
+        for (const group of groups.values()) {
+            const keys = group.length > 1 ? differingCaptureParamKeys(group.map((c) => c.params)) : [];
+            for (const c of group) byId.set(c.id, keys);
+        }
+        return byId;
+    }, [clouds]);
+}
+
 export function RecentGalleryBody({
     clouds,
     busyId,
     loadedKeys,
     onSelect,
+    onRecapture,
     onDelete,
 }: Readonly<{
     clouds: SavedCloud[];
     busyId: string | null;
     loadedKeys: ReadonlySet<string>;
     onSelect: (c: SavedCloud) => void;
+    onRecapture: (c: SavedCloud) => void;
     onDelete: (c: SavedCloud) => void;
 }>) {
+    const highlightKeys = useHighlightKeys(clouds);
     if (clouds.length === 0) {
         return (
             <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -354,7 +487,9 @@ export function RecentGalleryBody({
                     cloud={c}
                     busy={busyId !== null}
                     loaded={loadedKeys.has(c.key)}
+                    highlightKeys={highlightKeys.get(c.id) ?? []}
                     onSelect={() => onSelect(c)}
+                    onRecapture={() => onRecapture(c)}
                     onDelete={() => onDelete(c)}
                 />
             ))}
