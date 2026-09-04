@@ -140,7 +140,7 @@ function defaultName(p: SavedCloudParams): string {
 export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloudData): Promise<SavedCloud | null> {
     if (!data.shaded && !data.mesh) return null;
     const key = makeCloudKey(params);
-    const all = readAll();
+    let all = readAll();
     const existing = all.find((c) => c.key === key);
     const id = existing?.id ?? `cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -162,10 +162,31 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
         hasMesh: data.mesh !== null,
     };
 
-    try {
-        await idbSet(`data:${id}`, stripColors(data), cloudStore);
-    } catch {
-        return null; // out of quota / IDB unavailable — skip silently
+    // A handful of large Poisson meshes is enough to exhaust the origin's
+    // IndexedDB quota; without this eviction-and-retry loop the very first
+    // failure would make every later capture stop being recorded, silently and
+    // for good. Oldest entries go first, exactly like the MAX_ENTRIES cap.
+    const evictable = all
+        .filter((c) => c.id !== id)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map((c) => c.id);
+    const stored = stripColors(data);
+    for (; ;) {
+        try {
+            await idbSet(`data:${id}`, stored, cloudStore);
+            break;
+        } catch (err) {
+            const victim = evictable.shift();
+            if (victim === undefined) {
+                console.warn('savedClouds: nuage non enregistré', err);
+                writeAll(all);
+                return null;
+            }
+            try {
+                await idbDel(`data:${victim}`, cloudStore);
+            } catch { /* payload already gone — the descriptor still has to go */ }
+            all = all.filter((c) => c.id !== victim);
+        }
     }
 
     const next = [meta, ...all.filter((c) => c.id !== id)];
