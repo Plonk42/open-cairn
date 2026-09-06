@@ -36,7 +36,7 @@ Le panneau **LiDAR** offre trois modes de rendu :
   claire en fin d'échelle plutôt qu'un noir illisible)
 - **Roche** : lithologie du massif pour le préset `terrain` — `limestone` (calcaire,
   s'éclaircit avec la pente), `granite`, `schist` (les deux s'assombrissent)
-- **Ligne de neige** : 0–4900 m (défaut 2700). Pilote ensemble les névés, la ceinture
+- **Ligne de neige** : 0–5000 m (défaut 2700). Pilote ensemble les névés, la ceinture
   d'alpage et le dessèchement de la pelouse. La borne haute passe au-dessus du mont
   Blanc : c'est ce qui permet de garantir une scène sans un flocon
 - **Enneigement** : 0–100 % (défaut 50, qui reproduit le rendu d'origine). Épaisseur du

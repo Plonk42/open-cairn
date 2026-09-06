@@ -185,7 +185,7 @@ const TURF_DRY_SPAN_M = 700;
  * nord et ne deviennent continus que vers 2900 — en dessous, une scène de
  * montagne en été n'a pas un flocon. Réglable : c'est le curseur « Ligne de
  * neige », qui déplace aussi la ceinture d'alpage et la pelouse. Sa course va
- * de 0 m à 4900 m, soit au-dessus du mont Blanc : c'est ce qui permet de
+ * de 0 m à 5000 m, soit au-dessus du mont Blanc : c'est ce qui permet de
  * garantir une scène sans un flocon, quelle que soit l'altitude du massif.
  */
 export const DEFAULT_SNOW_LINE = 2700;

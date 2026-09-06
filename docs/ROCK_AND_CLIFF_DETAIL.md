@@ -494,7 +494,7 @@ du compilateur.
 **Compromis assumé.** Choisir *Été* garantissait l'absence de neige ; désormais
 un curseur mal placé peut enneiger une scène de Chartreuse en août. Le risque est
 faible avec le défaut à 2700 m, et c'est le prix de la continuité saisonnière.
-*Soldé en §5.8* : la course de la ligne de neige monte jusqu'à 4900 m, au-dessus
+*Soldé en §5.8* : la course de la ligne de neige monte jusqu'à 5000 m, au-dessus
 du plus haut terrain français.
 
 **Effet de bord connu.** `TURF_TOP_FADE_M` (700 m) et `TURF_DRY_SPAN_M` (700 m)
@@ -539,7 +539,7 @@ caler un rendu sur une photo précise.
 50 % reproduit exactement les constantes d'avant, donc aucune scène existante ne
 bouge et le défaut reste calibré sur les rendus de référence. Les deux bornes
 débordent volontairement le plausible : elles cadrent un curseur, pas un climat.
-La course de la *ligne de neige* a suivi le même parti pris, 0 à 4900 m — la borne
+La course de la *ligne de neige* a suivi le même parti pris, 0 à 5000 m — la borne
 haute passe au-dessus du mont Blanc, ce qui rend enfin garantissable une scène
 sans un flocon et solde le compromis assumé en §5.7.
 
