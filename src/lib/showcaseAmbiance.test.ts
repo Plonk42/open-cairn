@@ -1,8 +1,18 @@
 import { applyAmbiance, extractAmbiance } from '@/lib/showcaseAmbiance';
 import { useMapStore } from '@/stores/mapStore';
+import { LIDAR_RENDER_DEFAULTS } from '@/stores/slices/lidarSlice';
 import { describe, expect, it } from 'vitest';
 
+/** Seul réglage de rendu volontairement hors ambiance : il pèse sur la VRAM de la machine qui affiche. */
+const MACHINE_ONLY = new Set<string>(['lidarShadowMapSize']);
+
 describe('showcaseAmbiance', () => {
+    it('carries every LiDAR render setting', () => {
+        const ambiance = extractAmbiance(useMapStore.getState());
+        const missing = Object.keys(LIDAR_RENDER_DEFAULTS).filter((k) => !(k in ambiance) && !MACHINE_ONLY.has(k));
+        expect(missing).toEqual([]);
+    });
+
     it('round-trips every render setting through the store (extract → apply → extract)', () => {
         const st = useMapStore.getState();
 
@@ -13,6 +23,17 @@ describe('showcaseAmbiance', () => {
         st.setLidarSunEnabled(true);
         st.setLidarShadows(false);
         st.setLidarShadowStrength(0.33);
+        st.setLidarPhotoreal(false);
+        st.setLidarExposure(1.8);
+        st.setLidarAmbient(0.4);
+        st.setLidarSunStrength(1.6);
+        st.setLidarHaze(0.75);
+        st.setLidarRockFacet(0.15);
+        st.setLidarRockMicro(2);
+        st.setLidarRockBreak(0.25);
+        st.setLidarRockSpecular(0.9);
+        st.setLidarAo(0.1);
+        st.setLidarVegHeightAuto(false);
         st.setLidarCloudEdl(false);
         st.setLidarCloudEdlStrength(123);
         st.setLidarCloudEdlRadius(2.5);

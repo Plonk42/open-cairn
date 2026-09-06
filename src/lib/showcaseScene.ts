@@ -85,9 +85,20 @@ export interface ShowcaseAmbiance {
     lidarSunEnabled: boolean;
     lidarShadows: boolean;
     lidarShadowStrength: number;
+    lidarPhotoreal: boolean;
+    lidarExposure: number;
+    lidarAmbient: number;
+    lidarSunStrength: number;
+    lidarHaze: number;
+    lidarRockFacet: number;
+    lidarRockMicro: number;
+    lidarRockBreak: number;
+    lidarRockSpecular: number;
+    lidarAo: number;
     lidarVegEnhance: boolean;
     lidarVegColorMode: VegColorMode;
     lidarVegHeightScale: number;
+    lidarVegHeightAuto: boolean;
     lidarVegIntensity: number;
     lidarVegNormalShade: number;
     lidarVegSizeBoost: number;
@@ -171,9 +182,20 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarSunEnabled: false,
     lidarShadows: false,
     lidarShadowStrength: 0.5,
+    lidarPhotoreal: true,
+    lidarExposure: 1,
+    lidarAmbient: 1,
+    lidarSunStrength: 1,
+    lidarHaze: 0.3,
+    lidarRockFacet: 0.6,
+    lidarRockMicro: 1,
+    lidarRockBreak: 1,
+    lidarRockSpecular: 0.5,
+    lidarAo: 0.5,
     lidarVegEnhance: true,
     lidarVegColorMode: 'natural',
     lidarVegHeightScale: 25,
+    lidarVegHeightAuto: true,
     lidarVegIntensity: 0.85,
     lidarVegNormalShade: 1,
     lidarVegSizeBoost: 1.3,
