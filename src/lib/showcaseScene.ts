@@ -79,6 +79,7 @@ export interface ShowcaseAmbiance {
     lidarMode: 'shaded' | 'delaunay' | 'poisson';
     lidarShader: ShaderPreset;
     lidarSnowLine: number;
+    lidarSnowAmount: number;
     lidarRockType: RockType;
     lidarSunDate: string;
     lidarSunEnabled: boolean;
@@ -164,6 +165,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarMode: 'shaded',
     lidarShader: 'base',
     lidarSnowLine: 2700,
+    lidarSnowAmount: 0.5,
     lidarRockType: 'limestone',
     lidarSunDate: '',
     lidarSunEnabled: false,

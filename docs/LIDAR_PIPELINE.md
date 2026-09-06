@@ -71,8 +71,8 @@ relancer le worker : mode, emprise, densités, et les curseurs Poisson ou grille
 Plusieurs réglages sont cuits à la capture *et* rejoués à chaud, et n'ont donc
 rien à faire là :
 
-- `lidarShader`, `lidarSnowLine`, `lidarRockType` — les trois champs de
-  `PaletteSettings`. Chaque setter recolore tous les nuages chargés via
+- `lidarShader`, `lidarSnowLine`, `lidarSnowAmount`, `lidarRockType` — les quatre
+  champs de `PaletteSettings`. Chaque setter recolore tous les nuages chargés via
   `colorsFromNormals` / `recolorMeshVertices`, qui appellent le même
   `vertexColor` que le worker : le résultat est identique. Une palette est une
   **ambiance de scène**, pas un paramètre de capture.

@@ -8,7 +8,7 @@ import {
 } from '@/lib/lidarBrowser';
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
-import { colorsFromNormals, DEFAULT_ROCK, DEFAULT_SNOW_LINE, recolorMeshVertices, type PaletteSettings, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { colorsFromNormals, DEFAULT_ROCK, DEFAULT_SNOW_AMOUNT, DEFAULT_SNOW_LINE, recolorMeshVertices, type PaletteSettings, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
     screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
@@ -176,6 +176,10 @@ export interface LidarSlice {
      *  et le dessèchement de la pelouse alpine. Voir `slope.ts`. */
     lidarSnowLine: number;
     setLidarSnowLine: (v: number) => void;
+    /** Épaisseur du manteau neigeux dans [0,1] : jusqu'où la neige plâtre la
+     *  pente, et si sa limite basse est franche ou en névés épars. */
+    lidarSnowAmount: number;
+    setLidarSnowAmount: (v: number) => void;
     /** Lithologie du massif rendu : change la rampe de roche nue. */
     lidarRockType: RockType;
     setLidarRockType: (v: RockType) => void;
@@ -616,6 +620,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarMode: 'shaded' as LidarMode,
     lidarShader: 'terrain' as ShaderPreset,
     lidarSnowLine: DEFAULT_SNOW_LINE,
+    lidarSnowAmount: DEFAULT_SNOW_AMOUNT,
     lidarRockType: DEFAULT_ROCK,
     lidarCloudPointSize: 2,
     lidarCloudSizeCompensation: true,
@@ -660,8 +665,13 @@ export const LIDAR_RENDER_DEFAULTS = {
 };
 
 /** Les trois réglages qui décident d'une couleur de sommet. */
-function paletteOf(s: Pick<LidarSlice, 'lidarShader' | 'lidarSnowLine' | 'lidarRockType'>): PaletteSettings {
-    return { preset: s.lidarShader, snowLine: s.lidarSnowLine, rock: s.lidarRockType };
+function paletteOf(s: Pick<LidarSlice, 'lidarShader' | 'lidarSnowLine' | 'lidarSnowAmount' | 'lidarRockType'>): PaletteSettings {
+    return {
+        preset: s.lidarShader,
+        snowLine: s.lidarSnowLine,
+        snowAmount: s.lidarSnowAmount,
+        rock: s.lidarRockType,
+    };
 }
 
 /**
@@ -717,6 +727,10 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarSnowLine: persisted.lidarSnowLine ?? LIDAR_RENDER_DEFAULTS.lidarSnowLine,
         setLidarSnowLine: (snowLine) => {
             set({ lidarSnowLine: snowLine, ...repaint(get(), { ...paletteOf(get()), snowLine }) });
+        },
+        lidarSnowAmount: persisted.lidarSnowAmount ?? LIDAR_RENDER_DEFAULTS.lidarSnowAmount,
+        setLidarSnowAmount: (snowAmount) => {
+            set({ lidarSnowAmount: snowAmount, ...repaint(get(), { ...paletteOf(get()), snowAmount }) });
         },
         lidarRockType: ROCK_TYPES.has(persisted.lidarRockType as RockType) ? persisted.lidarRockType as RockType : LIDAR_RENDER_DEFAULTS.lidarRockType,
         setLidarRockType: (rock) => {
@@ -1110,6 +1124,7 @@ export function selectLidarPersisted(
     | 'lidarMode'
     | 'lidarShader'
     | 'lidarSnowLine'
+    | 'lidarSnowAmount'
     | 'lidarRockType'
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
@@ -1181,6 +1196,7 @@ export function selectLidarPersisted(
         lidarMode: s.lidarMode,
         lidarShader: s.lidarShader,
         lidarSnowLine: s.lidarSnowLine,
+        lidarSnowAmount: s.lidarSnowAmount,
         lidarRockType: s.lidarRockType,
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,

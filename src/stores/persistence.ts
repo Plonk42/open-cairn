@@ -23,6 +23,7 @@ export type PersistedSettings = {
     lidarMode?: LidarMode;
     lidarShader?: ShaderPreset;
     lidarSnowLine?: number;
+    lidarSnowAmount?: number;
     lidarRockType?: RockType;
     lidarCloudStride?: number;
     lidarCaptureRect?: CaptureRectDims;

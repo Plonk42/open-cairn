@@ -166,6 +166,7 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-06 | **§5.3** — rampe végétale en réflectance physique sur le chemin photoréaliste (`vegRampColorPbr`, sélectionnée par `u_pbr`). | ✅ |
 | 2026-09-06 | **§5.5** — pelouse unique à *Été* et *Montagne* (`alpineTurf`), un peu moins jaune, et **ligne de neige réglable** (curseur *Ligne de neige*, section Shader, défaut 2700 m) qui pilote à la fois les névés, la ceinture d'alpage et le dessèchement de l'herbe. | ✅ |
 | 2026-09-06 | **§5.7** — les cinq presets fondus en trois : *Été* + *Montagne* → **Terrain**, *Hiver* supprimé (c'est *Terrain* à ligne de neige basse). La lithologie devient un réglage à part (*Roche* : calcaire / granite / schiste). Fenêtre de luminance de `rockAlbedo.glsl` remontée à 0,76-0,86, le calcaire à 0,674 y était lu comme de la neige. | ✅ |
+| 2026-09-06 | **§5.8** — curseur *Enneigement* : l'épaisseur du manteau séparée de son altitude. | ✅ |
 
 ---
 
@@ -502,3 +503,41 @@ allonger `TURF_DRY_SPAN_M` reviendrait à défaire le dé-jaunissement validé e
 
 **Une piste.** La lithologie pourrait à terme être *lue* au lieu d'être choisie,
 sur le WFS BRGM 1/50 000, exactement comme BD Forêt fournit déjà l'essence.
+
+---
+
+### 5.8 Enneigement : l'épaisseur n'est pas l'altitude
+
+*2026-09-06.* « Il faudrait un curseur pour la quantité de neige, pas seulement
+son altitude. Je ne sais pas s'il faut que ce soit le même curseur ? »
+
+**Non, et pour une raison mécanique.** La couverture vaut
+`retention(pente) × elevation(z − ligneDeNeige)`. La ligne de neige ne déplace
+que le second terme : la descendre à 1200 m sur le massif du Mont-Blanc laisse
+les parois à 60° des aiguilles exactement aussi nues qu'à 2700 m, puisque
+`retention` s'annulait à 58° quelle que soit l'altitude, et la transition
+rocher → blanc gardait ses 500 m de dénivelé. Aucun réglage d'altitude ne pouvait
+produire l'effet demandé.
+
+**Deux grandeurs, deux curseurs.** La ligne de neige est une *température* :
+jusqu'où il gèle. L'enneigement est une *précipitation* : combien il est tombé.
+Sur le terrain elles se combinent librement — le coup de froid de novembre
+blanchit jusqu'au fond de vallée sans rien plâtrer, le mois de juin après un gros
+hiver ne laisse rien sous 2200 m mais couvre tout au-dessus. Les fusionner en un
+seul curseur reviendrait à fabriquer un axe *saison*, et retirerait la liberté de
+caler un rendu sur une photo précise.
+
+**Ce que le curseur pilote**, sur `[0, 1]` :
+
+| | 0 % (pellicule) | 50 % (défaut) | 100 % (gros manteau) |
+|---|---|---|---|
+| Pente limite (`SNOW_SLOPE_LIMIT_*`) | 40° — les replats seuls | 58° | 76° — tout sauf le surplomb |
+| Dénivelé de continuité (`SNOW_SPAN_*`) | 800 m — névés épars | 500 m | 200 m — limite franche |
+
+50 % reproduit exactement les constantes d'avant, donc aucune scène existante ne
+bouge et le défaut reste calibré sur les rendus de référence.
+
+**Ce qu'il ne pilote pas :** la pelouse. L'alpage se cale sur le climat moyen du
+massif, pas sur les chutes de l'hiver en cours ; `alpineTurf` ne voit que la ligne
+de neige.
+

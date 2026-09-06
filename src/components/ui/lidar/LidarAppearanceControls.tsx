@@ -234,6 +234,15 @@ export function ShaderControls() {
         const handle = globalThis.setTimeout(() => setSnowLine(snowLineDraft), 150);
         return () => globalThis.clearTimeout(handle);
     }, [snowLineDraft, snowLine, setSnowLine]);
+    const snowAmount = useMapStore((s) => s.lidarSnowAmount);
+    const setSnowAmount = useMapStore((s) => s.setLidarSnowAmount);
+    const [snowAmountDraft, setSnowAmountDraft] = useState(snowAmount);
+    useEffect(() => setSnowAmountDraft(snowAmount), [snowAmount]);
+    useEffect(() => {
+        if (snowAmountDraft === snowAmount) return undefined;
+        const handle = globalThis.setTimeout(() => setSnowAmount(snowAmountDraft), 150);
+        return () => globalThis.clearTimeout(handle);
+    }, [snowAmountDraft, snowAmount, setSnowAmount]);
     const rockType = useMapStore((s) => s.lidarRockType);
     const setRockType = useMapStore((s) => s.setLidarRockType);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
@@ -278,6 +287,24 @@ export function ShaderControls() {
                         type="range" min={1200} max={3600} step={50}
                         value={snowLineDraft}
                         onChange={(e) => setSnowLineDraft(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+            )}
+
+            {shader === 'terrain' && (
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span title="Épaisseur du manteau, indépendante de son altitude : jusqu’où la neige plâtre la pente, et si sa limite basse est franche ou traîne en névés épars. Une pellicule ne se pose que sur les replats et ne masque rien du relief ; un gros manteau couvre les vires et les dalles et ne cède que dans le surplomb. Descendre la ligne de neige ne saura jamais imiter ça : une paroi raide reste nue à toute altitude.">
+                            Enneigement
+                        </span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(snowAmountDraft * 100)}%</span>
+                    </div>
+                    <input
+                        aria-label="Épaisseur du manteau neigeux"
+                        type="range" min={0} max={1} step={0.05}
+                        value={snowAmountDraft}
+                        onChange={(e) => setSnowAmountDraft(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>

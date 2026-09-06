@@ -38,6 +38,10 @@ Le panneau **LiDAR** offre trois modes de rendu :
   s'éclaircit avec la pente), `granite`, `schist` (les deux s'assombrissent)
 - **Ligne de neige** : 1200–3600 m (défaut 2700). Pilote ensemble les névés, la ceinture
   d'alpage et le dessèchement de la pelouse
+- **Enneigement** : 0–100 % (défaut 50, qui reproduit le rendu d'origine). Épaisseur du
+  manteau, indépendante de son altitude : la pente limite que la neige plâtre passe de
+  40° à 76°, et le dénivelé sur lequel elle devient continue de 800 m à 200 m. Ne touche
+  pas à la pelouse
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief

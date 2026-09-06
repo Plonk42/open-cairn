@@ -132,6 +132,36 @@ describe('snow line', () => {
     });
 });
 
+describe('snow amount', () => {
+    it('plasters the slope further as the pack thickens', () => {
+        const thin = lum(slope(50, 3400, { snowAmount: 0 }));
+        const mid = lum(slope(50, 3400, { snowAmount: 0.5 }));
+        const thick = lum(slope(50, 3400, { snowAmount: 1 }));
+        expect(thin).toBeLessThan(mid);
+        expect(mid).toBeLessThan(thick);
+    });
+
+    it('reaches a steep wall that no snow line can whiten', () => {
+        // La raison d'être du curseur : sous la pente limite, descendre la ligne
+        // de neige ne change rien du tout à une paroi.
+        expect(slope(65, 3400, { snowLine: 1200 })).toEqual(slope(65, 3400, { snowLine: 3000 }));
+        expect(lum(slope(65, 3400, { snowAmount: 1 }))).toBeGreaterThan(lum(slope(65, 3400)) + 0.1);
+    });
+
+    it('sharpens the lower limit instead of trailing off in scattered patches', () => {
+        // 300 m au-dessus de la ligne, sur un replat orienté est pour écarter le
+        // décalage d'exposition : déjà couvert sous un gros manteau, encore à
+        // moitié nu sous un manteau maigre.
+        expect(lum(slope(5, 3000, { snowAmount: 1 }))).toBeGreaterThan(0.85);
+        expect(lum(slope(5, 3000, { snowAmount: 0 }))).toBeLessThan(0.75);
+    });
+
+    it('leaves the alpine meadow alone', () => {
+        // L'alpage se cale sur le climat du massif, pas sur les chutes de l'hiver.
+        expect(color(0, 0, 1, 1800, { snowAmount: 0 })).toEqual(color(0, 0, 1, 1800, { snowAmount: 1 }));
+    });
+});
+
 describe('lithology', () => {
     // 2600 m avec la ligne par défaut : au-dessus de l'alpage, en dessous des
     // névés — de la roche nue, et rien d'autre.

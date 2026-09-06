@@ -38,6 +38,8 @@ export interface PaletteSettings {
     readonly preset: ShaderPreset;
     /** Voir {@link DEFAULT_SNOW_LINE}. */
     readonly snowLine: number;
+    /** Voir {@link DEFAULT_SNOW_AMOUNT}. */
+    readonly snowAmount: number;
     readonly rock: RockType;
 }
 
@@ -186,17 +188,43 @@ const TURF_DRY_SPAN_M = 700;
  */
 export const DEFAULT_SNOW_LINE = 2700;
 
+/**
+ * Épaisseur du manteau, dans [0,1] — l'accumulation, là où la ligne de neige
+ * est la température. Les deux sont indépendantes sur le terrain : un coup de
+ * froid de novembre blanchit jusqu'au fond de vallée sans rien plâtrer, un mois
+ * de juin après un gros hiver ne laisse rien sous 2200 m mais couvre tout
+ * au-dessus. Descendre la ligne ne saura jamais imiter ni l'un ni l'autre : à
+ * 1200 m comme à 2700 m les parois raides restent nues et la transition prend
+ * le même dénivelé. 0,5 est la valeur qui reproduit le rendu d'origine.
+ */
+export const DEFAULT_SNOW_AMOUNT = 0.5;
+
 /** Massif calcaire par défaut : c'est la Chartreuse qui sert de référence ici. */
 export const DEFAULT_ROCK: RockType = 'limestone';
 
 export const DEFAULT_PALETTE: PaletteSettings = {
     preset: 'terrain',
     snowLine: DEFAULT_SNOW_LINE,
+    snowAmount: DEFAULT_SNOW_AMOUNT,
     rock: DEFAULT_ROCK,
 };
 
-/** Dénivelé sur lequel la neige devient continue au-dessus de la ligne. */
-const SNOW_SPAN_M = 500;
+/**
+ * Pente au-delà de laquelle plus rien ne tient, du manteau maigre au gros
+ * manteau : une pellicule ne se pose que sur les replats, une couche épaisse
+ * plâtre les vires et les dalles et ne cède que dans le surplomb.
+ */
+const SNOW_SLOPE_LIMIT_MIN = 40;
+const SNOW_SLOPE_LIMIT_MAX = 76;
+/** Largeur de la rampe de purge sous cette limite. */
+const SNOW_SLOPE_FADE_DEG = 26;
+/**
+ * Dénivelé sur lequel la neige devient continue au-dessus de la ligne. Un
+ * manteau maigre traîne en névés épars sur 800 m ; un manteau épais donne une
+ * limite franche.
+ */
+const SNOW_SPAN_MAX_M = 800;
+const SNOW_SPAN_MIN_M = 200;
 /** Décalage de la ligne de neige entre une face plein nord et une face plein sud. */
 const SNOW_ASPECT_SHIFT_M = 300;
 /**
@@ -244,28 +272,34 @@ function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, num
  * L'orientation ne décale que la neige, pas la pelouse : une face nord porte
  * bien sa limite de végétation plus bas, mais elle est aussi plus humide donc
  * plus verte, et un seul paramètre ne peut pas départager les deux effets.
+ *
+ * La pelouse ignore aussi `snowAmount` : l'alpage se cale sur le climat du
+ * massif, pas sur les chutes de l'hiver en cours.
  */
 function terrainAlbedo(
     nx: number, ny: number,
     z: number, slopeDeg: number,
-    snowLine: number, rock: RockType,
+    snowLine: number, snowAmount: number, rock: RockType,
 ): [number, number, number] {
     const bare = interpolatePalette(ROCK_RAMPS[rock], slopeDeg);
     const turf = smoothstep01((45 - slopeDeg) / 9)
         * smoothstep01((snowLine - TURF_TOP_GAP_M - z) / TURF_TOP_FADE_M);
     const ground = turf <= 0 ? bare : lerp3(bare, alpineTurf(z, slopeDeg, snowLine), turf);
 
+    const amount = Math.min(1, Math.max(0, snowAmount));
+    const slopeLimit = SNOW_SLOPE_LIMIT_MIN + (SNOW_SLOPE_LIMIT_MAX - SNOW_SLOPE_LIMIT_MIN) * amount;
+    const span = SNOW_SPAN_MAX_M + (SNOW_SPAN_MIN_M - SNOW_SPAN_MAX_M) * amount;
+
     // +1 = plein nord (à l'ombre, tient la neige plus bas), -1 = plein sud.
     const northFacing = Math.cos(Math.atan2(nx, ny));
-    // La neige se purge progressivement au-delà de 32° et ne tient plus à 58°.
-    const retention = smoothstep01((58 - slopeDeg) / 26);
-    const elevation = smoothstep01((z - (snowLine - northFacing * SNOW_ASPECT_SHIFT_M)) / SNOW_SPAN_M);
+    const retention = smoothstep01((slopeLimit - slopeDeg) / SNOW_SLOPE_FADE_DEG);
+    const elevation = smoothstep01((z - (snowLine - northFacing * SNOW_ASPECT_SHIFT_M)) / span);
     const snow = retention * elevation;
     if (snow <= 0.01) return ground.map(Math.round) as [number, number, number];
 
     // Plus haut et plus plat, l'accumulation reste fraîche et brillante ; les
     // crêtes balayées par le vent et les névés bas sont tassés, plus sourds.
-    const freshness = smoothstep01((z - snowLine - SNOW_SPAN_M) / 600) * 0.6 + retention * 0.4;
+    const freshness = smoothstep01((z - snowLine - span) / 600) * 0.6 + retention * 0.4;
     return lerp3(ground, lerp3(SNOW_PACKED, SNOW_FRESH, freshness), snow)
         .map(Math.round) as [number, number, number];
 }
@@ -292,7 +326,7 @@ export function vertexColor(
 
     if (palette.preset === 'base') return interpolatePalette(BASE_PALETTE, slopeDeg);
     if (palette.preset === 'slope') return interpolatePalette(SLOPE_PALETTE, slopeDeg);
-    return terrainAlbedo(nx, ny, z, slopeDeg, palette.snowLine, palette.rock);
+    return terrainAlbedo(nx, ny, z, slopeDeg, palette.snowLine, palette.snowAmount, palette.rock);
 }
 
 /**
