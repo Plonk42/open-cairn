@@ -78,6 +78,7 @@ export interface ShowcaseCamera {
 export interface ShowcaseAmbiance {
     lidarMode: 'shaded' | 'delaunay' | 'poisson';
     lidarShader: ShaderPreset;
+    lidarSnowLine: number;
     lidarSunDate: string;
     lidarSunEnabled: boolean;
     lidarShadows: boolean;
@@ -161,6 +162,7 @@ export const MANIFEST_VERSION = 1;
 export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarMode: 'shaded',
     lidarShader: 'base',
+    lidarSnowLine: 2700,
     lidarSunDate: '',
     lidarSunEnabled: false,
     lidarShadows: false,

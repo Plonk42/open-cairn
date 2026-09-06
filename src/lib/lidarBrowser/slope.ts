@@ -35,7 +35,7 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
     [80, [70, 45, 30]],
 ];
 
-// ─── CLIFF palette — massif calcaire en été (albédo physique) ────────────────
+// ─── CLIFF : calcaire nu d'un massif en été (albédo physique) ────────────────
 // Réflectances diffuses réelles d'un versant de Chartreuse/Vercors en août,
 // exprimées en valeurs d'affichage sRGB (≈ ρ^(1/2.2)). Aucun ombrage n'y est
 // cuit : le chemin photoréaliste multiplie ces valeurs par l'irradiance
@@ -44,24 +44,11 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
 // choisies pour rester lisibles sous une ambiante constante de 0,35 ; sous
 // l'éclairage physique elles saturent en blanc dès le premier rayon de soleil.
 //
-//   pelouse alpine sèche  ρ ≈ 0,20   éboulis calcaire   ρ ≈ 0,30
-//   calcaire urgonien     ρ ≈ 0,40   paroi ruisselée    ρ ≈ 0,20
+//   éboulis calcaire ρ ≈ 0,30   calcaire urgonien ρ ≈ 0,40   paroi ruisselée ρ ≈ 0,20
 //
-// SEUIL DE RUPTURE : l'herbe tient bien plus raide qu'on ne le croit. Sur les
-// épaulements de la Dent de Crolles la pelouse couvre encore des pentes à
-// 35-40° ; le calcaire nu n'apparaît qu'au-delà, sur les barres et les vires.
-// La carte de pente du même maillage donne ~30-32° sur tout l'épaulement
-// herbeux, donc une rupture placée à 30° repeignait la prairie en rocher.
-//
-// SATURATION : l'ambiante hémisphérique est une lumière de ciel, donc bleue.
-// Additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
-// tone mapping, qui désature encore les hautes lumières : une herbe neutre
-// ressort en kaki pastel. On compense en creusant le bleu de l'albédo — la
-// pelouse rendue retrouve le jaune-vert franc des photos d'été.
-const CLIFF_PALETTE: Array<[number, [number, number, number]]> = [
-    [0, [112, 130, 48]],
-    [25, [120, 133, 56]],
-    [36, [130, 134, 76]],
+// La rampe ne commence qu'à 45° : en deçà c'est la pelouse qui couvre le sol
+// (voir `alpineTurf`), le rocher n'affleure que sur les barres et les vires.
+const CLIFF_ROCK: Array<[number, [number, number, number]]> = [
     [45, [158, 152, 132]],
     [58, [172, 167, 154]],
     [75, [164, 159, 148]],
@@ -118,10 +105,6 @@ function interpolatePalette(
     return palette.at(-1)![1];
 }
 
-export function slopeColor(slopeRad: number): [number, number, number] {
-    return interpolatePalette(CLIFF_PALETTE, slopeRad);
-}
-
 // ─── MONTAGNE albedo (photorealistic path) ───────────────────────────────────
 // Diffuse reflectances of real alpine surfaces, expressed as sRGB display
 // values. Nothing here is shading: the render multiplies these by the sky +
@@ -144,29 +127,53 @@ const MTN_ROCK: readonly [number, number, number] = [116, 106, 90];
 // "dramatic", but under the physical lighting path it collapses to black as
 // soon as the face turns away from the sun.
 const MTN_ROCK_STEEP: readonly [number, number, number] = [88, 84, 80];
-// Pelouse alpine d'été : ρ ≈ 0,20, franchement jaune-vert. C'est la couleur
-// dominante d'un versant entre 1500 et 2300 m dès que la pente le permet, et
-// c'est elle qui manquait au preset — conçu sur des scènes de 3000 m et plus,
-// il ne voyait que du rocher et de la neige.
-const MTN_TURF: readonly [number, number, number] = [116, 132, 52];
 
 /**
- * Limite des neiges sur une face plein sud, en été ; les faces nord la tiennent
- * `MTN_ASPECT_SHIFT` plus bas. Les névés résiduels d'août dans les Alpes
- * commencent vers 2400 m en exposition nord et ne deviennent continus que
- * vers 2900 — en dessous, une scène de montagne en été n'a pas un flocon.
+ * Albédo de la pelouse alpine, entre l'alpage gras des replats bien arrosés et
+ * la pelouse rase et brûlée des derniers mètres sous les névés. La transition
+ * est une vraie variable de terrain : plus on monte vers la limite des neiges,
+ * plus la saison végétative est courte, plus l'herbe se clairseme et laisse
+ * voir la terre et le caillou — l'albédo gagne en clarté en perdant son vert.
+ * D'où le lien avec le réglage « Ligne de neige » : c'est la même limite
+ * climatique qui place les névés et qui date la pelouse.
+ *
+ * SATURATION : l'ambiante hémisphérique est une lumière de ciel, donc bleue.
+ * Additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
+ * tone mapping, qui désature encore les hautes lumières : une herbe neutre
+ * ressort en kaki pastel. Le bleu est donc creusé ici, mais modérément — trop
+ * et la prairie vire au jaune de paille en plein soleil.
  */
-const MTN_SNOW_LOW = 2700;
-const MTN_SNOW_HIGH = 3200;
+const TURF_LUSH: readonly [number, number, number] = [104, 132, 58];
+const TURF_DRY: readonly [number, number, number] = [146, 138, 82];
+/**
+ * Dénivelé sous la ligne de neige où la pelouse passe de grasse à brûlée. Court
+ * volontairement : l'alpage reste vert jusqu'à très près de sa limite, ce n'est
+ * que dans la dernière ceinture — sol squelettique, saison de végétation de
+ * quelques semaines — qu'il se clairseme et laisse voir la terre.
+ */
+const TURF_DRY_SPAN_M = 700;
+
+/**
+ * Altitude (m) de la limite des neiges d'été sur une face sud. Les névés
+ * résiduels d'août dans les Alpes du Nord commencent vers 2400 m en exposition
+ * nord et ne deviennent continus que vers 2900 — en dessous, une scène de
+ * montagne en été n'a pas un flocon. Réglable : c'est le curseur « Ligne de
+ * neige », qui déplace aussi la ceinture d'alpage et la pelouse.
+ */
+export const DEFAULT_SNOW_LINE = 2700;
+
+/** Dénivelé sur lequel la neige devient continue au-dessus de la ligne. */
+const MTN_SNOW_SPAN_M = 500;
 const MTN_ASPECT_SHIFT = 300;
 /**
- * Altitude où la pelouse alpine cède définitivement la place à la roche nue, et
- * hauteur de la rampe qui l'y mène. La pelouse continue monte jusque vers
- * 2600 m dans les Alpes du Nord ; elle se clairseme dès ~1900, d'où une rampe
- * large plutôt qu'un seuil.
+ * Écart entre la ligne de neige et le dernier gazon, et hauteur de la rampe qui
+ * y mène. La pelouse continue s'arrête juste sous les premiers névés ; elle se
+ * clairseme bien avant, d'où une rampe large plutôt qu'un seuil.
  */
-const MTN_TURF_TOP = 2600;
+const MTN_TURF_GAP_M = 100;
 const MTN_TURF_FADE_M = 700;
+/** Écart entre la limite des névés d'été et l'enneigement hivernal continu. */
+const WINTER_SNOW_DROP_M = 1700;
 
 function lerp3(
     a: readonly [number, number, number],
@@ -182,8 +189,35 @@ const smoothstep01 = (x: number): number => {
     return t * t * (3 - 2 * t);
 };
 
+/** Voir {@link TURF_LUSH} : dessèchement avec l'altitude, puis avec la pente. */
+function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, number, number] {
+    const altitude = smoothstep01(1 - (snowLine - z) / TURF_DRY_SPAN_M);
+    // Sol maigre : sur la pente la terre est plus mince et mieux drainée, le
+    // caillou perce. Ne suffit jamais à lui seul à brûler complètement l'herbe.
+    const thin = smoothstep01(slopeDeg / 45) * 0.45;
+    return lerp3(TURF_LUSH, TURF_DRY, altitude + thin);
+}
+
+/**
+ * Massif calcaire en été : pelouse tant que la pente laisse la terre tenir,
+ * calcaire nu au-delà.
+ *
+ * L'herbe tient bien plus raide qu'on ne le croit — sur les épaulements de la
+ * Dent de Crolles la pelouse couvre encore des pentes à 35-40°, et la carte de
+ * pente du même maillage donne ~30-32° sur tout l'épaulement herbeux : une
+ * rupture placée à 30° repeignait la prairie en rocher, qui ressortait blanc.
+ */
+function cliffAlbedo(slopeRad: number, z: number, snowLine: number): [number, number, number] {
+    const slopeDeg = slopeRad * (180 / Math.PI);
+    const bare = smoothstep01((slopeDeg - 36) / 9);
+    const rock = interpolatePalette(CLIFF_ROCK, slopeRad);
+    if (bare >= 1) return rock;
+    return lerp3(alpineTurf(z, slopeDeg, snowLine), rock, bare)
+        .map(Math.round) as [number, number, number];
+}
+
 /** Bare-ground reflectance: scree on benches, slabs, then dark broken faces. */
-function montagneGround(slopeDeg: number, z: number): [number, number, number] {
+function montagneGround(slopeDeg: number, z: number, snowLine: number): [number, number, number] {
     let rock: [number, number, number];
     if (slopeDeg <= 25) rock = lerp3(MTN_SCREE, MTN_SLAB, slopeDeg / 25);
     else if (slopeDeg <= 55) rock = lerp3(MTN_SLAB, MTN_ROCK, (slopeDeg - 25) / 30);
@@ -192,8 +226,9 @@ function montagneGround(slopeDeg: number, z: number): [number, number, number] {
     // limite de végétation. L'herbe s'accroche bien au-delà des 32° qu'on lui
     // accordait — une épaule herbeuse de 35° est la règle dans les Alpes, pas
     // l'exception — et ne lâche vraiment que vers 40°.
-    const turf = smoothstep01((MTN_TURF_TOP - z) / MTN_TURF_FADE_M) * smoothstep01((40 - slopeDeg) / 14);
-    return lerp3(rock, MTN_TURF, turf);
+    const top = snowLine - MTN_TURF_GAP_M;
+    const turf = smoothstep01((top - z) / MTN_TURF_FADE_M) * smoothstep01((40 - slopeDeg) / 14);
+    return lerp3(rock, alpineTurf(z, slopeDeg, snowLine), turf);
 }
 
 /**
@@ -207,21 +242,22 @@ function montagneGround(slopeDeg: number, z: number): [number, number, number] {
 function montagneAlbedo(
     nx: number, ny: number,
     z: number, slopeDeg: number,
+    snowLine: number,
 ): [number, number, number] {
-    const ground = montagneGround(slopeDeg, z);
+    const ground = montagneGround(slopeDeg, z, snowLine);
     // +1 = due north (shaded, holds snow lower), -1 = due south.
     const northFacing = Math.cos(Math.atan2(nx, ny));
     const shift = northFacing * MTN_ASPECT_SHIFT;
 
     // Snow sheds progressively above 32° and never sticks past 58°.
     const retention = smoothstep01((58 - slopeDeg) / 26);
-    const elevation = smoothstep01((z - (MTN_SNOW_LOW - shift)) / (MTN_SNOW_HIGH - MTN_SNOW_LOW));
+    const elevation = smoothstep01((z - (snowLine - shift)) / MTN_SNOW_SPAN_M);
     const snow = retention * elevation;
     if (snow <= 0.01) return ground.map(Math.round) as [number, number, number];
 
     // Higher and flatter accumulations stay fresh and bright; wind-scoured
     // ridges and lower patches are packed, slightly darker snow.
-    const freshness = smoothstep01((z - MTN_SNOW_HIGH) / 600) * 0.6 + retention * 0.4;
+    const freshness = smoothstep01((z - snowLine - MTN_SNOW_SPAN_M) / 600) * 0.6 + retention * 0.4;
     const snowColor = lerp3(MTN_SNOW_PACKED, MTN_SNOW_FRESH, freshness);
     return lerp3(ground, snowColor, snow).map(Math.round) as [number, number, number];
 }
@@ -236,11 +272,16 @@ function montagneAlbedo(
  * Poisson vertex normal on a 50 cm lapiaz carries tens of degrees of
  * reconstruction noise: feeding it the lighting normal turns that noise into
  * per-vertex salt-and-pepper. See `macroVertexNormals` in `pipeline.ts`.
+ *
+ * `snowLine` est l'altitude de la limite des neiges d'été sur une face sud
+ * (voir {@link DEFAULT_SNOW_LINE}) : elle place la neige, la ceinture d'alpage
+ * et le dessèchement de la pelouse.
  */
 export function vertexColor(
     nx: number, ny: number, nz: number,
     z: number,
     preset: ShaderPreset,
+    snowLine: number,
 ): [number, number, number] {
     const len = Math.hypot(nx, ny, nz);
     const nzn = len > 0 ? nz / len : 1;
@@ -255,14 +296,14 @@ export function vertexColor(
     }
 
     if (preset === 'cliff') {
-        return interpolatePalette(CLIFF_PALETTE, slope);
+        return cliffAlbedo(slope, z, snowLine);
     }
 
     if (preset === 'montagne') {
-        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI));
+        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI), snowLine);
     }
 
-    return winterColor(nx, ny, z, slope * (180 / Math.PI));
+    return winterColor(nx, ny, z, slope * (180 / Math.PI), snowLine);
 }
 
 /**
@@ -274,7 +315,14 @@ export function vertexColor(
 function winterColor(
     nx: number, ny: number,
     z: number, slopeDeg: number,
+    snowLine: number,
 ): [number, number, number] {
+    // Une limite des neiges HIVERNALE descend bien plus bas que celle des névés
+    // d'août réglée par le curseur ; on la décale d'un dénivelé fixe pour que le
+    // réglage reste un seul et même levier d'un preset à l'autre.
+    const winterLow = snowLine - WINTER_SNOW_DROP_M;
+    const winterHigh = winterLow + 1000;
+
     // Aspect: atan2(nx, ny) horizontal-plane bearing; +Y is north in L93.
     // northFacing in [-1, +1] : +1 pure north, -1 pure south.
     const aspect = Math.atan2(nx, ny);
@@ -304,14 +352,14 @@ function winterColor(
 
     const [gr, gg, gb] = groundColor();
 
-    // Hard floor: nothing below 1000 m gets snow
-    if (z < 1000) return [gr, gg, gb];
+    // Hard floor: nothing below the winter snow line gets snow
+    if (z < winterLow) return [gr, gg, gb];
 
-    // ── Snow accumulation factors ────────────────────────────────────────────
+    // ── Snow accumulation factors ────────────────────────────────────────
     // Aspect-shifted snow line: north faces gain snow ~250 m earlier.
     const aspectShift = northFacing * 250; // metres
-    const snowLow = 1000 - aspectShift;
-    const snowHigh = 2000 - aspectShift;
+    const snowLow = winterLow - aspectShift;
+    const snowHigh = winterHigh - aspectShift;
 
     // Slope retention: full snow up to 30°, gone by 55°. Sharper than before.
     let snowSlope: number;
@@ -330,8 +378,8 @@ function winterColor(
 
     let snowAmount = snowElev * snowSlope;
 
-    // Above 2000 m, force full snow wherever slope allows
-    if (z >= 2000) snowAmount = snowSlope;
+    // Above the upper band, force full snow wherever slope allows
+    if (z >= winterHigh) snowAmount = snowSlope;
 
     // Hard threshold: anything > 0.7 jumps to 1 (clean snow areas),
     // < 0.15 drops to 0 (clean rock areas). Mid-range stays smooth.
@@ -381,6 +429,7 @@ export function recolorMeshVertices(
     positions: Float32Array,
     macroNormals: Uint8Array | undefined,
     preset: ShaderPreset,
+    snowLine: number,
 ): Uint8Array {
     const n = normals.length / 3;
     const colors = new Uint8Array(n * 4);
@@ -389,7 +438,7 @@ export function recolorMeshVertices(
         const ny = macroNormals ? macroNormals[i * 3 + 1] / 127.5 - 1 : normals[i * 3 + 1];
         const nz = macroNormals ? macroNormals[i * 3 + 2] / 127.5 - 1 : normals[i * 3 + 2];
         const z = positions[i * 3 + 2];
-        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, preset);
+        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, preset, snowLine);
         colors[i * 4] = cr;
         colors[i * 4 + 1] = cg;
         colors[i * 4 + 2] = cb;
@@ -404,7 +453,8 @@ export function recolorMeshVertices(
  */
 export function colorsFromNormals(
     normals: Float32Array,
-    preset: ShaderPreset = 'cliff',
+    preset: ShaderPreset,
+    snowLine: number,
     positions?: Float32Array,
 ): Uint8Array {
     const n = normals.length / 3;
@@ -412,7 +462,7 @@ export function colorsFromNormals(
     for (let i = 0; i < n; i++) {
         const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
         const z = positions ? positions[i * 3 + 2] : 0;
-        const [r, g, b] = vertexColor(nx, ny, nz, z, preset);
+        const [r, g, b] = vertexColor(nx, ny, nz, z, preset, snowLine);
         colors[i * 4] = r;
         colors[i * 4 + 1] = g;
         colors[i * 4 + 2] = b;

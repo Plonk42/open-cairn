@@ -15,6 +15,7 @@ export function extractAmbiance(st: MapState): ShowcaseAmbiance {
     return {
         lidarMode: st.lidarMode,
         lidarShader: st.lidarShader,
+        lidarSnowLine: st.lidarSnowLine,
         lidarSunDate: st.lidarSunDate,
         lidarSunEnabled: st.lidarSunEnabled,
         lidarShadows: st.lidarShadows,
@@ -55,6 +56,7 @@ export function extractAmbiance(st: MapState): ShowcaseAmbiance {
 const AMBIANCE_SETTERS: { [K in keyof ShowcaseAmbiance]: (s: MapState, v: ShowcaseAmbiance[K]) => void } = {
     lidarMode: (s, v) => s.setLidarMode(v),
     lidarShader: (s, v) => s.setLidarShader(v),
+    lidarSnowLine: (s, v) => s.setLidarSnowLine(v),
     lidarSunDate: (s, v) => s.setLidarSunDate(v),
     lidarSunEnabled: (s, v) => s.setLidarSunEnabled(v),
     lidarShadows: (s, v) => s.setLidarShadows(v),

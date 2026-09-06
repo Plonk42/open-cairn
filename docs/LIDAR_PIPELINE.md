@@ -74,6 +74,8 @@ Trois réglages sont cuits à la capture *et* rejoués à chaud, et n'ont donc r
 - `lidarShader` — `setLidarShader` recolore tous les nuages chargés via
   `colorsFromNormals` / `recolorMeshVertices`, qui appellent le même
   `vertexColor` que le worker : le résultat est identique.
+- `lidarSnowLine` — même mécanique (`setLidarSnowLine` passe par le même
+  recoloriage) : la ligne de neige pilote les palettes, pas la géométrie.
 - `lidarCloudClasses` — aucun `fetchLidar*` ne reçoit ce paramètre ; c'est un
   masque GPU (`LidarWebGLLayer.setClassMask`).
 - `lidarVegGroundGap` / `lidarVegGroundRough` — `recomputeVegHeights` refait les

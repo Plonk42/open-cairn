@@ -22,6 +22,7 @@ export type PersistedSettings = {
     ignDemApiKey?: string;
     lidarMode?: LidarMode;
     lidarShader?: ShaderPreset;
+    lidarSnowLine?: number;
     lidarCloudStride?: number;
     lidarCaptureRect?: CaptureRectDims;
     lidarRectNorthFixed?: boolean;

@@ -163,6 +163,7 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-06 | **§5** — palette *Été* cassée (moucheté partout) : la couleur de sommet était calculée sur la normale par triangle. Découplée sur une normale **macro** (24 passes Jacobi isotropes ≈ 2,5 m de rayon), l'indice de rugosité retiré de l'albédo, palette recalibrée en réflectance physique et garde `u_snowPalette` sur le re-seuillage de névé. | ✅ |
 | 2026-09-06 | **§5.2** — rupture herbe/calcaire de la palette *Été* reculée de 30° à 36-45°, palette *Montagne* étendue vers le bas (neige 2700-3200 m, alpage jusqu'à 2600 m), herbe resaturée dans les deux. | ✅ |
 | 2026-09-06 | **§5.3** — rampe végétale en réflectance physique sur le chemin photoréaliste (`vegRampColorPbr`, sélectionnée par `u_pbr`). | ✅ |
+| 2026-09-06 | **§5.5** — pelouse unique à *Été* et *Montagne* (`alpineTurf`), un peu moins jaune, et **ligne de neige réglable** (curseur *Ligne de neige*, section Shader, défaut 2700 m) qui pilote à la fois les névés, la ceinture d'alpage et le dessèchement de l'herbe. | ✅ |
 
 ---
 
@@ -360,7 +361,8 @@ La palette *Montagne* souffrait du symptôme jumeau, en altitude : ligne de neig
 à 2000-2600 m et alpage plafonné à 2100 m, calibrés pour du haut massif. Un
 sommet de Chartreuse à 2062 m ressortait en rocher enneigé. Neige remontée à
 2700-3200 m (± 300 m selon l'orientation) et ceinture d'alpage jusqu'à 2600 m
-avec un fondu de 700 m : *Montagne* est désormais valable dès ~1500 m.
+avec un fondu de 700 m : *Montagne* est désormais valable dès ~1500 m. Ces
+altitudes sont depuis **réglables** — voir §5.5.
 
 Enfin, **la saturation**. L'ambiante hémisphérique est une lumière de ciel, donc
 bleue : additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
@@ -384,7 +386,42 @@ la photo : des arbres presque noirs détachés sur la pelouse claire. D'où
 réflectance, sélectionnée par `u_pbr`. La palette de carte est inchangée hors
 photoréalisme.
 
-### 5.4 Piège de méthode : les portes ne compilent pas le GLSL
+### 5.5 Une seule limite climatique pour la neige et pour l'herbe
+
+Restait un reproche : « l'herbe est un poil trop jaune ». Le creusement du bleu
+de §5.2 était allé un cran trop loin. Mais le corriger a rouvert une question de
+fond : *à quelle altitude* l'herbe est-elle censée jaunir ?
+
+Les deux palettes qui peignent de la pelouse répondaient séparément — *Été*
+avec une rampe de pente seule, *Montagne* avec une couleur d'alpage constante
+sous un plafond en dur. Or sur le terrain la même limite gouverne les deux
+phénomènes : là où la neige tient tard, la saison de végétation est courte et le
+sol squelettique, la pelouse se clairseme et laisse voir la terre ; 800 m plus
+bas, elle est grasse. **La ligne des neiges d'été et la limite de l'alpage sont
+la même limite climatique.**
+
+D'où un modèle de pelouse unique, `alpineTurf(z, pente, ligneDeNeige)`, partagé
+par les deux presets, et un seul réglage : le curseur *Ligne de neige*
+(1200-3600 m, défaut 2700). Il déplace ensemble les névés de *Montagne*, la
+ceinture d'alpage, l'enneigement d'*Hiver* (à 1700 m en dessous) et le
+dessèchement de l'herbe. Le dessèchement est confiné aux **700 derniers mètres**
+sous la ligne : abaisser le curseur sous le relief affiché suffit à passer la
+scène du vert au paillé, ce qui en fait aussi le réglage d'ambiance « fin d'été »
+que la palette n'offrait pas.
+
+Deux conséquences de mise en œuvre :
+
+- `snowLine` est un **paramètre requis** de `vertexColor` / `colorsFromNormals` /
+  `recolorMeshVertices`, pas un paramètre optionnel avec défaut : c'est le
+  compilateur qui garantit qu'aucun site d'appel n'ignore silencieusement le
+  réglage de l'utilisateur.
+- Le recoloriage est **CPU**, sur le thread principal (~0,45 s pour 1,5 M
+  sommets). Le curseur affiche donc sa valeur immédiatement mais ne déclenche le
+  repeint qu'après 150 ms de stabilité, comme les curseurs forêt. Le réglage
+  n'est **pas** un paramètre de capture : il rejoue à chaud, il appartient à
+  l'ambiance de scène.
+
+### 5.6 Piège de méthode : les portes ne compilent pas le GLSL
 
 `npx tsc -b`, `npm run lint:test`, `npm run test:run` et `npm run build`
 ignorent totalement le contenu des shaders — `vite-plugin-glsl` ne fait qu'un

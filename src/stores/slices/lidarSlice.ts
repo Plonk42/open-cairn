@@ -8,7 +8,7 @@ import {
 } from '@/lib/lidarBrowser';
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
-import { colorsFromNormals, recolorMeshVertices, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { colorsFromNormals, recolorMeshVertices, DEFAULT_SNOW_LINE, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
     screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
@@ -172,6 +172,10 @@ export interface LidarSlice {
     /** Colour shader preset for geometry colorization. */
     lidarShader: ShaderPreset;
     setLidarShader: (v: ShaderPreset) => void;
+    /** Altitude (m) de la limite des neiges d'été : place la neige des palettes
+     *  et le dessèchement de la pelouse alpine. Voir `slope.ts`. */
+    lidarSnowLine: number;
+    setLidarSnowLine: (v: number) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors) — mirrors `lidarClouds[0]`. */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for delaunay / poisson modes — mirrors `lidarClouds[0]`. */
@@ -607,6 +611,7 @@ const SHADER_PRESETS: ReadonlySet<ShaderPreset> = new Set<ShaderPreset>(['base',
 export const LIDAR_RENDER_DEFAULTS = {
     lidarMode: 'shaded' as LidarMode,
     lidarShader: 'cliff' as ShaderPreset,
+    lidarSnowLine: DEFAULT_SNOW_LINE,
     lidarCloudPointSize: 2,
     lidarCloudSizeCompensation: true,
     lidarCloudEdl: true,
@@ -649,6 +654,32 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarForestSpeciesFilterOn: false,
 };
 
+/**
+ * Recolor EVERY loaded cloud/mesh (not just the "primary" one): the palette
+ * settings are global render settings shown for all simultaneously displayed
+ * clouds, so all of them must recolor together.
+ */
+function repaint(
+    state: Pick<LidarSlice, 'lidarClouds'>,
+    shader: ShaderPreset,
+    snowLine: number,
+): Pick<LidarSlice, 'lidarClouds' | 'lidarShaded' | 'lidarMesh'> {
+    const lidarClouds = state.lidarClouds.map((cloud) => ({
+        ...cloud,
+        shaded: cloud.shaded
+            ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, shader, snowLine, cloud.shaded.positions) }
+            : cloud.shaded,
+        mesh: cloud.mesh
+            ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, shader, snowLine) }
+            : cloud.mesh,
+    }));
+    return {
+        lidarClouds,
+        lidarShaded: lidarClouds[0]?.shaded ?? null,
+        lidarMesh: lidarClouds[0]?.mesh ?? null,
+    };
+}
+
 export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => {
     /**
      * Apply a patch to the "primary" cloud (`lidarClouds[0]`) and keep the
@@ -672,25 +703,11 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarMode: (lidarMode) => set({ lidarMode }),
         lidarShader: SHADER_PRESETS.has(persisted.lidarShader as ShaderPreset) ? persisted.lidarShader as ShaderPreset : LIDAR_RENDER_DEFAULTS.lidarShader,
         setLidarShader: (shader) => {
-            // Recolor EVERY loaded cloud/mesh (not just the "primary" one) —
-            // the shader is a global render setting shown for all simultaneously
-            // displayed clouds, so all of them must recolor together.
-            const { lidarClouds } = get();
-            const recoloredClouds = lidarClouds.map((cloud) => ({
-                ...cloud,
-                shaded: cloud.shaded
-                    ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, shader, cloud.shaded.positions) }
-                    : cloud.shaded,
-                mesh: cloud.mesh
-                    ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, shader) }
-                    : cloud.mesh,
-            }));
-            set({
-                lidarShader: shader,
-                lidarClouds: recoloredClouds,
-                lidarShaded: recoloredClouds[0]?.shaded ?? null,
-                lidarMesh: recoloredClouds[0]?.mesh ?? null,
-            });
+            set({ lidarShader: shader, ...repaint(get(), shader, get().lidarSnowLine) });
+        },
+        lidarSnowLine: persisted.lidarSnowLine ?? LIDAR_RENDER_DEFAULTS.lidarSnowLine,
+        setLidarSnowLine: (snowLine) => {
+            set({ lidarSnowLine: snowLine, ...repaint(get(), get().lidarShader, snowLine) });
         },
         lidarShaded: null,
         lidarMesh: null,
@@ -940,6 +957,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         shader: state.lidarShader,
+                        snowLine: state.lidarSnowLine,
                         gridMesh: state.lidarMeshSmooth,
                         gridCell: state.lidarGridCell,
                         onProgress,
@@ -966,6 +984,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         shader: state.lidarShader,
+                        snowLine: state.lidarSnowLine,
                         onProgress,
                     });
                     shadedResult = composite.shaded;
@@ -982,6 +1001,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         shader: state.lidarShader,
+                        snowLine: state.lidarSnowLine,
                         onProgress,
                     });
                     meshResult = null;
@@ -1018,14 +1038,14 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             // selected* shader here so a gallery pick immediately matches what
             // the UI shows as active, instead of silently keeping old colors
             // until the next manual toggle.
-            const { lidarShader } = get();
+            const { lidarShader, lidarSnowLine } = get();
             const entry: LoadedLidarCloud = {
                 id: `lidar-cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 shaded: data.shaded
-                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, lidarShader, data.shaded.positions) }
+                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, lidarShader, lidarSnowLine, data.shaded.positions) }
                     : data.shaded,
                 mesh: data.mesh
-                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, lidarShader) }
+                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, lidarShader, lidarSnowLine) }
                     : data.mesh,
                 visible: true,
                 createdAt: Date.now(),
@@ -1079,6 +1099,7 @@ export function selectLidarPersisted(
     PersistedSettings,
     | 'lidarMode'
     | 'lidarShader'
+    | 'lidarSnowLine'
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
     | 'lidarRectNorthFixed'
@@ -1148,6 +1169,7 @@ export function selectLidarPersisted(
     return {
         lidarMode: s.lidarMode,
         lidarShader: s.lidarShader,
+        lidarSnowLine: s.lidarSnowLine,
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
         lidarRectNorthFixed: s.lidarRectNorthFixed,

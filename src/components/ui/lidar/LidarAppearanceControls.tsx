@@ -1,4 +1,5 @@
 import { LOD_LEVEL_COUNT } from '@/components/map/LidarWebGLLayer';
+import { useEffect, useState } from 'react';
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { isHeightDebugEnabled, isLodDebugEnabled, isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
@@ -30,7 +31,7 @@ const SHADER_OPTIONS = [
     { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
     { value: 'cliff', label: 'Été', title: 'Massif calcaire en été : pelouse alpine sur les pentes douces, rupture nette vers le calcaire clair sur les barres rocheuses. Albédo physique, sans ombrage peint — à utiliser avec le rendu photoréaliste' },
     { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
-    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche/alpage piloté par la pente, l\'altitude et l\'orientation. Ligne de neige d\'été vers 2700-3200 m et ceinture d\'alpage jusqu\'à 2600 m : valable des moyennes montagnes (Chartreuse, Vercors) aux hauts massifs. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
+    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche/alpage piloté par la pente, l\'altitude et l\'orientation. La neige, la ceinture d\'alpage et le dessèchement de la pelouse se calent sur le curseur « Ligne de neige » : valable des moyennes montagnes (Chartreuse, Vercors) aux hauts massifs. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
     { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 
@@ -215,6 +216,19 @@ export function OpacityControls() {
 export function ShaderControls() {
     const shader = useMapStore((s) => s.lidarShader);
     const setShader = useMapStore((s) => s.setLidarShader);
+    const snowLine = useMapStore((s) => s.lidarSnowLine);
+    const setSnowLine = useMapStore((s) => s.setLidarSnowLine);
+    // Changer la ligne de neige repeint chaque sommet chargé sur le thread
+    // principal (~0,4 s sur un maillage de 1,5 M sommets) : le curseur affiche
+    // sa valeur immédiatement mais ne recolorie qu'une fois le geste stabilisé,
+    // sinon le glissement se fige. Même parti pris que les curseurs forêt.
+    const [snowLineDraft, setSnowLineDraft] = useState(snowLine);
+    useEffect(() => setSnowLineDraft(snowLine), [snowLine]);
+    useEffect(() => {
+        if (snowLineDraft === snowLine) return undefined;
+        const handle = globalThis.setTimeout(() => setSnowLine(snowLineDraft), 150);
+        return () => globalThis.clearTimeout(handle);
+    }, [snowLineDraft, snowLine, setSnowLine]);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
@@ -230,6 +244,23 @@ export function ShaderControls() {
                 <span className="text-sm text-slate-700 dark:text-slate-300">Shader</span>
                 <SegmentedControl value={shader} options={SHADER_OPTIONS} onChange={setShader} />
             </div>
+
+            {/* Limite climatique commune aux palettes : neige, alpage, pelouse */}
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. Cale la neige du preset Montagne, la limite de l'alpage, et le dessèchement de la pelouse : plus on s'en approche, plus l'herbe se clairseme et vire au paillé.">
+                        Ligne de neige
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">{snowLineDraft} m</span>
+                </div>
+                <input
+                    aria-label="Altitude de la ligne de neige"
+                    type="range" min={1200} max={3600} step={50}
+                    value={snowLineDraft}
+                    onChange={(e) => setSnowLineDraft(Number(e.target.value))}
+                    className="mt-1 w-full accent-green-600"
+                />
+            </label>
 
             {/* Facettisation du maillage reconstruit */}
             <label className="block">
