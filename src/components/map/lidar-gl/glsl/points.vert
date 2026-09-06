@@ -65,6 +65,9 @@ out float v_emissive;   // 1 = flat/emissive diagnostic colour (bypass shading)
 
 #include ./lib/flatLight.glsl;
 
+// Déclaré aussi par lib/pbr.glsl côté fragment : même programme, même uniforme.
+uniform float u_pbr;         // 0 = ombrage sRGB historique, 1 = linéaire tone-mappé
+
 // Dégradé feuillage « naturel » : tronc/litière brun → sous-bois → canopée
 // vive → cime jaune-vert. "scale" étire l'axe hauteur (sommet atteint à
 // "scale" m au lieu de 15) — copie GPU de vegRamp() (lidarCloud.ts).
@@ -81,6 +84,37 @@ vec3 vegRampColor(float h, float scale) {
     if (hh <= 6.0) return mix(c1, c2, (hh - 1.5) / 4.5);
     if (hh <= 15.0) return mix(c2, c3, (hh - 6.0) / 9.0);
     return c3;
+}
+
+// Même dégradé, mais en RÉFLECTANCE physique, pour le chemin photoréaliste.
+//
+// La rampe ci-dessus est une palette de carte : elle encode déjà une lecture
+// (cime lumineuse, sous-bois sombre) et culmine à un jaune-vert de luminance
+// 0,87. Le chemin PBR la traite comme un albédo et la multiplie par un éclairement
+// solaire de l'ordre de 1,8 : le feuillage ressortait en confetti vert acide.
+//
+// Un couvert résineux est au contraire l'une des surfaces naturelles les plus
+// sombres du visible — ρ ≈ 0,03 rouge, 0,05-0,08 vert, 0,03 bleu (les aiguilles
+// piègent la lumière par diffusion multiple dans la structure du houppier).
+// C'est ce qui donne sur la photo des arbres presque noirs détachés sur la
+// pelouse claire. On garde la même structure verticale (litière → houppier)
+// mais dans la bonne plage de réflectance, avec un très léger réchauffement de
+// la cime au lieu du vert-doré.
+vec3 vegRampColorPbr(float h, float scale) {
+    float hh = h * (15.0 / max(1.0, scale));
+    vec3 c0 = vec3(46.0, 40.0, 30.0) / 255.0;  // litière / tronc à l'ombre  ρ≈0.03
+    vec3 c1 = vec3(38.0, 54.0, 38.0) / 255.0;  // base du houppier, très sombre
+    vec3 c2 = vec3(48.0, 68.0, 46.0) / 255.0;  // houppier                   ρ≈0.06
+    vec3 c3 = vec3(64.0, 84.0, 54.0) / 255.0;  // cime exposée, à peine plus claire
+    if (hh <= 0.0) return c0;
+    if (hh <= 1.5) return mix(c0, c1, hh / 1.5);
+    if (hh <= 6.0) return mix(c1, c2, (hh - 1.5) / 4.5);
+    if (hh <= 15.0) return mix(c2, c3, (hh - 6.0) / 9.0);
+    return c3;
+}
+
+vec3 vegRamp(float h, float scale) {
+    return (u_pbr > 0.5) ? vegRampColorPbr(h, scale) : vegRampColor(h, scale);
 }
 
 // Modulation de hauteur appliquée SUR une couleur d'essence (mode « essence »).
@@ -272,12 +306,12 @@ void main() {
             } else {
                 // Végétation hors de tout peuplement → dégradé hauteur générique,
                 // piloté par le slider (rien à colorer par essence ici).
-                baseCol = mix(baseCol, vegRampColor(a_height, u_vegHeightScale), gradAmt);
+                baseCol = mix(baseCol, vegRamp(a_height, u_vegHeightScale), gradAmt);
             }
         } else if (u_vegColorMode > 0.5) {
             baseCol = mix(baseCol, viridisColor(a_height / max(1.0, u_vegHeightScale)), gradAmt);
         } else {
-            baseCol = mix(baseCol, vegRampColor(a_height, u_vegHeightScale), gradAmt);
+            baseCol = mix(baseCol, vegRamp(a_height, u_vegHeightScale), gradAmt);
         }
     }
     v_albedo = baseCol;
