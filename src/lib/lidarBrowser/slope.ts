@@ -52,10 +52,16 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
 // 35-40° ; le calcaire nu n'apparaît qu'au-delà, sur les barres et les vires.
 // La carte de pente du même maillage donne ~30-32° sur tout l'épaulement
 // herbeux, donc une rupture placée à 30° repeignait la prairie en rocher.
+//
+// SATURATION : l'ambiante hémisphérique est une lumière de ciel, donc bleue.
+// Additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
+// tone mapping, qui désature encore les hautes lumières : une herbe neutre
+// ressort en kaki pastel. On compense en creusant le bleu de l'albédo — la
+// pelouse rendue retrouve le jaune-vert franc des photos d'été.
 const CLIFF_PALETTE: Array<[number, [number, number, number]]> = [
-    [0, [112, 124, 68]],
-    [25, [120, 128, 74]],
-    [36, [130, 131, 88]],
+    [0, [112, 130, 48]],
+    [25, [120, 133, 56]],
+    [36, [130, 134, 76]],
     [45, [158, 152, 132]],
     [58, [172, 167, 154]],
     [75, [164, 159, 148]],
@@ -142,7 +148,7 @@ const MTN_ROCK_STEEP: readonly [number, number, number] = [88, 84, 80];
 // dominante d'un versant entre 1500 et 2300 m dès que la pente le permet, et
 // c'est elle qui manquait au preset — conçu sur des scènes de 3000 m et plus,
 // il ne voyait que du rocher et de la neige.
-const MTN_TURF: readonly [number, number, number] = [116, 126, 72];
+const MTN_TURF: readonly [number, number, number] = [116, 132, 52];
 
 /**
  * Limite des neiges sur une face plein sud, en été ; les faces nord la tiennent

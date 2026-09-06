@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('slopeColor', () => {
     it('returns the flat-ground colour at zero slope', () => {
-        expect(slopeColor(0)).toEqual([112, 124, 68]);
+        expect(slopeColor(0)).toEqual([112, 130, 48]);
     });
 
     it('returns integer RGB channels in [0, 255]', () => {
@@ -27,7 +27,7 @@ describe('vertexColor', () => {
 
     it('colours a flat upward-facing point as alpine meadow (cliff preset)', () => {
         // Normal straight up → slope 0 → first cliff palette stop.
-        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([112, 124, 68]);
+        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([112, 130, 48]);
     });
 
     it('keeps alpine turf on a 35° shoulder and bares the rock only above', () => {
