@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('slopeColor', () => {
     it('returns the flat-ground colour at zero slope', () => {
-        expect(slopeColor(0)).toEqual([118, 128, 72]);
+        expect(slopeColor(0)).toEqual([112, 124, 68]);
     });
 
     it('returns integer RGB channels in [0, 255]', () => {
@@ -18,7 +18,7 @@ describe('slopeColor', () => {
 
     it('clamps slopes beyond the palette to the last stop', () => {
         const vertical = slopeColor(Math.PI / 2); // 90°
-        expect(vertical).toEqual([130, 126, 118]);
+        expect(vertical).toEqual([128, 124, 116]);
     });
 });
 
@@ -27,7 +27,21 @@ describe('vertexColor', () => {
 
     it('colours a flat upward-facing point as alpine meadow (cliff preset)', () => {
         // Normal straight up → slope 0 → first cliff palette stop.
-        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([118, 128, 72]);
+        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([112, 124, 68]);
+    });
+
+    it('keeps alpine turf on a 35° shoulder and bares the rock only above', () => {
+        // Sur la Dent de Crolles l'épaulement herbeux est mesuré à 30-35° par la
+        // carte de pente : il doit rester vert, la roche n'apparaît qu'au-delà.
+        const deg = (d: number): [number, number, number] => {
+            const r = (d * Math.PI) / 180;
+            return vertexColor(Math.sin(r), 0, Math.cos(r), 1800, 'cliff');
+        };
+        const shoulder = deg(33);
+        expect(shoulder[1]).toBeGreaterThan(shoulder[2] + 35);
+        const band = deg(55);
+        expect(band[2]).toBeGreaterThan(band[1] - 20);
+        expect(lum(band)).toBeGreaterThan(lum(shoulder));
     });
 
     it('keeps the summer preset in the physical reflectance range', () => {
@@ -94,9 +108,26 @@ describe('vertexColor — montagne preset', () => {
     });
 
     it('holds snow lower on north faces than on south faces', () => {
-        const north = vertexColor(0, 1, 1, 2150, 'montagne');
-        const south = vertexColor(0, -1, 1, 2150, 'montagne');
+        // 3000 m, 45° : au-dessus de la limite des neiges décalée au nord, en
+        // dessous de celle décalée au sud.
+        const north = vertexColor(0, 1, 1, 3000, 'montagne');
+        const south = vertexColor(0, -1, 1, 3000, 'montagne');
         expect(lum(north)).toBeGreaterThan(lum(south));
+    });
+
+    it('puts alpine meadow, not bare rock, on a gentle slope at Chartreuse altitude', () => {
+        // Épaule herbeuse à ~30° vers 2000 m : le preset ne voyait là que du
+        // rocher (et de la neige dès 1700 m en face nord).
+        const shoulder = vertexColor(0, 0.5, 0.87, 2000, 'montagne');
+        expect(shoulder[1]).toBeGreaterThan(shoulder[0]);
+        expect(shoulder[1]).toBeGreaterThan(shoulder[2] + 40);
+    });
+
+    it('leaves no snow at Dent de Crolles altitude, whatever the aspect', () => {
+        for (const [nx, ny] of [[0, 1], [0, -1], [1, 0]] as const) {
+            const c = vertexColor(nx * 0.3, ny * 0.3, 0.95, 2062, 'montagne');
+            expect(lum(c)).toBeLessThan(0.6);
+        }
     });
 
     it('gives open rock a warm granite tint rather than a neutral grey', () => {

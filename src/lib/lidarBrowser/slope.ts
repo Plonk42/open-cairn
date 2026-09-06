@@ -46,14 +46,20 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
 //
 //   pelouse alpine sèche  ρ ≈ 0,20   éboulis calcaire   ρ ≈ 0,30
 //   calcaire urgonien     ρ ≈ 0,40   paroi ruisselée    ρ ≈ 0,20
+//
+// SEUIL DE RUPTURE : l'herbe tient bien plus raide qu'on ne le croit. Sur les
+// épaulements de la Dent de Crolles la pelouse couvre encore des pentes à
+// 35-40° ; le calcaire nu n'apparaît qu'au-delà, sur les barres et les vires.
+// La carte de pente du même maillage donne ~30-32° sur tout l'épaulement
+// herbeux, donc une rupture placée à 30° repeignait la prairie en rocher.
 const CLIFF_PALETTE: Array<[number, [number, number, number]]> = [
-    [0, [118, 128, 72]],
-    [22, [126, 130, 82]],
-    [30, [150, 143, 121]],
-    [38, [166, 160, 146]],
-    [55, [174, 170, 159]],
-    [75, [166, 161, 150]],
-    [90, [130, 126, 118]],
+    [0, [112, 124, 68]],
+    [25, [120, 128, 74]],
+    [36, [130, 131, 88]],
+    [45, [158, 152, 132]],
+    [58, [172, 167, 154]],
+    [75, [164, 159, 148]],
+    [90, [128, 124, 116]],
 ];
 
 // ─── SLOPE palette (standard steepness-map gradient) ─────────────────────────
@@ -132,14 +138,29 @@ const MTN_ROCK: readonly [number, number, number] = [116, 106, 90];
 // "dramatic", but under the physical lighting path it collapses to black as
 // soon as the face turns away from the sun.
 const MTN_ROCK_STEEP: readonly [number, number, number] = [88, 84, 80];
-const MTN_TURF: readonly [number, number, number] = [92, 100, 64];
+// Pelouse alpine d'été : ρ ≈ 0,20, franchement jaune-vert. C'est la couleur
+// dominante d'un versant entre 1500 et 2300 m dès que la pente le permet, et
+// c'est elle qui manquait au preset — conçu sur des scènes de 3000 m et plus,
+// il ne voyait que du rocher et de la neige.
+const MTN_TURF: readonly [number, number, number] = [116, 126, 72];
 
-/** Snow line on a due-south face; north faces hold snow this much lower. */
-const MTN_SNOW_LOW = 2000;
-const MTN_SNOW_HIGH = 2600;
+/**
+ * Limite des neiges sur une face plein sud, en été ; les faces nord la tiennent
+ * `MTN_ASPECT_SHIFT` plus bas. Les névés résiduels d'août dans les Alpes
+ * commencent vers 2400 m en exposition nord et ne deviennent continus que
+ * vers 2900 — en dessous, une scène de montagne en été n'a pas un flocon.
+ */
+const MTN_SNOW_LOW = 2700;
+const MTN_SNOW_HIGH = 3200;
 const MTN_ASPECT_SHIFT = 300;
-/** Above the turf top nothing grows; below it gentle ground is alpine grass. */
-const MTN_TURF_TOP = 2100;
+/**
+ * Altitude où la pelouse alpine cède définitivement la place à la roche nue, et
+ * hauteur de la rampe qui l'y mène. La pelouse continue monte jusque vers
+ * 2600 m dans les Alpes du Nord ; elle se clairseme dès ~1900, d'où une rampe
+ * large plutôt qu'un seuil.
+ */
+const MTN_TURF_TOP = 2600;
+const MTN_TURF_FADE_M = 700;
 
 function lerp3(
     a: readonly [number, number, number],
@@ -161,8 +182,11 @@ function montagneGround(slopeDeg: number, z: number): [number, number, number] {
     if (slopeDeg <= 25) rock = lerp3(MTN_SCREE, MTN_SLAB, slopeDeg / 25);
     else if (slopeDeg <= 55) rock = lerp3(MTN_SLAB, MTN_ROCK, (slopeDeg - 25) / 30);
     else rock = lerp3(MTN_ROCK, MTN_ROCK_STEEP, (slopeDeg - 55) / 30);
-    // Alpine turf only on gentle ground below the vegetation limit.
-    const turf = smoothstep01((MTN_TURF_TOP - z) / 500) * smoothstep01((32 - slopeDeg) / 12);
+    // Pelouse alpine : partout où la pente laisse la terre tenir, sous la
+    // limite de végétation. L'herbe s'accroche bien au-delà des 32° qu'on lui
+    // accordait — une épaule herbeuse de 35° est la règle dans les Alpes, pas
+    // l'exception — et ne lâche vraiment que vers 40°.
+    const turf = smoothstep01((MTN_TURF_TOP - z) / MTN_TURF_FADE_M) * smoothstep01((40 - slopeDeg) / 14);
     return lerp3(rock, MTN_TURF, turf);
 }
 
