@@ -80,7 +80,9 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     // On lit dans la luminance le taux de neige `t` déjà mélangé par la
     // palette, on reconstruit les deux couleurs extrêmes qui redonnent
     // exactement `out_` en `t` (donc effet nul quand le bruit est nul), puis on
-    // remélange avec un seuil bruité et plus raide.    if (snowEdge <= 0.0) return clamp(out_, 0.0, 1.0);    float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
+    // remélange avec un seuil bruité et plus raide.
+    if (snowEdge <= 0.0) return clamp(out_, 0.0, 1.0);
+    float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
     float t = smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum);
     // Hors zone de transition (t≈0 ou t≈1) le remélange est l'identité : la
     // dalle rocheuse et le névé franc ne bougent pas.
