@@ -821,6 +821,66 @@ function sharpenMeshPositions(indices: Uint32Array, positions: Float32Array, amo
 }
 
 /**
+ * Nombre de passes de moyenne isotrope appliquées à la copie des normales qui
+ * sert **à la palette** (et à elle seule).
+ *
+ * La normale d'éclairage doit rester fine : c'est elle qui porte le grain du
+ * rocher. Mais l'albédo, lui, est une propriété de paysage — qu'un versant
+ * porte de l'herbe ou du calcaire se décide à l'échelle de la dizaine de
+ * mètres, pas à celle du triangle. Or les palettes basculent sur des
+ * transitions de quelques degrés (herbe → roche à ~30°, rétention de neige…)
+ * alors que la normale de sommet d'un lapiaz reconstruit par Poisson porte
+ * plusieurs dizaines de degrés de bruit : la coloriser directement transforme
+ * ce bruit en poivre-et-sel par sommet, sur toute la surface.
+ *
+ * L'opérateur ombrelle du maillage diffuse d'environ `espacement × √passes` :
+ * à ~0,5 m entre sommets, 24 passes portent le lissage à ~2,5 m, ce qui efface
+ * le bruit de reconstruction sans effacer la vraie rupture herbe/falaise.
+ */
+const MACRO_NORMAL_PASSES = 24;
+
+/**
+ * Une passe de moyenne isotrope (Jacobi) sur le voisinage à un anneau, sans
+ * pondération de crête : contrairement à {@link smoothVertexNormals}, on veut
+ * ici *effacer* les arêtes, pas les préserver.
+ */
+function macroNormalPass(indices: Uint32Array, normals: Float32Array, acc: Float32Array): void {
+    acc.fill(0);
+    for (let t = 0; t < indices.length; t += 3) {
+        const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+        const sx = normals[a] + normals[b] + normals[c];
+        const sy = normals[a + 1] + normals[b + 1] + normals[c + 1];
+        const sz = normals[a + 2] + normals[b + 2] + normals[c + 2];
+        acc[a] += sx; acc[a + 1] += sy; acc[a + 2] += sz;
+        acc[b] += sx; acc[b + 1] += sy; acc[b + 2] += sz;
+        acc[c] += sx; acc[c + 1] += sy; acc[c + 2] += sz;
+    }
+    for (let i = 0; i < normals.length; i += 3) {
+        const len = Math.hypot(acc[i], acc[i + 1], acc[i + 2]);
+        if (len === 0) continue;
+        normals[i] = acc[i] / len;
+        normals[i + 1] = acc[i + 1] / len;
+        normals[i + 2] = acc[i + 2] / len;
+    }
+}
+
+/**
+ * Champ d'orientation « macro » du terrain, encodé sur un octet par composante
+ * (`v * 127.5 + 127.5`) : 3 octets par sommet, stockés avec le maillage pour
+ * que le changement de shader à chaud puisse recoloriser sans tout recalculer.
+ */
+function macroVertexNormals(indices: Uint32Array, normals: Float32Array): Uint8Array {
+    const macro = normals.slice();
+    const acc = new Float32Array(normals.length);
+    for (let p = 0; p < MACRO_NORMAL_PASSES; p++) macroNormalPass(indices, macro, acc);
+    const out = new Uint8Array(macro.length);
+    for (let i = 0; i < macro.length; i++) {
+        out[i] = Math.max(0, Math.min(255, Math.round(macro[i] * 127.5 + 127.5)));
+    }
+    return out;
+}
+
+/**
  * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
  * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
  * output PLY contains only positions + faces.
@@ -832,15 +892,10 @@ function normalsAndColorsFromMesh(
 ): {
     normals: Float32Array;
     colors: Uint8Array;
-    roughness: Float32Array;
+    macroNormals: Uint8Array;
 } {
     const n = positions.length / 3;
     const normals = new Float32Array(n * 3);
-    // Track Σ|face_normal| per vertex; comparing it to |Σface_normal| after
-    // accumulation gives a coherence metric in [0,1] — high on smooth slabs,
-    // low on rocky outcrops where neighbour faces disagree. Used below to
-    // darken & desaturate rugged areas so they pop visually.
-    const sumMag = new Float32Array(n);
     for (let t = 0; t < indices.length; t += 3) {
         const ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
         const ax = positions[ia * 3], ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
@@ -857,42 +912,37 @@ function normalsAndColorsFromMesh(
         normals[ia * 3] += nx; normals[ia * 3 + 1] += ny; normals[ia * 3 + 2] += nz;
         normals[ib * 3] += nx; normals[ib * 3 + 1] += ny; normals[ib * 3 + 2] += nz;
         normals[ic * 3] += nx; normals[ic * 3 + 1] += ny; normals[ic * 3 + 2] += nz;
-        const mag = Math.hypot(nx, ny, nz);
-        sumMag[ia] += mag; sumMag[ib] += mag; sumMag[ic] += mag;
     }
     const colors = new Uint8Array(n * 4);
-    const roughnessArr = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
-        const len = Math.hypot(nx, ny, nz);
-        // Compute coherence BEFORE normalizing (len = |Σ face_normals| pre-normalized)
-        const coherence = sumMag[i] > 0 ? len / sumMag[i] : 1;
-        roughnessArr[i] = 1 - coherence;
+        const i3 = i * 3;
+        const len = Math.hypot(normals[i3], normals[i3 + 1], normals[i3 + 2]);
         if (len > 0) {
-            normals[i * 3] = nx / len;
-            normals[i * 3 + 1] = ny / len;
-            normals[i * 3 + 2] = nz / len;
+            normals[i3] /= len;
+            normals[i3 + 1] /= len;
+            normals[i3 + 2] /= len;
         } else {
-            normals[i * 3 + 2] = 1;
+            normals[i3 + 2] = 1;
         }
     }
     smoothVertexNormals(indices, normals, NORMAL_SMOOTHING_PASSES);
+    // La palette lit l'orientation du terrain à l'échelle du paysage, pas celle
+    // du triangle : voir `macroVertexNormals`.
+    const macroNormals = macroVertexNormals(indices, normals);
     for (let i = 0; i < n; i++) {
-        // Rocky-outcrop detection: coherence = |Σ face_normals| / Σ|face_normals|.
-        // Near 1 = smooth slab; near 0 = boulder / crevice / reconstruction noise.
-        // The palette uses it as a weak albedo cue (see `montagneGround`).
         const z = positions[i * 3 + 2];
         const [cr, cg, cb] = vertexColor(
-            normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2],
-            z, shader, roughnessArr[i],
+            macroNormals[i * 3] / 127.5 - 1,
+            macroNormals[i * 3 + 1] / 127.5 - 1,
+            macroNormals[i * 3 + 2] / 127.5 - 1,
+            z, shader,
         );
         colors[i * 4] = cr;
         colors[i * 4 + 1] = cg;
         colors[i * 4 + 2] = cb;
         colors[i * 4 + 3] = 255;
     }
-    // roughnessArr is stored so callers can recolorize without re-fetching.
-    return { normals, colors, roughness: roughnessArr };
+    return { normals, colors, macroNormals };
 }
 
 /**
@@ -1035,7 +1085,7 @@ export async function fetchLidarPoisson(
     if (sharpen > 0) logStage('netteté', tSharpen(), `amount ${sharpen}`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
     const tMeshCol = startTimer();
-    const { normals: meshNrm, colors: meshCols, roughness: meshRoughness } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
+    const { normals: meshNrm, colors: meshCols, macroNormals: meshMacro } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader);
     logStage('colors (mesh sol)', tMeshCol());
     let baseMask: Uint8Array | undefined;
     if (flatBaseRect && groundGrid) {
@@ -1049,7 +1099,7 @@ export async function fetchLidarPoisson(
         positions: mesh.positions,
         normals: meshNrm,
         colors: meshCols,
-        roughness: meshRoughness,
+        macroNormals: meshMacro,
         baseMask,
         indices: mesh.indices,
         vertexCount,

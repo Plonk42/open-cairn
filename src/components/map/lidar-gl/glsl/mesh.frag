@@ -29,6 +29,14 @@ uniform float u_facet;
 uniform float u_microRelief;
 // Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
 uniform float u_rockBreak;
+// 1 quand la palette active peint de la neige ('hiver', 'montagne'), 0 sinon.
+// Le rocher et la neige ne se distinguent ici que par la luminance de l'albédo,
+// ce qui n'a de sens que si la palette met effectivement de la neige dans le
+// haut de sa plage. Une palette d'été monte le calcaire ensoleillé jusqu'à ~0,7
+// sans qu'un seul flocon soit en jeu : sans ce garde-fou elle se retrouvait
+// traitée à moitié comme un névé — micro-relief éteint, spéculaire faussé et
+// bord de névé re-découpé en plaques sur toute la paroi.
+uniform float u_snowPalette;
 // Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
 uniform float u_specular;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
@@ -106,13 +114,13 @@ void main() {
     // prend des dérivées d'écran, elles seraient indéfinies sous un branchement divergent.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float notBase = 1.0 - step(0.5, v_base);
-    float rockness = (1.0 - smoothstep(0.55, 0.80, lum)) * notBase;
+    float rockness = (1.0 - smoothstep(0.55, 0.80, lum) * u_snowPalette) * notBase;
     n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
 
     // Cassure d'albédo : patine fractale sur le rocher + bord de névé dentelé.
     // Purement réflectance — appliquée avant tout calcul de lumière.
     float pixelM = max(length(dFdx(v_wpos)), length(dFdy(v_wpos)));
-    albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase);
+    albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase, u_snowPalette);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
     vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.

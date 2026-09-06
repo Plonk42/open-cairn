@@ -3,7 +3,11 @@
  *
  * Four shader presets are supported:
  *   'base'   — warm sand/brown gradient (CloudCompare-style, original)
- *   'cliff'  — sharp grass/grey-limestone break at ~30° with roughness detail
+ *   'cliff'  — summer limestone massif: alpine meadow on gentle ground, a sharp
+ *              break into pale limestone on the cliff bands. Like 'montagne'
+ *              this is a **pure albedo** in the physical reflectance range
+ *              (meadow ρ ≈ 0.20, clean limestone ρ ≈ 0.40), so it is lit once
+ *              and only once by the photorealistic path.
  *   'winter' — snow on flat/north-facing areas, brown rock on cliffs,
  *              driven by slope + elevation + cardinal aspect
  *   'montagne' — same slope/altitude/aspect logic as 'winter' but the output is
@@ -31,13 +35,25 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
     [80, [70, 45, 30]],
 ];
 
-// ─── CLIFF palette (sharp break grass/grey at ~30°) ──────────────────────────
+// ─── CLIFF palette — massif calcaire en été (albédo physique) ────────────────
+// Réflectances diffuses réelles d'un versant de Chartreuse/Vercors en août,
+// exprimées en valeurs d'affichage sRGB (≈ ρ^(1/2.2)). Aucun ombrage n'y est
+// cuit : le chemin photoréaliste multiplie ces valeurs par l'irradiance
+// ciel + soleil, donc toute variation de luminosité peinte ici serait comptée
+// deux fois. Les anciennes valeurs (rocher à 190-200, soit ρ ≈ 0,5) avaient été
+// choisies pour rester lisibles sous une ambiante constante de 0,35 ; sous
+// l'éclairage physique elles saturent en blanc dès le premier rayon de soleil.
+//
+//   pelouse alpine sèche  ρ ≈ 0,20   éboulis calcaire   ρ ≈ 0,30
+//   calcaire urgonien     ρ ≈ 0,40   paroi ruisselée    ρ ≈ 0,20
 const CLIFF_PALETTE: Array<[number, [number, number, number]]> = [
-    [0, [94, 138, 62]],
-    [27, [160, 148, 94]],
-    [34, [188, 184, 175]],
-    [70, [200, 197, 190]],
-    [90, [182, 178, 170]],
+    [0, [118, 128, 72]],
+    [22, [126, 130, 82]],
+    [30, [150, 143, 121]],
+    [38, [166, 160, 146]],
+    [55, [174, 170, 159]],
+    [75, [166, 161, 150]],
+    [90, [130, 126, 118]],
 ];
 
 // ─── SLOPE palette (standard steepness-map gradient) ─────────────────────────
@@ -140,21 +156,11 @@ const smoothstep01 = (x: number): number => {
 };
 
 /** Bare-ground reflectance: scree on benches, slabs, then dark broken faces. */
-function montagneGround(slopeDeg: number, z: number, roughness: number): [number, number, number] {
+function montagneGround(slopeDeg: number, z: number): [number, number, number] {
     let rock: [number, number, number];
     if (slopeDeg <= 25) rock = lerp3(MTN_SCREE, MTN_SLAB, slopeDeg / 25);
     else if (slopeDeg <= 55) rock = lerp3(MTN_SLAB, MTN_ROCK, (slopeDeg - 25) / 30);
     else rock = lerp3(MTN_ROCK, MTN_ROCK_STEEP, (slopeDeg - 55) / 30);
-    // Broken rock traps light between facets, so it reads darker than a slab
-    // of the same mineral — the one place where a geometric cue is a genuine
-    // albedo cue rather than shading.
-    //
-    // The coupling is deliberately weak: on the steep faces the airborne scan
-    // only grazes, the reconstructed surface is shredded and the coherence
-    // metric measures reconstruction noise far more than it measures real
-    // rock. A strong coupling turns that noise into per-vertex speckle, which
-    // is the dominant artefact on the north faces.
-    rock = lerp3(rock, MTN_ROCK_STEEP, Math.min(0.22, Math.max(0, (roughness - 0.1) / 0.45)));
     // Alpine turf only on gentle ground below the vegetation limit.
     const turf = smoothstep01((MTN_TURF_TOP - z) / 500) * smoothstep01((32 - slopeDeg) / 12);
     return lerp3(rock, MTN_TURF, turf);
@@ -170,9 +176,9 @@ function montagneGround(slopeDeg: number, z: number, roughness: number): [number
  */
 function montagneAlbedo(
     nx: number, ny: number,
-    z: number, slopeDeg: number, roughness: number,
+    z: number, slopeDeg: number,
 ): [number, number, number] {
-    const ground = montagneGround(slopeDeg, z, roughness);
+    const ground = montagneGround(slopeDeg, z);
     // +1 = due north (shaded, holds snow lower), -1 = due south.
     const northFacing = Math.cos(Math.atan2(nx, ny));
     const shift = northFacing * MTN_ASPECT_SHIFT;
@@ -191,19 +197,20 @@ function montagneAlbedo(
 }
 
 /**
- * Full per-vertex colorizer. For 'base' and 'cliff' only slope is needed.
- * For 'winter', elevation (z in local metres) and normal (nx,ny,nz) are
- * all used:
- *   - Snow accumulates above elevSnowBase (default 800 m) when slope < 35°
- *   - North/east facing slopes (aspect) get snow at lower thresholds
- *   - Cliffs (slope > 35°) are warm brown rock regardless of elevation
- *   - Very steep faces (> 65°) darken toward shadow-cliff
+ * Full per-vertex colorizer.
+ *
+ * `nx, ny, nz` must be a **macro** normal — the terrain orientation at the
+ * metre-to-decametre scale, not the per-triangle normal used for lighting.
+ * Every preset here keys its albedo zoning on the slope angle, often with
+ * transitions only a few degrees wide (grass → rock, snow retention…), while a
+ * Poisson vertex normal on a 50 cm lapiaz carries tens of degrees of
+ * reconstruction noise: feeding it the lighting normal turns that noise into
+ * per-vertex salt-and-pepper. See `macroVertexNormals` in `pipeline.ts`.
  */
 export function vertexColor(
     nx: number, ny: number, nz: number,
     z: number,
     preset: ShaderPreset,
-    roughness = 0,
 ): [number, number, number] {
     const len = Math.hypot(nx, ny, nz);
     const nzn = len > 0 ? nz / len : 1;
@@ -218,17 +225,11 @@ export function vertexColor(
     }
 
     if (preset === 'cliff') {
-        const [pr, pg, pb] = interpolatePalette(CLIFF_PALETTE, slope);
-        const t = Math.min(1, Math.max(0, (roughness - 0.05) / 0.27));
-        return [
-            Math.round(pr + (60 - pr) * t * 0.8),
-            Math.round(pg + (57 - pg) * t * 0.8),
-            Math.round(pb + (54 - pb) * t * 0.8),
-        ];
+        return interpolatePalette(CLIFF_PALETTE, slope);
     }
 
     if (preset === 'montagne') {
-        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI), roughness);
+        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI));
     }
 
     return winterColor(nx, ny, z, slope * (180 / Math.PI));
@@ -339,21 +340,26 @@ function winterColor(
 
 /**
  * Recompute RGBA colors for a mesh given its stored per-vertex data.
- * Roughness defaults to 0 when not supplied (Delaunay/Mixed meshes).
+ *
+ * `macroNormals` is the decametre-scale orientation field (Uint8, 3 per vertex,
+ * `v * 127.5 + 127.5`) built at reconstruction time; it — not the lighting
+ * normal — is what the palette must see. Meshes built before it existed
+ * (Delaunay/Mixed) fall back to the lighting normal.
  */
 export function recolorMeshVertices(
     normals: Float32Array,
     positions: Float32Array,
-    roughness: Float32Array | undefined,
+    macroNormals: Uint8Array | undefined,
     preset: ShaderPreset,
 ): Uint8Array {
     const n = normals.length / 3;
     const colors = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
-        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+        const nx = macroNormals ? macroNormals[i * 3] / 127.5 - 1 : normals[i * 3];
+        const ny = macroNormals ? macroNormals[i * 3 + 1] / 127.5 - 1 : normals[i * 3 + 1];
+        const nz = macroNormals ? macroNormals[i * 3 + 2] / 127.5 - 1 : normals[i * 3 + 2];
         const z = positions[i * 3 + 2];
-        const r = roughness ? roughness[i] : 0;
-        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, preset, r);
+        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, preset);
         colors[i * 4] = cr;
         colors[i * 4 + 1] = cg;
         colors[i * 4 + 2] = cb;

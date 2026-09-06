@@ -55,7 +55,7 @@ const TAG = {
     meshNormals: 5,
     meshColors: 6,
     meshIndices: 7,
-    meshRoughness: 8,
+    meshMacroNormals: 8,
     shadedForestTfv: 9,
     shadedTreeSeed: 10,
     shadedHeight: 11,
@@ -223,7 +223,7 @@ interface MeshMeta {
     radius: number;
     vertexCount: number;
     triangleCount: number;
-    hasRoughness: boolean;
+    hasMacroNormals: boolean;
     /** Whether the binary carries the per-vertex base-wall mask (tag 12). */
     hasBaseMask: boolean;
 }
@@ -336,8 +336,8 @@ function collectCloudDescriptors(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>, 
             vertexDescriptor(tagOffset + TAG.meshColors, mesh.colors, 4),
             indexDescriptor(tagOffset + TAG.meshIndices, mesh.indices),
         );
-        if (mesh.roughness) {
-            descriptors.push(vertexDescriptor(tagOffset + TAG.meshRoughness, mesh.roughness, 4));
+        if (mesh.macroNormals) {
+            descriptors.push(vertexDescriptor(tagOffset + TAG.meshMacroNormals, mesh.macroNormals, 3));
         }
         if (mesh.baseMask) {
             descriptors.push(vertexDescriptor(tagOffset + TAG.meshBaseMask, mesh.baseMask, 1));
@@ -381,7 +381,7 @@ function buildCloudMeta(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>): { shaded
                 radius: mesh.radius,
                 vertexCount: mesh.vertexCount,
                 triangleCount: mesh.triangleCount,
-                hasRoughness: Boolean(mesh.roughness),
+                hasMacroNormals: Boolean(mesh.macroNormals),
                 hasBaseMask: Boolean(mesh.baseMask),
             }
             : null,
@@ -567,7 +567,7 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>, tagOffset =
         normals: floatView(buffers, tagOffset + TAG.meshNormals, v * 3),
         colors: byteView(buffers, tagOffset + TAG.meshColors, v * 4),
         indices: new Uint32Array(raw.buffer, 0, meta.triangleCount * 3),
-        roughness: meta.hasRoughness ? floatView(buffers, tagOffset + TAG.meshRoughness, v) : undefined,
+        macroNormals: meta.hasMacroNormals ? byteView(buffers, tagOffset + TAG.meshMacroNormals, v * 3) : undefined,
         baseMask: meta.hasBaseMask ? byteView(buffers, tagOffset + TAG.meshBaseMask, v) : undefined,
     };
 }

@@ -58,8 +58,13 @@ float raFbm(vec3 wpos, float pixelM) {
  * @param rock    masque rocher dans [0,1] (0 = neige)
  * @param amount  intensité de l'effet (0 = aucun, 1 = nominal). L'appelant y
  *                annule le socle synthétique, qui n'est pas du terrain.
+ * @param snowEdge 1 si la palette courante peint de la neige, 0 sinon. La
+ *                re-découpe du bord de névé lit un taux de neige dans la
+ *                luminance : sur une palette d'été, où la même luminance veut
+ *                juste dire « calcaire clair », elle déchiquetterait la paroi
+ *                en plaques aléatoires.
  */
-vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float amount) {
+vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float amount, float snowEdge) {
     if (amount <= 0.0) return albedo;
 
     // ── Patine : variation de valeur + dérive chaud/froid ──────────────────
@@ -75,8 +80,7 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     // On lit dans la luminance le taux de neige `t` déjà mélangé par la
     // palette, on reconstruit les deux couleurs extrêmes qui redonnent
     // exactement `out_` en `t` (donc effet nul quand le bruit est nul), puis on
-    // remélange avec un seuil bruité et plus raide.
-    float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
+    // remélange avec un seuil bruité et plus raide.    if (snowEdge <= 0.0) return clamp(out_, 0.0, 1.0);    float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
     float t = smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum);
     // Hors zone de transition (t≈0 ou t≈1) le remélange est l'identité : la
     // dalle rocheuse et le névé franc ne bougent pas.
@@ -84,7 +88,7 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     float tn = clamp((t - 0.5 - RA_SNOW_JITTER * ns) * RA_SNOW_SHARPEN + 0.5, 0.0, 1.0);
     vec3 rockRef = out_ * (1.0 - 0.30 * t);
     vec3 snowRef = out_ + 0.30 * (1.0 - t) * (vec3(1.0) - out_);
-    out_ = mix(out_, mix(rockRef, snowRef, tn), amount);
+    out_ = mix(out_, mix(rockRef, snowRef, tn), amount * snowEdge);
 
     return clamp(out_, 0.0, 1.0);
 }

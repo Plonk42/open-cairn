@@ -86,6 +86,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
     const rockBreak = useMapStore((s) => s.lidarRockBreak);
+    const shaderPreset = useMapStore((s) => s.lidarShader);
     const specular = useMapStore((s) => s.lidarRockSpecular);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
@@ -369,9 +370,12 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             facet: rockFacet,
             microRelief: rockMicro,
             rockBreak,
+            // Seules les palettes qui peignent de la neige autorisent le
+            // fragment à lire un taux de neige dans la luminance de l'albédo.
+            snowPalette: shaderPreset === 'winter' || shaderPreset === 'montagne' ? 1 : 0,
             specular,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, specular, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, specular, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

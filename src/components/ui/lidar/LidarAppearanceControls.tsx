@@ -28,7 +28,7 @@ const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((c
 
 const SHADER_OPTIONS = [
     { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
-    { value: 'cliff', label: 'Été', title: 'Rupture nette herbe/calcaire gris avec texture rocheuse' },
+    { value: 'cliff', label: 'Été', title: 'Massif calcaire en été : pelouse alpine sur les pentes douces, rupture nette vers le calcaire clair sur les barres rocheuses. Albédo physique, sans ombrage peint — à utiliser avec le rendu photoréaliste' },
     { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
     { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche (pente + altitude + orientation), sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
     { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },

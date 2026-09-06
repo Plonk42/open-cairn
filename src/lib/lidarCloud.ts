@@ -36,10 +36,13 @@ export interface LidarMeshData {
     /** Triangle vertex indices, length = 3 * triangleCount. */
     indices: Uint32Array;
     /**
-     * Per-vertex roughness in [0,1] derived from face-normal coherence.
-     * Only present for Poisson meshes; undefined for Delaunay (Mixed mode).
+     * Champ d'orientation « macro » du terrain, (nx, ny, nz) encodés sur un
+     * octet chacun (`v * 127.5 + 127.5`), soit 3 par sommet. C'est lui — et non
+     * la normale d'éclairage — que lit la palette, dont les transitions ne font
+     * que quelques degrés alors que la normale de sommet en porte des dizaines
+     * de bruit de reconstruction. Présent pour les maillages Poisson seulement.
      */
-    roughness?: Float32Array;
+    macroNormals?: Uint8Array;
     /**
      * Per-vertex flag (`1` = synthetic base wall) marking the plinth sides so
      * the renderer can hatch them. Only present for Poisson meshes built with a

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('slopeColor', () => {
     it('returns the flat-ground colour at zero slope', () => {
-        expect(slopeColor(0)).toEqual([94, 138, 62]);
+        expect(slopeColor(0)).toEqual([118, 128, 72]);
     });
 
     it('returns integer RGB channels in [0, 255]', () => {
@@ -18,14 +18,24 @@ describe('slopeColor', () => {
 
     it('clamps slopes beyond the palette to the last stop', () => {
         const vertical = slopeColor(Math.PI / 2); // 90°
-        expect(vertical).toEqual([182, 178, 170]);
+        expect(vertical).toEqual([130, 126, 118]);
     });
 });
 
 describe('vertexColor', () => {
-    it('colours a flat upward-facing point as grass (cliff preset)', () => {
+    const lum = (c: readonly [number, number, number]): number => (c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722) / 255;
+
+    it('colours a flat upward-facing point as alpine meadow (cliff preset)', () => {
         // Normal straight up → slope 0 → first cliff palette stop.
-        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([94, 138, 62]);
+        expect(vertexColor(0, 0, 1, 1000, 'cliff')).toEqual([118, 128, 72]);
+    });
+
+    it('keeps the summer preset in the physical reflectance range', () => {
+        // Meadow ρ ≈ 0.20, clean limestone ρ ≈ 0.40 — i.e. sRGB luminance around
+        // 0.5 and 0.66. Anything brighter saturates to white as soon as the
+        // photorealistic path adds the sun on top of it.
+        expect(lum(vertexColor(0, 0, 1, 1000, 'cliff'))).toBeLessThan(0.55);
+        expect(lum(vertexColor(1, 0, 1, 1000, 'cliff'))).toBeLessThan(0.72);
     });
 
     it('normalizes the input normal before computing slope', () => {
@@ -71,9 +81,9 @@ describe('vertexColor — montagne preset', () => {
         const rock = vertexColor(0.8, 0, 0.6, 1500, 'montagne');
         expect(lum(rock)).toBeGreaterThan(0.25);
         expect(lum(rock)).toBeLessThan(0.62);
-        // The default 'cliff' preset sits near 0.75 because it compensates for
-        // a constant 0.35 ambient; that double-lights under the PBR path.
-        expect(lum(rock)).toBeLessThan(lum(vertexColor(0.8, 0, 0.6, 1500, 'cliff')) - 0.25);
+        // Alpine granite is markedly darker than the sunlit limestone of the
+        // summer preset — both are albedos, so the gap is a mineral one.
+        expect(lum(rock)).toBeLessThan(lum(vertexColor(0.8, 0, 0.6, 1500, 'cliff')) - 0.15);
     });
 
     it('puts bright snow on high gentle ground and bare rock on a high vertical wall', () => {
@@ -101,7 +111,7 @@ describe('vertexColor — montagne preset', () => {
 
     it('returns integer RGB channels in [0, 255]', () => {
         for (const z of [800, 1800, 2400, 3600]) {
-            const c = vertexColor(0.5, 0.5, 0.7, z, 'montagne', 0.2);
+            const c = vertexColor(0.5, 0.5, 0.7, z, 'montagne');
             for (const ch of c) {
                 expect(Number.isInteger(ch)).toBe(true);
                 expect(ch).toBeGreaterThanOrEqual(0);

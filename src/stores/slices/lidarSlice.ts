@@ -682,7 +682,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, shader, cloud.shaded.positions) }
                     : cloud.shaded,
                 mesh: cloud.mesh
-                    ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.roughness, shader) }
+                    ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, shader) }
                     : cloud.mesh,
             }));
             set({
@@ -1025,7 +1025,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, lidarShader, data.shaded.positions) }
                     : data.shaded,
                 mesh: data.mesh
-                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.roughness, lidarShader) }
+                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, lidarShader) }
                     : data.mesh,
                 visible: true,
                 createdAt: Date.now(),
