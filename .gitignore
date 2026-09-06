@@ -11,6 +11,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .cache/
+*.tsbuildinfo
 
 # Showcase scene assets are distributed via GitHub releases, not git.
 public/showcase/*.zip
