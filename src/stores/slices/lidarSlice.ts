@@ -8,7 +8,7 @@ import {
 } from '@/lib/lidarBrowser';
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
-import { colorsFromNormals, recolorMeshVertices, DEFAULT_SNOW_LINE, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { colorsFromNormals, DEFAULT_ROCK, DEFAULT_SNOW_LINE, recolorMeshVertices, type PaletteSettings, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
     screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
@@ -176,6 +176,9 @@ export interface LidarSlice {
      *  et le dessèchement de la pelouse alpine. Voir `slope.ts`. */
     lidarSnowLine: number;
     setLidarSnowLine: (v: number) => void;
+    /** Lithologie du massif rendu : change la rampe de roche nue. */
+    lidarRockType: RockType;
+    setLidarRockType: (v: RockType) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors) — mirrors `lidarClouds[0]`. */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for delaunay / poisson modes — mirrors `lidarClouds[0]`. */
@@ -606,12 +609,14 @@ function rebuildVegGrid(cloud: LidarShadedCloudData): VegGroundGrid | null {
  * depth…) are deliberately excluded since reset does not touch them.
  */
 /** Every shader preset the picker offers, used to validate persisted state. */
-const SHADER_PRESETS: ReadonlySet<ShaderPreset> = new Set<ShaderPreset>(['base', 'cliff', 'winter', 'montagne', 'slope']);
+const SHADER_PRESETS: ReadonlySet<ShaderPreset> = new Set<ShaderPreset>(['base', 'terrain', 'slope']);
+const ROCK_TYPES: ReadonlySet<RockType> = new Set<RockType>(['limestone', 'granite', 'schist']);
 
 export const LIDAR_RENDER_DEFAULTS = {
     lidarMode: 'shaded' as LidarMode,
-    lidarShader: 'cliff' as ShaderPreset,
+    lidarShader: 'terrain' as ShaderPreset,
     lidarSnowLine: DEFAULT_SNOW_LINE,
+    lidarRockType: DEFAULT_ROCK,
     lidarCloudPointSize: 2,
     lidarCloudSizeCompensation: true,
     lidarCloudEdl: true,
@@ -654,6 +659,11 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarForestSpeciesFilterOn: false,
 };
 
+/** Les trois réglages qui décident d'une couleur de sommet. */
+function paletteOf(s: Pick<LidarSlice, 'lidarShader' | 'lidarSnowLine' | 'lidarRockType'>): PaletteSettings {
+    return { preset: s.lidarShader, snowLine: s.lidarSnowLine, rock: s.lidarRockType };
+}
+
 /**
  * Recolor EVERY loaded cloud/mesh (not just the "primary" one): the palette
  * settings are global render settings shown for all simultaneously displayed
@@ -661,16 +671,15 @@ export const LIDAR_RENDER_DEFAULTS = {
  */
 function repaint(
     state: Pick<LidarSlice, 'lidarClouds'>,
-    shader: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
 ): Pick<LidarSlice, 'lidarClouds' | 'lidarShaded' | 'lidarMesh'> {
     const lidarClouds = state.lidarClouds.map((cloud) => ({
         ...cloud,
         shaded: cloud.shaded
-            ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, shader, snowLine, cloud.shaded.positions) }
+            ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, palette, cloud.shaded.positions) }
             : cloud.shaded,
         mesh: cloud.mesh
-            ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, shader, snowLine) }
+            ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, palette) }
             : cloud.mesh,
     }));
     return {
@@ -702,12 +711,16 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
         setLidarMode: (lidarMode) => set({ lidarMode }),
         lidarShader: SHADER_PRESETS.has(persisted.lidarShader as ShaderPreset) ? persisted.lidarShader as ShaderPreset : LIDAR_RENDER_DEFAULTS.lidarShader,
-        setLidarShader: (shader) => {
-            set({ lidarShader: shader, ...repaint(get(), shader, get().lidarSnowLine) });
+        setLidarShader: (preset) => {
+            set({ lidarShader: preset, ...repaint(get(), { ...paletteOf(get()), preset }) });
         },
         lidarSnowLine: persisted.lidarSnowLine ?? LIDAR_RENDER_DEFAULTS.lidarSnowLine,
         setLidarSnowLine: (snowLine) => {
-            set({ lidarSnowLine: snowLine, ...repaint(get(), get().lidarShader, snowLine) });
+            set({ lidarSnowLine: snowLine, ...repaint(get(), { ...paletteOf(get()), snowLine }) });
+        },
+        lidarRockType: ROCK_TYPES.has(persisted.lidarRockType as RockType) ? persisted.lidarRockType as RockType : LIDAR_RENDER_DEFAULTS.lidarRockType,
+        setLidarRockType: (rock) => {
+            set({ lidarRockType: rock, ...repaint(get(), { ...paletteOf(get()), rock }) });
         },
         lidarShaded: null,
         lidarMesh: null,
@@ -956,8 +969,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         stride: state.lidarCloudStride,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        shader: state.lidarShader,
-                        snowLine: state.lidarSnowLine,
+                        palette: paletteOf(state),
                         gridMesh: state.lidarMeshSmooth,
                         gridCell: state.lidarGridCell,
                         onProgress,
@@ -983,8 +995,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         poissonFlatBase: state.lidarCloudPoissonFlatBase,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        shader: state.lidarShader,
-                        snowLine: state.lidarSnowLine,
+                        palette: paletteOf(state),
                         onProgress,
                     });
                     shadedResult = composite.shaded;
@@ -1000,8 +1011,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         stride: state.lidarCloudStride,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        shader: state.lidarShader,
-                        snowLine: state.lidarSnowLine,
+                        palette: paletteOf(state),
                         onProgress,
                     });
                     meshResult = null;
@@ -1038,14 +1048,14 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             // selected* shader here so a gallery pick immediately matches what
             // the UI shows as active, instead of silently keeping old colors
             // until the next manual toggle.
-            const { lidarShader, lidarSnowLine } = get();
+            const palette = paletteOf(get());
             const entry: LoadedLidarCloud = {
                 id: `lidar-cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 shaded: data.shaded
-                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, lidarShader, lidarSnowLine, data.shaded.positions) }
+                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, palette, data.shaded.positions) }
                     : data.shaded,
                 mesh: data.mesh
-                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, lidarShader, lidarSnowLine) }
+                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, palette) }
                     : data.mesh,
                 visible: true,
                 createdAt: Date.now(),
@@ -1100,6 +1110,7 @@ export function selectLidarPersisted(
     | 'lidarMode'
     | 'lidarShader'
     | 'lidarSnowLine'
+    | 'lidarRockType'
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
     | 'lidarRectNorthFixed'
@@ -1170,6 +1181,7 @@ export function selectLidarPersisted(
         lidarMode: s.lidarMode,
         lidarShader: s.lidarShader,
         lidarSnowLine: s.lidarSnowLine,
+        lidarRockType: s.lidarRockType,
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
         lidarRectNorthFixed: s.lidarRectNorthFixed,

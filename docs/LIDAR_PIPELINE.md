@@ -68,14 +68,14 @@ La frontière ne passe pas là où le nom des réglages le suggère. Un nuage r�
 n'emporte **que** les réglages de génération, parce qu'eux seuls exigent de
 relancer le worker : mode, emprise, densités, et les curseurs Poisson ou grille.
 
-Trois réglages sont cuits à la capture *et* rejoués à chaud, et n'ont donc rien
-à faire là :
+Plusieurs réglages sont cuits à la capture *et* rejoués à chaud, et n'ont donc
+rien à faire là :
 
-- `lidarShader` — `setLidarShader` recolore tous les nuages chargés via
+- `lidarShader`, `lidarSnowLine`, `lidarRockType` — les trois champs de
+  `PaletteSettings`. Chaque setter recolore tous les nuages chargés via
   `colorsFromNormals` / `recolorMeshVertices`, qui appellent le même
-  `vertexColor` que le worker : le résultat est identique.
-- `lidarSnowLine` — même mécanique (`setLidarSnowLine` passe par le même
-  recoloriage) : la ligne de neige pilote les palettes, pas la géométrie.
+  `vertexColor` que le worker : le résultat est identique. Une palette est une
+  **ambiance de scène**, pas un paramètre de capture.
 - `lidarCloudClasses` — aucun `fetchLidar*` ne reçoit ce paramètre ; c'est un
   masque GPU (`LidarWebGLLayer.setClassMask`).
 - `lidarVegGroundGap` / `lidarVegGroundRough` — `recomputeVegHeights` refait les

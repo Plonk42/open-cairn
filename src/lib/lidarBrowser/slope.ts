@@ -1,30 +1,45 @@
 /**
  * Slope-based palette + per-point/per-vertex colorization.
  *
- * Four shader presets are supported:
- *   'base'   — warm sand/brown gradient (CloudCompare-style, original)
- *   'cliff'  — summer limestone massif: alpine meadow on gentle ground, a sharp
- *              break into pale limestone on the cliff bands. Like 'montagne'
- *              this is a **pure albedo** in the physical reflectance range
- *              (meadow ρ ≈ 0.20, clean limestone ρ ≈ 0.40), so it is lit once
- *              and only once by the photorealistic path.
- *   'winter' — snow on flat/north-facing areas, brown rock on cliffs,
- *              driven by slope + elevation + cardinal aspect
- *   'montagne' — same slope/altitude/aspect logic as 'winter' but the output is
- *              a **pure albedo**: no baked shading, no aspect darkening, and
- *              reflectances kept in the physical range (snow ~0.9, alpine rock
- *              ~0.2). Meant for the photorealistic render path, which supplies
- *              all the light itself — a preset that pre-darkens north faces
- *              would be lit a second time and read as dirt.
- *   'slope'  — standard steepness map: green (plat) → jaune → orange → rouge
- *              → violet/rose clair (vertical), the conventional gradient used
- *              for avalanche/ski-touring slope-angle shading (CalTopo,
- *              Avalanche Canada, IGN pentes…). Finely graduated in the steep
- *              range (35°+) and capped on a bright violet/pink rather than
- *              fading to near-black, which stays legible on cliffs.
+ * Trois presets, de deux natures différentes :
+ *
+ *   'terrain' — le seul **albédo** : réflectances diffuses réelles d'un versant
+ *               (roche nue, pelouse alpine, névé), sans le moindre ombrage
+ *               peint. Le chemin photoréaliste fournit toute la lumière, donc
+ *               toute variation de luminosité cuite ici serait comptée deux
+ *               fois. Trois variables continues le pilotent : la pente,
+ *               l'altitude relative à la ligne de neige, et la lithologie.
+ *   'base'    — dégradé chaud sable/brun (CloudCompare).
+ *   'slope'   — carte de pente conventionnelle : vert (plat) → jaune → orange
+ *               → rouge → violet clair (vertical), la convention des cartes de
+ *               pente pour le ski de rando (CalTopo, Avalanche Canada, IGN).
+ *               Sert aussi d'instrument de mesure : c'est lui qui a montré que
+ *               l'épaulement herbeux de la Dent de Crolles est à 30-32°, donc
+ *               que la rupture vers le calcaire était placée trop bas.
+ *
+ * Les deux dernières ne sont PAS des albédos : leur luminance n'a aucun sens
+ * physique. D'où le drapeau `u_snowPalette` côté fragment, qui n'autorise que
+ * 'terrain' à relire un taux de neige dans la clarté de la couleur.
  */
 
-export type ShaderPreset = 'base' | 'cliff' | 'winter' | 'montagne' | 'slope';
+export type ShaderPreset = 'base' | 'terrain' | 'slope';
+
+/**
+ * Lithologie du massif rendu. Ni une saison ni une ambiance : la roche ne
+ * dépend que du massif, et c'est le seul écart qu'un réglage continu ne pouvait
+ * pas combler entre les anciens presets *Été* et *Montagne*. Un calcaire
+ * urgonien lavé est deux fois plus clair qu'un schiste ardoisier, et il
+ * s'éclaircit avec la pente là où le cristallin et le schiste s'assombrissent.
+ */
+export type RockType = 'limestone' | 'granite' | 'schist';
+
+/** Tout ce dont une couleur de sommet a besoin, hors géométrie. */
+export interface PaletteSettings {
+    readonly preset: ShaderPreset;
+    /** Voir {@link DEFAULT_SNOW_LINE}. */
+    readonly snowLine: number;
+    readonly rock: RockType;
+}
 
 // ─── BASE palette (original CloudCompare-inspired warm gradient) ──────────────
 const BASE_PALETTE: Array<[number, [number, number, number]]> = [
@@ -35,25 +50,52 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
     [80, [70, 45, 30]],
 ];
 
-// ─── CLIFF : calcaire nu d'un massif en été (albédo physique) ────────────────
-// Réflectances diffuses réelles d'un versant de Chartreuse/Vercors en août,
-// exprimées en valeurs d'affichage sRGB (≈ ρ^(1/2.2)). Aucun ombrage n'y est
-// cuit : le chemin photoréaliste multiplie ces valeurs par l'irradiance
-// ciel + soleil, donc toute variation de luminosité peinte ici serait comptée
-// deux fois. Les anciennes valeurs (rocher à 190-200, soit ρ ≈ 0,5) avaient été
-// choisies pour rester lisibles sous une ambiante constante de 0,35 ; sous
-// l'éclairage physique elles saturent en blanc dès le premier rayon de soleil.
+// ─── Roche nue : réflectances diffuses réelles, en valeurs sRGB (≈ ρ^(1/2.2)) ─
+// Aucun ombrage n'y est cuit : le chemin photoréaliste multiplie ces valeurs
+// par l'irradiance ciel + soleil, donc toute variation de luminosité peinte ici
+// serait comptée deux fois. Les valeurs historiques (rocher à 190-200, soit
+// ρ ≈ 0,5) avaient été choisies pour rester lisibles sous une ambiante
+// constante de 0,35 ; sous l'éclairage physique elles saturent en blanc dès le
+// premier rayon de soleil.
 //
-//   éboulis calcaire ρ ≈ 0,30   calcaire urgonien ρ ≈ 0,40   paroi ruisselée ρ ≈ 0,20
-//
-// La rampe ne commence qu'à 45° : en deçà c'est la pelouse qui couvre le sol
-// (voir `alpineTurf`), le rocher n'affleure que sur les barres et les vires.
-const CLIFF_ROCK: Array<[number, [number, number, number]]> = [
-    [45, [158, 152, 132]],
-    [58, [172, 167, 154]],
-    [75, [164, 159, 148]],
-    [90, [128, 124, 116]],
-];
+// Chaque rampe court de 0° (replats, éboulis) à 90° (paroi, surplomb), et son
+// PROFIL est aussi caractéristique que sa teinte : le calcaire s'éclaircit sur
+// les barres verticales, lavées par le ruissellement et qui n'ont pas le temps
+// de se patiner, là où le cristallin et le schiste s'assombrissent à mesure que
+// la patine ferrugineuse laisse place à la cassure fraîche. Rien n'y descend
+// sous ρ ≈ 0,15 : sur une montagne aucune paroi n'est un piège à lumière, et
+// une valeur plus sombre s'effondre en noir dès que la face se détourne du
+// soleil (elle passait pour « dramatique » sous l'ancien éclairage plat).
+const ROCK_RAMPS: Record<RockType, Array<[number, [number, number, number]]>> = {
+    // Calcaire urgonien — Chartreuse, Vercors, Dévoluy.
+    // éboulis ρ ≈ 0,30   barre lavée ρ ≈ 0,40   paroi ruisselée ρ ≈ 0,20
+    limestone: [
+        [0, [166, 160, 141]],
+        [30, [160, 154, 136]],
+        [58, [172, 167, 154]],
+        [75, [164, 159, 148]],
+        [90, [128, 124, 116]],
+    ],
+    // Cristallin — Mont-Blanc, Écrins, Belledonne. Le lichen, l'oxydation du fer
+    // et la cuisson au soleil donnent au granite un tan franchement chaud
+    // (R:G:B ≈ 1,00 : 0,90 : 0,73, relevé sur les rendus de référence) ; la
+    // cassure fraîche et les surplombs n'ont jamais cette patine et restent
+    // d'un gris presque neutre, un peu froid.
+    granite: [
+        [0, [162, 146, 118]],
+        [25, [148, 133, 106]],
+        [55, [116, 106, 90]],
+        [90, [88, 84, 80]],
+    ],
+    // Schistes et ardoisiers — Queyras, Beaufortain, Maurienne. Sombre et froid,
+    // et le débit en plaques ne produit aucune face lavée claire.
+    schist: [
+        [0, [122, 116, 106]],
+        [25, [108, 103, 96]],
+        [55, [88, 85, 82]],
+        [90, [70, 68, 68]],
+    ],
+};
 
 // ─── SLOPE palette (standard steepness-map gradient) ─────────────────────────
 // Matches the conventional avalanche/ski-touring slope-angle shading scale:
@@ -86,9 +128,8 @@ const SLOPE_PALETTE: Array<[number, [number, number, number]]> = [
 
 function interpolatePalette(
     palette: Array<[number, [number, number, number]]>,
-    slopeRad: number,
+    slopeDeg: number,
 ): [number, number, number] {
-    const slopeDeg = slopeRad * (180 / Math.PI);
     if (slopeDeg <= palette[0][0]) return palette[0][1];
     for (let i = 1; i < palette.length; i++) {
         const [degHi, colHi] = palette[i];
@@ -105,28 +146,11 @@ function interpolatePalette(
     return palette.at(-1)![1];
 }
 
-// ─── MONTAGNE albedo (photorealistic path) ───────────────────────────────────
-// Diffuse reflectances of real alpine surfaces, expressed as sRGB display
-// values. Nothing here is shading: the render multiplies these by the sky +
-// sun irradiance, so any brightness variation baked in would be counted twice.
-// Rock sits around ρ ≈ 0.2 and snow around ρ ≈ 0.85, which is what gives the
-// reference renders their range — a palette that puts rock at 0.55 (as the
-// legacy presets do, to stay legible under a flat 0.35 ambient) cannot.
-const MTN_SNOW_FRESH: readonly [number, number, number] = [238, 240, 245];
-const MTN_SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
-// Sunlit alpine granite is not grey: lichen, iron staining and sun-baked
-// surfaces give it a distinctly warm tan (R:G:B ≈ 1.00 : 0.90 : 0.73, sampled
-// off the reference renders). Freshly broken and overhanging rock never gets
-// that patina and stays a near-neutral, slightly cool grey — so the ramp
-// warms as it lightens and cools as it darkens.
-const MTN_SCREE: readonly [number, number, number] = [162, 146, 118];
-const MTN_SLAB: readonly [number, number, number] = [148, 133, 106];
-const MTN_ROCK: readonly [number, number, number] = [116, 106, 90];
-// Even a shaded, freshly broken granite wall keeps a reflectance around 0.15;
-// nothing on a mountain is a light trap. Pushing this darker used to read as
-// "dramatic", but under the physical lighting path it collapses to black as
-// soon as the face turns away from the sun.
-const MTN_ROCK_STEEP: readonly [number, number, number] = [88, 84, 80];
+// ─── Névé ────────────────────────────────────────────────────────────────────
+// ρ ≈ 0,85 fraîche, un peu moins tassée. C'est cette plage — roche à ~0,2,
+// neige à ~0,85 — qui donne aux rendus de référence leur dynamique.
+const SNOW_FRESH: readonly [number, number, number] = [238, 240, 245];
+const SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
 
 /**
  * Albédo de la pelouse alpine, entre l'alpage gras des replats bien arrosés et
@@ -162,18 +186,26 @@ const TURF_DRY_SPAN_M = 700;
  */
 export const DEFAULT_SNOW_LINE = 2700;
 
+/** Massif calcaire par défaut : c'est la Chartreuse qui sert de référence ici. */
+export const DEFAULT_ROCK: RockType = 'limestone';
+
+export const DEFAULT_PALETTE: PaletteSettings = {
+    preset: 'terrain',
+    snowLine: DEFAULT_SNOW_LINE,
+    rock: DEFAULT_ROCK,
+};
+
 /** Dénivelé sur lequel la neige devient continue au-dessus de la ligne. */
-const MTN_SNOW_SPAN_M = 500;
-const MTN_ASPECT_SHIFT = 300;
+const SNOW_SPAN_M = 500;
+/** Décalage de la ligne de neige entre une face plein nord et une face plein sud. */
+const SNOW_ASPECT_SHIFT_M = 300;
 /**
  * Écart entre la ligne de neige et le dernier gazon, et hauteur de la rampe qui
  * y mène. La pelouse continue s'arrête juste sous les premiers névés ; elle se
  * clairseme bien avant, d'où une rampe large plutôt qu'un seuil.
  */
-const MTN_TURF_GAP_M = 100;
-const MTN_TURF_FADE_M = 700;
-/** Écart entre la limite des névés d'été et l'enneigement hivernal continu. */
-const WINTER_SNOW_DROP_M = 1700;
+const TURF_TOP_GAP_M = 100;
+const TURF_TOP_FADE_M = 700;
 
 function lerp3(
     a: readonly [number, number, number],
@@ -199,67 +231,43 @@ function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, num
 }
 
 /**
- * Massif calcaire en été : pelouse tant que la pente laisse la terre tenir,
- * calcaire nu au-delà.
+ * Versant de montagne : roche nue, pelouse alpine là où la pente et l'altitude
+ * la laissent tenir, névé au-dessus de la ligne de neige. Sans texture et sans
+ * ombrage — les trois mêmes entrées que les rendus de référence : pente,
+ * altitude, orientation.
  *
  * L'herbe tient bien plus raide qu'on ne le croit — sur les épaulements de la
  * Dent de Crolles la pelouse couvre encore des pentes à 35-40°, et la carte de
  * pente du même maillage donne ~30-32° sur tout l'épaulement herbeux : une
  * rupture placée à 30° repeignait la prairie en rocher, qui ressortait blanc.
- */
-function cliffAlbedo(slopeRad: number, z: number, snowLine: number): [number, number, number] {
-    const slopeDeg = slopeRad * (180 / Math.PI);
-    const bare = smoothstep01((slopeDeg - 36) / 9);
-    const rock = interpolatePalette(CLIFF_ROCK, slopeRad);
-    if (bare >= 1) return rock;
-    return lerp3(alpineTurf(z, slopeDeg, snowLine), rock, bare)
-        .map(Math.round) as [number, number, number];
-}
-
-/** Bare-ground reflectance: scree on benches, slabs, then dark broken faces. */
-function montagneGround(slopeDeg: number, z: number, snowLine: number): [number, number, number] {
-    let rock: [number, number, number];
-    if (slopeDeg <= 25) rock = lerp3(MTN_SCREE, MTN_SLAB, slopeDeg / 25);
-    else if (slopeDeg <= 55) rock = lerp3(MTN_SLAB, MTN_ROCK, (slopeDeg - 25) / 30);
-    else rock = lerp3(MTN_ROCK, MTN_ROCK_STEEP, (slopeDeg - 55) / 30);
-    // Pelouse alpine : partout où la pente laisse la terre tenir, sous la
-    // limite de végétation. L'herbe s'accroche bien au-delà des 32° qu'on lui
-    // accordait — une épaule herbeuse de 35° est la règle dans les Alpes, pas
-    // l'exception — et ne lâche vraiment que vers 40°.
-    const top = snowLine - MTN_TURF_GAP_M;
-    const turf = smoothstep01((top - z) / MTN_TURF_FADE_M) * smoothstep01((40 - slopeDeg) / 14);
-    return lerp3(rock, alpineTurf(z, slopeDeg, snowLine), turf);
-}
-
-/**
- * Texture-free alpine albedo: snow versus rock from slope, altitude and
- * orientation only — the same three inputs the reference renders use.
  *
- * Unlike {@link vertexColor}'s 'winter' branch this bakes **no** lighting: no
- * north-face darkening, no blue lift in the shadows. Those belong to the
- * lighting model, which the photorealistic path applies afterwards.
+ * L'orientation ne décale que la neige, pas la pelouse : une face nord porte
+ * bien sa limite de végétation plus bas, mais elle est aussi plus humide donc
+ * plus verte, et un seul paramètre ne peut pas départager les deux effets.
  */
-function montagneAlbedo(
+function terrainAlbedo(
     nx: number, ny: number,
     z: number, slopeDeg: number,
-    snowLine: number,
+    snowLine: number, rock: RockType,
 ): [number, number, number] {
-    const ground = montagneGround(slopeDeg, z, snowLine);
-    // +1 = due north (shaded, holds snow lower), -1 = due south.
-    const northFacing = Math.cos(Math.atan2(nx, ny));
-    const shift = northFacing * MTN_ASPECT_SHIFT;
+    const bare = interpolatePalette(ROCK_RAMPS[rock], slopeDeg);
+    const turf = smoothstep01((45 - slopeDeg) / 9)
+        * smoothstep01((snowLine - TURF_TOP_GAP_M - z) / TURF_TOP_FADE_M);
+    const ground = turf <= 0 ? bare : lerp3(bare, alpineTurf(z, slopeDeg, snowLine), turf);
 
-    // Snow sheds progressively above 32° and never sticks past 58°.
+    // +1 = plein nord (à l'ombre, tient la neige plus bas), -1 = plein sud.
+    const northFacing = Math.cos(Math.atan2(nx, ny));
+    // La neige se purge progressivement au-delà de 32° et ne tient plus à 58°.
     const retention = smoothstep01((58 - slopeDeg) / 26);
-    const elevation = smoothstep01((z - (snowLine - shift)) / MTN_SNOW_SPAN_M);
+    const elevation = smoothstep01((z - (snowLine - northFacing * SNOW_ASPECT_SHIFT_M)) / SNOW_SPAN_M);
     const snow = retention * elevation;
     if (snow <= 0.01) return ground.map(Math.round) as [number, number, number];
 
-    // Higher and flatter accumulations stay fresh and bright; wind-scoured
-    // ridges and lower patches are packed, slightly darker snow.
-    const freshness = smoothstep01((z - snowLine - MTN_SNOW_SPAN_M) / 600) * 0.6 + retention * 0.4;
-    const snowColor = lerp3(MTN_SNOW_PACKED, MTN_SNOW_FRESH, freshness);
-    return lerp3(ground, snowColor, snow).map(Math.round) as [number, number, number];
+    // Plus haut et plus plat, l'accumulation reste fraîche et brillante ; les
+    // crêtes balayées par le vent et les névés bas sont tassés, plus sourds.
+    const freshness = smoothstep01((z - snowLine - SNOW_SPAN_M) / 600) * 0.6 + retention * 0.4;
+    return lerp3(ground, lerp3(SNOW_PACKED, SNOW_FRESH, freshness), snow)
+        .map(Math.round) as [number, number, number];
 }
 
 /**
@@ -267,153 +275,24 @@ function montagneAlbedo(
  *
  * `nx, ny, nz` must be a **macro** normal — the terrain orientation at the
  * metre-to-decametre scale, not the per-triangle normal used for lighting.
- * Every preset here keys its albedo zoning on the slope angle, often with
- * transitions only a few degrees wide (grass → rock, snow retention…), while a
- * Poisson vertex normal on a 50 cm lapiaz carries tens of degrees of
- * reconstruction noise: feeding it the lighting normal turns that noise into
- * per-vertex salt-and-pepper. See `macroVertexNormals` in `pipeline.ts`.
- *
- * `snowLine` est l'altitude de la limite des neiges d'été sur une face sud
- * (voir {@link DEFAULT_SNOW_LINE}) : elle place la neige, la ceinture d'alpage
- * et le dessèchement de la pelouse.
+ * The albedo keys its zoning on the slope angle with transitions only a few
+ * degrees wide (grass → rock, snow retention…), while a Poisson vertex normal
+ * on a 50 cm lapiaz carries tens of degrees of reconstruction noise: feeding it
+ * the lighting normal turns that noise into per-vertex salt-and-pepper. See
+ * `macroVertexNormals` in `pipeline.ts`.
  */
 export function vertexColor(
     nx: number, ny: number, nz: number,
     z: number,
-    preset: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
 ): [number, number, number] {
     const len = Math.hypot(nx, ny, nz);
     const nzn = len > 0 ? nz / len : 1;
-    const slope = Math.acos(Math.max(-1, Math.min(1, Math.abs(nzn))));
+    const slopeDeg = Math.acos(Math.max(-1, Math.min(1, Math.abs(nzn)))) * (180 / Math.PI);
 
-    if (preset === 'base') {
-        return interpolatePalette(BASE_PALETTE, slope);
-    }
-
-    if (preset === 'slope') {
-        return interpolatePalette(SLOPE_PALETTE, slope);
-    }
-
-    if (preset === 'cliff') {
-        return cliffAlbedo(slope, z, snowLine);
-    }
-
-    if (preset === 'montagne') {
-        return montagneAlbedo(nx, ny, z, slope * (180 / Math.PI), snowLine);
-    }
-
-    return winterColor(nx, ny, z, slope * (180 / Math.PI), snowLine);
-}
-
-/**
- * Alpine winter render — sharp contrast: near-white snow on anything not too
- * steep above the snow line, warm tan/brown rock on cliffs and crests. Keeps a
- * mild aspect darkening baked into the colour, which is why it is *not* the
- * preset to use with the photorealistic lighting (see 'montagne').
- */
-function winterColor(
-    nx: number, ny: number,
-    z: number, slopeDeg: number,
-    snowLine: number,
-): [number, number, number] {
-    // Une limite des neiges HIVERNALE descend bien plus bas que celle des névés
-    // d'août réglée par le curseur ; on la décale d'un dénivelé fixe pour que le
-    // réglage reste un seul et même levier d'un preset à l'autre.
-    const winterLow = snowLine - WINTER_SNOW_DROP_M;
-    const winterHigh = winterLow + 1000;
-
-    // Aspect: atan2(nx, ny) horizontal-plane bearing; +Y is north in L93.
-    // northFacing in [-1, +1] : +1 pure north, -1 pure south.
-    const aspect = Math.atan2(nx, ny);
-    const northFacing = Math.cos(aspect);
-
-    // ── Bare-rock palette (warm tan → grey-brown → dark cliff)
-    // Lighter and warmer than before so rock outcrops "pop" against snow.
-    const groundColor = (): [number, number, number] => {
-        const SCREE: [number, number, number] = [168, 148, 118];  // light scree / grass-rock
-        const ROCK: [number, number, number] = [142, 118, 92];   // warm brown rock
-        const CLIFF: [number, number, number] = [86, 70, 56];     // shadowed cliff
-        if (slopeDeg <= 30) {
-            const t = slopeDeg / 30;
-            return [
-                Math.round(SCREE[0] + (ROCK[0] - SCREE[0]) * t),
-                Math.round(SCREE[1] + (ROCK[1] - SCREE[1]) * t),
-                Math.round(SCREE[2] + (ROCK[2] - SCREE[2]) * t),
-            ];
-        }
-        const t = Math.min(1, (slopeDeg - 30) / 50);
-        return [
-            Math.round(ROCK[0] + (CLIFF[0] - ROCK[0]) * t),
-            Math.round(ROCK[1] + (CLIFF[1] - ROCK[1]) * t),
-            Math.round(ROCK[2] + (CLIFF[2] - ROCK[2]) * t),
-        ];
-    };
-
-    const [gr, gg, gb] = groundColor();
-
-    // Hard floor: nothing below the winter snow line gets snow
-    if (z < winterLow) return [gr, gg, gb];
-
-    // ── Snow accumulation factors ────────────────────────────────────────
-    // Aspect-shifted snow line: north faces gain snow ~250 m earlier.
-    const aspectShift = northFacing * 250; // metres
-    const snowLow = winterLow - aspectShift;
-    const snowHigh = winterHigh - aspectShift;
-
-    // Slope retention: full snow up to 30°, gone by 55°. Sharper than before.
-    let snowSlope: number;
-    if (slopeDeg <= 30) snowSlope = 1;
-    else if (slopeDeg >= 55) snowSlope = 0;
-    else {
-        const s = 1 - (slopeDeg - 30) / 25;
-        snowSlope = s * s; // ease so steep slopes shed faster
-    }
-
-    // Elevation factor: smoothstep then sharpen (gamma) → near-binary look
-    const eRaw = Math.min(1, Math.max(0, (z - snowLow) / (snowHigh - snowLow)));
-    const eSmooth = eRaw * eRaw * (3 - 2 * eRaw);
-    // Sharpen with a contrast curve centered at 0.5
-    const snowElev = Math.pow(eSmooth, 0.6);
-
-    let snowAmount = snowElev * snowSlope;
-
-    // Above the upper band, force full snow wherever slope allows
-    if (z >= winterHigh) snowAmount = snowSlope;
-
-    // Hard threshold: anything > 0.7 jumps to 1 (clean snow areas),
-    // < 0.15 drops to 0 (clean rock areas). Mid-range stays smooth.
-    if (snowAmount > 0.7) snowAmount = 1;
-    else if (snowAmount < 0.15) snowAmount = 0;
-    else snowAmount = (snowAmount - 0.15) / 0.55;
-
-    if (snowAmount === 0) return [gr, gg, gb];
-
-    // ── Snow color ──────────────────────────────────────────────────────────
-    // Bright near-white snow. Subtle shading only on truly south-facing AND
-    // steep snow surfaces (slope > 20°) to evoke shadow without muddying.
-    const SNOW_BRIGHT: [number, number, number] = [252, 253, 255];
-    let snowR = SNOW_BRIGHT[0], snowG = SNOW_BRIGHT[1], snowB = SNOW_BRIGHT[2];
-
-    // Aspect/slope shading: north faces darker (shadowed in northern hemisphere
-    // winter when sun is south-low). Keep effect mild so snow stays white.
-    const shadeFactor = Math.max(0, northFacing) * Math.min(1, slopeDeg / 25);
-    if (shadeFactor > 0) {
-        const k = 1 - shadeFactor * 0.1; // up to 10 % darkening
-        snowR = Math.round(snowR * k);
-        snowG = Math.round(snowG * k);
-        snowB = Math.round((snowB + 4) * k); // tiny blue lift in shadow
-    }
-
-    if (snowAmount === 1) return [snowR, snowG, snowB];
-
-    // Smooth blend at the snow/rock boundary
-    return [
-        Math.round(gr + (snowR - gr) * snowAmount),
-        Math.round(gg + (snowG - gg) * snowAmount),
-        Math.round(gb + (snowB - gb) * snowAmount),
-    ];
-    // ── end WINTER ────────────────────────────────────────────────────────────
+    if (palette.preset === 'base') return interpolatePalette(BASE_PALETTE, slopeDeg);
+    if (palette.preset === 'slope') return interpolatePalette(SLOPE_PALETTE, slopeDeg);
+    return terrainAlbedo(nx, ny, z, slopeDeg, palette.snowLine, palette.rock);
 }
 
 /**
@@ -428,8 +307,7 @@ export function recolorMeshVertices(
     normals: Float32Array,
     positions: Float32Array,
     macroNormals: Uint8Array | undefined,
-    preset: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
 ): Uint8Array {
     const n = normals.length / 3;
     const colors = new Uint8Array(n * 4);
@@ -438,7 +316,7 @@ export function recolorMeshVertices(
         const ny = macroNormals ? macroNormals[i * 3 + 1] / 127.5 - 1 : normals[i * 3 + 1];
         const nz = macroNormals ? macroNormals[i * 3 + 2] / 127.5 - 1 : normals[i * 3 + 2];
         const z = positions[i * 3 + 2];
-        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, preset, snowLine);
+        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, palette);
         colors[i * 4] = cr;
         colors[i * 4 + 1] = cg;
         colors[i * 4 + 2] = cb;
@@ -453,8 +331,7 @@ export function recolorMeshVertices(
  */
 export function colorsFromNormals(
     normals: Float32Array,
-    preset: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
     positions?: Float32Array,
 ): Uint8Array {
     const n = normals.length / 3;
@@ -462,7 +339,7 @@ export function colorsFromNormals(
     for (let i = 0; i < n; i++) {
         const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
         const z = positions ? positions[i * 3 + 2] : 0;
-        const [r, g, b] = vertexColor(nx, ny, nz, z, preset, snowLine);
+        const [r, g, b] = vertexColor(nx, ny, nz, z, palette);
         colors[i * 4] = r;
         colors[i * 4 + 1] = g;
         colors[i * 4 + 2] = b;

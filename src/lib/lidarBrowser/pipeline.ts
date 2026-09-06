@@ -26,7 +26,7 @@ import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { l93AxisToGeographicEnu, l93OffsetsToGeographicEnu, l93RectAxes, lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
-import { colorsFromNormals, vertexColor, DEFAULT_SNOW_LINE, type ShaderPreset } from './slope';
+import { colorsFromNormals, DEFAULT_PALETTE, vertexColor, type PaletteSettings } from './slope';
 import { detectTreetops } from './treetops';
 import { findTiles } from './wfs';
 
@@ -59,11 +59,8 @@ export interface BrowserFetchParams {
      *  under the terrain so the underside is flat instead of a bulging cushion.
      *  Default true. */
     poissonFlatBase?: boolean;
-    /** Colour shader preset applied to all geometry. */
-    shader?: ShaderPreset;
-    /** Altitude (m) de la limite des neiges d'été, qui pilote la neige et le
-     *  dessèchement de la pelouse dans les palettes. Voir `slope.ts`. */
-    snowLine?: number;
+    /** Preset de couleur, ligne de neige et lithologie. Voir `slope.ts`. */
+    palette?: PaletteSettings;
     /** Delaunay mode: smooth the ground surface via a regular grid heightfield
      *  (denoises, kills self-shadow stripes) instead of raw Delaunay. */
     gridMesh?: boolean;
@@ -418,8 +415,7 @@ async function enrichForest(
 async function buildNonGroundShaded(
     c: { positions: Float32Array; classifications: Uint8Array; pointCount: number; centerLng: number; centerLat: number; radius: number },
     nonGround: { pos: Float32Array; cls: Uint8Array; count: number },
-    shader: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
     veg: { gapM: number; grid: VegGroundGrid | null; roughM: number },
     onProgress: ProgressCallback,
     signal?: AbortSignal,
@@ -431,7 +427,7 @@ async function buildNonGroundShaded(
     logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
     const tNgCol = startTimer();
-    const ngColors = colorsFromNormals(ngNormals, shader, snowLine, ngPos);
+    const ngColors = colorsFromNormals(ngNormals, palette, ngPos);
     // Height above ground via per-column vertical clustering, blended with the
     // plain vertical-to-ground height over trustworthy (low-relief) ground so
     // spreading broadleaf crowns recover their full height (see computeVegHeights).
@@ -467,8 +463,7 @@ export async function fetchLidarShaded(
     params: BrowserFetchParams,
 ): Promise<LidarShadedCloudData> {
     const onProgress = params.onProgress ?? noopProgress;
-    const shader = params.shader ?? 'cliff';
-    const snowLine = params.snowLine ?? DEFAULT_SNOW_LINE;
+    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
@@ -477,7 +472,7 @@ export async function fetchLidarShaded(
     logStage('normals', tNormals(), `${c.pointCount.toLocaleString()} pts`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
     const tColors = startTimer();
-    const colors = colorsFromNormals(normals, shader, snowLine, c.positions);
+    const colors = colorsFromNormals(normals, palette, c.positions);
     // Bare-earth reference from the ground/water returns, then the hybrid height
     // (stacked, blended with vertical-to-ground over low-relief terrain).
     const groundGrid = buildVegGroundGrid(c.positions, c.pointCount, c.classifications);
@@ -523,8 +518,7 @@ export async function fetchLidarDelaunay(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
-    const shader = params.shader ?? 'cliff';
-    const snowLine = params.snowLine ?? DEFAULT_SNOW_LINE;
+    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
     // Delaunay mode ignores any incoming `classes` filter (we need ground for
     // the mesh AND non-ground for the cloud). The runtime mask in the
@@ -543,8 +537,8 @@ export async function fetchLidarDelaunay(
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
     const groundMesh = params.gridMesh
-        ? buildGridMesh(groundPos, params.gridCell ?? 1, shader, snowLine)
-        : buildMesh(groundPos, maxEdge, shader, snowLine);
+        ? buildGridMesh(groundPos, params.gridCell ?? 1, palette)
+        : buildMesh(groundPos, maxEdge, palette);
     const meshVertexCount = groundMesh.positions.length / 3;
     logStage(params.gridMesh ? 'grid' : 'delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol+eau → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
     const meshData: LidarMeshData = {
@@ -566,7 +560,7 @@ export async function fetchLidarDelaunay(
     //    vertical height over the flat-ground reference built from the mesh's
     //    ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, shader, snowLine,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, palette,
         {
             gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
             grid: buildVegGroundGrid(groundPos, groundCount),
@@ -894,8 +888,7 @@ function macroVertexNormals(indices: Uint32Array, normals: Float32Array): Uint8A
 function normalsAndColorsFromMesh(
     positions: Float32Array,
     indices: Uint32Array,
-    shader: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
 ): {
     normals: Float32Array;
     colors: Uint8Array;
@@ -942,7 +935,7 @@ function normalsAndColorsFromMesh(
             macroNormals[i * 3] / 127.5 - 1,
             macroNormals[i * 3 + 1] / 127.5 - 1,
             macroNormals[i * 3 + 2] / 127.5 - 1,
-            z, shader, snowLine,
+            z, palette,
         );
         colors[i * 4] = cr;
         colors[i * 4 + 1] = cg;
@@ -964,8 +957,7 @@ export async function fetchLidarPoisson(
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
-    const shader = params.shader ?? 'cliff';
-    const snowLine = params.snowLine ?? DEFAULT_SNOW_LINE;
+    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
 
     // Fetch every class. Ground+water are kept at FULL density (exempt from the
@@ -1093,7 +1085,7 @@ export async function fetchLidarPoisson(
     if (sharpen > 0) logStage('netteté', tSharpen(), `amount ${sharpen}`);
     onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
     const tMeshCol = startTimer();
-    const { normals: meshNrm, colors: meshCols, macroNormals: meshMacro } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, shader, snowLine);
+    const { normals: meshNrm, colors: meshCols, macroNormals: meshMacro } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, palette);
     logStage('colors (mesh sol)', tMeshCol());
     let baseMask: Uint8Array | undefined;
     if (flatBaseRect && groundGrid) {
@@ -1119,7 +1111,7 @@ export async function fetchLidarPoisson(
     //    stacked clustering blended with the vertical height over the flat-ground
     //    reference built from the Poisson ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, shader, snowLine,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, palette,
         {
             gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
             grid: groundGrid,

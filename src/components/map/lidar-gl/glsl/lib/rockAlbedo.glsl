@@ -28,8 +28,13 @@ const float RA_TINT = 0.07;
 // Fenêtre de luminance dans laquelle on considère qu'on est sur la transition
 // rocher → neige. Mêmes bornes que le masque de micro-relief, pour que les deux
 // effets se relaient exactement au même endroit.
-const float RA_SNOW_LO = 0.55;
-const float RA_SNOW_HI = 0.80;
+//
+// La borne basse doit rester AU-DESSUS de la roche la plus claire que la
+// palette sache produire, sinon le masque prend un calcaire lavé pour un début
+// de névé et lui retire sa patine. Le calcaire urgonien plafonne à 172/255 =
+// 0,67 de luminance ; la neige tassée démarre à 0,85.
+const float RA_SNOW_LO = 0.76;
+const float RA_SNOW_HI = 0.86;
 // Longueur d'onde (m) et amplitude du bruit qui découpe le bord du névé, et
 // raideur du re-seuillage (>1 = bord plus franc que la rampe d'origine).
 const float RA_SNOW_M = 5.0;
@@ -84,9 +89,12 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     if (snowEdge <= 0.0) return clamp(out_, 0.0, 1.0);
     float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
     float t = smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum);
-    // Hors zone de transition (t≈0 ou t≈1) le remélange est l'identité : la
-    // dalle rocheuse et le névé franc ne bougent pas.
-    float ns = mrValueNoise(wpos / RA_SNOW_M);
+    // Hors zone de transition (t≈0 ou t≈1) le remange doit être STRICTEMENT
+    // l'identité : la dalle rocheuse et le névé franc ne bougent pas. Le bruit
+    // s'éteint donc aux deux bouts (4t(1-t) vaut 1 au milieu, 0 aux bornes),
+    // sinon un `ns` extrême suffisait à pousser `tn` à 0,29 sur du rocher sans
+    // la moindre neige, et à y semer un éclaircissement bruité.
+    float ns = mrValueNoise(wpos / RA_SNOW_M) * 4.0 * t * (1.0 - t);
     float tn = clamp((t - 0.5 - RA_SNOW_JITTER * ns) * RA_SNOW_SHARPEN + 0.5, 0.0, 1.0);
     vec3 rockRef = out_ * (1.0 - 0.30 * t);
     vec3 snowRef = out_ + 0.30 * (1.0 - t) * (vec3(1.0) - out_);

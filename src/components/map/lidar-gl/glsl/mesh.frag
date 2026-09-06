@@ -29,13 +29,13 @@ uniform float u_facet;
 uniform float u_microRelief;
 // Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
 uniform float u_rockBreak;
-// 1 quand la palette active peint de la neige ('hiver', 'montagne'), 0 sinon.
+// 1 quand la palette active peint de la neige (preset Terrain), 0 sinon.
 // Le rocher et la neige ne se distinguent ici que par la luminance de l'albédo,
 // ce qui n'a de sens que si la palette met effectivement de la neige dans le
-// haut de sa plage. Une palette d'été monte le calcaire ensoleillé jusqu'à ~0,7
-// sans qu'un seul flocon soit en jeu : sans ce garde-fou elle se retrouvait
-// traitée à moitié comme un névé — micro-relief éteint, spéculaire faussé et
-// bord de névé re-découpé en plaques sur toute la paroi.
+// haut de sa plage. Les palettes de lecture (Mono, Pente) montent jusqu'au
+// jaune vif sans qu'un seul flocon soit en jeu : sans ce garde-fou elles se
+// retrouvaient traitées à moitié comme un névé — micro-relief éteint,
+// spéculaire faussé et bord de névé re-découpé en plaques sur toute la paroi.
 uniform float u_snowPalette;
 // Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
 uniform float u_specular;
@@ -112,9 +112,11 @@ void main() {
     // — la luminance de l'albédo suffit à distinguer névé et rocher, palette ou
     // photo drapée indifféremment. Multiplié plutôt que branché : `microReliefNormal`
     // prend des dérivées d'écran, elles seraient indéfinies sous un branchement divergent.
+    // Bornes à garder en phase avec RA_SNOW_LO/HI de rockAlbedo.glsl : elles
+    // doivent passer au-dessus de la roche la plus claire de la palette.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float notBase = 1.0 - step(0.5, v_base);
-    float rockness = (1.0 - smoothstep(0.55, 0.80, lum) * u_snowPalette) * notBase;
+    float rockness = (1.0 - smoothstep(0.76, 0.86, lum) * u_snowPalette) * notBase;
     n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
 
     // Cassure d'albédo : patine fractale sur le rocher + bord de névé dentelé.

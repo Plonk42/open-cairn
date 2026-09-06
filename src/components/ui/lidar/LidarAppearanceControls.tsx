@@ -1,15 +1,15 @@
 import { LOD_LEVEL_COUNT } from '@/components/map/LidarWebGLLayer';
-import { useEffect, useState } from 'react';
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { isHeightDebugEnabled, isLodDebugEnabled, isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
-import type { ShaderPreset } from '@/lib/lidarBrowser/slope';
+import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
+import { useEffect, useState } from 'react';
 
 /**
  * Shared visual treatment for controls gated behind `?debug=`: a dashed amber
@@ -29,11 +29,16 @@ const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((c
 
 const SHADER_OPTIONS = [
     { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
-    { value: 'cliff', label: 'Été', title: 'Massif calcaire en été : pelouse alpine sur les pentes douces, rupture nette vers le calcaire clair sur les barres rocheuses. Albédo physique, sans ombrage peint — à utiliser avec le rendu photoréaliste' },
-    { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
-    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche/alpage piloté par la pente, l\'altitude et l\'orientation. La neige, la ceinture d\'alpage et le dessèchement de la pelouse se calent sur le curseur « Ligne de neige » : valable des moyennes montagnes (Chartreuse, Vercors) aux hauts massifs. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
+    { value: 'terrain', label: 'Terrain', title: 'Albédo physique roche / pelouse alpine / neige, piloté par la pente, l’altitude et l’orientation. La saison n’est pas un preset : c’est le curseur « Ligne de neige » qui la fait, d’un août sans névé à un massif enneigé. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
     { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
+
+/** Lithologie du massif : change la rampe de roche nue du preset Terrain. */
+const ROCK_OPTIONS = [
+    { value: 'limestone', label: 'Calcaire', title: 'Calcaire urgonien (Chartreuse, Vercors, Dvoluy) : gris clair légèrement chaud, et il s’éclaircit sur les barres verticales, lavées par le ruissellement' },
+    { value: 'granite', label: 'Granite', title: 'Cristallin (Belledonne, cluses, Mont-Blanc) : beige patiné en pied de pente, qui fonce vers le gris fer sur les parois fraîchement fracturées' },
+    { value: 'schist', label: 'Schiste', title: 'Sédimentaire sombre (schistes ardoisiers, flysch) : gris froid d’emblée, deux fois moins réfléchissant que le calcaire' },
+] as const satisfies ReadonlyArray<{ value: RockType; label: string; title: string }>;
 
 const VEG_COLOR_OPTIONS = [
     { value: 'natural', label: 'Naturel', title: 'Tons verts naturels, dégradé tronc → cime' },
@@ -229,6 +234,8 @@ export function ShaderControls() {
         const handle = globalThis.setTimeout(() => setSnowLine(snowLineDraft), 150);
         return () => globalThis.clearTimeout(handle);
     }, [snowLineDraft, snowLine, setSnowLine]);
+    const rockType = useMapStore((s) => s.lidarRockType);
+    const setRockType = useMapStore((s) => s.setLidarRockType);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
@@ -246,21 +253,35 @@ export function ShaderControls() {
             </div>
 
             {/* Limite climatique commune aux palettes : neige, alpage, pelouse */}
-            <label className="block">
-                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. Cale la neige du preset Montagne, la limite de l'alpage, et le dessèchement de la pelouse : plus on s'en approche, plus l'herbe se clairseme et vire au paillé.">
-                        Ligne de neige
+            {shader === 'terrain' && (
+                <div className="flex items-center justify-between">
+                    <span
+                        className="text-sm text-slate-700 dark:text-slate-300"
+                        title="Lithologie du massif. Ce n’est ni une saison ni une ambiance : la roche ne dépend que du massif, et c’est le seul écart qu’un curseur ne pouvait pas combler. Un calcaire lavé est deux fois plus clair qu’un schiste, et il s’éclaircit avec la pente là où le cristallin et le schiste s’assombrissent."
+                    >
+                        Roche
                     </span>
-                    <span className="font-mono text-xs text-slate-400">{snowLineDraft} m</span>
+                    <SegmentedControl value={rockType} options={ROCK_OPTIONS} onChange={setRockType} />
                 </div>
-                <input
-                    aria-label="Altitude de la ligne de neige"
-                    type="range" min={1200} max={3600} step={50}
-                    value={snowLineDraft}
-                    onChange={(e) => setSnowLineDraft(Number(e.target.value))}
-                    className="mt-1 w-full accent-green-600"
-                />
-            </label>
+            )}
+
+            {shader === 'terrain' && (
+                <label className="block">
+                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                        <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. C’est ce curseur qui fait la saison : la neige, la limite de l’alpage et le dessèchement de la pelouse s’y calent tous. Plus on s’en approche, plus l’herbe se clairseme et vire au paillé.">
+                            Ligne de neige
+                        </span>
+                        <span className="font-mono text-xs text-slate-400">{snowLineDraft} m</span>
+                    </div>
+                    <input
+                        aria-label="Altitude de la ligne de neige"
+                        type="range" min={1200} max={3600} step={50}
+                        value={snowLineDraft}
+                        onChange={(e) => setSnowLineDraft(Number(e.target.value))}
+                        className="mt-1 w-full accent-green-600"
+                    />
+                </label>
+            )}
 
             {/* Facettisation du maillage reconstruit */}
             <label className="block">

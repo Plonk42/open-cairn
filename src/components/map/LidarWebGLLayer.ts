@@ -403,10 +403,10 @@ export interface LidarWebGLLayerConfig {
      */
     rockBreak: number;
     /**
-     * Ground mesh only — 1 quand la palette active peint de la neige
-     * ('hiver', 'montagne'), 0 sinon. Le fragment ne distingue rocher et neige
-     * qu'à la luminance de l'albédo ; sur une palette d'été cette luminance ne
-     * veut dire que « calcaire clair », et le bord de névé comme le masque de
+     * Ground mesh only — 1 quand la palette active peint de la neige (preset
+     * Terrain), 0 sinon. Le fragment ne distingue rocher et neige qu'à la
+     * luminance de l'albédo ; sur une palette de lecture (Mono, Pente) cette
+     * luminance ne veut rien dire de tel, et le bord de névé comme le masque de
      * micro-relief se trompaient de matière. Voir `u_snowPalette` dans
      * `glsl/mesh.frag`.
      */

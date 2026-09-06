@@ -8,7 +8,7 @@ describe('showcaseAmbiance', () => {
 
         // Set a distinctive, non-default value for each ambiance field.
         st.setLidarMode('poisson');
-        st.setLidarShader('winter');
+        st.setLidarShader('slope');
         st.setLidarSunDate('2026-06-21T10:00');
         st.setLidarSunEnabled(true);
         st.setLidarShadows(false);

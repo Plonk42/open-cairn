@@ -29,10 +29,15 @@ Le panneau **LiDAR** offre trois modes de rendu :
 - **Opacité** : 0 à 100 %
 - **Eye-Dome Lighting** : ombrage des contours par profondeur, donne un effet « relief »
   spectaculaire. Réglages : *strength* (1000–3000), *radius* (1.5 par défaut), *farPlane*
-- **Préset shader** : `base` (gradient chaud), `cliff` (vert → calcaire → falaise sombre),
-  `winter` (neige + aspect), `slope` (dégradé standard par inclinaison : vert → jaune →
+- **Préset shader** : `base` (gradient chaud), `terrain` (albédo physique : pelouse,
+  roche et névés calés sur la ligne de neige), `slope` (dégradé standard par inclinaison :
+  vert → jaune →
   orange → rouge → violet/rose, avec granularité fine au-delà de 35° et une teinte
   claire en fin d'échelle plutôt qu'un noir illisible)
+- **Roche** : lithologie du massif pour le préset `terrain` — `limestone` (calcaire,
+  s'éclaircit avec la pente), `granite`, `schist` (les deux s'assombrissent)
+- **Ligne de neige** : 1200–3600 m (défaut 2700). Pilote ensemble les névés, la ceinture
+  d'alpage et le dessèchement de la pelouse
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief

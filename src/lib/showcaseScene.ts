@@ -25,7 +25,7 @@
 
 import type { CaptureParams } from './captureParams';
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
-import type { ShaderPreset } from './lidarBrowser/slope';
+import type { RockType, ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 import type { DrapeSource } from './mapStyle';
 
@@ -79,6 +79,7 @@ export interface ShowcaseAmbiance {
     lidarMode: 'shaded' | 'delaunay' | 'poisson';
     lidarShader: ShaderPreset;
     lidarSnowLine: number;
+    lidarRockType: RockType;
     lidarSunDate: string;
     lidarSunEnabled: boolean;
     lidarShadows: boolean;
@@ -163,6 +164,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarMode: 'shaded',
     lidarShader: 'base',
     lidarSnowLine: 2700,
+    lidarRockType: 'limestone',
     lidarSunDate: '',
     lidarSunEnabled: false,
     lidarShadows: false,

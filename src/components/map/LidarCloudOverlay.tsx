@@ -372,7 +372,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             rockBreak,
             // Seules les palettes qui peignent de la neige autorisent le
             // fragment à lire un taux de neige dans la luminance de l'albédo.
-            snowPalette: shaderPreset === 'winter' || shaderPreset === 'montagne' ? 1 : 0,
+            snowPalette: shaderPreset === 'terrain' ? 1 : 0,
             specular,
         });
     }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, specular, styleEpoch]);

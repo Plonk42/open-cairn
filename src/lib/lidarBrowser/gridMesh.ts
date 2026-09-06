@@ -11,7 +11,7 @@
  * as a denoising filter, producing a smooth surface that lights cleanly.
  */
 import type { MeshResult } from './mesh';
-import { vertexColor, type ShaderPreset } from './slope';
+import { vertexColor, type PaletteSettings } from './slope';
 
 const EMPTY: MeshResult = {
     positions: new Float32Array(0),
@@ -25,16 +25,14 @@ const EMPTY: MeshResult = {
  *
  * @param positions   Interleaved (dx, dy, z) meter-offset float32.
  * @param cellSize    Grid resolution in meters (default 1 m for IGN HD).
- * @param shader      Colour shader preset.
- * @param snowLine    Altitude (m) de la limite des neiges d'été (palettes).
+ * @param palette     Preset, ligne de neige et lithologie (voir `slope.ts`).
  * @param holeFill    Iterations of 3×3 mean-fill (default 2). Each pass
  *                    extends valid coverage by 1 cell. Large gaps stay empty.
  */
 export function buildGridMesh(
     positions: Float32Array,
     cellSize: number,
-    shader: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
     holeFill = 2,
 ): MeshResult {
     const n = positions.length / 3;
@@ -160,7 +158,7 @@ export function buildGridMesh(
     for (let v = 0; v < vCount; v++) {
         const [r, g, b] = vertexColor(
             outNormals[v * 3], outNormals[v * 3 + 1], outNormals[v * 3 + 2],
-            outPos[v * 3 + 2], shader, snowLine,
+            outPos[v * 3 + 2], palette,
         );
         outColors[v * 4] = r;
         outColors[v * 4 + 1] = g;

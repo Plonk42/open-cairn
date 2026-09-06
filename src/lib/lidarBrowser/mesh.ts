@@ -4,7 +4,7 @@
  * `services/lidar-cloud/server.mjs::buildMesh()`.
  */
 import Delaunator from 'delaunator';
-import { vertexColor, type ShaderPreset } from './slope';
+import { vertexColor, type PaletteSettings } from './slope';
 
 export interface MeshResult {
     /** Same vertex array as input (positions are not duplicated). */
@@ -25,8 +25,7 @@ export interface MeshResult {
 export function buildMesh(
     positions: Float32Array,
     maxEdge: number,
-    shader: ShaderPreset,
-    snowLine: number,
+    palette: PaletteSettings,
 ): MeshResult {
     const n = positions.length / 3;
     if (n < 3) {
@@ -94,7 +93,7 @@ export function buildMesh(
     for (let i = 0; i < n; i++) {
         const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
         const z = positions[i * 3 + 2];
-        const [r, g, b] = vertexColor(nx, ny, nz, z, shader, snowLine);
+        const [r, g, b] = vertexColor(nx, ny, nz, z, palette);
         colors[i * 4] = r;
         colors[i * 4 + 1] = g;
         colors[i * 4 + 2] = b;

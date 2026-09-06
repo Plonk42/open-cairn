@@ -64,7 +64,8 @@ en reçoivent le moins. C'est intrinsèque à l'acquisition, pas au solveur.
    quoi que ce soit. *(Corrigé par le levier 4 — voir le journal §3.)*
 
 3. **Albédo purement fonctionnel, sans variation spatiale.**
-   [`slope.ts`](../src/lib/lidarBrowser/slope.ts) `montagneAlbedo()` est une fonction
+   [`slope.ts`](../src/lib/lidarBrowser/slope.ts) `terrainAlbedo()` (alors
+   `montagneAlbedo()`, voir §5.7) est une fonction
    continue de (pente, altitude, orientation). Deux points de même pente ont
    rigoureusement la même couleur ⇒ lecture « plastique », et des plaques de neige
    en taches molles parce que le seuil est un `smoothstep` sur l'altitude.
@@ -131,7 +132,7 @@ en reçoivent le moins. C'est intrinsèque à l'acquisition, pas au solveur.
     amplitude modulée par la rugosité, atténuée avec la distance). Sans géométrie,
     et de loin le plus gros levier « ça, c'est du rocher ».
 13. **Cassure d'albédo** : bruit fractal en espace monde par-dessus la palette
-    `montagne`, et seuil neige/roche piloté par la courbure et le bruit plutôt que
+    de terrain, et seuil neige/roche piloté par la courbure et le bruit plutôt que
     par une rampe lisse pente/altitude.
 
 ### Ordre d'attaque retenu
@@ -164,6 +165,7 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-06 | **§5.2** — rupture herbe/calcaire de la palette *Été* reculée de 30° à 36-45°, palette *Montagne* étendue vers le bas (neige 2700-3200 m, alpage jusqu'à 2600 m), herbe resaturée dans les deux. | ✅ |
 | 2026-09-06 | **§5.3** — rampe végétale en réflectance physique sur le chemin photoréaliste (`vegRampColorPbr`, sélectionnée par `u_pbr`). | ✅ |
 | 2026-09-06 | **§5.5** — pelouse unique à *Été* et *Montagne* (`alpineTurf`), un peu moins jaune, et **ligne de neige réglable** (curseur *Ligne de neige*, section Shader, défaut 2700 m) qui pilote à la fois les névés, la ceinture d'alpage et le dessèchement de l'herbe. | ✅ |
+| 2026-09-06 | **§5.7** — les cinq presets fondus en trois : *Été* + *Montagne* → **Terrain**, *Hiver* supprimé (c'est *Terrain* à ligne de neige basse). La lithologie devient un réglage à part (*Roche* : calcaire / granite / schiste). Fenêtre de luminance de `rockAlbedo.glsl` remontée à 0,76-0,86, le calcaire à 0,674 y était lu comme de la neige. | ✅ |
 
 ---
 
@@ -336,12 +338,13 @@ Deux causes secondaires supprimées au passage :
   cette métrique étant elle-même bruitée, elle produisait du moucheté sombre. Le
   cue est retiré de bout en bout ;
 - le re-seuillage de bord de névé de `rockAlbedo.glsl` s'appuie sur un
-  `smoothstep(0.55, 0.80, lum)`. La luminance du calcaire ensoleillé tombe en
+  `smoothstep(0.55, 0.80, lum)` *(depuis relevé à 0,76-0,86, voir §5.7)*. La
+  luminance du calcaire ensoleillé tombe en
   plein dedans : les barres se faisaient re-découper en plaques. D'où
   `u_snowPalette`, à 1 seulement sur les palettes qui peignent effectivement de
-  la neige (*Hiver*, *Montagne*). **Un masque indexé sur la luminance
-  mé-classe silencieusement toute palette dont la plage de clarté diffère de
-  celle pour laquelle il a été réglé.**
+  la neige (aujourd'hui le seul preset *Terrain*). **Un masque indexé sur la
+  luminance mé-classe silencieusement toute palette dont la plage de clarté
+  diffère de celle pour laquelle il a été réglé.**
 
 ### 5.2 Seuils : l'herbe tient plus raide qu'on ne le croit
 
@@ -414,7 +417,8 @@ Deux conséquences de mise en œuvre :
 - `snowLine` est un **paramètre requis** de `vertexColor` / `colorsFromNormals` /
   `recolorMeshVertices`, pas un paramètre optionnel avec défaut : c'est le
   compilateur qui garantit qu'aucun site d'appel n'ignore silencieusement le
-  réglage de l'utilisateur.
+  réglage de l'utilisateur. *(Ces paramètres sont depuis regroupés dans un objet
+  `PaletteSettings`, toujours requis — voir §5.7.)*
 - Le recoloriage est **CPU**, sur le thread principal (~0,45 s pour 1,5 M
   sommets). Le curseur affiche donc sa valeur immédiatement mais ne déclenche le
   repeint qu'après 150 ms de stabilité, comme les curseurs forêt. Le réglage
@@ -430,3 +434,71 @@ d'un `Shader compile: ERROR: 0:NNN` en console, et fait planter
 `LidarWebGLLayer._initGL` dans `onAdd`, donc tout `<LidarCloudOverlay>`. **Après
 toute édition de shader : recharger la page et lire la console.** Un rechargement
 complet est obligatoire, le HMR ne reconstruit jamais les instances de couche.
+
+### 5.7 Cinq presets pour deux natures de palette
+
+Le sélecteur *Shader* proposait *Mono*, *Falaise*, *Hiver*, *Montagne*, *Pente*.
+Cinq entrées, mais **deux natures** seulement :
+
+- des **palettes de carte** — *Mono* et *Pente* encodent une lecture (« où est
+  le raide ? »), pas une matière. Elles n'ont rien à faire dans une fusion ;
+- des **albédos physiques** — *Falaise*, *Hiver* et *Montagne* essaient toutes
+  les trois de peindre la même montagne à des saisons différentes.
+
+Or §5.5 avait déjà fait l'essentiel du travail : *Falaise* et *Montagne*
+partageaient `alpineTurf` et se calaient sur la même ligne de neige. Leur seul
+vrai écart restant était la **rampe de roche** — un calcaire urgonien clair
+contre un cristallin sombre. D'où la fusion : un unique preset **Terrain**
+(`terrainAlbedo`), et la lithologie sortie en réglage propre.
+
+**Pourquoi la roche est un preset et pas un curseur.** Le critère retenu : *un
+curseur se justifie quand il correspond à une grandeur qui varie réellement sur
+le terrain et que l'utilisateur sait nommer ; un preset se justifie quand il
+encode une calibration qu'il ne peut pas deviner.* La lithologie n'est ni une
+saison ni une ambiance — elle ne dépend que du massif — et surtout ce n'est pas
+une teinte qu'on multiplierait : le calcaire **s'éclaircit** avec la pente (les
+barres verticales sont lavées par le ruissellement, ρ passe de 0,65 à 0,67 avant
+de chuter sur les vires ombreuses) là où le granite et le schiste
+**s'assombrissent** (la patine claire cède la place à la cassure fraîche). Seule
+une rampe complète exprime ça, d'où `ROCK_RAMPS: Record<RockType, …>`.
+
+**Pourquoi *Hiver* est supprimé et non fusionné.** Il cuisait un assombrissement
+d'orientation dans l'albédo (précisément l'erreur corrigée en §5.1), travaillait
+par seuils durs, et sa neige `[252, 253, 255]` vaut ρ ≈ 0,97 — une réflectance
+qui n'existe pas, même sur de la poudreuse fraîche. *Terrain* avec une ligne de
+neige basse **est** l'hiver, en mieux : bord de névé dentelé par le bruit,
+rétention modulée par la pente, décalage nord/sud de 300 m.
+
+**Ce que la fusion a coûté en GLSL.** Le re-seuillage de bord de névé de
+`rockAlbedo.glsl` était réglé sur la plage de clarté de l'ancienne palette
+*Montagne*. Le calcaire de *Terrain* plafonne à 172/255 = **0,674** de
+luminance : il tombait en plein dans le `smoothstep(0.55, 0.80, …)` et se faisait
+traiter comme de la neige. Fenêtre remontée à **`RA_SNOW_LO = 0.76` /
+`RA_SNOW_HI = 0.86`**, juste au-dessus de la roche la plus claire que la palette
+sache produire et juste en dessous de la neige tassée (0,85). Le bruit de la
+fenêtre est en outre éteint aux deux bornes (`× 4t(1-t)`), sinon un tirage
+extrême suffisait à pousser `tn` à 0,29 sur du rocher sans le moindre névé. Les
+mêmes bornes sont répliquées dans `mesh.frag` (`rockness`) — **à garder en
+phase**.
+
+`u_snowPalette` **reste** nécessaire : le jaune `[255, 235, 59]` de la palette
+*Pente* a une luminance de 0,83 et serait lu comme de la neige.
+
+**Mise en œuvre.** Les trois réglages voyagent dans un objet
+`PaletteSettings { preset, snowLine, rock }`, toujours requis. Avec un troisième
+axe et des réglages de saison explicitement remis à plus tard, l'objet évite de
+re-câbler tous les sites d'appel à chaque ajout, sans rien perdre de la garantie
+du compilateur.
+
+**Compromis assumé.** Choisir *Été* garantissait l'absence de neige ; désormais
+un curseur mal placé peut enneiger une scène de Chartreuse en août. Le risque est
+faible avec le défaut à 2700 m, et c'est le prix de la continuité saisonnière.
+
+**Effet de bord connu.** `TURF_TOP_FADE_M` (700 m) et `TURF_DRY_SPAN_M` (700 m)
+se recouvrent : une pelouse n'atteint donc jamais son jaune sec par la seule
+altitude — près de la ligne de neige elle cède au rocher avant. Laissé tel quel,
+allonger `TURF_DRY_SPAN_M` reviendrait à défaire le dé-jaunissement validé en
+§5.5.
+
+**Une piste.** La lithologie pourrait à terme être *lue* au lieu d'être choisie,
+sur le WFS BRGM 1/50 000, exactement comme BD Forêt fournit déjà l'essence.
