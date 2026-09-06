@@ -494,6 +494,8 @@ du compilateur.
 **Compromis assumé.** Choisir *Été* garantissait l'absence de neige ; désormais
 un curseur mal placé peut enneiger une scène de Chartreuse en août. Le risque est
 faible avec le défaut à 2700 m, et c'est le prix de la continuité saisonnière.
+*Soldé en §5.8* : la course de la ligne de neige monte jusqu'à 4900 m, au-dessus
+du plus haut terrain français.
 
 **Effet de bord connu.** `TURF_TOP_FADE_M` (700 m) et `TURF_DRY_SPAN_M` (700 m)
 se recouvrent : une pelouse n'atteint donc jamais son jaune sec par la seule
@@ -531,11 +533,15 @@ caler un rendu sur une photo précise.
 
 | | 0 % (pellicule) | 50 % (défaut) | 100 % (gros manteau) |
 |---|---|---|---|
-| Pente limite (`SNOW_SLOPE_LIMIT_*`) | 40° — les replats seuls | 58° | 76° — tout sauf le surplomb |
-| Dénivelé de continuité (`SNOW_SPAN_*`) | 800 m — névés épars | 500 m | 200 m — limite franche |
+| Pente limite (`SNOW_SLOPE_LIMIT_*`) | 30° — les replats seuls | 58° | 86° — tout sauf le surplomb |
+| Dénivelé de continuité (`SNOW_SPAN_*`) | 900 m — névés épars | 500 m | 100 m — limite franche |
 
 50 % reproduit exactement les constantes d'avant, donc aucune scène existante ne
-bouge et le défaut reste calibré sur les rendus de référence.
+bouge et le défaut reste calibré sur les rendus de référence. Les deux bornes
+débordent volontairement le plausible : elles cadrent un curseur, pas un climat.
+La course de la *ligne de neige* a suivi le même parti pris, 0 à 4900 m — la borne
+haute passe au-dessus du mont Blanc, ce qui rend enfin garantissable une scène
+sans un flocon et solde le compromis assumé en §5.7.
 
 **Ce qu'il ne pilote pas :** la pelouse. L'alpage se cale sur le climat moyen du
 massif, pas sur les chutes de l'hiver en cours ; `alpineTurf` ne voit que la ligne

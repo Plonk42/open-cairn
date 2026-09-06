@@ -184,7 +184,9 @@ const TURF_DRY_SPAN_M = 700;
  * résiduels d'août dans les Alpes du Nord commencent vers 2400 m en exposition
  * nord et ne deviennent continus que vers 2900 — en dessous, une scène de
  * montagne en été n'a pas un flocon. Réglable : c'est le curseur « Ligne de
- * neige », qui déplace aussi la ceinture d'alpage et la pelouse.
+ * neige », qui déplace aussi la ceinture d'alpage et la pelouse. Sa course va
+ * de 0 m à 4900 m, soit au-dessus du mont Blanc : c'est ce qui permet de
+ * garantir une scène sans un flocon, quelle que soit l'altitude du massif.
  */
 export const DEFAULT_SNOW_LINE = 2700;
 
@@ -212,19 +214,21 @@ export const DEFAULT_PALETTE: PaletteSettings = {
 /**
  * Pente au-delà de laquelle plus rien ne tient, du manteau maigre au gros
  * manteau : une pellicule ne se pose que sur les replats, une couche épaisse
- * plâtre les vires et les dalles et ne cède que dans le surplomb.
+ * plâtre les vires et les dalles et ne cède que dans le surplomb. Les deux
+ * bornes débordent volontairement le plausible — elles cadrent un curseur, pas
+ * un climat — mais leur milieu tombe sur les 58° d'origine.
  */
-const SNOW_SLOPE_LIMIT_MIN = 40;
-const SNOW_SLOPE_LIMIT_MAX = 76;
+const SNOW_SLOPE_LIMIT_MIN = 30;
+const SNOW_SLOPE_LIMIT_MAX = 86;
 /** Largeur de la rampe de purge sous cette limite. */
 const SNOW_SLOPE_FADE_DEG = 26;
 /**
  * Dénivelé sur lequel la neige devient continue au-dessus de la ligne. Un
- * manteau maigre traîne en névés épars sur 800 m ; un manteau épais donne une
+ * manteau maigre traîne en névés épars sur 900 m ; un manteau épais donne une
  * limite franche.
  */
-const SNOW_SPAN_MAX_M = 800;
-const SNOW_SPAN_MIN_M = 200;
+const SNOW_SPAN_MAX_M = 900;
+const SNOW_SPAN_MIN_M = 100;
 /** Décalage de la ligne de neige entre une face plein nord et une face plein sud. */
 const SNOW_ASPECT_SHIFT_M = 300;
 /**

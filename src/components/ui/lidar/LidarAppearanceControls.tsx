@@ -277,14 +277,14 @@ export function ShaderControls() {
             {shader === 'terrain' && (
                 <label className="block">
                     <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. C’est ce curseur qui fait la saison : la neige, la limite de l’alpage et le dessèchement de la pelouse s’y calent tous. Plus on s’en approche, plus l’herbe se clairseme et vire au paillé.">
+                        <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. C’est ce curseur qui fait la saison : la neige, la limite de l’alpage et le dessèchement de la pelouse s’y calent tous. Plus on s’en approche, plus l’herbe se clairseme et vire au paillé. À 4900 m il passe au-dessus du mont Blanc : plus un flocon nulle part.">
                             Ligne de neige
                         </span>
                         <span className="font-mono text-xs text-slate-400">{snowLineDraft} m</span>
                     </div>
                     <input
                         aria-label="Altitude de la ligne de neige"
-                        type="range" min={1200} max={3600} step={50}
+                        type="range" min={0} max={4900} step={50}
                         value={snowLineDraft}
                         onChange={(e) => setSnowLineDraft(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"

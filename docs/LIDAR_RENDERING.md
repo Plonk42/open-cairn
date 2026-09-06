@@ -36,11 +36,12 @@ Le panneau **LiDAR** offre trois modes de rendu :
   claire en fin d'échelle plutôt qu'un noir illisible)
 - **Roche** : lithologie du massif pour le préset `terrain` — `limestone` (calcaire,
   s'éclaircit avec la pente), `granite`, `schist` (les deux s'assombrissent)
-- **Ligne de neige** : 1200–3600 m (défaut 2700). Pilote ensemble les névés, la ceinture
-  d'alpage et le dessèchement de la pelouse
+- **Ligne de neige** : 0–4900 m (défaut 2700). Pilote ensemble les névés, la ceinture
+  d'alpage et le dessèchement de la pelouse. La borne haute passe au-dessus du mont
+  Blanc : c'est ce qui permet de garantir une scène sans un flocon
 - **Enneigement** : 0–100 % (défaut 50, qui reproduit le rendu d'origine). Épaisseur du
   manteau, indépendante de son altitude : la pente limite que la neige plâtre passe de
-  40° à 76°, et le dénivelé sur lequel elle devient continue de 800 m à 200 m. Ne touche
+  30° à 86°, et le dénivelé sur lequel elle devient continue de 900 m à 100 m. Ne touche
   pas à la pelouse
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
