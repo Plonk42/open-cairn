@@ -30,7 +30,7 @@ const SHADER_OPTIONS = [
     { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
     { value: 'cliff', label: 'Été', title: 'Massif calcaire en été : pelouse alpine sur les pentes douces, rupture nette vers le calcaire clair sur les barres rocheuses. Albédo physique, sans ombrage peint — à utiliser avec le rendu photoréaliste' },
     { value: 'winter', label: 'Hiver', title: 'Neige sur pentes douces/expositions nord, falaise brun rocheux' },
-    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche (pente + altitude + orientation), sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
+    { value: 'montagne', label: 'Montagne', title: 'Albédo physique neige/roche/alpage piloté par la pente, l\'altitude et l\'orientation. Ligne de neige d\'été vers 2700-3200 m et ceinture d\'alpage jusqu\'à 2600 m : valable des moyennes montagnes (Chartreuse, Vercors) aux hauts massifs. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
     { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 

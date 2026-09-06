@@ -160,6 +160,9 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-04 | **§4.3-1** — gradient analytique du bruit de valeur (`mrValueNoiseD`, forme trilinéaire développée `k0..k7`) : le micro-relief perturbe désormais la normale **par pixel** au lieu de par quad 2×2. `mrValueNoise` reste exposé en enveloppe fine pour `rockAlbedo.glsl`, le gradient inutilisé étant éliminé à la compilation. | ✅ |
 | 2026-09-04 | **§4.3-2** — fondu d'octaves anticipé, `0.25λ → 0.9λ` devient `0.5λ → 1.4λ` (`MR_FADE_LO` / `MR_FADE_HI`) : l'octave qui battait à la fréquence de Nyquist est éteinte avant d'y arriver. | ✅ |
 | 2026-09-04 | **§4.3-3** — SSAA ×2 du FBO LiDAR, seul remède au facettage (`u_facet`), intrinsèquement lié à `dFdx`. | ⏸️ non retenu pour l'instant : ×4 fragments sur `mesh.frag` alors que beaucoup d'utilisateurs sont sur iGPU. À rouvrir après mesure par passe (§4.4). |
+| 2026-09-06 | **§5** — palette *Été* cassée (moucheté partout) : la couleur de sommet était calculée sur la normale par triangle. Découplée sur une normale **macro** (24 passes Jacobi isotropes ≈ 2,5 m de rayon), l'indice de rugosité retiré de l'albédo, palette recalibrée en réflectance physique et garde `u_snowPalette` sur le re-seuillage de névé. | ✅ |
+| 2026-09-06 | **§5.2** — rupture herbe/calcaire de la palette *Été* reculée de 30° à 36-45°, palette *Montagne* étendue vers le bas (neige 2700-3200 m, alpage jusqu'à 2600 m), herbe resaturée dans les deux. | ✅ |
+| 2026-09-06 | **§5.3** — rampe végétale en réflectance physique sur le chemin photoréaliste (`vegRampColorPbr`, sélectionnée par `u_pbr`). | ✅ |
 
 ---
 
@@ -295,3 +298,98 @@ algorithmique et `devicePixelRatio` est un réglage d'affichage : une T1200 dess
 exactement la même image en blocs, simplement plus vite. Et les utilisateurs
 d'open-cairn seront souvent sur iGPU, ce qui reste une raison de préférer le
 gradient analytique (~+20 %) au SSAA (×4) quand les deux donnent le même résultat.
+
+---
+
+## 5. Palettes : moucheté, seuils et réflectance
+
+Signalé le 2026-09-06 : « le shader *Été* est tout cassé suite à nos travaux
+(artefact de partout) », et « le shader *Montagne* n'a été travaillé que pour les
+hautes altitudes ». Référence de travail : une photo aérienne oblique de la Dent
+de Crolles (2062 m) — barre calcaire claire, large épaulement de pelouse
+jaune-vert, résineux sombres épars, pas un flocon de neige.
+
+### 5.1 Le moucheté venait de la normale, pas des effets
+
+L'intuition naturelle accusait le micro-relief ou la patine. Faux : à
+*Micro-relief* 0 et *Patine* 0 le moucheté restait. La preuve décisive vient du
+preset **Pente**, qui affiche des pentes de 50-70° (magenta) sur un plateau
+quasi plat : la normale **par sommet** porte des dizaines de degrés de bruit
+angulaire, amplifié par `sharpenMeshPositions`, par les normales robustes IRLS
+et par un lissage sensible aux arêtes qui *préserve* délibérément les
+désaccords > 35°. Les transitions de palette ne font que quelques degrés de
+large : le bruit devenait du poivre-et-sel. Le défaut touchait **tous** les
+presets, pas seulement *Été*.
+
+Correctif : la couleur est calculée sur une normale **macro** dédiée
+(`macroVertexNormals`, 24 passes de moyenne un-anneau isotrope, soit un rayon de
+diffusion ≈ `espacement × √passes` ≈ 2,5 m), encodée en `Uint8Array` et
+transportée jusqu'au recoloriage live et à la sérialisation des scènes.
+L'éclairage garde la normale géométrique fine : seul le **zonage d'albédo** est
+découplé. Corollaire général — *un albédo zoné ne doit jamais lire la normale
+d'éclairage*.
+
+Deux causes secondaires supprimées au passage :
+
+- l'indice de rugosité (`coherence`) assombrissait l'albédo du preset *Été* ;
+  cette métrique étant elle-même bruitée, elle produisait du moucheté sombre. Le
+  cue est retiré de bout en bout ;
+- le re-seuillage de bord de névé de `rockAlbedo.glsl` s'appuie sur un
+  `smoothstep(0.55, 0.80, lum)`. La luminance du calcaire ensoleillé tombe en
+  plein dedans : les barres se faisaient re-découper en plaques. D'où
+  `u_snowPalette`, à 1 seulement sur les palettes qui peignent effectivement de
+  la neige (*Hiver*, *Montagne*). **Un masque indexé sur la luminance
+  mé-classe silencieusement toute palette dont la plage de clarté diffère de
+  celle pour laquelle il a été réglé.**
+
+### 5.2 Seuils : l'herbe tient plus raide qu'on ne le croit
+
+Une fois le moucheté parti, la scène est ressortie **blanchie, sans vert**. Le
+preset *Pente* sert alors une seconde fois, comme instrument de mesure :
+l'épaulement herbeux entier est à **30-32°**, or la palette basculait déjà vers
+le calcaire à 30°. La prairie était donc peinte en rocher — et un calcaire de
+ρ ≈ 0,31 rendu sous l'éclairement de la scène (≈ 1,8) ressort à ~213 en valeur
+d'affichage, c'est-à-dire quasi blanc. La palette était juste, le **seuil** ne
+l'était pas.
+
+Sur les épaulements calcaires, la pelouse couvre encore des pentes à **35-40°** ;
+la roche nue n'apparaît qu'au-dessus, sur les barres et les vires. Rupture
+reculée à 36-45°.
+
+La palette *Montagne* souffrait du symptôme jumeau, en altitude : ligne de neige
+à 2000-2600 m et alpage plafonné à 2100 m, calibrés pour du haut massif. Un
+sommet de Chartreuse à 2062 m ressortait en rocher enneigé. Neige remontée à
+2700-3200 m (± 300 m selon l'orientation) et ceinture d'alpage jusqu'à 2600 m
+avec un fondu de 700 m : *Montagne* est désormais valable dès ~1500 m.
+
+Enfin, **la saturation**. L'ambiante hémisphérique est une lumière de ciel, donc
+bleue : additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
+tone mapping, qui désature encore les hautes lumières. Une herbe d'albédo neutre
+ressort en kaki pastel. On creuse le bleu de l'albédo pour compenser — la
+pelouse rendue retrouve le jaune-vert franc de la photo.
+
+### 5.3 La végétation aussi doit être une réflectance
+
+À ces altitudes la végétation occupe une grande part de l'image, et elle passe
+par le **même** `pbrShade` que la roche. Or `vegRampColor` est une palette de
+*carte* : elle encode déjà une lecture (cime lumineuse, sous-bois sombre) et
+culmine sur un jaune-vert de luminance 0,87. Traitée comme un albédo et
+multipliée par l'éclairement solaire, elle donnait des confettis vert acide.
+
+Un couvert résineux est au contraire l'une des surfaces les plus sombres du
+visible — ρ ≈ 0,03 rouge, 0,05-0,08 vert, 0,03 bleu, les aiguilles piégeant la
+lumière par diffusion multiple dans le houppier. C'est exactement ce que montre
+la photo : des arbres presque noirs détachés sur la pelouse claire. D'où
+`vegRampColorPbr`, même structure verticale mais dans la bonne plage de
+réflectance, sélectionnée par `u_pbr`. La palette de carte est inchangée hors
+photoréalisme.
+
+### 5.4 Piège de méthode : les portes ne compilent pas le GLSL
+
+`npx tsc -b`, `npm run lint:test`, `npm run test:run` et `npm run build`
+ignorent totalement le contenu des shaders — `vite-plugin-glsl` ne fait qu'un
+`#include` textuel. Une erreur GLSL ne se voit qu'à l'exécution, sous la forme
+d'un `Shader compile: ERROR: 0:NNN` en console, et fait planter
+`LidarWebGLLayer._initGL` dans `onAdd`, donc tout `<LidarCloudOverlay>`. **Après
+toute édition de shader : recharger la page et lire la console.** Un rechargement
+complet est obligatoire, le HMR ne reconstruit jamais les instances de couche.
