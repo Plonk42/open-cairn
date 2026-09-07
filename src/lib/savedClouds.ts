@@ -18,7 +18,7 @@
  */
 import { createStore, del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 
-import { captureParamsSignature, type CaptureParams } from '@/lib/captureParams';
+import { captureParamsSignature, type CaptureMode, type CaptureRecord } from '@/lib/captureParams';
 import type { LidarMeshData, LidarShadedCloudData } from '@/lib/lidarCloud';
 import { createSavedCollection } from '@/lib/savedStore';
 
@@ -28,7 +28,7 @@ const cloudStore = createStore('open-cairn-saved-clouds-db', 'data');
 /** Soft cap on the number of saved clouds; oldest are evicted past this. */
 const MAX_ENTRIES = 30;
 
-export type LidarCloudMode = 'shaded' | 'delaunay' | 'poisson';
+export type LidarCloudMode = CaptureMode;
 
 export const CLOUD_MODE_LABELS: Record<LidarCloudMode, string> = {
     shaded: 'Nuage',
@@ -37,26 +37,18 @@ export const CLOUD_MODE_LABELS: Record<LidarCloudMode, string> = {
 };
 
 /** Lightweight descriptor kept in localStorage. */
-export interface SavedCloud {
+export interface SavedCloud extends CaptureRecord {
     id: string;
     /** Dedupe key: same area + params reuses the same entry. */
     key: string;
     name: string;
     /** ISO date string (updated on each re-save of the same key). */
     createdAt: string;
-    mode: LidarCloudMode;
-    centerLng: number;
-    centerLat: number;
-    /** Capture rectangle dimensions (m). */
-    widthM: number;
-    lengthM: number;
     /** Point count (shaded cloud). */
     pointCount: number;
     /** Vertex count when a mesh is part of the snapshot. */
     vertexCount?: number;
     hasMesh: boolean;
-    /** Réglages de génération, en JSON libre (voir `captureParams.ts`). */
-    params?: CaptureParams;
 }
 
 /** Heavy binary snapshot kept in IndexedDB (structured-cloned typed arrays). */
@@ -96,15 +88,7 @@ function restoreColors(stored: StoredCloudData): SavedCloudData {
 }
 
 /** Identifying params captured at load time. */
-export interface SavedCloudParams {
-    mode: LidarCloudMode;
-    centerLng: number;
-    centerLat: number;
-    widthM: number;
-    lengthM: number;
-    /** Réglages de génération complets — font partie de l'identité de l'entrée. */
-    params?: CaptureParams;
-}
+export type SavedCloudParams = CaptureRecord;
 
 const clouds = createSavedCollection<SavedCloud>(SAVED_CLOUDS_KEY);
 const readAll = clouds.readAll;

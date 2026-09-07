@@ -23,7 +23,7 @@
  * versions are accepted with a console warning rather than rejected.
  */
 
-import type { CaptureParams } from './captureParams';
+import type { CaptureRecord } from './captureParams';
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
 import type { RockType, ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
@@ -152,12 +152,14 @@ export interface ShowcaseScene {
      */
     extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
     /**
-     * Réglages de génération de chaque nuage, primaire en premier puis les
-     * `extraClouds` dans l'ordre (voir `captureParams.ts`). `null` pour un
-     * nuage dont les réglages sont inconnus — une scène exportée avant l'ajout
-     * de ce champ n'en a aucun, et se recharge sans rien perdre.
+     * Emprise et réglages de génération de chaque nuage, primaire en premier
+     * puis les `extraClouds` dans l'ordre (voir `captureParams.ts`). C'est ce
+     * qui permet d'afficher le détail d'une scène et de « Recapturer » sa zone
+     * sans avoir à en télécharger la géométrie. `null` pour un nuage dont on ne
+     * sait rien — une scène exportée avant ce champ n'en a aucun, et se
+     * recharge sans rien perdre.
      */
-    captureParams?: Array<CaptureParams | null>;
+    captures?: Array<CaptureRecord | null>;
 }
 
 /**
@@ -170,8 +172,8 @@ export interface ShowcaseManifest {
     description?: string;
     camera: ShowcaseCamera;
     ambiance: ShowcaseAmbiance;
-    /** Voir `ShowcaseScene.captureParams`. */
-    captureParams?: Array<CaptureParams | null>;
+    /** Voir `ShowcaseScene.captures`. */
+    captures?: Array<CaptureRecord | null>;
 }
 
 /** Schema version of the sidecar manifest JSON. */
@@ -440,7 +442,7 @@ export function buildShowcaseManifest(scene: ShowcaseScene): ShowcaseManifest {
         description: scene.description,
         camera: scene.camera,
         ambiance: scene.ambiance,
-        captureParams: scene.captureParams,
+        captures: scene.captures,
     };
 }
 
@@ -458,7 +460,7 @@ export function parseShowcaseManifest(json: string): ShowcaseManifest {
         description: raw.description,
         camera: raw.camera,
         ambiance: { ...DEFAULT_AMBIANCE, ...raw.ambiance },
-        captureParams: raw.captureParams,
+        captures: raw.captures,
     };
 }
 

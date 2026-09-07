@@ -74,7 +74,7 @@ export function applyScene(scene: ShowcaseScene) {
     const st = useMapStore.getState();
     st.addLidarCloudSnapshot(
         { shaded: scene.shaded, mesh: scene.mesh },
-        { mode: scene.mesh ? 'poisson' : 'shaded', sourceSceneId: scene.id, params: scene.captureParams?.[0] ?? undefined },
+        { mode: scene.mesh ? 'poisson' : 'shaded', sourceSceneId: scene.id, capture: scene.captures?.[0] ?? undefined },
     );
     // A scene may bundle several clouds (all the ones that were displayed at
     // export time) — restore each one alongside the primary so the whole view
@@ -82,7 +82,7 @@ export function applyScene(scene: ShowcaseScene) {
     for (const [i, cloud] of (scene.extraClouds ?? []).entries()) {
         st.addLidarCloudSnapshot(
             { shaded: cloud.shaded, mesh: cloud.mesh },
-            { mode: cloud.mesh ? 'poisson' : 'shaded', sourceSceneId: scene.id, params: scene.captureParams?.[i + 1] ?? undefined },
+            { mode: cloud.mesh ? 'poisson' : 'shaded', sourceSceneId: scene.id, capture: scene.captures?.[i + 1] ?? undefined },
         );
     }
     const map = st.mapInstance;

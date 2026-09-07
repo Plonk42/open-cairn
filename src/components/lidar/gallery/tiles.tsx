@@ -1,13 +1,14 @@
 import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
 import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
-import { captureParamEntries, differingCaptureParamKeys, type CaptureParamEntry } from '@/lib/captureParams';
+import { captureParamEntries, differingCaptureParamKeys, type CaptureParamEntry, type CaptureRecord } from '@/lib/captureParams';
 import { formatDistance, formatElevation } from '@/lib/geo';
 import { ignStaticMapUrl } from '@/lib/ign';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import { CLOUD_MODE_LABELS, type SavedCloud } from '@/lib/savedClouds';
 import { deleteSavedRoute, renameSavedRoute, type SavedRoute } from '@/lib/savedRoutes';
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
-import type { SceneLoadProgress } from '@/lib/showcaseScene';
+import { describeAmbiance } from '@/lib/showcaseAmbiance';
+import type { SceneLoadProgress, ShowcaseAmbiance } from '@/lib/showcaseScene';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 
 /** Overlay rendered on a tile while it is being loaded (download + decode). */
@@ -66,36 +67,157 @@ function LoadedBadge() {
     );
 }
 
+/** Capture-zone size label from the rectangle dimensions. */
+function captureSizeLabel(capture: CaptureRecord): string {
+    return `${Math.round(capture.widthM)} × ${Math.round(capture.lengthM)} m`;
+}
+
+/** Jour + heure : deux essais de la même zone ne se distinguent souvent que par là. */
+function captureTimeLabel(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+const ChevronGlyph = ({ open }: Readonly<{ open: boolean }>) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`}
+        aria-hidden="true"
+    >
+        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
+    </svg>
+);
+
+/** Lignes libellé / valeur du dépliant « Détails ». */
+function DetailRows({ entries }: Readonly<{ entries: readonly CaptureParamEntry[] }>) {
+    return (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 px-2.5 text-[11px]">
+            {entries.map((e) => (
+                <Fragment key={e.key}>
+                    <dt className="text-slate-500 dark:text-slate-400">{e.label}</dt>
+                    <dd className="tabular-nums text-slate-700 dark:text-slate-200">{e.text}</dd>
+                </Fragment>
+            ))}
+        </dl>
+    );
+}
+
+/** L'emprise puis tous les réglages d'une capture, y compris une clé inconnue. */
+function captureRows(capture: CaptureRecord): CaptureParamEntry[] {
+    return [
+        { key: 'mode', label: 'Mode', text: CLOUD_MODE_LABELS[capture.mode] },
+        { key: 'zone', label: 'Zone', text: captureSizeLabel(capture) },
+        { key: 'center', label: 'Centre', text: `${capture.centerLat.toFixed(5)}, ${capture.centerLng.toFixed(5)}` },
+        ...captureParamEntries(capture.params),
+    ];
+}
+
+/** Bascule du dépliant, à placer dans la barre d'actions d'une tuile. */
+function DetailsToggle({ open, onToggle }: Readonly<{ open: boolean; onToggle: () => void }>) {
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="flex items-center gap-1 rounded text-[11px] font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+        >
+            <ChevronGlyph open={open} />
+            Détails
+        </button>
+    );
+}
+
+function RecaptureButton({ onClick, title }: Readonly<{ onClick: () => void; title: string }>) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            title={title}
+            className="rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
+        >
+            Recapturer
+        </button>
+    );
+}
+
+/** Une scène multi-nuage ne rejoue que son nuage principal : autant le dire. */
+function recaptureTitle(cloudCount: number): string {
+    return cloudCount > 1
+        ? 'Reprendre l’emprise et les réglages du nuage principal de cette scène, sans lancer la capture'
+        : 'Reprendre l’emprise et les réglages de cette scène, sans lancer la capture';
+}
+
+/**
+ * Détails d'une scène : ce qui la caractérise (ambiance, comptes), puis
+ * l'emprise et les réglages de chacun de ses nuages. Une scène exportée avant
+ * que les empreintes ne soient embarquées n'affiche que la première partie.
+ */
+function SceneDetails({
+    facts,
+    ambiance,
+    captures,
+}: Readonly<{ facts: readonly CaptureParamEntry[]; ambiance: ShowcaseAmbiance; captures: ReadonlyArray<CaptureRecord | null> }>) {
+    return (
+        <div className="border-t border-slate-200 py-2 dark:border-white/10">
+            <DetailRows entries={[...facts, ...describeAmbiance(ambiance)]} />
+            {captures.map((capture, i) => capture && (
+                <div key={`${capture.centerLng},${capture.centerLat},${i}`} className="mt-1.5">
+                    {captures.length > 1 && (
+                        <p className="px-2.5 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">Nuage {i + 1}</p>
+                    )}
+                    <DetailRows entries={captureRows(capture)} />
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function GalleryTile({
     entry,
     busy,
     loaded,
     progress,
     onSelect,
-}: Readonly<{ entry: GalleryEntry; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void }>) {
+    onRecapture,
+}: Readonly<{ entry: GalleryEntry; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onRecapture: (capture: CaptureRecord) => void }>) {
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const captures = entry.manifest.captures ?? [];
+    const primaryCapture = captures[0];
     return (
-        <button
-            type="button"
-            onClick={onSelect}
-            disabled={busy || loaded}
-            title={loaded ? 'Déjà chargé — supprimez-le depuis la pastille pour le recharger' : undefined}
-            className="group relative overflow-hidden rounded-lg bg-slate-50 text-left ring-1 ring-slate-200 transition hover:ring-emerald-400/60 disabled:cursor-not-allowed dark:bg-slate-800 dark:ring-white/10"
-        >
-            <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-700">
-                <img
-                    src={entry.thumbUrl}
-                    alt={entry.title}
-                    loading="lazy"
-                    className={`h-full w-full object-cover transition ${busy || loaded ? '' : 'group-hover:scale-[1.03]'} ${loaded ? 'opacity-60' : ''}`}
-                />
-                {busy && <SceneProgressOverlay progress={progress} />}
-                {loaded && !busy && <LoadedBadge />}
+        <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
+            <button
+                type="button"
+                onClick={onSelect}
+                disabled={busy || loaded}
+                title={loaded ? 'Déjà chargé — supprimez-le depuis la pastille pour le recharger' : undefined}
+                className="block w-full text-left disabled:cursor-not-allowed"
+            >
+                <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-700">
+                    <img
+                        src={entry.thumbUrl}
+                        alt={entry.title}
+                        loading="lazy"
+                        className={`h-full w-full object-cover transition ${busy || loaded ? '' : 'group-hover:scale-[1.03]'} ${loaded ? 'opacity-60' : ''}`}
+                    />
+                    {busy && <SceneProgressOverlay progress={progress} />}
+                    {loaded && !busy && <LoadedBadge />}
+                </div>
+                <div className="p-2.5">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">{entry.title}</div>
+                    {entry.description && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-300">{entry.description}</p>}
+                </div>
+            </button>
+            <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+                {primaryCapture && (
+                    <RecaptureButton onClick={() => onRecapture(primaryCapture)} title={recaptureTitle(captures.length)} />
+                )}
             </div>
-            <div className="p-2.5">
-                <div className="text-sm font-semibold text-slate-900 dark:text-white">{entry.title}</div>
-                {entry.description && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-300">{entry.description}</p>}
-            </div>
-        </button>
+            {detailsOpen && <SceneDetails facts={[]} ambiance={entry.manifest.ambiance} captures={captures} />}
+        </div>
     );
 }
 
@@ -107,6 +229,7 @@ export function GalleryBody({
     loadedIds,
     progress,
     onSelect,
+    onRecapture,
 }: Readonly<{
     entries: GalleryEntry[];
     loading: boolean;
@@ -115,6 +238,7 @@ export function GalleryBody({
     loadedIds: ReadonlySet<string>;
     progress: SceneLoadProgress | null;
     onSelect: (e: GalleryEntry) => void;
+    onRecapture: (capture: CaptureRecord) => void;
 }>) {
     if (loading) return <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Chargement de la galerie…</p>;
     if (error) return <p className="py-8 text-center text-sm text-rose-500 dark:text-rose-300">{error}</p>;
@@ -135,6 +259,7 @@ export function GalleryBody({
                     loaded={loadedIds.has(e.id)}
                     progress={busyId === e.id ? progress : null}
                     onSelect={() => onSelect(e)}
+                    onRecapture={onRecapture}
                 />
             ))}
         </div>
@@ -172,6 +297,18 @@ function LocalThumb({ id, alt }: Readonly<{ id: string; alt: string }>) {
     );
 }
 
+/** Ce qu'une scène a de plus qu'une capture : son poids et sa date. */
+function sceneFacts(scene: SavedScene): CaptureParamEntry[] {
+    const counts: CaptureParamEntry[] = [];
+    if (scene.pointCount > 0) counts.push({ key: 'points', label: 'Points', text: formatCount(scene.pointCount) });
+    if (scene.vertexCount) counts.push({ key: 'vertices', label: 'Sommets', text: formatCount(scene.vertexCount) });
+    return [
+        { key: 'clouds', label: 'Nuages', text: String(scene.cloudCount) },
+        ...counts,
+        { key: 'date', label: 'Enregistrée', text: captureTimeLabel(scene.createdAt) },
+    ];
+}
+
 function LocalTile({
     scene,
     busy,
@@ -179,8 +316,12 @@ function LocalTile({
     progress,
     onSelect,
     onApplyStyle,
+    onRecapture,
     onDelete,
-}: Readonly<{ scene: SavedScene; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onApplyStyle: () => void; onDelete: () => void }>) {
+}: Readonly<{ scene: SavedScene; busy: boolean; loaded: boolean; progress: SceneLoadProgress | null; onSelect: () => void; onApplyStyle: () => void; onRecapture: (capture: CaptureRecord) => void; onDelete: () => void }>) {
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const captures = scene.captures ?? [];
+    const primaryCapture = captures[0];
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
             <button
@@ -205,17 +346,27 @@ function LocalTile({
                     )}
                 </div>
             </button>
-            <div className="flex items-center justify-end border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
-                <button
-                    type="button"
-                    onClick={onApplyStyle}
-                    disabled={busy}
-                    title="Appliquer l'aspect de cette vue aux nuages actuellement chargés, sans rien charger"
-                    className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
-                >
-                    Appliquer le style
-                </button>
+            <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={onApplyStyle}
+                        disabled={busy}
+                        title="Appliquer l'aspect de cette vue aux nuages actuellement chargés, sans rien charger"
+                        className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+                    >
+                        Appliquer le style
+                    </button>
+                    {primaryCapture && (
+                        <RecaptureButton
+                            onClick={() => onRecapture(primaryCapture)}
+                            title={recaptureTitle(captures.length)}
+                        />
+                    )}
+                </div>
             </div>
+            {detailsOpen && <SceneDetails facts={sceneFacts(scene)} ambiance={scene.ambiance} captures={captures} />}
             <button
                 type="button"
                 onClick={onDelete}
@@ -235,6 +386,7 @@ export function LocalGalleryBody({
     progress,
     onSelect,
     onApplyStyle,
+    onRecapture,
     onDelete,
 }: Readonly<{
     scenes: SavedScene[];
@@ -243,6 +395,7 @@ export function LocalGalleryBody({
     progress: SceneLoadProgress | null;
     onSelect: (s: SavedScene) => void;
     onApplyStyle: (s: SavedScene) => void;
+    onRecapture: (capture: CaptureRecord) => void;
     onDelete: (s: SavedScene) => void;
 }>) {
     if (scenes.length === 0) {
@@ -263,6 +416,7 @@ export function LocalGalleryBody({
                     progress={busyId === s.id ? progress : null}
                     onSelect={() => onSelect(s)}
                     onApplyStyle={() => onApplyStyle(s)}
+                    onRecapture={onRecapture}
                     onDelete={() => onDelete(s)}
                 />
             ))}
@@ -293,50 +447,6 @@ function formatCount(n: number): string {
     if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
     if (n >= 1e3) return `${(n / 1e3).toFixed(0)} k`;
     return String(n);
-}
-
-/** Capture-zone size label from the rectangle dimensions. */
-function captureSizeLabel(cloud: SavedCloud): string {
-    return `${Math.round(cloud.widthM)} × ${Math.round(cloud.lengthM)} m`;
-}
-
-/** Jour + heure : deux essais de la même zone ne se distinguent souvent que par là. */
-function captureTimeLabel(iso: string): string {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-}
-
-const ChevronGlyph = ({ open }: Readonly<{ open: boolean }>) => (
-    <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`}
-        aria-hidden="true"
-    >
-        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
-    </svg>
-);
-
-/** Liste dépliable de tous les réglages, plus le repère de la capture. */
-function CaptureDetails({ cloud, entries }: Readonly<{ cloud: SavedCloud; entries: readonly CaptureParamEntry[] }>) {
-    return (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 px-2.5 pb-2.5 text-[11px]">
-            <dt className="text-slate-500 dark:text-slate-400">Zone</dt>
-            <dd className="tabular-nums text-slate-700 dark:text-slate-200">{captureSizeLabel(cloud)}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Centre</dt>
-            <dd className="tabular-nums text-slate-700 dark:text-slate-200">
-                {cloud.centerLat.toFixed(5)}, {cloud.centerLng.toFixed(5)}
-            </dd>
-            {entries.map((e) => (
-                <Fragment key={e.key}>
-                    <dt className="text-slate-500 dark:text-slate-400">{e.label}</dt>
-                    <dd className="tabular-nums text-slate-700 dark:text-slate-200">{e.text}</dd>
-                </Fragment>
-            ))}
-        </dl>
-    );
 }
 
 function RecentTile({
@@ -397,25 +507,14 @@ function RecentTile({
                 </div>
             </button>
             <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
-                <button
-                    type="button"
-                    onClick={() => setDetailsOpen((v) => !v)}
-                    aria-expanded={detailsOpen}
-                    className="flex items-center gap-1 rounded text-[11px] font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
-                >
-                    <ChevronGlyph open={detailsOpen} />
-                    Détails
-                </button>
-                <button
-                    type="button"
-                    onClick={onRecapture}
-                    title="Reprendre l’emprise et les réglages de cette capture, sans la lancer"
-                    className="rounded px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
-                >
-                    Recapturer
-                </button>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+                <RecaptureButton onClick={onRecapture} title="Reprendre l’emprise et les réglages de cette capture, sans la lancer" />
             </div>
-            {detailsOpen && <CaptureDetails cloud={cloud} entries={allParams} />}
+            {detailsOpen && (
+                <div className="pb-2.5">
+                    <DetailRows entries={captureRows(cloud)} />
+                </div>
+            )}
             <button
                 type="button"
                 onClick={onDelete}
@@ -468,7 +567,7 @@ export function RecentGalleryBody({
     busyId: string | null;
     loadedKeys: ReadonlySet<string>;
     onSelect: (c: SavedCloud) => void;
-    onRecapture: (c: SavedCloud) => void;
+    onRecapture: (capture: CaptureRecord) => void;
     onDelete: (c: SavedCloud) => void;
 }>) {
     const highlightKeys = useHighlightKeys(clouds);

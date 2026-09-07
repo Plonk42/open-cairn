@@ -13,6 +13,25 @@
 export type CaptureParamValue = string | number | boolean | number[];
 export type CaptureParams = Readonly<Record<string, CaptureParamValue>>;
 
+/** Mode de génération ; `LidarMode` et `LidarCloudMode` en sont des alias. */
+export type CaptureMode = 'shaded' | 'delaunay' | 'poisson';
+
+/**
+ * Tout ce qu'il faut pour rejouer une capture. Les réglages seuls ne suffisent
+ * pas : sans l'emprise on sait comment générer, pas où — d'où l'emprise et les
+ * réglages dans le même objet, celui qu'un nuage enregistré comme une scène
+ * embarque et que « Recapturer » applique.
+ */
+export interface CaptureRecord {
+    mode: CaptureMode;
+    centerLng: number;
+    centerLat: number;
+    /** Dimensions du rectangle de capture (m). */
+    widthM: number;
+    lengthM: number;
+    params?: CaptureParams;
+}
+
 function strideLabel(v: CaptureParamValue): string {
     return typeof v === 'number' && v > 1 ? `1/${v}` : 'max';
 }

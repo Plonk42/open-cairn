@@ -24,6 +24,12 @@
 
 export type ShaderPreset = 'base' | 'terrain' | 'slope';
 
+export const SHADER_LABELS: Record<ShaderPreset, string> = {
+    base: 'Mono',
+    terrain: 'Terrain',
+    slope: 'Pente',
+};
+
 /**
  * Lithologie du massif rendu. Ni une saison ni une ambiance : la roche ne
  * dépend que du massif, et c'est le seul écart qu'un réglage continu ne pouvait
@@ -32,6 +38,12 @@ export type ShaderPreset = 'base' | 'terrain' | 'slope';
  * s'éclaircit avec la pente là où le cristallin et le schiste s'assombrissent.
  */
 export type RockType = 'limestone' | 'granite' | 'schist';
+
+export const ROCK_LABELS: Record<RockType, string> = {
+    limestone: 'Calcaire',
+    granite: 'Granite',
+    schist: 'Schiste',
+};
 
 /** Tout ce dont une couleur de sommet a besoin, hors géométrie. */
 export interface PaletteSettings {

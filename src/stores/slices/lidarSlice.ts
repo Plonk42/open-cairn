@@ -1,4 +1,4 @@
-import type { CaptureParams } from '@/lib/captureParams';
+import type { CaptureMode, CaptureParams, CaptureRecord } from '@/lib/captureParams';
 import {
     cancelLidarWorkerRequests,
     fetchLidarDelaunay,
@@ -15,7 +15,7 @@ import {
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
-import { makeCloudKey, saveLoadedCloud, type SavedCloud } from '@/lib/savedClouds';
+import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
@@ -75,7 +75,7 @@ function captureGeometry(
 }
 
 /** Rendering mode: shaded point cloud, delaunay (2.5D ground mesh + points), or poisson (WASM ground mesh + points). */
-export type LidarMode = 'shaded' | 'delaunay' | 'poisson';
+export type LidarMode = CaptureMode;
 
 /**
  * Tous les réglages qui entrent dans la génération, figés au moment de la
@@ -162,8 +162,8 @@ export interface LoadedLidarCloud {
     sourceKey?: string;
     /** Matches a showcase `GalleryEntry.id` / `SavedScene.id` — used to badge/skip already-loaded Gallery scenes. */
     sourceSceneId?: string;
-    /** Réglages ayant servi à la génération, reportés tels quels à l'export. */
-    params?: CaptureParams;
+    /** Emprise et réglages ayant servi à la génération, reportés tels quels à l'export. */
+    capture?: CaptureRecord;
 }
 
 export interface LidarSlice {
@@ -575,7 +575,7 @@ export interface LidarSlice {
      * Rejoue le décor d'une capture passée — mode, emprise, cadrage et tous ses
      * réglages — sans lancer la capture, pour pouvoir en changer un avant.
      */
-    recallCaptureSetup: (cloud: SavedCloud) => void;
+    recallCaptureSetup: (capture: CaptureRecord) => void;
     /**
      * Cancel an in-progress load (e.g. a Poisson reconstruction taking too
      * long). The WASM reconstruction can't be paused, so this terminates the
@@ -589,7 +589,7 @@ export interface LidarSlice {
      */
     addLidarCloudSnapshot: (
         data: { shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null },
-        meta: { mode: LidarMode; sourceKey?: string; sourceSceneId?: string; params?: CaptureParams },
+        meta: { mode: LidarMode; sourceKey?: string; sourceSceneId?: string; capture?: CaptureRecord },
     ) => void;
     /** Remove a single loaded cloud/mesh from the display. */
     removeLidarCloud: (id: string) => void;
@@ -998,16 +998,16 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
         lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
         setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
-        recallCaptureSetup: (cloud) => {
+        recallCaptureSetup: (capture) => {
             const st = get();
-            st.setLidarMode(cloud.mode);
-            st.setLidarCaptureRect({ widthM: cloud.widthM, lengthM: cloud.lengthM });
-            applyCaptureParams(cloud.params ?? {}, st);
-            const radius = rectEnclosingRadiusM(cloud.widthM, cloud.lengthM);
+            st.setLidarMode(capture.mode);
+            st.setLidarCaptureRect({ widthM: capture.widthM, lengthM: capture.lengthM });
+            applyCaptureParams(capture.params ?? {}, st);
+            const radius = rectEnclosingRadiusM(capture.widthM, capture.lengthM);
             const dLat = radius / 111320;
-            const dLng = radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
+            const dLng = radius / (111320 * Math.cos((capture.centerLat * Math.PI) / 180));
             st.fitBounds(
-                [cloud.centerLng - dLng, cloud.centerLat - dLat, cloud.centerLng + dLng, cloud.centerLat + dLat],
+                [capture.centerLng - dLng, capture.centerLat - dLat, capture.centerLng + dLng, capture.centerLat + dLat],
                 { padding: 60 },
             );
         },
@@ -1031,7 +1031,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
             try {
                 const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
-                const cloudParams = {
+                const cloudParams: CaptureRecord = {
                     mode: state.lidarMode,
                     centerLng: center.lng,
                     centerLat: center.lat,
@@ -1101,7 +1101,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 // already-displayed cloud/mesh.
                 get().addLidarCloudSnapshot(
                     { shaded: shadedResult, mesh: meshResult },
-                    { mode: state.lidarMode, sourceKey: makeCloudKey(cloudParams), params: cloudParams.params },
+                    { mode: state.lidarMode, sourceKey: makeCloudKey(cloudParams), capture: cloudParams },
                 );
                 // Persist a "recently loaded" entry so it can be re-opened instantly.
                 void saveLoadedCloud(cloudParams, { shaded: shadedResult, mesh: meshResult });
@@ -1143,7 +1143,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 mode: meta.mode,
                 sourceKey: meta.sourceKey,
                 sourceSceneId: meta.sourceSceneId,
-                params: meta.params,
+                capture: meta.capture,
             };
             const lidarClouds = [...get().lidarClouds, entry];
             set({

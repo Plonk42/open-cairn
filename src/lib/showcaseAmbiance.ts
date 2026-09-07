@@ -7,6 +7,8 @@
  * `AMBIANCE_SETTERS` (mapped type over every key), so a render setting can no
  * longer be silently forgotten on export or restore.
  */
+import type { CaptureParamEntry } from '@/lib/captureParams';
+import { ROCK_LABELS, SHADER_LABELS } from '@/lib/lidarBrowser/slope';
 import type { ShowcaseAmbiance } from '@/lib/showcaseScene';
 import { type MapState, useMapStore } from '@/stores/mapStore';
 
@@ -152,4 +154,32 @@ export function applyAmbiance(a: ShowcaseAmbiance): void {
  */
 export function applyAmbianceStyle(a: ShowcaseAmbiance): void {
     applyKeys(a, NOT_STYLE);
+}
+
+/**
+ * Résumé lisible d'une ambiance, pour le dépliant « Détails » d'une scène :
+ * seulement ce qui distingue une vue d'une autre au premier coup d'œil. La
+ * cinquantaine de réglages restants n'a pas sa place sur une tuile.
+ */
+export function describeAmbiance(a: ShowcaseAmbiance): CaptureParamEntry[] {
+    // Roche et ligne de neige ne peignent que la palette Terrain : les montrer
+    // ailleurs ferait passer un réglage inerte pour une caractéristique de la vue.
+    const terrain: CaptureParamEntry[] = a.lidarShader === 'terrain'
+        ? [
+            { key: 'rock', label: 'Roche', text: ROCK_LABELS[a.lidarRockType] },
+            { key: 'snow', label: 'Neige', text: `${Math.round(a.lidarSnowLine)} m · ${Math.round(a.lidarSnowAmount * 100)} %` },
+        ]
+        : [];
+    return [
+        { key: 'palette', label: 'Palette', text: SHADER_LABELS[a.lidarShader] },
+        ...terrain,
+        { key: 'render', label: 'Rendu', text: a.lidarPhotoreal ? 'photoréaliste' : 'simple' },
+        {
+            key: 'sun',
+            label: 'Soleil',
+            text: a.lidarSunEnabled
+                ? `${Math.round(a.lidarSunAzimuth)}° · ${Math.round(a.lidarSunElevation)}° de hauteur`
+                : 'éteint',
+        },
+    ];
 }

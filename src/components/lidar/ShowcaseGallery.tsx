@@ -12,6 +12,7 @@ import {
     TabButton,
 } from '@/components/lidar/gallery/tiles';
 import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/StudioTutorial';
+import type { CaptureRecord } from '@/lib/captureParams';
 import { importGpxFile } from '@/lib/gpx';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
 import {
@@ -140,7 +141,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                 shaded: data.shaded,
                 mesh: data.mesh,
                 extraClouds: data.extraClouds,
-                captureParams: data.captureParams,
+                captures: data.captures,
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Impossible de charger la vue.');
@@ -166,7 +167,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
             }
             const st = useMapStore.getState();
             st.setLidarMode(cloud.mode);
-            st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key, params: cloud.params });
+            st.addLidarCloudSnapshot(data, { mode: cloud.mode, sourceKey: cloud.key, capture: cloud });
             const radius = rectEnclosingRadiusM(cloud.widthM, cloud.lengthM);
             const dLat = radius / 111320;
             const dLng = radius / (111320 * Math.cos((cloud.centerLat * Math.PI) / 180));
@@ -181,8 +182,8 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         }
     };
 
-    const onRecaptureRecent = (cloud: SavedCloud) => {
-        useMapStore.getState().recallCaptureSetup(cloud);
+    const onRecapture = (capture: CaptureRecord) => {
+        useMapStore.getState().recallCaptureSetup(capture);
         setOpen(false);
         // Le panneau de capture possède l'aperçu d'emprise : l'ouvrir est la
         // seule façon de montrer le rectangle qu'on vient de restaurer.
@@ -302,6 +303,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                         loadedIds={loadedSceneIds}
                         progress={sceneProgress}
                         onSelect={(e) => { onSelect(e); }}
+                        onRecapture={onRecapture}
                     />
                 )}
                 {tab === 'mine' && (
@@ -390,6 +392,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                             progress={sceneProgress}
                             onSelect={(s) => { onSelectLocal(s); }}
                             onApplyStyle={onApplyLocalStyle}
+                            onRecapture={onRecapture}
                             onDelete={(s) => deleteSavedScene(s.id)}
                         />
                         <input
@@ -446,7 +449,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                             busyId={busyId}
                             loadedKeys={loadedCloudKeys}
                             onSelect={(c) => { onSelectRecent(c); }}
-                            onRecapture={onRecaptureRecent}
+                            onRecapture={onRecapture}
                             onDelete={(c) => deleteSavedCloud(c.id)}
                         />
                     </>

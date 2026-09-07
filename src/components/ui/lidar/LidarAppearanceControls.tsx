@@ -4,7 +4,7 @@ import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { isHeightDebugEnabled, isLodDebugEnabled, isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
-import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { ROCK_LABELS, SHADER_LABELS, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
@@ -28,16 +28,16 @@ const LIDAR_CLASS_CHOICES: ReadonlyArray<ClassChoice> = AVAILABLE_CLASSES.map((c
 }));
 
 const SHADER_OPTIONS = [
-    { value: 'base', label: 'Mono', title: 'Dégradé chaud sable / brun' },
-    { value: 'terrain', label: 'Terrain', title: 'Albédo physique roche / pelouse alpine / neige, piloté par la pente, l’altitude et l’orientation. La saison n’est pas un preset : c’est le curseur « Ligne de neige » qui la fait, d’un août sans névé à un massif enneigé. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
-    { value: 'slope', label: 'Pente', title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
+    { value: 'base', label: SHADER_LABELS.base, title: 'Dégradé chaud sable / brun' },
+    { value: 'terrain', label: SHADER_LABELS.terrain, title: 'Albédo physique roche / pelouse alpine / neige, piloté par la pente, l’altitude et l’orientation. La saison n’est pas un preset : c’est le curseur « Ligne de neige » qui la fait, d’un août sans névé à un massif enneigé. Sans ombrage peint — à utiliser avec le rendu photoréaliste et sans texture drapée' },
+    { value: 'slope', label: SHADER_LABELS.slope, title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 
 /** Lithologie du massif : change la rampe de roche nue du preset Terrain. */
 const ROCK_OPTIONS = [
-    { value: 'limestone', label: 'Calcaire', title: 'Calcaire urgonien (Chartreuse, Vercors, Dvoluy) : gris clair légèrement chaud, et il s’éclaircit sur les barres verticales, lavées par le ruissellement' },
-    { value: 'granite', label: 'Granite', title: 'Cristallin (Belledonne, cluses, Mont-Blanc) : beige patiné en pied de pente, qui fonce vers le gris fer sur les parois fraîchement fracturées' },
-    { value: 'schist', label: 'Schiste', title: 'Sédimentaire sombre (schistes ardoisiers, flysch) : gris froid d’emblée, deux fois moins réfléchissant que le calcaire' },
+    { value: 'limestone', label: ROCK_LABELS.limestone, title: 'Calcaire urgonien (Chartreuse, Vercors, Dvoluy) : gris clair légèrement chaud, et il s’éclaircit sur les barres verticales, lavées par le ruissellement' },
+    { value: 'granite', label: ROCK_LABELS.granite, title: 'Cristallin (Belledonne, cluses, Mont-Blanc) : beige patiné en pied de pente, qui fonce vers le gris fer sur les parois fraîchement fracturées' },
+    { value: 'schist', label: ROCK_LABELS.schist, title: 'Sédimentaire sombre (schistes ardoisiers, flysch) : gris froid d’emblée, deux fois moins réfléchissant que le calcaire' },
 ] as const satisfies ReadonlyArray<{ value: RockType; label: string; title: string }>;
 
 const VEG_COLOR_OPTIONS = [

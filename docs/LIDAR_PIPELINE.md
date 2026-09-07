@@ -44,8 +44,10 @@ la galerie est instantané (aucun re-calcul).
 
 ### Réglages embarqués avec chaque capture
 
-Un nuage enregistré emporte les réglages qui ont servi à le générer, sous forme
-d'un petit JSON libre (`src/lib/captureParams.ts`). Deux conséquences :
+Un nuage enregistré emporte de quoi le refaire : son emprise (mode, centre,
+dimensions du rectangle) et les réglages qui ont servi à le générer, sous forme
+d'un petit JSON libre. C'est le `CaptureRecord` de `src/lib/captureParams.ts` —
+les réglages seuls diraient *comment* générer, jamais *où*. Trois conséquences :
 
 - **Deux captures de la même zone ne se marchent plus dessus.** L'empreinte des
   réglages (`captureParamsSignature`) entre dans la clé de dédoublonnage
@@ -61,6 +63,14 @@ d'un petit JSON libre (`src/lib/captureParams.ts`). Deux conséquences :
   changer un curseur avant de relancer, ce qui est tout l'intérêt d'un A/B. Sa
   table d'application est l'inverse de `captureParamsFromState` ; un réglage
   absent ou d'un type inattendu laisse le curseur en place.
+
+Les trois onglets de la galerie exposent les mêmes affordances parce qu'ils
+manipulent le même `CaptureRecord` : « Nuages récents » en porte un, « Mes vues »
+et « Mis en avant » en portent un par nuage visible (`captures`), donc chacun a
+son dépliant « Détails » et son bouton « Recapturer ». Partir d'une scène mise en
+avant pour la refaire chez soi est le chemin d'entrée le plus court pour un
+nouvel utilisateur. Une scène multi-nuage ne rejoue que son nuage principal —
+le rectangle de capture est unique, et l'infobulle du bouton le dit.
 
 ### Génération et rendu : ce qui coûte une recapture, et ce qui ne coûte rien
 
@@ -93,12 +103,14 @@ l'ambiance : la charger la restaure, et « Appliquer le style »
 (`applyAmbianceStyle`) l'applique aux nuages déjà affichés sans rien charger,
 `lidarMode` excepté puisqu'il ne concerne que la prochaine capture.
 
-Le format est délibérément un `Record<string, …>` et non une interface figée :
-une entrée écrite par une version antérieure garde ses clés, un réglage ajouté
-plus tard n'apparaît que sur les nouvelles entrées, et l'affichage retombe sur
-la clé brute pour un réglage qu'il ne connaît pas. Les réglages voyagent aussi
-dans l'export de scène (`captureParams` du manifeste) et reviennent intacts au
-rechargement.
+Le format des réglages est délibérément un `Record<string, …>` et non une
+interface figée : une entrée écrite par une version antérieure garde ses clés, un
+réglage ajouté plus tard n'apparaît que sur les nouvelles entrées, et l'affichage
+retombe sur la clé brute pour un réglage qu'il ne connaît pas. Les captures
+voyagent aussi dans l'export de scène (`captures` du manifeste) et reviennent
+intactes au rechargement. Elles sont recopiées dans le descripteur localStorage
+de « Mes vues », comme l'ambiance : la tuile affiche ses détails et propose
+« Recapturer » sans ouvrir IndexedDB.
 
 ### Limitations connues
 

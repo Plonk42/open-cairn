@@ -132,13 +132,15 @@ export function SunDateControl() {
                 <span className="w-12 text-right font-mono text-xs text-slate-700 tabular-nums dark:text-slate-200">
                     {timeLabel}
                 </span>
-                <span className={`inline-block w-16 rounded px-1.5 py-0.5 text-center text-[10px] font-medium ${dayBadge}`}>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="font-mono text-[10px] text-slate-400">
+                    Position : az {azStr} · h {elStr}
+                </p>
+                <span className={`inline-block flex-shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-medium ${dayBadge}`}>
                     {dayLabel}
                 </span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-slate-400">
-                Position : az {azStr} · h {elStr}
-            </p>
         </div>
     );
 }
