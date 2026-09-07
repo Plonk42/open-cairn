@@ -1,10 +1,14 @@
 # Galerie de scènes showcase
 
-La galerie du Studio LiDAR (bouton « Galerie ») a deux onglets :
+La galerie (bouton « Galerie », présent dans les deux vues) a quatre onglets :
 
-- **Mis en avant** — les scènes pré-cuites versionnées dans ce dossier ;
+- **Mis en avant** — les scènes pré-cuites décrites par ce dossier ; leurs fichiers
+  ne sont **pas** versionnés (voir `.gitignore`), ils sont distribués via les
+  GitHub Releases et déposés ici au moment du déploiement ;
 - **Mes vues** — les scènes que vous exportez en local (stockées dans le
-  navigateur, comme les derniers nuages chargés) ; rien n'est versionné.
+  navigateur) ; rien n'est versionné ;
+- **Nuages récents** — les dernières captures LiDAR, géométrie seule ;
+- **Itinéraires** — les itinéraires sauvegardés, avec l'import GPX.
 
 Ce dossier contient les **scènes « Mis en avant »**. Une scène se compose de
 trois fichiers **partageant le même identifiant** (`<id>`), générés par le
@@ -23,16 +27,18 @@ régénérer le fichier binaire** : éditez simplement le manifeste à la main.
 ## Ajouter une scène exportée
 
 1. Dans le studio, chargez un nuage, réglez l'ambiance, cadrez la vue.
-2. Cliquez sur **« Exporter cette vue »**. Une fenêtre demande un **titre**
-   et une **description**, puis la destination (cases à cocher, mémorisées) :
-   - **Stocker dans « Mes vues »** — enregistre la scène dans le navigateur,
-     rouvrable instantanément depuis l'onglet *Mes vues* (rien à publier) ;
-   - **Télécharger** — télécharge un unique `scene-AAAAMMJJ-hhmmss.zip`
-     contenant les trois fichiers de la scène (à publier ici).
+2. Cliquez sur **« Exporter cette vue »**. Une fenêtre à deux onglets s'ouvre :
+   - onglet **Image** — résolution + **« Télécharger l'image (.png) »**, pour
+     récupérer juste la capture d'écran courante, sans créer d'entrée ni
+     d'archive ;
+   - onglet **Scène** — un **titre**, une **description**, puis la destination
+     (cases à cocher, mémorisées) :
+     - **Stocker dans « Mes vues »** — enregistre la scène dans le navigateur,
+       rouvrable instantanément depuis l'onglet *Mes vues* (rien à publier) ;
+     - **Télécharger** — télécharge un unique `scene-AAAAMMJJ-hhmmss.zip`
+       contenant les trois fichiers de la scène (à publier ici).
 
-   Cochez les cases voulues, puis cliquez **Exporter**. Un bouton
-   **« Télécharger seulement l'image (.png) »** permet aussi de récupérer
-   juste la capture d'écran courante, sans créer d'entrée ni d'archive.
+   Cochez les cases voulues, puis cliquez **Exporter**.
 3. Pour publier dans *Mis en avant* : décompressez l'archive dans
    `public/showcase/`.
 4. Ouvrez le `<id>.json` pour donner un `title` et une `description` parlants.

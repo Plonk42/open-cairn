@@ -91,7 +91,7 @@ waypoints, ce qui garantit qu'ils sont à jour si les API IGN ont évolué.
 | Clé                              | Contenu                                         |
 |----------------------------------|-------------------------------------------------|
 | `open-cairn-settings`            | mapStore (sauf champs LiDAR runtime + sauf champs explicitement exclus) |
-| `open-cairn-route`               | waypoints + activeStatus                        |
+| `open-cairn-route`               | waypoints + `active`, `mode`, `colorElevationBySlope`, `gpxImportWaypoints`, `selectionRange` |
 | `open-cairn-saved-routes`        | tableau de `SavedRoute` (cf. [SAVED_ROUTES_AND_GPX.md](SAVED_ROUTES_AND_GPX.md)) |
 
 ### IndexedDB

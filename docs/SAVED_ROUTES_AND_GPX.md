@@ -71,16 +71,22 @@ type SavedRoute = {
 
 Stockage : clé localStorage `open-cairn-saved-routes` → tableau JSON.
 
-#### Diffusion d'événement
+#### Réactivité
 
-Au changement de la liste, on diffuse :
+La collection est créée par `createSavedCollection<SavedRoute>(SAVED_ROUTES_KEY)`
+(cf. [src/lib/savedStore.ts](../src/lib/savedStore.ts)), qui expose un hook
+`useSavedRoutes()` bâti sur `useSyncExternalStore` :
 
 ```ts
-globalThis.dispatchEvent(new CustomEvent('open-cairn-saved-routes-changed'));
+const routes = createSavedCollection<SavedRoute>(SAVED_ROUTES_KEY);
+export const useSavedRoutes = routes.useItems;
 ```
 
-`SavedRoutesPanel` écoute cet événement pour rafraîchir sa vue. Pour synchroniser entre
-onglets, on pourrait écouter en plus l'événement `storage` du navigateur.
+Toute écriture passe par `writeAll`, qui notifie les abonnés — les composants
+(`SavedRoutesPanel`, onglet *Itinéraires* de la galerie) se rafraîchissent seuls.
+Les anciens `CustomEvent` DOM `open-cairn-saved-*-changed` ont été supprimés : ne
+pas les réintroduire. Pour synchroniser entre onglets, on pourrait écouter en plus
+l'événement `storage` du navigateur.
 
 #### Génération de preview
 

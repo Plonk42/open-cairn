@@ -137,7 +137,7 @@ de « Mes vues », comme l'ambiance : la tuile affiche ses détails et propose
 
 ```mermaid
 flowchart LR
-    UI[LidarCloudPanel<br/>UI] -->|loadLidarCloud| Store[mapStore<br/>Zustand]
+    UI[LidarCaptureControls<br/>UI] -->|loadLidarCloud| Store[mapStore<br/>Zustand]
     Store --> IDX[lib/lidarBrowser/index.ts<br/>worker wrapper]
     IDX --> WC[workerClient.ts]
     WC --> WK[worker.ts<br/>DedicatedWorker]
@@ -161,7 +161,7 @@ uniformément.
 
 | Fichier | Rôle |
 |---------|------|
-| [src/components/ui/LidarCloudPanel.tsx](../src/components/ui/LidarCloudPanel.tsx) | UI : rayon, stride, mode, classes, déclenchement du chargement |
+| [src/components/ui/lidar/LidarCaptureControls.tsx](../src/components/ui/lidar/LidarCaptureControls.tsx) | UI : emprise, densité, mode, réglages Poisson, déclenchement du chargement |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Action `loadLidarCloud`, gestion des courses (latest-wins) |
 | [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper qui dispatche vers le worker |
 | [src/lib/lidarBrowser/workerClient.ts](../src/lib/lidarBrowser/workerClient.ts) | Côté main : `postMessage`, dé-multiplexage par id, transferables |

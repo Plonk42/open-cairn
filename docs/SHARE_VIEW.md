@@ -2,7 +2,8 @@
 
 ## Pour les utilisateurs
 
-Le bouton **Partager** (en haut à gauche, ou dans le menu mobile) copie dans votre
+Le bouton **Partager** (dans le groupe d'actions en haut à droite, ou dans le menu
+mobile) copie dans votre
 presse-papier une URL qui contient l'**état complet** de l'application : position de
 la carte, fonds choisis, ombrage, terrain, et waypoints de votre itinéraire.
 
