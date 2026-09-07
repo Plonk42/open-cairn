@@ -418,14 +418,16 @@ export interface LidarWebGLLayerConfig {
      */
     rockBreak: number;
     /**
-     * Ground mesh only — 1 quand la palette active peint de la neige (preset
-     * Terrain), 0 sinon. Le fragment ne distingue rocher et neige qu'à la
-     * luminance de l'albédo ; sur une palette de lecture (Mono, Pente) cette
-     * luminance ne veut rien dire de tel, et le bord de névé comme le masque de
-     * micro-relief se trompaient de matière. Voir `u_snowPalette` dans
-     * `glsl/mesh.frag`.
+     * Ground mesh only — réglages de la palette, évaluée par sommet dans
+     * `glsl/mesh.vert`. La recolorier côté CPU coûtait ~0,5 s par cran de
+     * curseur sur un maillage dense, et forçait le fragment à relire un taux de
+     * neige dans la luminance de l'albédo faute de mieux. Voir
+     * `glsl/lib/palette.glsl`, port de `vertexColor` de `lib/lidarBrowser/slope.ts`.
      */
-    snowPalette: number;
+    palettePreset: number;  // 0 = Mono, 1 = Terrain, 2 = Pente
+    rockType: number;       // 0 = calcaire, 1 = granite, 2 = schiste
+    snowLine: number;
+    snowAmount: number;
     /**
      * Ground mesh only — strength of the GGX specular lobe (0 = purely
      * diffuse). Lambertian-only shading is what makes stone read as dry clay;
@@ -644,10 +646,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _vaoMesh: WebGLVertexArrayObject | null = null;
     private _meshPosBuf: WebGLBuffer | null = null;
     private _meshNorBuf: WebGLBuffer | null = null;
-    private _meshColBuf: WebGLBuffer | null = null;
+    private _meshMacroBuf: WebGLBuffer | null = null;
     private _meshBaseBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
+    // Le maillage courant porte-t-il un champ de normales macro ? Sinon le
+    // vertex shader retombe sur la normale d'éclairage pour évaluer la palette.
+    private _meshHasMacro = false;
     // Debug wireframe: a deduplicated GL_LINES edge buffer per LOD level (index i
     // mirrors `_meshLodIdxBuf`, level 0 = full-res), drawn instead of the filled
     // mesh when `config.meshWireframe` is on. Following the LOD keeps zoomed-out
@@ -687,9 +692,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         facet: WebGLUniformLocation | null;
         microRelief: WebGLUniformLocation | null;
         rockBreak: WebGLUniformLocation | null;
-        snowPalette: WebGLUniformLocation | null;
+        hasMacro: WebGLUniformLocation | null;
+        palettePreset: WebGLUniformLocation | null;
+        rockType: WebGLUniformLocation | null;
+        snowLine: WebGLUniformLocation | null;
+        snowAmount: WebGLUniformLocation | null;
         specular: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, snowPalette: null, specular: null };
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, specular: null };
 
     // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
     // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
@@ -787,7 +796,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         forestTfv?: Uint8Array; treeSeed?: Uint8Array; vegDiag?: Uint8Array;
     } | null = null;
     private _uploadedMesh: {
-        positions: Float32Array; normals: Float32Array; colors: Uint8Array;
+        positions: Float32Array; normals: Float32Array; macroNormals?: Uint8Array;
         indices: Uint32Array; baseMask?: Uint8Array;
     } | null = null;
 
@@ -835,7 +844,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         facet: 0.6,
         microRelief: 1,
         rockBreak: 1,
-        snowPalette: 0,
+        palettePreset: 1,
+        rockType: 0,
+        snowLine: 2700,
+        snowAmount: 0.5,
         specular: 0.5,
     };
 
@@ -1382,11 +1394,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * world origin (lng/lat) so the mesh can be drawn even when no companion
      * point cloud is present. In mixed/poisson modes the origin matches the
      * points, so re-setting it is a no-op.
+     *
+     * `macroNormals` is the decametre-scale orientation field the palette keys
+     * on (Uint8, 3 per vertex, `v * 127.5 + 127.5`); meshes built before it
+     * existed (Delaunay/Mixed) pass `undefined` and the shader falls back to
+     * the lighting normal.
      */
     setMesh(
         positions: Float32Array,
         normals: Float32Array,
-        colors: Uint8Array,
+        macroNormals: Uint8Array | undefined,
         indices: Uint32Array,
         originLng: number,
         originLat: number,
@@ -1415,7 +1432,15 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         uploadIfChanged(gl, this._meshPosBuf, positions, geometryChanged);
         uploadIfChanged(gl, this._meshNorBuf, normals, geometryChanged || prev?.normals !== normals);
-        uploadIfChanged(gl, this._meshColBuf, colors, geometryChanged || prev?.colors !== colors);
+        if (geometryChanged || prev?.macroNormals !== macroNormals) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, this._meshMacroBuf);
+            // Sans champ macro, le shader retombe sur la normale d'éclairage et
+            // ne lit jamais cet attribut — mais WebGL veut quand même un buffer
+            // à la bonne taille derrière lui, d'où l'allocation sans transfert.
+            if (macroNormals) gl.bufferData(gl.ARRAY_BUFFER, macroNormals, gl.STATIC_DRAW);
+            else gl.bufferData(gl.ARRAY_BUFFER, positions.length, gl.STATIC_DRAW);
+        }
+        this._meshHasMacro = macroNormals !== undefined;
         uploadIfChanged(
             gl,
             this._meshBaseBuf,
@@ -1430,7 +1455,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        this._uploadedMesh = { positions, normals, colors, indices, baseMask };
+        this._uploadedMesh = { positions, normals, macroNormals, indices, baseMask };
         if (geometryChanged && isMeshWireframeDebugEnabled()) {
             this._meshCpuIndices[0] = indices;
             if (this.config.meshWireframe) this._buildWireLevel(gl, indices, 0);
@@ -1748,7 +1773,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locMesh.facet, this.config.facet);
         gl.uniform1f(this._locMesh.microRelief, this.config.microRelief);
         gl.uniform1f(this._locMesh.rockBreak, this.config.rockBreak);
-        gl.uniform1f(this._locMesh.snowPalette, this.config.snowPalette);
+        gl.uniform1f(this._locMesh.hasMacro, this._meshHasMacro ? 1 : 0);
+        gl.uniform1i(this._locMesh.palettePreset, this.config.palettePreset);
+        gl.uniform1i(this._locMesh.rockType, this.config.rockType);
+        gl.uniform1f(this._locMesh.snowLine, this.config.snowLine);
+        gl.uniform1f(this._locMesh.snowAmount, this.config.snowAmount);
         gl.uniform1f(this._locMesh.specular, this.config.specular);
         // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
@@ -2137,7 +2166,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             facet: gl.getUniformLocation(this._progMesh, 'u_facet'),
             microRelief: gl.getUniformLocation(this._progMesh, 'u_microRelief'),
             rockBreak: gl.getUniformLocation(this._progMesh, 'u_rockBreak'),
-            snowPalette: gl.getUniformLocation(this._progMesh, 'u_snowPalette'),
+            hasMacro: gl.getUniformLocation(this._progMesh, 'u_hasMacro'),
+            palettePreset: gl.getUniformLocation(this._progMesh, 'u_palettePreset'),
+            rockType: gl.getUniformLocation(this._progMesh, 'u_rockType'),
+            snowLine: gl.getUniformLocation(this._progMesh, 'u_snowLine'),
+            snowAmount: gl.getUniformLocation(this._progMesh, 'u_snowAmount'),
             specular: gl.getUniformLocation(this._progMesh, 'u_specular'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
@@ -2155,7 +2188,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // ─── Mesh buffers & VAO ───
         this._meshPosBuf = gl.createBuffer();
         this._meshNorBuf = gl.createBuffer();
-        this._meshColBuf = gl.createBuffer();
+        this._meshMacroBuf = gl.createBuffer();
         this._meshBaseBuf = gl.createBuffer();
         this._meshIdxBuf = gl.createBuffer();
         this._vaoMesh = gl.createVertexArray();
@@ -2166,9 +2199,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshNorBuf);
         gl.enableVertexAttribArray(1);
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshMacroBuf);
         gl.enableVertexAttribArray(2);
-        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+        gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, true, 0, 0);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._meshBaseBuf);
         gl.enableVertexAttribArray(3);
         // NOT normalized: the mask stores 0/1, so the ubyte value must reach the
@@ -2290,7 +2323,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._hgtBuf); this._hgtBuf = null;
         delBuf(this._meshPosBuf); this._meshPosBuf = null;
         delBuf(this._meshNorBuf); this._meshNorBuf = null;
-        delBuf(this._meshColBuf); this._meshColBuf = null;
+        delBuf(this._meshMacroBuf); this._meshMacroBuf = null;
         delBuf(this._meshBaseBuf); this._meshBaseBuf = null;
         delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
         for (let i = 0; i < this._meshWireIdxBuf.length; i++) { delBuf(this._meshWireIdxBuf[i]); this._meshWireIdxBuf[i] = null; }

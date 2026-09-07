@@ -1,6 +1,7 @@
 import { isLodDebugEnabled } from '@/lib/debugFlags';
 import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
 import { fetchDrapeMosaic } from '@/lib/lidarBrowser/orthoTexture';
+import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { detectTreetops } from '@/lib/lidarBrowser/treetops';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLight } from '@/lib/sun';
@@ -32,6 +33,13 @@ const AO_MAX_STRENGTH = 2.4;
  * wide enough to catch a gully, narrow enough not to bleed across a ridge.
  */
 const AO_RADIUS = 6;
+
+/**
+ * Ordre des presets et des lithologies tel que `glsl/lib/palette.glsl` les
+ * indexe — GLSL n'a pas de type énuméré, l'entier est le contrat.
+ */
+const PALETTE_PRESET_ID: Record<ShaderPreset, number> = { base: 0, terrain: 1, slope: 2 };
+const ROCK_TYPE_ID: Record<RockType, number> = { limestone: 0, granite: 1, schist: 2 };
 
 /**
  * Manages one `LidarWebGLLayer` instance for a single loaded cloud/mesh entry
@@ -90,6 +98,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
     const rockBreak = useMapStore((s) => s.lidarRockBreak);
     const shaderPreset = useMapStore((s) => s.lidarShader);
+    const rockType = useMapStore((s) => s.lidarRockType);
+    const snowLine = useMapStore((s) => s.lidarSnowLine);
+    const snowAmount = useMapStore((s) => s.lidarSnowAmount);
     const specular = useMapStore((s) => s.lidarRockSpecular);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
@@ -300,7 +311,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             layer.setMesh(
                 lidarMesh.positions,
                 lidarMesh.normals,
-                lidarMesh.colors,
+                lidarMesh.macroNormals,
                 lidarMesh.indices,
                 lidarMesh.centerLng,
                 lidarMesh.centerLat,
@@ -373,12 +384,15 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             facet: rockFacet,
             microRelief: rockMicro,
             rockBreak,
-            // Seules les palettes qui peignent de la neige autorisent le
-            // fragment à lire un taux de neige dans la luminance de l'albédo.
-            snowPalette: shaderPreset === 'terrain' ? 1 : 0,
+            // La palette du maillage est évaluée par sommet dans mesh.vert : ces
+            // quatre réglages y remplacent le recoloriage CPU.
+            palettePreset: PALETTE_PRESET_ID[shaderPreset],
+            rockType: ROCK_TYPE_ID[rockType],
+            snowLine,
+            snowAmount,
             specular,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, specular, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, rockType, snowLine, snowAmount, specular, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

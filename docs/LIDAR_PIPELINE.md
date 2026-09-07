@@ -82,10 +82,11 @@ Plusieurs réglages sont cuits à la capture *et* rejoués à chaud, et n'ont do
 rien à faire là :
 
 - `lidarShader`, `lidarSnowLine`, `lidarSnowAmount`, `lidarRockType` — les quatre
-  champs de `PaletteSettings`. Chaque setter recolore tous les nuages chargés via
-  `colorsFromNormals` / `recolorMeshVertices`, qui appellent le même
-  `vertexColor` que le worker : le résultat est identique. Une palette est une
-  **ambiance de scène**, pas un paramètre de capture.
+  champs de `PaletteSettings`. Chaque setter recolore les nuages de points
+  chargés via `colorsFromNormals`, qui appelle le même `vertexColor` que le
+  worker ; pour le maillage, les quatre réglages descendent en uniformes et
+  `mesh.vert` évalue la même palette portée en GLSL. Le résultat est identique.
+  Une palette est une **ambiance de scène**, pas un paramètre de capture.
 - `lidarCloudClasses` — aucun `fetchLidar*` ne reçoit ce paramètre ; c'est un
   masque GPU (`LidarWebGLLayer.setClassMask`).
 - `lidarVegGroundGap` / `lidarVegGroundRough` — `recomputeVegHeights` refait les

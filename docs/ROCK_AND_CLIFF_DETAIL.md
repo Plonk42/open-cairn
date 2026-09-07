@@ -167,6 +167,7 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-06 | **§5.5** — pelouse unique à *Été* et *Montagne* (`alpineTurf`), un peu moins jaune, et **ligne de neige réglable** (curseur *Ligne de neige*, section Shader, défaut 2700 m) qui pilote à la fois les névés, la ceinture d'alpage et le dessèchement de l'herbe. | ✅ |
 | 2026-09-06 | **§5.7** — les cinq presets fondus en trois : *Été* + *Montagne* → **Terrain**, *Hiver* supprimé (c'est *Terrain* à ligne de neige basse). La lithologie devient un réglage à part (*Roche* : calcaire / granite / schiste). Fenêtre de luminance de `rockAlbedo.glsl` remontée à 0,76-0,86, le calcaire à 0,674 y était lu comme de la neige. | ✅ |
 | 2026-09-06 | **§5.8** — curseur *Enneigement* : l'épaisseur du manteau séparée de son altitude. | ✅ |
+| 2026-09-07 | **§5.9** — palette du **maillage** portée dans `mesh.vert` (`glsl/lib/palette.glsl`) : ~1 100 ms de recoloriage CPU par pas de curseur remplacés par quatre uniformes. Le taux de neige devient un varying, donc `u_snowPalette` et l'inférence par luminance de `rockness` disparaissent. Le nuage de points reste sur CPU (~50 ms). | ✅ |
 
 ---
 
@@ -338,14 +339,16 @@ Deux causes secondaires supprimées au passage :
 - l'indice de rugosité (`coherence`) assombrissait l'albédo du preset *Été* ;
   cette métrique étant elle-même bruitée, elle produisait du moucheté sombre. Le
   cue est retiré de bout en bout ;
-- le re-seuillage de bord de névé de `rockAlbedo.glsl` s'appuie sur un
+- le re-seuillage de bord de névé de `rockAlbedo.glsl` s'appuyait sur un
   `smoothstep(0.55, 0.80, lum)` *(depuis relevé à 0,76-0,86, voir §5.7)*. La
   luminance du calcaire ensoleillé tombe en
   plein dedans : les barres se faisaient re-découper en plaques. D'où
   `u_snowPalette`, à 1 seulement sur les palettes qui peignent effectivement de
-  la neige (aujourd'hui le seul preset *Terrain*). **Un masque indexé sur la
-  luminance mé-classe silencieusement toute palette dont la plage de clarté
-  diffère de celle pour laquelle il a été réglé.**
+  la neige. **Un masque indexé sur la luminance mé-classe silencieusement toute
+  palette dont la plage de clarté diffère de celle pour laquelle il a été
+  réglé.** *Soldé en §5.9* : la palette étant désormais évaluée dans le vertex
+  shader, le taux de neige descend en varying et le masque n'a plus à être
+  deviné.
 
 ### 5.2 Seuils : l'herbe tient plus raide qu'on ne le croit
 
@@ -480,10 +483,13 @@ sache produire et juste en dessous de la neige tassée (0,85). Le bruit de la
 fenêtre est en outre éteint aux deux bornes (`× 4t(1-t)`), sinon un tirage
 extrême suffisait à pousser `tn` à 0,29 sur du rocher sans le moindre névé. Les
 mêmes bornes sont répliquées dans `mesh.frag` (`rockness`) — **à garder en
-phase**.
+phase**. *Depuis §5.9, cette inférence ne sert plus que sous orthophoto drapée :
+quand la couleur vient d'une photo, le shader n'a aucun autre moyen de savoir ce
+qui est enneigé.*
 
-`u_snowPalette` **reste** nécessaire : le jaune `[255, 235, 59]` de la palette
-*Pente* a une luminance de 0,83 et serait lu comme de la neige.
+`u_snowPalette` **restait** nécessaire tant que le fragment devait deviner : le
+jaune `[255, 235, 59]` de la palette *Pente* a une luminance de 0,83 et se
+serait lu comme de la neige. L'uniforme a disparu en §5.9.
 
 **Mise en œuvre.** Les trois réglages voyagent dans un objet
 `PaletteSettings { preset, snowLine, rock }`, toujours requis. Avec un troisième
@@ -546,4 +552,41 @@ sans un flocon et solde le compromis assumé en §5.7.
 **Ce qu'il ne pilote pas :** la pelouse. L'alpage se cale sur le climat moyen du
 massif, pas sur les chutes de l'hiver en cours ; `alpineTurf` ne voit que la ligne
 de neige.
+
+### 5.9 La palette appartient au vertex shader
+
+*2026-09-07.* Chaque pas de curseur de palette recoloriait tout le maillage sur
+le thread principal : **~1 100 ms pour 2,1 M sommets**, plus le ré-envoi du
+tableau de couleurs au GPU. La palette est un pur `f(normale, altitude) → rgb` :
+elle n'a aucune raison d'être évaluée sur CPU une fois par sommet et par
+changement de réglage.
+
+`vertexColor` a donc été portée en GLSL (`glsl/lib/palette.glsl`). Les rampes
+CPU, tableaux d'objets `{ deg, col }`, deviennent deux tableaux plats
+`PAL_DEG[36]` / `PAL_COL[36]` découpés en tranches par preset — GLSL ES 3.0 n'a
+ni tableau de structures à taille variable ni indexation dynamique confortable.
+Les trois réglages descendent en uniformes (`u_palettePreset`, `u_rockType`,
+`u_snowLine`, `u_snowAmount`) : changer une palette ne coûte plus qu'une écriture
+d'uniforme, mesurée à **0 ms de travail store et 0 octet ré-envoyé**.
+
+**Un piège de portage, un seul.** La CPU calcule l'azimut par
+`Math.atan2(nx, ny)` puis en prend le cosinus. `atan(0, 0)` est *undefined* en
+GLSL là où `Math.atan2(0, 0)` vaut 0 : sur une facette parfaitement horizontale
+le résultat aurait dépendu du pilote. Le cosinus s'écrit directement
+`nrm.y / length(nrm.xy)`, avec une garde à `1e-8`.
+
+**Ce que ça supprime en aval.** L'attribut 2 du maillage n'est plus la couleur
+mais la normale macro (`a_macro`, avec `u_hasMacro` pour les maillages anciens
+qui n'en ont pas). Et surtout le fragment shader **connaît** désormais le taux de
+neige : `paletteAlbedo` le renvoie dans l'alpha, il descend en varying `v_snow`,
+et `u_snowPalette` comme le `smoothstep(0.76, 0.86, lum)` de `rockness`
+disparaissent. `rockAlbedoBreakup` reçoit le taux réel au lieu d'une fenêtre de
+luminance ; son dernier paramètre s'appelle `snow`, plus `snowEdge`. La fenêtre
+de luminance survit uniquement pour l'orthophoto drapée, où il n'y a
+effectivement rien d'autre à interroger.
+
+**Reste sur CPU** : le nuage de **points**, dont `colorsFromNormals` coûte ~50 ms
+pour 190 k points — assez pour saccader un drag de curseur, pas assez pour figer
+la page. Le portage est le même patron, à ceci près qu'il faut aussi porter la
+coloration par classe LAS.
 

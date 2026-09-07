@@ -13,15 +13,28 @@
 // l'échelle du pixel (mélange avec la normale géométrique, micro-relief) — un
 // terme diffus pré-calculé par sommet ne laisserait rien à perturber.
 precision highp float;
+
+#include ./lib/palette.glsl;
+
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec4 a_color;
+// Normale MACRO encodée (v * 127.5 + 127.5), lue normalisée donc dans [0,1] :
+// c'est l'orientation du terrain à l'échelle décamétrique, la seule que la
+// palette puisse regarder. Voir `macroVertexNormals` dans pipeline.ts.
+layout(location = 2) in vec3 a_macro;
 layout(location = 3) in float a_base; // 1 = mur du socle synthétique (à hachurer)
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
 uniform mat4 u_lightMatrix;
 uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
+// Les maillages Delaunay/Mixte n'ont pas de champ de normales macro : la
+// normale d'éclairage sert alors de repli, comme côté CPU.
+uniform float u_hasMacro;
+uniform int u_palettePreset;  // 0 = Mono, 1 = Terrain, 2 = Pente
+uniform int u_rockType;       // 0 = calcaire, 1 = granite, 2 = schiste
+uniform float u_snowLine;
+uniform float u_snowAmount;
 // Position de l'œil dans le MÊME espace que `pos` (unités Mercator relatives à
 // l'origine du nuage, Y inversé) — reconstruite depuis la matrice par
 // `cameraFromMatrix()`. Divisée par u_mpu, la distance devient métrique.
@@ -37,6 +50,7 @@ out float v_alpha;
 out float v_base;
 out vec3 v_wpos;   // position monde (mètres est/nord/z) pour hachures ancrées au mesh
 out vec3 v_view;   // fragment → œil, mètres, même repère que v_wpos (lobe spéculaire)
+out float v_snow;  // taux de neige peint par la palette, dans [0,1]
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
@@ -54,8 +68,12 @@ void main() {
     // ramène dans le repère est/nord/up métrique de a_pos.
     vec3 camW = vec3(u_camPos.x, -u_camPos.y, u_camPos.z) / max(u_mpu, 1e-20);
     v_view = camW - a_pos;
-    v_albedo = a_color.rgb;
-    v_alpha = a_color.a;
+    // a_pos.z est déjà l'altitude en mètres : la palette la lit directement.
+    vec3 macro = mix(a_normal, a_macro * 2.0 - 1.0, u_hasMacro);
+    vec4 pal = paletteAlbedo(macro, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType);
+    v_albedo = pal.rgb;
+    v_snow = pal.a;
+    v_alpha = 1.0;
     // Projection planaire nadir : u suit l'est, v suit le nord. La première
     // ligne de la texture correspond au nord (haut), d'où le flip vertical.
     v_uv = vec2(

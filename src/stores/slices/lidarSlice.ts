@@ -727,24 +727,24 @@ function paletteOf(s: Pick<LidarSlice, 'lidarShader' | 'lidarSnowLine' | 'lidarS
  * Recolor EVERY loaded cloud/mesh (not just the "primary" one): the palette
  * settings are global render settings shown for all simultaneously displayed
  * clouds, so all of them must recolor together.
+ *
+ * Seul le nuage de POINTS est recolorié ici. Le maillage, lui, évalue la
+ * palette par sommet dans son vertex shader (`glsl/lib/palette.glsl`) : les
+ * réglages descendent en uniformes et rien ne repart au GPU.
  */
 function repaint(
     state: Pick<LidarSlice, 'lidarClouds'>,
     palette: PaletteSettings,
-): Pick<LidarSlice, 'lidarClouds' | 'lidarShaded' | 'lidarMesh'> {
+): Pick<LidarSlice, 'lidarClouds' | 'lidarShaded'> {
     const lidarClouds = state.lidarClouds.map((cloud) => ({
         ...cloud,
         shaded: cloud.shaded
             ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, palette, cloud.shaded.positions) }
             : cloud.shaded,
-        mesh: cloud.mesh
-            ? { ...cloud.mesh, colors: recolorMeshVertices(cloud.mesh.normals, cloud.mesh.positions, cloud.mesh.macroNormals, palette) }
-            : cloud.mesh,
     }));
     return {
         lidarClouds,
         lidarShaded: lidarClouds[0]?.shaded ?? null,
-        lidarMesh: lidarClouds[0]?.mesh ?? null,
     };
 }
 

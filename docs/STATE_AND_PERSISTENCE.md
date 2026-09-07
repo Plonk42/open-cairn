@@ -169,9 +169,13 @@ Deux cas particuliers :
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
 
-⚠️ Recolorier un nuage est un travail **CPU sur le thread principal** (~450 ms pour 1,5 M sommets)
-: un curseur qui appelle le setter à chaque `input` fige la page. Utiliser un brouillon local et
-un `setTimeout(150)` dans un effet (cf. les curseurs « Ligne de neige » et « Enneigement »).
+⚠️ Recolorier le nuage de **points** est un travail **CPU sur le thread principal** (~50 ms pour
+190 k points) : un curseur qui appelle le setter à chaque `input` saccade la page. Utiliser un
+brouillon local et un `setTimeout(150)` dans un effet (cf. les curseurs « Ligne de neige » et
+« Enneigement »). Le **maillage**, lui, ne passe plus par `repaint` : sa palette est évaluée par
+sommet dans `mesh.vert` (`glsl/lib/palette.glsl`) à partir des uniformes `u_palettePreset`,
+`u_rockType`, `u_snowLine` et `u_snowAmount`, donc changer un réglage de palette ne coûte plus
+que l'écriture de l'uniforme.
 
 Le recoloriage remplace l'objet `mesh`/`shaded`, donc les effets de poussée rappellent
 `setMesh`/`setData` avec **le même maillage**. Ces deux méthodes comparent les références des

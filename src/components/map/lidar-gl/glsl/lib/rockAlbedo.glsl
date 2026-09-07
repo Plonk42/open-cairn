@@ -26,8 +26,10 @@ const float RA_VALUE = 0.18;
 const float RA_TINT = 0.07;
 
 // Fenêtre de luminance dans laquelle on considère qu'on est sur la transition
-// rocher → neige. Mêmes bornes que le masque de micro-relief, pour que les deux
-// effets se relaient exactement au même endroit.
+// rocher → neige. Ne sert plus qu'au cas de la photo drapée : la palette,
+// évaluée sur le GPU, fournit désormais son taux de neige directement (voir
+// `paletteAlbedo` dans ./palette.glsl), et seule une orthophoto peut encore
+// montrer un névé dont la palette ne sait rien.
 //
 // La borne basse doit rester AU-DESSUS de la roche la plus claire que la
 // palette sache produire, sinon le masque prend un calcaire lavé pour un début
@@ -63,13 +65,12 @@ float raFbm(vec3 wpos, float pixelM) {
  * @param rock    masque rocher dans [0,1] (0 = neige)
  * @param amount  intensité de l'effet (0 = aucun, 1 = nominal). L'appelant y
  *                annule le socle synthétique, qui n'est pas du terrain.
- * @param snowEdge 1 si la palette courante peint de la neige, 0 sinon. La
- *                re-découpe du bord de névé lit un taux de neige dans la
- *                luminance : sur une palette d'été, où la même luminance veut
- *                juste dire « calcaire clair », elle déchiquetterait la paroi
- *                en plaques aléatoires.
+ * @param snow    taux de neige déjà mélangé dans `albedo`, dans [0,1]. À 0 la
+ *                re-découpe du bord de névé est strictement l'identité : une
+ *                palette de lecture (Mono, Pente), où la clarté ne veut rien
+ *                dire de tel, ne se fait donc plus déchiqueter en plaques.
  */
-vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float amount, float snowEdge) {
+vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float amount, float snow) {
     if (amount <= 0.0) return albedo;
 
     // ── Patine : variation de valeur + dérive chaud/froid ──────────────────
@@ -82,13 +83,10 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     vec3 out_ = albedo * (1.0 + RA_VALUE * nb * k) * mix(vec3(1.0), tint, k);
 
     // ── Bord de névé ──────────────────────────────────────────────────────
-    // On lit dans la luminance le taux de neige `t` déjà mélangé par la
-    // palette, on reconstruit les deux couleurs extrêmes qui redonnent
-    // exactement `out_` en `t` (donc effet nul quand le bruit est nul), puis on
-    // remélange avec un seuil bruité et plus raide.
-    if (snowEdge <= 0.0) return clamp(out_, 0.0, 1.0);
-    float lum = dot(out_, vec3(0.2126, 0.7152, 0.0722));
-    float t = smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum);
+    // On reconstruit les deux couleurs extrêmes qui redonnent exactement `out_`
+    // en `t` (donc effet nul quand le bruit est nul), puis on remélange avec un
+    // seuil bruité et plus raide.
+    float t = clamp(snow, 0.0, 1.0);
     // Hors zone de transition (t≈0 ou t≈1) le remange doit être STRICTEMENT
     // l'identité : la dalle rocheuse et le névé franc ne bougent pas. Le bruit
     // s'éteint donc aux deux bouts (4t(1-t) vaut 1 au milieu, 0 aux bornes),
@@ -98,7 +96,7 @@ vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float a
     float tn = clamp((t - 0.5 - RA_SNOW_JITTER * ns) * RA_SNOW_SHARPEN + 0.5, 0.0, 1.0);
     vec3 rockRef = out_ * (1.0 - 0.30 * t);
     vec3 snowRef = out_ + 0.30 * (1.0 - t) * (vec3(1.0) - out_);
-    out_ = mix(out_, mix(rockRef, snowRef, tn), amount * snowEdge);
+    out_ = mix(out_, mix(rockRef, snowRef, tn), amount);
 
     return clamp(out_, 0.0, 1.0);
 }

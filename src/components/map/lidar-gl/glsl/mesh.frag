@@ -10,6 +10,7 @@ in float v_alpha;
 in float v_base;
 in vec3 v_wpos;
 in vec3 v_view;
+in float v_snow;
 
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
@@ -29,14 +30,6 @@ uniform float u_facet;
 uniform float u_microRelief;
 // Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
 uniform float u_rockBreak;
-// 1 quand la palette active peint de la neige (preset Terrain), 0 sinon.
-// Le rocher et la neige ne se distinguent ici que par la luminance de l'albédo,
-// ce qui n'a de sens que si la palette met effectivement de la neige dans le
-// haut de sa plage. Les palettes de lecture (Mono, Pente) montent jusqu'au
-// jaune vif sans qu'un seul flocon soit en jeu : sans ce garde-fou elles se
-// retrouvaient traitées à moitié comme un névé — micro-relief éteint,
-// spéculaire faussé et bord de névé re-découpé en plaques sur toute la paroi.
-uniform float u_snowPalette;
 // Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
 uniform float u_specular;
 uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
@@ -78,12 +71,14 @@ void main() {
     // On utilise ici la normale LISSE : le drapage ne doit pas scintiller au
     // gré de la facettisation.
     float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, nSmooth.z);
+    float photoK = 0.0;
     if (u_hasPhoto > 0.5
         && photoFacing > 0.0
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
         && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
         vec3 photo = texture(u_ortho, v_uv).rgb;
-        albedo = mix(v_albedo, photo, u_photoOpacityGround * photoFacing);
+        photoK = u_photoOpacityGround * photoFacing;
+        albedo = mix(v_albedo, photo, photoK);
     }
 
     // ── Normale de rendu ──────────────────────────────────────────────────
@@ -108,21 +103,24 @@ void main() {
     vec3 n = normalize(mix(nSmooth, nGeom, u_facet));
 
     // Micro-relief : uniquement sur la roche. La neige est lisse dans la
-    // nature, et les murs verticaux du socle synthétique ne sont pas du terrain
-    // — la luminance de l'albédo suffit à distinguer névé et rocher, palette ou
-    // photo drapée indifféremment. Multiplié plutôt que branché : `microReliefNormal`
-    // prend des dérivées d'écran, elles seraient indéfinies sous un branchement divergent.
-    // Bornes à garder en phase avec RA_SNOW_LO/HI de rockAlbedo.glsl : elles
-    // doivent passer au-dessus de la roche la plus claire de la palette.
+    // nature, et les murs verticaux du socle synthétique ne sont pas du terrain.
+    // Multiplié plutôt que branché : `microReliefNormal` prend des dérivées
+    // d'écran, elles seraient indéfinies sous un branchement divergent.
+    //
+    // Le taux de neige vient de la palette elle-même (v_snow), qui SAIT où elle
+    // en a mis. Sous une photo drapée, en revanche, le névé visible est celui de
+    // la prise de vue et pas celui de la palette : on retombe alors sur la
+    // luminance, seul indice disponible — d'où le fondu sur `photoK`.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float notBase = 1.0 - step(0.5, v_base);
-    float rockness = (1.0 - smoothstep(0.76, 0.86, lum) * u_snowPalette) * notBase;
+    float snowT = mix(v_snow, smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum), photoK);
+    float rockness = (1.0 - snowT) * notBase;
     n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
 
     // Cassure d'albédo : patine fractale sur le rocher + bord de névé dentelé.
     // Purement réflectance — appliquée avant tout calcul de lumière.
     float pixelM = max(length(dFdx(v_wpos)), length(dFdy(v_wpos)));
-    albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase, u_snowPalette);
+    albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase, snowT);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
     vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
