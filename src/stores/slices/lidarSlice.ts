@@ -16,10 +16,11 @@ import {
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { makeCloudKey, saveLoadedCloud, type SavedCloud } from '@/lib/savedClouds';
-import { formatSunDate, todaySunDatePart } from '@/lib/sun';
+import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
+import { DEFAULT_VIEW } from './viewSlice';
 
 /** Maximum capture area (m²) allowed in Poisson mode (WASM heap / octree limit).
  *  1 000 000 m² = 1 km² = a 1000 × 1000 m zone. */
@@ -379,12 +380,34 @@ export interface LidarSlice {
     setLidarCloudPoissonFlatBase: (v: boolean) => void;
     /**
      * Sun position date/time as a naive local-datetime string
-     * ("YYYY-MM-DDTHH:mm"). Drives the per-vertex Lambert lighting term in
-     * the LiDAR shaders. Lat/lng for the solar calc are taken from the
-     * currently-loaded cloud center (or the map center as fallback).
+     * ("YYYY-MM-DDTHH:mm"). Purely an authoring convenience: it does not light
+     * anything by itself, it *drives* the four `lidarSun*` values below via
+     * {@link LidarSlice.applyLidarSunDate}. Lat/lng for the solar calc are
+     * taken from the currently-loaded cloud center (map center as fallback).
      */
     lidarSunDate: string;
+    /** Écrit la date seule, sans recalculer la lumière (restauration d'ambiance). */
     setLidarSunDate: (v: string) => void;
+    /**
+     * Set the date/time AND re-derive the four low-level values from the real
+     * sun at that instant. This is what the date picker / hour slider /
+     * "course du soleil" playback call: moving the calendar re-syncs the
+     * lighting, moving a low-level slider afterwards forces a light that no
+     * real sun would produce.
+     */
+    applyLidarSunDate: (v: string) => void;
+    /** Azimut de la lumière (° depuis le nord, sens horaire). */
+    lidarSunAzimuth: number;
+    setLidarSunAzimuth: (v: number) => void;
+    /** Hauteur de la lumière (° au-dessus de l'horizon, négatif = sous l'horizon). */
+    lidarSunElevation: number;
+    setLidarSunElevation: (v: number) => void;
+    /** Teinte : 0 = orangé rasant, 1 = blanc neutre. */
+    lidarSunWarmth: number;
+    setLidarSunWarmth: (v: number) => void;
+    /** Intensité de la lumière directe (0 = nuit, 1 = plein jour). */
+    lidarSunIntensity: number;
+    setLidarSunIntensity: (v: number) => void;
     /**
      * Opt-in directional sun lighting on the LiDAR cloud. When false, a
      * neutral omnidirectional light is applied (no harsh directional bias,
@@ -584,6 +607,28 @@ function defaultSunDate(): string {
 }
 
 /**
+ * The four low-level lighting values the real sun produces at `date`, as a
+ * state patch. The solar calc needs a location: the loaded cloud's center,
+ * falling back to the map center — the single place that choice is made, so
+ * the mesh and the sky can no longer end up lit by two different suns.
+ */
+function sunStateFor(
+    s: Pick<MapState, 'lidarShaded' | 'lidarMesh' | 'view'>,
+    date: string,
+): Pick<LidarSlice, 'lidarSunAzimuth' | 'lidarSunElevation' | 'lidarSunWarmth' | 'lidarSunIntensity'> {
+    const lng = s.lidarShaded?.centerLng ?? s.lidarMesh?.centerLng ?? s.view.longitude;
+    const lat = s.lidarShaded?.centerLat ?? s.lidarMesh?.centerLat ?? s.view.latitude;
+    const d = new Date(date);
+    const sun = Number.isNaN(d.getTime()) ? DEFAULT_SUN_SETTINGS : sunSettingsAt(d, lat, lng);
+    return {
+        lidarSunAzimuth: sun.azimuthDeg,
+        lidarSunElevation: sun.elevationDeg,
+        lidarSunWarmth: sun.warmth,
+        lidarSunIntensity: sun.intensity,
+    };
+}
+
+/**
  * Rebuild the bare-earth reference grid for a live veg-height recompute when the
  * requested cell size differs from the cached grid's, but only when the shaded
  * cloud still carries ground/water returns (class 2/9) to anchor it — i.e. in
@@ -634,6 +679,10 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarCloudPhotoSource: 'ortho' as DrapeSource,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [2, 9] as number[],
+    lidarSunAzimuth: DEFAULT_SUN_SETTINGS.azimuthDeg,
+    lidarSunElevation: DEFAULT_SUN_SETTINGS.elevationDeg,
+    lidarSunWarmth: DEFAULT_SUN_SETTINGS.warmth,
+    lidarSunIntensity: DEFAULT_SUN_SETTINGS.intensity,
     lidarSunEnabled: false,
     lidarShadows: true,
     lidarShadowStrength: 0.7,
@@ -716,6 +765,15 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             lidarMesh: updated.mesh,
         });
     };
+
+    // Rien n'a encore été rendu : la lumière de départ est celle du vrai soleil
+    // à la date persistée, vue depuis la position persistée — de sorte que les
+    // curseurs bas niveau soient d'emblée cohérents avec la date affichée.
+    const initialSunDate = persisted.lidarSunDate ?? defaultSunDate();
+    const initialSun = sunStateFor(
+        { lidarShaded: null, lidarMesh: null, view: persisted.view ?? DEFAULT_VIEW },
+        initialSunDate,
+    );
 
     return {
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
@@ -861,8 +919,17 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCloudPoissonNormalRobust: (lidarCloudPoissonNormalRobust) => set({ lidarCloudPoissonNormalRobust }),
         lidarCloudPoissonFlatBase: persisted.lidarCloudPoissonFlatBase ?? true,
         setLidarCloudPoissonFlatBase: (lidarCloudPoissonFlatBase) => set({ lidarCloudPoissonFlatBase }),
-        lidarSunDate: persisted.lidarSunDate ?? defaultSunDate(),
+        lidarSunDate: initialSunDate,
         setLidarSunDate: (lidarSunDate) => set({ lidarSunDate }),
+        applyLidarSunDate: (lidarSunDate) => set({ lidarSunDate, ...sunStateFor(get(), lidarSunDate) }),
+        lidarSunAzimuth: persisted.lidarSunAzimuth ?? initialSun.lidarSunAzimuth,
+        setLidarSunAzimuth: (lidarSunAzimuth) => set({ lidarSunAzimuth }),
+        lidarSunElevation: persisted.lidarSunElevation ?? initialSun.lidarSunElevation,
+        setLidarSunElevation: (lidarSunElevation) => set({ lidarSunElevation }),
+        lidarSunWarmth: persisted.lidarSunWarmth ?? initialSun.lidarSunWarmth,
+        setLidarSunWarmth: (lidarSunWarmth) => set({ lidarSunWarmth }),
+        lidarSunIntensity: persisted.lidarSunIntensity ?? initialSun.lidarSunIntensity,
+        setLidarSunIntensity: (lidarSunIntensity) => set({ lidarSunIntensity }),
         lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
         setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
         lidarShadows: persisted.lidarShadows ?? LIDAR_RENDER_DEFAULTS.lidarShadows,
@@ -1106,6 +1173,9 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         resetLidarRenderSettings: () => {
             set({
                 ...LIDAR_RENDER_DEFAULTS,
+                // Un éclairage forcé n'a pas de "défaut" : on le recale sur le
+                // vrai soleil de la date en cours plutôt que sur une constante.
+                ...sunStateFor(get(), get().lidarSunDate),
                 // Contour lines belong to terrainSlice but are part of the render reset.
                 contourLinesEnabled: false,
                 contourLinesOpacity: 0.4,
@@ -1163,6 +1233,10 @@ export function selectLidarPersisted(
     | 'lidarCloudPoissonNormalRobust'
     | 'lidarCloudPoissonFlatBase'
     | 'lidarSunDate'
+    | 'lidarSunAzimuth'
+    | 'lidarSunElevation'
+    | 'lidarSunWarmth'
+    | 'lidarSunIntensity'
     | 'lidarSunEnabled'
     | 'lidarShadows'
     | 'lidarShadowStrength'
@@ -1235,6 +1309,10 @@ export function selectLidarPersisted(
         lidarCloudPoissonNormalRobust: s.lidarCloudPoissonNormalRobust,
         lidarCloudPoissonFlatBase: s.lidarCloudPoissonFlatBase,
         lidarSunDate: s.lidarSunDate,
+        lidarSunAzimuth: s.lidarSunAzimuth,
+        lidarSunElevation: s.lidarSunElevation,
+        lidarSunWarmth: s.lidarSunWarmth,
+        lidarSunIntensity: s.lidarSunIntensity,
         lidarSunEnabled: s.lidarSunEnabled,
         lidarShadows: s.lidarShadows,
         lidarShadowStrength: s.lidarShadowStrength,

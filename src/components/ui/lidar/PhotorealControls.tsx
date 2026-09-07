@@ -2,7 +2,7 @@ import { useMapStore } from '@/stores/mapStore';
 import type { ReactElement } from 'react';
 
 /** One labelled 0..n slider with a formatted read-out, matching ShadowControls. */
-function TuneSlider({
+export function TuneSlider({
     label, title, value, min, max, step, format, onChange,
 }: Readonly<{
     label: string;

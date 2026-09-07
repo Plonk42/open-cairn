@@ -34,7 +34,7 @@ export interface LidarAtmosphere {
 export interface AtmosphereParams {
     /** Sun direction, east/north/up; only the `up` component is used here. */
     sunDir: readonly [number, number, number];
-    /** Sun tint from {@link import('./sun').sunLighting} (0..1 per channel). */
+    /** Sun tint from {@link import('./sun').sunLight} (0..1 per channel). */
     sunColor: readonly [number, number, number];
     /** 0 at night, 1 in full daylight. */
     sunIntensity: number;

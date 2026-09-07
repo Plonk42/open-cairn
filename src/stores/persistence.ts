@@ -62,6 +62,10 @@ export type PersistedSettings = {
     lidarCloudPoissonNormalRobust?: number;
     lidarCloudPoissonFlatBase?: boolean;
     lidarSunDate?: string;
+    lidarSunAzimuth?: number;
+    lidarSunElevation?: number;
+    lidarSunWarmth?: number;
+    lidarSunIntensity?: number;
     lidarSunEnabled?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;

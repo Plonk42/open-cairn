@@ -5,7 +5,7 @@ import { ignLayerUrl } from '@/lib/ign';
 import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
 import { buildMapStyle, DEFAULT_SKY, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
 import { skyFromAtmosphere } from '@/lib/skyPaint';
-import { sunLighting } from '@/lib/sun';
+import { sunLight } from '@/lib/sun';
 import { useView } from '@/lib/useView';
 import { useMapStore, type MapState } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -135,23 +135,29 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const photoreal = useMapStore((s) => s.lidarPhotoreal);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
-    const sunDate = useMapStore((s) => s.lidarSunDate);
+    const sunAzimuth = useMapStore((s) => s.lidarSunAzimuth);
+    const sunElevation = useMapStore((s) => s.lidarSunElevation);
+    const sunWarmth = useMapStore((s) => s.lidarSunWarmth);
+    const sunIntensity = useMapStore((s) => s.lidarSunIntensity);
     const exposure = useMapStore((s) => s.lidarExposure);
     const ambient = useMapStore((s) => s.lidarAmbient);
     const sunStrength = useMapStore((s) => s.lidarSunStrength);
     useEffect(() => {
         const map = mapInstance;
         if (!map) return;
-        const date = new Date(sunDate);
-        const on = studio && photoreal && !Number.isNaN(date.getTime());
+        const on = studio && photoreal;
         const apply = () => {
             if (!on) {
                 map.setSky({ ...DEFAULT_SKY });
                 paintRelight(map, NEUTRAL_RELIGHT);
                 return;
             }
-            const { lng, lat } = map.getCenter();
-            const { dir, intensity, color } = sunLighting(date, lat, lng);
+            const { dir, intensity, color } = sunLight({
+                azimuthDeg: sunAzimuth,
+                elevationDeg: sunElevation,
+                warmth: sunWarmth,
+                intensity: sunIntensity,
+            });
             const params = {
                 sunDir: dir,
                 sunColor: color,
@@ -180,7 +186,7 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
             window.clearTimeout(retry);
             map.off('styledata', applyWhenReady);
         };
-    }, [mapInstance, studio, photoreal, sunEnabled, sunDate, exposure, ambient, sunStrength]);
+    }, [mapInstance, studio, photoreal, sunEnabled, sunAzimuth, sunElevation, sunWarmth, sunIntensity, exposure, ambient, sunStrength]);
     return null;
 }
 

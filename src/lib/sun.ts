@@ -98,50 +98,92 @@ export function sunDirectionVector(pos: SunPosition): [number, number, number] {
     ];
 }
 
-/**
- * Convenience: returns sun direction, a 0..1 intensity that fades in as the
- * sun rises above the horizon, and a warm/neutral RGB tint for the diffuse
- * light. The tint is roughly approximated from elevation:
- *   - high sun  (≥ 25°): neutral white
- *   - low sun   (~  5°): warm yellow
- *   - horizon   (~  0°): deep orange
- *
- * Adequate for stylised hill-shading without a full sky-model.
- */
-export function sunLighting(
-    date: Date,
-    lat: number,
-    lng: number,
-): {
+// ───────────────────────────────────────────────────────────────────────
+// Sun settings — the four knobs the whole render is lit from
+//
+// A civil date/time + a location boil down to exactly four numbers. Storing
+// THOSE (rather than the date) as the render's source of truth is what lets
+// the user force a light that no real sun would ever produce: the date/time
+// picker writes the four, and any of them can then be overridden by hand.
+// ───────────────────────────────────────────────────────────────────────
+
+export interface SunSettings {
+    /** Degrees from north, clockwise (east positive). */
+    azimuthDeg: number;
+    /** Degrees above the horizon; negative = below = night. */
+    elevationDeg: number;
+    /** Colour ramp position: 0 = deep orange grazing light, 1 = neutral white. */
+    warmth: number;
+    /** Direct-light strength: 0 = night (no directional light), 1 = full daylight. */
+    intensity: number;
+}
+
+/** Direction + tint the shaders and the sky model actually consume. */
+export interface SunLight {
     dir: [number, number, number];
     intensity: number;
     color: [number, number, number];
-    elevationDeg: number;
-    azimuthDeg: number;
-} {
+}
+
+/** Neutral high sun — the light before any date/time has driven the settings. */
+export const DEFAULT_SUN_SETTINGS: SunSettings = {
+    azimuthDeg: 150,
+    elevationDeg: 45,
+    warmth: 1,
+    intensity: 1,
+};
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
+/** Daylight ramp: full sun from 6° up, fading out to nothing at −2°. */
+export function sunIntensityAt(elevationDeg: number): number {
+    if (elevationDeg >= 6) return 1;
+    if (elevationDeg > -2) return (elevationDeg + 2) / 8; // smooth dawn fade
+    return 0;
+}
+
+/**
+ * Warm → neutral ramp keyed on elevation (clamped to 0..25°), smoothstep-
+ * interpolated for a softer transition than pure linear.
+ */
+export function sunWarmthAt(elevationDeg: number): number {
+    const t = clamp01(elevationDeg / 25);
+    return t * t * (3 - 2 * t);
+}
+
+/** The real sun's settings for a civil date/time at a given location. */
+export function sunSettingsAt(date: Date, lat: number, lng: number): SunSettings {
     const pos = computeSunPosition(date, lat, lng);
-    const elDeg = pos.elevation * (180 / Math.PI);
-    let intensity = 0;
-    if (elDeg >= 6) intensity = 1;
-    else if (elDeg > -2) intensity = (elDeg + 2) / 8; // smooth dawn fade
-
-    // Warm → neutral colour ramp keyed on elevation (clamped to 0..25°),
-    // smoothstep-interpolated for a softer transition than pure linear.
-    const t = Math.max(0, Math.min(1, elDeg / 25));
-    const s = t * t * (3 - 2 * t);
-    const warmR = 1, warmG = 0.55, warmB = 0.3;
-    const neutR = 1, neutG = 0.98, neutB = 0.95;
-    const color: [number, number, number] = [
-        warmR + (neutR - warmR) * s,
-        warmG + (neutG - warmG) * s,
-        warmB + (neutB - warmB) * s,
-    ];
-
+    const elevationDeg = pos.elevation * (180 / Math.PI);
     return {
-        dir: sunDirectionVector(pos),
-        intensity,
-        color,
-        elevationDeg: elDeg,
         azimuthDeg: ((pos.azimuth * (180 / Math.PI)) % 360 + 360) % 360,
+        elevationDeg,
+        warmth: sunWarmthAt(elevationDeg),
+        intensity: sunIntensityAt(elevationDeg),
+    };
+}
+
+/**
+ * Turn sun settings into a direction vector and an RGB tint. The tint lerps
+ * deep orange → neutral white along `warmth`:
+ *   - warmth 1: neutral white (high sun)
+ *   - warmth ~0.2: warm yellow (low sun)
+ *   - warmth 0: deep orange (horizon)
+ *
+ * Adequate for stylised hill-shading without a full sky-model.
+ */
+export function sunLight(s: SunSettings): SunLight {
+    const rad = Math.PI / 180;
+    const w = clamp01(s.warmth);
+    const warm = [1, 0.55, 0.3];
+    const neutral = [1, 0.98, 0.95];
+    return {
+        dir: sunDirectionVector({ azimuth: s.azimuthDeg * rad, elevation: s.elevationDeg * rad }),
+        intensity: clamp01(s.intensity),
+        color: [
+            warm[0] + (neutral[0] - warm[0]) * w,
+            warm[1] + (neutral[1] - warm[1]) * w,
+            warm[2] + (neutral[2] - warm[2]) * w,
+        ],
     };
 }

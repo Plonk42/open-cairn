@@ -3,7 +3,7 @@ import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
 import { fetchDrapeMosaic } from '@/lib/lidarBrowser/orthoTexture';
 import { detectTreetops } from '@/lib/lidarBrowser/treetops';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
-import { sunLighting } from '@/lib/sun';
+import { sunLight } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
@@ -73,7 +73,10 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const meshWireframe = useMapStore((s) => s.lidarMeshWireframe);
     const setLodDebugInfo = useMapStore((s) => s.setLidarLodDebugInfo);
     const classes = useMapStore((s) => s.lidarCloudClasses);
-    const sunDate = useMapStore((s) => s.lidarSunDate);
+    const sunAzimuth = useMapStore((s) => s.lidarSunAzimuth);
+    const sunElevation = useMapStore((s) => s.lidarSunElevation);
+    const sunWarmth = useMapStore((s) => s.lidarSunWarmth);
+    const sunIntensity = useMapStore((s) => s.lidarSunIntensity);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
     const shadows = useMapStore((s) => s.lidarShadows);
     const shadowStrength = useMapStore((s) => s.lidarShadowStrength);
@@ -511,20 +514,19 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     }, [orthoSource, drapeEnabled, photoSource, drapeKey, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
-    // Recompute the sun direction whenever the user picks a different date/time
-    // or the loaded cloud changes (we use its center for the solar calc; fall
-    // back to the current map center if no cloud is loaded yet).
+    // Les quatre réglages du store SONT la lumière : la date/heure les pilote,
+    // mais l'utilisateur peut les forcer sur un éclairage non physique.
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return;
-        const lng = lidarShaded?.centerLng ?? lidarMesh?.centerLng ?? mapInstance?.getCenter().lng;
-        const lat = lidarShaded?.centerLat ?? lidarMesh?.centerLat ?? mapInstance?.getCenter().lat;
-        if (lng == null || lat == null) return;
-        const date = new Date(sunDate);
-        if (Number.isNaN(date.getTime())) return;
-        const { dir, intensity, color } = sunLighting(date, lat, lng);
+        const { dir, intensity, color } = sunLight({
+            azimuthDeg: sunAzimuth,
+            elevationDeg: sunElevation,
+            warmth: sunWarmth,
+            intensity: sunIntensity,
+        });
         layer.setConfig({ sunDir: dir, sunIntensity: intensity, sunColor: color });
-    }, [sunDate, lidarShaded, lidarMesh, mapInstance, styleEpoch]);
+    }, [sunAzimuth, sunElevation, sunWarmth, sunIntensity, styleEpoch]);
 
     return null;
 }

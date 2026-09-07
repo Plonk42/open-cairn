@@ -1,4 +1,4 @@
-import { formatSunDate, parseSunDate, sunLighting } from '@/lib/sun';
+import { formatSunDate, parseSunDate } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 
@@ -12,27 +12,16 @@ type SunDayState = 'night' | 'dawn' | 'dusk' | 'day';
 const SUN_DAY_START = 4 * 60; // 4h
 const SUN_NIGHT_END = 22 * 60; // 22h
 
-function computeSunReadout(
-    value: string,
-    centerLng: number | null,
-    centerLat: number | null,
-): { azStr: string; elStr: string; dayState: SunDayState } {
-    if (centerLng == null || centerLat == null) return { azStr: '—', elStr: '—', dayState: 'day' };
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return { azStr: '—', elStr: '—', dayState: 'day' };
-    const { azimuthDeg, elevationDeg, intensity } = sunLighting(d, centerLat, centerLng);
-    let dayState: SunDayState = 'day';
-    if (intensity <= 0) {
-        dayState = 'night';
-    } else if (intensity < 1) {
-        // Twilight: morning (before noon) is dawn, afternoon is dusk.
-        dayState = d.getHours() < 12 ? 'dawn' : 'dusk';
-    }
-    return {
-        azStr: `${Math.round(azimuthDeg)}°`,
-        elStr: `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`,
-        dayState,
-    };
+/**
+ * Le read-out décrit la lumière **effective** (les réglages bas niveau), pas
+ * celle que la date impliquerait : quand l'utilisateur force l'éclairage, un
+ * azimut qui ne colle pas à l'heure affichée est justement le signal utile.
+ */
+function sunDayState(intensity: number, minutesOfDay: number): SunDayState {
+    if (intensity <= 0) return 'night';
+    if (intensity >= 1) return 'day';
+    // Twilight: morning (before noon) is dawn, afternoon is dusk.
+    return minutesOfDay < 12 * 60 ? 'dawn' : 'dusk';
 }
 
 const SUN_BADGES: Record<SunDayState, { badge: string; label: string }> = {
@@ -63,19 +52,17 @@ function useSunPlayback(
 }
 
 /**
- * Date/time picker + live read-out of sun azimuth/elevation, plus a "course du
- * soleil" playback button. Subscribes to the sun date directly so the playback
- * (which rewrites the value every ~60 ms) only re-renders this small control.
+ * Date/time picker + live read-out of the effective sun azimuth/elevation, plus
+ * a "course du soleil" playback button. Subscribes to the sun date directly so
+ * the playback (which rewrites the value every ~60 ms) only re-renders this
+ * small control.
  */
-export function SunDateControl({
-    centerLng,
-    centerLat,
-}: Readonly<{
-    centerLng: number | null;
-    centerLat: number | null;
-}>) {
+export function SunDateControl() {
     const value = useMapStore((s) => s.lidarSunDate);
-    const onChange = useMapStore((s) => s.setLidarSunDate);
+    const onChange = useMapStore((s) => s.applyLidarSunDate);
+    const azimuthDeg = useMapStore((s) => s.lidarSunAzimuth);
+    const elevationDeg = useMapStore((s) => s.lidarSunElevation);
+    const intensity = useMapStore((s) => s.lidarSunIntensity);
 
     // value is stored as "YYYY-MM-DDTHH:mm" (local time). Split into date and
     // minutes-of-day for an independent date picker + hour slider.
@@ -97,8 +84,9 @@ export function SunDateControl({
     minutesRef.current = minutesOfDay;
     useSunPlayback(playing, datePart, minutesRef, onChange);
 
-    const { azStr, elStr, dayState } = computeSunReadout(value, centerLng, centerLat);
-    const { badge: dayBadge, label: dayLabel } = SUN_BADGES[dayState];
+    const { badge: dayBadge, label: dayLabel } = SUN_BADGES[sunDayState(intensity, minutesOfDay)];
+    const azStr = `${Math.round(azimuthDeg)}°`;
+    const elStr = `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`;
 
     return (
         <div>

@@ -28,6 +28,7 @@ import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
 import type { RockType, ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
 import type { DrapeSource } from './mapStyle';
+import { DEFAULT_SUN_SETTINGS } from './sun';
 
 const MAGIC = 0x4f435353; // "OCSS"
 const VERSION = 1;
@@ -82,6 +83,10 @@ export interface ShowcaseAmbiance {
     lidarSnowAmount: number;
     lidarRockType: RockType;
     lidarSunDate: string;
+    lidarSunAzimuth: number;
+    lidarSunElevation: number;
+    lidarSunWarmth: number;
+    lidarSunIntensity: number;
     lidarSunEnabled: boolean;
     lidarShadows: boolean;
     lidarShadowStrength: number;
@@ -179,6 +184,10 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarSnowAmount: 0.5,
     lidarRockType: 'limestone',
     lidarSunDate: '',
+    lidarSunAzimuth: DEFAULT_SUN_SETTINGS.azimuthDeg,
+    lidarSunElevation: DEFAULT_SUN_SETTINGS.elevationDeg,
+    lidarSunWarmth: DEFAULT_SUN_SETTINGS.warmth,
+    lidarSunIntensity: DEFAULT_SUN_SETTINGS.intensity,
     lidarSunEnabled: false,
     lidarShadows: false,
     lidarShadowStrength: 0.5,

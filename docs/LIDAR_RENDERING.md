@@ -274,7 +274,7 @@ s'éloigne (zoom faible par rapport au `referenceZoom` du calque), une technique
 - **Pas de tile-based rendering** : le nuage entier est envoyé en VBO unique (mais le
   frustum culling et le LOD distance ci-dessus limitent le coût par frame pour la
   géométrie hors champ ou lointaine).
-- **Sun direction recalculé chaque frame** mais `sunLighting()` est suffisamment léger
+- **Sun direction recalculé chaque frame** mais `sunLight()` est suffisamment léger
   pour ne pas être un goulot.
 - **Pas de feedback de chargement GPU** : si l'upload de VBO échoue (out of memory),
   on log mais on n'avertit pas l'utilisateur.
