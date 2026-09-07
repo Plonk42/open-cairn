@@ -26,7 +26,6 @@ import { reconstructPoisson } from './poissonRecon';
 import { noopProgress, STAGE_LABELS, type ProgressCallback } from './progress';
 import { l93AxisToGeographicEnu, l93OffsetsToGeographicEnu, l93RectAxes, lngLatToL93 } from './proj';
 import type { ScanData } from './scanOrient';
-import { colorsFromNormals, DEFAULT_PALETTE, vertexColor, type PaletteSettings } from './slope';
 import { detectTreetops } from './treetops';
 import { findTiles } from './wfs';
 
@@ -59,8 +58,6 @@ export interface BrowserFetchParams {
      *  under the terrain so the underside is flat instead of a bulging cushion.
      *  Default true. */
     poissonFlatBase?: boolean;
-    /** Preset de couleur, ligne de neige et lithologie. Voir `slope.ts`. */
-    palette?: PaletteSettings;
     /** Delaunay mode: smooth the ground surface via a regular grid heightfield
      *  (denoises, kills self-shadow stripes) instead of raw Delaunay. */
     gridMesh?: boolean;
@@ -415,7 +412,6 @@ async function enrichForest(
 async function buildNonGroundShaded(
     c: { positions: Float32Array; classifications: Uint8Array; pointCount: number; centerLng: number; centerLat: number; radius: number },
     nonGround: { pos: Float32Array; cls: Uint8Array; count: number },
-    palette: PaletteSettings,
     veg: { gapM: number; grid: VegGroundGrid | null; roughM: number },
     onProgress: ProgressCallback,
     signal?: AbortSignal,
@@ -425,9 +421,6 @@ async function buildNonGroundShaded(
     const tNg = startTimer();
     const ngNormals = await computeNormalsVegAwareAsync(ngPos, ngCls, nonGroundCount);
     logStage('normals (non-sol)', tNg(), `${nonGroundCount.toLocaleString()} pts`);
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'nuage non-sol' });
-    const tNgCol = startTimer();
-    const ngColors = colorsFromNormals(ngNormals, palette, ngPos);
     // Height above ground via per-column vertical clustering, blended with the
     // plain vertical-to-ground height over trustworthy (low-relief) ground so
     // spreading broadleaf crowns recover their full height (see computeVegHeights).
@@ -438,14 +431,12 @@ async function buildNonGroundShaded(
     // Robust canopy top (drives the "Hauteur max · Auto" foliage scale). Mutates
     // ngHeight in place to clamp cliff-edge artefacts, mirroring the shaded path.
     const ngVegHeightAuto = sanitizeVegHeights(ngHeight, ngCls, nonGroundCount, ngVegDiag) ?? undefined;
-    logStage('colors (non-sol)', tNgCol());
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
         centerLat: c.centerLat,
         positions: ngPos,
         normals: ngNormals,
-        colors: ngColors,
         classifications: ngCls,
         heightAboveGround: ngHeight,
         vegHeightAuto: ngVegHeightAuto,
@@ -463,16 +454,12 @@ export async function fetchLidarShaded(
     params: BrowserFetchParams,
 ): Promise<LidarShadedCloudData> {
     const onProgress = params.onProgress ?? noopProgress;
-    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
     const c = await fetchCommon(params);
     onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: `${c.pointCount.toLocaleString()} points` });
     const tNormals = startTimer();
     const normals = await computeNormalsVegAwareAsync(c.positions, c.classifications, c.pointCount);
     logStage('normals', tNormals(), `${c.pointCount.toLocaleString()} pts`);
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors });
-    const tColors = startTimer();
-    const colors = colorsFromNormals(normals, palette, c.positions);
     // Bare-earth reference from the ground/water returns, then the hybrid height
     // (stacked, blended with vertical-to-ground over low-relief terrain).
     const groundGrid = buildVegGroundGrid(c.positions, c.pointCount, c.classifications);
@@ -487,14 +474,12 @@ export async function fetchLidarShaded(
     const vegHeightAuto = heightAboveGround
         ? sanitizeVegHeights(heightAboveGround, c.classifications, c.pointCount, vegDiag) ?? undefined
         : undefined;
-    logStage('colors', tColors());
     const shaded: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
         centerLat: c.centerLat,
         positions: c.positions,
         normals,
-        colors,
         classifications: c.classifications,
         heightAboveGround,
         vegHeightAuto,
@@ -518,7 +503,6 @@ export async function fetchLidarDelaunay(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
-    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
     // Delaunay mode ignores any incoming `classes` filter (we need ground for
     // the mesh AND non-ground for the cloud). The runtime mask in the
@@ -537,8 +521,8 @@ export async function fetchLidarDelaunay(
     const expectedSpacing = Math.sqrt(params.stride / 10);
     const maxEdge = Math.min(8, Math.max(1.5, expectedSpacing * 10));
     const groundMesh = params.gridMesh
-        ? buildGridMesh(groundPos, params.gridCell ?? 1, palette)
-        : buildMesh(groundPos, maxEdge, palette);
+        ? buildGridMesh(groundPos, params.gridCell ?? 1)
+        : buildMesh(groundPos, maxEdge);
     const meshVertexCount = groundMesh.positions.length / 3;
     logStage(params.gridMesh ? 'grid' : 'delaunay', tMesh(), `${groundCount.toLocaleString()} pts sol+eau → ${(groundMesh.indices.length / 3).toLocaleString()} tri`);
     const meshData: LidarMeshData = {
@@ -547,20 +531,19 @@ export async function fetchLidarDelaunay(
         centerLat: c.centerLat,
         positions: groundMesh.positions,
         normals: groundMesh.normals,
-        colors: groundMesh.colors,
         indices: groundMesh.indices,
         vertexCount: meshVertexCount,
         triangleCount: groundMesh.indices.length / 3,
         radius: c.radius,
     };
 
-    // 2. Non-ground shaded cloud — normals + slope colors. Even though
+    // 2. Non-ground shaded cloud — per-point normals. Even though
     //    vegetation normals are noisy, they're what the WebGL layer wants.
     //    Height above ground uses per-column stacked clustering blended with the
     //    vertical height over the flat-ground reference built from the mesh's
     //    ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, palette,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount },
         {
             gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
             grid: buildVegGroundGrid(groundPos, groundCount),
@@ -881,17 +864,15 @@ function macroVertexNormals(indices: Uint32Array, normals: Float32Array): Uint8A
 }
 
 /**
- * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and slope-based
- * RGBA colors for an indexed triangle mesh. Used by the Poisson path whose
- * output PLY contains only positions + faces.
+ * Compute area-weighted per-vertex normals (flipped so nz ≥ 0) and the macro
+ * orientation field for an indexed triangle mesh. Used by the Poisson path
+ * whose output PLY contains only positions + faces.
  */
-function normalsAndColorsFromMesh(
+function normalsFromMesh(
     positions: Float32Array,
     indices: Uint32Array,
-    palette: PaletteSettings,
 ): {
     normals: Float32Array;
-    colors: Uint8Array;
     macroNormals: Uint8Array;
 } {
     const n = positions.length / 3;
@@ -913,7 +894,6 @@ function normalsAndColorsFromMesh(
         normals[ib * 3] += nx; normals[ib * 3 + 1] += ny; normals[ib * 3 + 2] += nz;
         normals[ic * 3] += nx; normals[ic * 3 + 1] += ny; normals[ic * 3 + 2] += nz;
     }
-    const colors = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         const len = Math.hypot(normals[i3], normals[i3 + 1], normals[i3 + 2]);
@@ -928,21 +908,7 @@ function normalsAndColorsFromMesh(
     smoothVertexNormals(indices, normals, NORMAL_SMOOTHING_PASSES);
     // La palette lit l'orientation du terrain à l'échelle du paysage, pas celle
     // du triangle : voir `macroVertexNormals`.
-    const macroNormals = macroVertexNormals(indices, normals);
-    for (let i = 0; i < n; i++) {
-        const z = positions[i * 3 + 2];
-        const [cr, cg, cb] = vertexColor(
-            macroNormals[i * 3] / 127.5 - 1,
-            macroNormals[i * 3 + 1] / 127.5 - 1,
-            macroNormals[i * 3 + 2] / 127.5 - 1,
-            z, palette,
-        );
-        colors[i * 4] = cr;
-        colors[i * 4 + 1] = cg;
-        colors[i * 4 + 2] = cb;
-        colors[i * 4 + 3] = 255;
-    }
-    return { normals, colors, macroNormals };
+    return { normals, macroNormals: macroVertexNormals(indices, normals) };
 }
 
 /**
@@ -957,7 +923,6 @@ export async function fetchLidarPoisson(
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
     const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
-    const palette = params.palette ?? DEFAULT_PALETTE;
     const total = startTimer();
 
     // Fetch every class. Ground+water are kept at FULL density (exempt from the
@@ -1083,10 +1048,10 @@ export async function fetchLidarPoisson(
     const sharpen = params.poissonSharpen ?? 0.5;
     sharpenMeshPositions(mesh.indices, mesh.positions, sharpen);
     if (sharpen > 0) logStage('netteté', tSharpen(), `amount ${sharpen}`);
-    onProgress({ stage: 'colors', message: STAGE_LABELS.colors, detail: 'mesh sol' });
-    const tMeshCol = startTimer();
-    const { normals: meshNrm, colors: meshCols, macroNormals: meshMacro } = normalsAndColorsFromMesh(mesh.positions, mesh.indices, palette);
-    logStage('colors (mesh sol)', tMeshCol());
+    onProgress({ stage: 'normals', message: STAGE_LABELS.normals, detail: 'mesh sol' });
+    const tMeshNrm = startTimer();
+    const { normals: meshNrm, macroNormals: meshMacro } = normalsFromMesh(mesh.positions, mesh.indices);
+    logStage('normals (mesh sol)', tMeshNrm());
     let baseMask: Uint8Array | undefined;
     if (flatBaseRect && groundGrid) {
         const perimM = poissonBaseWallPerimM(groundGrid, depth);
@@ -1098,7 +1063,6 @@ export async function fetchLidarPoisson(
         centerLat: c.centerLat,
         positions: mesh.positions,
         normals: meshNrm,
-        colors: meshCols,
         macroNormals: meshMacro,
         baseMask,
         indices: mesh.indices,
@@ -1111,7 +1075,7 @@ export async function fetchLidarPoisson(
     //    stacked clustering blended with the vertical height over the flat-ground
     //    reference built from the Poisson ground/water points.
     const shadedData = await buildNonGroundShaded(
-        c, { pos: ngPos, cls: ngCls, count: nonGroundCount }, palette,
+        c, { pos: ngPos, cls: ngCls, count: nonGroundCount },
         {
             gapM: params.groundGapM ?? DEFAULT_VEG_GROUND_GAP,
             grid: groundGrid,

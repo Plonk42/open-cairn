@@ -621,7 +621,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         catMixCount: WebGLUniformLocation | null;
         mixSpecies: WebGLUniformLocation | null;
         speciesMask: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null };
+        palettePreset: WebGLUniformLocation | null;
+        rockType: WebGLUniformLocation | null;
+        snowLine: WebGLUniformLocation | null;
+        snowAmount: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -920,6 +924,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.vegIntensity, this.config.vegEnhance ? this.config.vegIntensity : 0);
         gl.uniform1f(this._locPoints.vegHeightScale, this.config.vegHeightScale);
         gl.uniform1f(this._locPoints.vegColorMode, this.config.vegColorMode);
+        // Palette d'albédo du sol, évaluée dans le VS comme pour le maillage.
+        gl.uniform1i(this._locPoints.palettePreset, this.config.palettePreset);
+        gl.uniform1i(this._locPoints.rockType, this.config.rockType);
+        gl.uniform1f(this._locPoints.snowLine, this.config.snowLine);
+        gl.uniform1f(this._locPoints.snowAmount, this.config.snowAmount);
         // IGN BD Forêt species rendering: static category LUTs + the active
         // grouping palette + the legend filter mask. All small uniforms, so the
         // grouping/filter controls are instantaneous (no re-upload of the cloud).
@@ -2094,6 +2103,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             catMixCount: gl.getUniformLocation(this._progPoints, 'u_catMixCount[0]'),
             mixSpecies: gl.getUniformLocation(this._progPoints, 'u_mixSpecies[0]'),
             speciesMask: gl.getUniformLocation(this._progPoints, 'u_speciesMask[0]'),
+            palettePreset: gl.getUniformLocation(this._progPoints, 'u_palettePreset'),
+            rockType: gl.getUniformLocation(this._progPoints, 'u_rockType'),
+            snowLine: gl.getUniformLocation(this._progPoints, 'u_snowLine'),
+            snowAmount: gl.getUniformLocation(this._progPoints, 'u_snowAmount'),
         };
         this._locPbrPoints = pbrLocations(gl, this._progPoints);
         this._initForestTables();

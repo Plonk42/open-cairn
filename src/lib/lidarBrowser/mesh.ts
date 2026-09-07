@@ -4,15 +4,12 @@
  * `services/lidar-cloud/server.mjs::buildMesh()`.
  */
 import Delaunator from 'delaunator';
-import { vertexColor, type PaletteSettings } from './slope';
 
 export interface MeshResult {
     /** Same vertex array as input (positions are not duplicated). */
     positions: Float32Array;
     /** Interleaved (nx, ny, nz) per vertex, area-weighted average of adjacent triangles. */
     normals: Float32Array;
-    /** RGBA per vertex, from the slope palette. */
-    colors: Uint8Array;
     /** Triangle vertex indices, length = 3 × triangleCount. */
     indices: Uint32Array;
 }
@@ -25,14 +22,12 @@ export interface MeshResult {
 export function buildMesh(
     positions: Float32Array,
     maxEdge: number,
-    palette: PaletteSettings,
 ): MeshResult {
     const n = positions.length / 3;
     if (n < 3) {
         return {
             positions: new Float32Array(0),
             normals: new Float32Array(0),
-            colors: new Uint8Array(0),
             indices: new Uint32Array(0),
         };
     }
@@ -89,16 +84,5 @@ export function buildMesh(
         }
     }
 
-    const colors = new Uint8Array(n * 4);
-    for (let i = 0; i < n; i++) {
-        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
-        const z = positions[i * 3 + 2];
-        const [r, g, b] = vertexColor(nx, ny, nz, z, palette);
-        colors[i * 4] = r;
-        colors[i * 4 + 1] = g;
-        colors[i * 4 + 2] = b;
-        colors[i * 4 + 3] = 255;
-    }
-
-    return { positions, normals, colors, indices: new Uint32Array(keep) };
+    return { positions, normals, indices: new Uint32Array(keep) };
 }

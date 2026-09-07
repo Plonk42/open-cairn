@@ -7,15 +7,12 @@ import type { LidarShadedCloudData } from '@/lib/lidarCloud';
 function makeShaded(seed: number, pointCount = 4): LidarShadedCloudData {
     const positions = new Float32Array(pointCount * 3);
     const normals = new Float32Array(pointCount * 3);
-    const colors = new Uint8Array(pointCount * 4);
     const classifications = new Uint8Array(pointCount);
     for (let i = 0; i < pointCount; i++) {
         positions[i * 3] = seed + i;
         positions[i * 3 + 1] = seed + i * 2;
         positions[i * 3 + 2] = seed + i * 3;
         normals[i * 3 + 2] = 1;
-        colors[i * 4] = (seed * 10 + i) % 256;
-        colors[i * 4 + 3] = 255;
         classifications[i] = 2;
     }
     return {
@@ -26,7 +23,6 @@ function makeShaded(seed: number, pointCount = 4): LidarShadedCloudData {
         pointCount,
         positions,
         normals,
-        colors,
         classifications,
     };
 }
@@ -57,7 +53,7 @@ describe('showcase scene geometry — multi-cloud round trip', () => {
         const decoded = await decodeShowcaseGeometry(bytes.buffer as ArrayBuffer);
 
         expect(decoded.shaded?.pointCount).toBe(primary.pointCount);
-        expect(Array.from(decoded.shaded!.colors)).toEqual(Array.from(primary.colors));
+        expect(Array.from(decoded.shaded!.positions)).toEqual(Array.from(primary.positions));
 
         expect(decoded.extraClouds).toHaveLength(2);
         expect(decoded.extraClouds![0].shaded?.pointCount).toBe(extraA.pointCount);

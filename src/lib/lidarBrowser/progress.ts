@@ -7,7 +7,6 @@ export type LidarProgressStage =
     | 'tiles'     // Downloading and decoding COPC tiles
     | 'normals'   // Computing k-NN normals
     | 'mesh'      // Building Delaunay mesh
-    | 'colors'    // Computing slope colors
     | 'forest'    // Typing vegetation from BD Forêt
     | 'done';     // Finished
 
@@ -32,7 +31,6 @@ export const STAGE_LABELS: Record<LidarProgressStage, string> = {
     tiles: 'Téléchargement et décodage…',
     normals: 'Calcul des normales…',
     mesh: 'Construction du maillage…',
-    colors: 'Calcul des couleurs…',
     forest: 'Typage de la végétation…',
     done: 'Terminé',
 };

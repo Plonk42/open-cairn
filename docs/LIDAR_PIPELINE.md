@@ -82,11 +82,10 @@ Plusieurs réglages sont cuits à la capture *et* rejoués à chaud, et n'ont do
 rien à faire là :
 
 - `lidarShader`, `lidarSnowLine`, `lidarSnowAmount`, `lidarRockType` — les quatre
-  champs de `PaletteSettings`. Chaque setter recolore les nuages de points
-  chargés via `colorsFromNormals`, qui appelle le même `vertexColor` que le
-  worker ; pour le maillage, les quatre réglages descendent en uniformes et
-  `mesh.vert` évalue la même palette portée en GLSL. Le résultat est identique.
-  Une palette est une **ambiance de scène**, pas un paramètre de capture.
+  champs de `PaletteSettings`. Ils ne sont plus cuits du tout : ils descendent en
+  uniformes, et `mesh.vert` comme `points.vert` évaluent la palette portée en
+  GLSL (`glsl/lib/palette.glsl`). Une palette est une **ambiance de scène**, pas
+  un paramètre de capture.
 - `lidarCloudClasses` — aucun `fetchLidar*` ne reçoit ce paramètre ; c'est un
   masque GPU (`LidarWebGLLayer.setClassMask`).
 - `lidarVegGroundGap` / `lidarVegGroundRough` — `recomputeVegHeights` refait les
@@ -173,7 +172,7 @@ uniformément.
 | [src/lib/lidarBrowser/normals.ts](../src/lib/lidarBrowser/normals.ts) | Normales par k-NN (k=12, 2 itérations) |
 | [src/lib/lidarBrowser/mesh.ts](../src/lib/lidarBrowser/mesh.ts) | Triangulation Delaunay 2.5D du sol, filtrage des longues arêtes |
 | [src/lib/lidarBrowser/poissonRecon.ts](../src/lib/lidarBrowser/poissonRecon.ts) | Wrapper WASM PoissonRecon v18.76 (chargement paresseux, parsing PLY binaire) |
-| [src/lib/lidarBrowser/slope.ts](../src/lib/lidarBrowser/slope.ts) | Couleurs RGBA dérivées des normales |
+| [src/lib/lidarBrowser/slope.ts](../src/lib/lidarBrowser/slope.ts) | Palette de référence CPU (`vertexColor`) — le rendu passe par `glsl/lib/palette.glsl` |
 | [src/lib/lidarBrowser/proj.ts](../src/lib/lidarBrowser/proj.ts) | WGS84 ↔ Lambert-93 |
 | [public/wasm/poissonrecon.mjs](../public/wasm/poissonrecon.mjs) | Bundle WASM PoissonRecon (chargé via `import()` dynamique) |
 
@@ -260,20 +259,19 @@ flowchart TD
 
     K -->|shaded| S[fetchLidarShaded]
     S --> S1[normals.ts<br/>computeNormalsKNN<br/>k=12, 2 iterations]
-    S1 --> S2[slope.ts<br/>colorsFromNormals]
-    S2 --> SO([LidarShadedCloudData<br/>+ normals + RGBA colors])
+    S1 --> SO([LidarShadedCloudData<br/>+ normals + classifications])
 
     K -->|delaunay| M[fetchLidarDelaunay]
     M --> M1[Split ground class=2<br/>vs non-ground]
     M1 --> M2[mesh.ts buildMesh<br/>2.5D Delaunator + maxEdge filter]
-    M2 --> M3[Non-ground:<br/>kNN normals + slope colors]
+    M2 --> M3[Non-ground:<br/>kNN normals]
     M3 --> MO([LidarMixedData<br/>mesh + shaded])
 
     K -->|poisson| P[fetchLidarPoisson]
     P --> P1[Split ground vs non-ground]
     P1 --> P2[poissonRecon.ts<br/>WASM reconstruct<br/>octree depth 6-12]
-    P2 --> P3[Parse binary PLY<br/>+ normalsAndColorsFromMesh]
-    P3 --> P4[Non-ground:<br/>kNN normals + slope colors]
+    P2 --> P3[Parse binary PLY<br/>+ normalsFromMesh]
+    P3 --> P4[Non-ground:<br/>kNN normals]
     P4 --> PO([LidarMixedData<br/>mesh + shaded])
 ```
 
@@ -283,8 +281,12 @@ flowchart TD
 - **Poisson** : reconstruction de surface PoissonRecon v18.76 (Misha Kazhdan)
   compilée en WASM, chargée paresseusement depuis `/wasm/poissonrecon.mjs`. Le
   module produit un PLY binaire qu'on reparse en `Float32Array` positions +
-  `Uint32Array` indices. Les normales et couleurs sont ensuite recalculées par
-  pondération d'aires (`normalsAndColorsFromMesh` dans `pipeline.ts`).
+  `Uint32Array` indices. Les normales sont ensuite recalculées par
+  pondération d'aires (`normalsFromMesh` dans `pipeline.ts`).
+
+Aucun de ces chemins ne produit de couleurs : la palette est évaluée par sommet
+dans les vertex shaders (voir `docs/LIDAR_RENDERING.md`), le pipeline ne sort que
+de la géométrie et des classifications.
 
 Dans les deux cas (`delaunay` et `poisson`), la sortie est un `LidarMixedData`
 (mesh sol + nuage ombré non-sol), donc la couche overlay les traite de la

@@ -169,20 +169,24 @@ Deux cas particuliers :
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
 
-⚠️ Recolorier le nuage de **points** est un travail **CPU sur le thread principal** (~50 ms pour
-190 k points) : un curseur qui appelle le setter à chaque `input` saccade la page. Utiliser un
-brouillon local et un `setTimeout(150)` dans un effet (cf. les curseurs « Ligne de neige » et
-« Enneigement »). Le **maillage**, lui, ne passe plus par `repaint` : sa palette est évaluée par
-sommet dans `mesh.vert` (`glsl/lib/palette.glsl`) à partir des uniformes `u_palettePreset`,
-`u_rockType`, `u_snowLine` et `u_snowAmount`, donc changer un réglage de palette ne coûte plus
-que l'écriture de l'uniforme.
+Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
+tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir
+des uniformes `u_palettePreset`, `u_rockType`, `u_snowLine` et `u_snowAmount`. Changer la ligne
+de neige d'un nuage de 2,1 M sommets et 377 k points est mesuré à **0,2 ms dans le store et zéro
+octet renvoyé au GPU** — le `setTimeout(150)` qui débounçait les curseurs « Ligne de neige » et
+« Enneigement » a donc été supprimé, ils écrivent directement dans le store. La couleur qui reste
+dans le tampon `a_color` du nuage de points est la couleur de **classification LAS** (végétation,
+bâti, eau), la seule qui ne soit pas fonction de la géométrie.
 
-Le recoloriage remplace l'objet `mesh`/`shaded`, donc les effets de poussée rappellent
-`setMesh`/`setData` avec **le même maillage**. Ces deux méthodes comparent les références des
+Le débounce reste en revanche nécessaire pour les réglages qui relancent un vrai calcul, comme
+les curseurs de hauteur de végétation (`recomputeVegHeights`).
+
+Quand un effet remplace bel et bien l'objet `mesh`/`shaded`, il rappelle `setMesh`/`setData` avec
+**le même maillage**. Ces deux méthodes comparent les références des
 tableaux déjà téléversés (`_uploadedMesh` / `_uploadedPoints`) et ne renvoient au GPU que ceux qui
-ont changé : sans cela un simple changement de palette re-téléversait positions, normales, indices
+ont changé : sans cela un simple changement d'objet re-téléversait positions, normales, indices
 et masques, et surtout relançait toute la simplification LOD (passe WASM d'effondrement d'arêtes),
-faisant retomber le maillage au LOD 0 à chaque pas de curseur. Corollaire pour qui touche à ce
+faisant retomber le maillage au LOD 0. Corollaire pour qui touche à ce
 code : **un producteur doit allouer un nouveau tableau plutôt que muter le précédent en place**,
 sinon la modification est invisible pour le GPU. `clear()` / `clearMesh()` vident ces caches.
 

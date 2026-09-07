@@ -207,26 +207,16 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     }, [setLodDebugInfo, lidarShaded, lidarMesh]);
 
     // ── Compute base colour buffer for the WebGL shaded cloud ─────────────────
-    // Ground (class 2) uses the server slope palette; every other class uses its
-    // classification colour. Vegetation foliage colouring (palette + intensity +
-    // height scale) is applied on the GPU in the vertex shader, so this buffer is
-    // independent of the foliage sliders and never rebuilt when they move.
+    // Chaque point reçoit la couleur de sa classification. Le sol (classe 2) et
+    // le feuillage sont recolorés dans le vertex shader — palette d'albédo et
+    // dégradé de végétation sont des uniformes, donc ce tampon ne dépend
+    // d'aucun réglage et n'est jamais reconstruit.
     const shadedColors = useMemo(() => {
         if (!lidarShaded) return null;
-        const { pointCount, colors, classifications } = lidarShaded;
+        const { pointCount, classifications } = lidarShaded;
         const out = new Uint8Array(pointCount * 4);
         for (let i = 0; i < pointCount; i++) {
-            const cls = classifications[i] ?? 0;
-            let r: number, g: number, b: number;
-            if (cls === 2) {
-                // Slope palette from the server
-                r = colors[i * 4];
-                g = colors[i * 4 + 1];
-                b = colors[i * 4 + 2];
-            } else {
-                // Classification palette (also the base the GPU foliage ramp blends from)
-                [r, g, b] = LAS_CLASS_COLORS[cls] ?? [200, 200, 200];
-            }
+            const [r, g, b] = LAS_CLASS_COLORS[classifications[i] ?? 0] ?? [200, 200, 200];
             out[i * 4] = r;
             out[i * 4 + 1] = g;
             out[i * 4 + 2] = b;

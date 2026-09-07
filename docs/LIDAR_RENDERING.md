@@ -88,8 +88,8 @@ Le panneau **LiDAR** offre trois modes de rendu :
 
 ```mermaid
 flowchart TD
-    Store[mapStore.lidarShaded<br/>positions, normals, colors, classifs] --> Layer[LidarWebGLLayer]
-    Layer --> VBO[Upload VBOs<br/>a_pos, a_normal, a_color, a_class]
+    Store[mapStore.lidarShaded<br/>positions, normals, classifs] --> Layer[LidarWebGLLayer]
+    Layer --> VBO[Upload VBOs<br/>a_pos, a_normal, a_color LAS, a_class]
     Layer --> P1[Pass 1: render to FBO]
     P1 --> VS[VS_POINTS shader]
     P1 --> FS[FS_POINTS shader]
@@ -107,7 +107,7 @@ flowchart TD
 #version 300 es
 in vec3 a_pos;       // METER_OFFSETS
 in vec3 a_normal;
-in vec4 a_color;
+in vec4 a_color;     // couleur de classification LAS uniquement
 in float a_class;
 
 uniform mat4 u_matrix;
@@ -146,6 +146,13 @@ void main() {
 
 Constantes : ambient = 0.35, diffuse = 0.75. Le `0.35` empêche les zones non éclairées
 de devenir noires.
+
+Dans le shader réel, `a_color` n'est utilisée telle quelle que pour les points
+**non-sol** : les points de classe 2 (sol) prennent la palette évaluée sur place par
+`paletteAlbedo` (`glsl/lib/palette.glsl`), pilotée par les uniformes
+`u_palettePreset`, `u_rockType`, `u_snowLine` et `u_snowAmount`, exactement comme
+`mesh.vert`. Aucune couleur dérivée de la géométrie n'est donc pré-calculée ni
+téléversée : changer un réglage de palette ne coûte que l'écriture des uniformes.
 
 ### Conversion mètres → Mercator
 

@@ -167,7 +167,8 @@ puis **3 + 5** dans le pipeline, et seulement ensuite revenir sur profondeur/str
 | 2026-09-06 | **§5.5** — pelouse unique à *Été* et *Montagne* (`alpineTurf`), un peu moins jaune, et **ligne de neige réglable** (curseur *Ligne de neige*, section Shader, défaut 2700 m) qui pilote à la fois les névés, la ceinture d'alpage et le dessèchement de l'herbe. | ✅ |
 | 2026-09-06 | **§5.7** — les cinq presets fondus en trois : *Été* + *Montagne* → **Terrain**, *Hiver* supprimé (c'est *Terrain* à ligne de neige basse). La lithologie devient un réglage à part (*Roche* : calcaire / granite / schiste). Fenêtre de luminance de `rockAlbedo.glsl` remontée à 0,76-0,86, le calcaire à 0,674 y était lu comme de la neige. | ✅ |
 | 2026-09-06 | **§5.8** — curseur *Enneigement* : l'épaisseur du manteau séparée de son altitude. | ✅ |
-| 2026-09-07 | **§5.9** — palette du **maillage** portée dans `mesh.vert` (`glsl/lib/palette.glsl`) : ~1 100 ms de recoloriage CPU par pas de curseur remplacés par quatre uniformes. Le taux de neige devient un varying, donc `u_snowPalette` et l'inférence par luminance de `rockness` disparaissent. Le nuage de points reste sur CPU (~50 ms). | ✅ |
+| 2026-09-07 | **§5.9** — palette du **maillage** portée dans `mesh.vert` (`glsl/lib/palette.glsl`) : ~1 100 ms de recoloriage CPU par pas de curseur remplacés par quatre uniformes. Le taux de neige devient un varying, donc `u_snowPalette` et l'inférence par luminance de `rockness` disparaissent. | ✅ |
+| 2026-09-07 | **§5.9** — palette du **nuage de points** portée à son tour dans `points.vert` (le sol prend `paletteAlbedo`, `a_color` ne porte plus que la classification LAS). Plus rien ne lisant les couleurs pré-calculées, `colors` disparaît du pipeline, du worker, d'IndexedDB et du format de scène, avec `recolorMeshVertices` / `colorsFromNormals` / `paletteOf` / `repaint`. Mesuré : 47 ms → **0,2 ms** dans le store, zéro téléversement GPU. | ✅ |
 
 ---
 
@@ -422,12 +423,14 @@ Deux conséquences de mise en œuvre :
   `recolorMeshVertices`, pas un paramètre optionnel avec défaut : c'est le
   compilateur qui garantit qu'aucun site d'appel n'ignore silencieusement le
   réglage de l'utilisateur. *(Ces paramètres sont depuis regroupés dans un objet
-  `PaletteSettings`, toujours requis — voir §5.7.)*
+  `PaletteSettings`, toujours requis — voir §5.7. `colorsFromNormals` et
+  `recolorMeshVertices` n'existent plus depuis §5.9.)*
 - Le recoloriage est **CPU**, sur le thread principal (~0,45 s pour 1,5 M
   sommets). Le curseur affiche donc sa valeur immédiatement mais ne déclenche le
   repeint qu'après 150 ms de stabilité, comme les curseurs forêt. Le réglage
   n'est **pas** un paramètre de capture : il rejoue à chaud, il appartient à
-  l'ambiance de scène.
+  l'ambiance de scène. *(Le recoloriage CPU a disparu en §5.9 ; la palette est
+  évaluée par le shader et le débounce a été supprimé.)*
 
 ### 5.6 Piège de méthode : les portes ne compilent pas le GLSL
 
@@ -585,8 +588,40 @@ luminance ; son dernier paramètre s'appelle `snow`, plus `snowEdge`. La fenêtr
 de luminance survit uniquement pour l'orthophoto drapée, où il n'y a
 effectivement rien d'autre à interroger.
 
-**Reste sur CPU** : le nuage de **points**, dont `colorsFromNormals` coûte ~50 ms
-pour 190 k points — assez pour saccader un drag de curseur, pas assez pour figer
-la page. Le portage est le même patron, à ceci près qu'il faut aussi porter la
-coloration par classe LAS.
+#### Le nuage de points a suivi, et le chemin CPU a été supprimé
+
+*2026-09-07, même journée.* Le nuage de points restait sur CPU : `colorsFromNormals`
+y coûtait ~50 ms pour 190 k points — assez pour saccader un drag de curseur, pas
+assez pour figer la page. Il descend maintenant par le même patron dans
+`points.vert` :
+
+```glsl
+vec3 baseCol = (c == 2u)
+    ? paletteAlbedo(nrm, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType).rgb
+    : a_color.rgb;
+```
+
+`a_color` ne transporte plus que la **couleur de classification LAS** — végétation,
+bâti, eau —, c'est-à-dire la seule couleur qui ne soit pas fonction de la
+géométrie. Le sol (classe 2) prend la palette du shader, comme le maillage.
+
+Une fois les deux chemins portés, plus rien ne lisait `colors` : le champ a
+disparu de `LidarMeshData` et de `LidarShadedCloudData`, donc du worker, du
+pipeline, du format d'IndexedDB et du format de scène (les tags 2 et 6 sont
+retirés ; le format étant adressé par tag, les scènes déjà publiées décodent
+toujours, les deux tampons sont simplement ignorés). `recolorMeshVertices`,
+`colorsFromNormals`, `paletteOf` et le helper `repaint` du store sont supprimés :
+un setter de palette est redevenu un `set({ … })` de trois lignes.
+
+Mesuré après portage, sur un déplacement de la *ligne de neige* avec un nuage de
+2,1 M sommets et 377 k points chargé : **0,2 ms dans le store, 14 ms jusqu'à la
+frame suivante, 0 octet et 0 appel `bufferData`.** Avant l'étape 3, le même geste
+coûtait 47 ms entièrement synchrones dans le store.
+
+**Ce qui est conservé volontairement.** `vertexColor` (et son test) survit dans
+`slope.ts` alors que le rendu ne l'appelle plus : aucune porte de validation ne
+compile le GLSL, donc c'est la **seule spécification exécutable** de la palette.
+Toute modification de rampe doit être faite aux deux endroits, `slope.ts` et
+`palette.glsl` — duplication assumée, faute de quoi la palette n'aurait plus
+aucune couverture de test.
 

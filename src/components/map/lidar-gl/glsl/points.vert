@@ -49,6 +49,12 @@ uniform uint  u_speciesMask[8];    // 256-bit legend-id visibility mask
 // `cameraFromMatrix()`. Divisée par u_mpu, la distance devient métrique.
 uniform vec3 u_camPos;
 
+// Palette d'albédo du sol — mêmes uniformes que le maillage.
+uniform int u_palettePreset;
+uniform int u_rockType;
+uniform float u_snowLine;
+uniform float u_snowAmount;
+
 out vec3 v_albedo;
 out float v_diff;
 out float v_flatDiff;
@@ -64,6 +70,7 @@ out float v_isGround;
 out float v_emissive;   // 1 = flat/emissive diagnostic colour (bypass shading)
 
 #include ./lib/flatLight.glsl;
+#include ./lib/palette.glsl;
 
 // Déclaré aussi par lib/pbr.glsl côté fragment : même programme, même uniforme.
 uniform float u_pbr;         // 0 = ombrage sRGB historique, 1 = linéaire tone-mappé
@@ -274,7 +281,11 @@ void main() {
     // Coloration du feuillage calculée sur le GPU : « Dégradé feuillage »
     // (intensité) et « Hauteur max » (échelle) sont de simples uniforms → les
     // sliders sont instantanés, sans recalcul CPU ni ré-upload du nuage.
-    vec3 baseCol = a_color.rgb;
+    // Le sol reçoit la palette d'albédo, évaluée ici pour la même raison ;
+    // a_color ne porte plus que la couleur de classification.
+    vec3 baseCol = (c == 2u)
+        ? paletteAlbedo(nrm, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType).rgb
+        : a_color.rgb;
     v_emissive = 0.0;
     if (u_vegColorMode > 2.5 && isVeg) {
         // « Analyse hauteur » : fausses couleurs plates révélant la décision de

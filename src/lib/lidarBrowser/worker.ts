@@ -11,9 +11,9 @@
  *                | { id, type: 'err',      error: { message, code? } }
  *                | { id, type: 'progress', progress: LidarProgress }
  *
- * All large outputs (positions / normals / colors / classifications /
- * indices) are sent back as transferables so the buffers move zero-copy
- * across the worker boundary.
+ * All large outputs (positions / normals / classifications / indices) are
+ * sent back as transferables so the buffers move zero-copy across the
+ * worker boundary.
  */
 /// <reference lib="webworker" />
 import { fetchLidarDelaunay, fetchLidarPoisson, fetchLidarShaded } from './pipeline';

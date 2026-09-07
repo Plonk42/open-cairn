@@ -11,12 +11,10 @@
  * as a denoising filter, producing a smooth surface that lights cleanly.
  */
 import type { MeshResult } from './mesh';
-import { vertexColor, type PaletteSettings } from './slope';
 
 const EMPTY: MeshResult = {
     positions: new Float32Array(0),
     normals: new Float32Array(0),
-    colors: new Uint8Array(0),
     indices: new Uint32Array(0),
 };
 
@@ -25,14 +23,12 @@ const EMPTY: MeshResult = {
  *
  * @param positions   Interleaved (dx, dy, z) meter-offset float32.
  * @param cellSize    Grid resolution in meters (default 1 m for IGN HD).
- * @param palette     Preset, ligne de neige et lithologie (voir `slope.ts`).
  * @param holeFill    Iterations of 3×3 mean-fill (default 2). Each pass
  *                    extends valid coverage by 1 cell. Large gaps stay empty.
  */
 export function buildGridMesh(
     positions: Float32Array,
     cellSize: number,
-    palette: PaletteSettings,
     holeFill = 2,
 ): MeshResult {
     const n = positions.length / 3;
@@ -153,20 +149,7 @@ export function buildGridMesh(
         }
     }
 
-    // 6. Colors from the shader palette (same as Delaunay for consistency).
-    const outColors = new Uint8Array(vCount * 4);
-    for (let v = 0; v < vCount; v++) {
-        const [r, g, b] = vertexColor(
-            outNormals[v * 3], outNormals[v * 3 + 1], outNormals[v * 3 + 2],
-            outPos[v * 3 + 2], palette,
-        );
-        outColors[v * 4] = r;
-        outColors[v * 4 + 1] = g;
-        outColors[v * 4 + 2] = b;
-        outColors[v * 4 + 3] = 255;
-    }
-
-    // 7. Emit two triangles per quad whose 4 corners are all valid AND whose
+    // 6. Emit two triangles per quad whose 4 corners are all valid AND whose
     //    Z-span is below a lax cutoff (keeps cliffs, drops bridges across
     //    deep canyons / no-data trenches).
     const maxQuadDz = Math.max(50, cellSize * 200);
@@ -190,7 +173,6 @@ export function buildGridMesh(
     return {
         positions: outPos,
         normals: outNormals,
-        colors: outColors,
         indices: new Uint32Array(idx),
     };
 }

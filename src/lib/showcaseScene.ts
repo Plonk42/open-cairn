@@ -39,22 +39,22 @@ const ENC_INDEX = 1;
 /**
  * Tag-space reserved per cloud so a scene can bundle several clouds/meshes
  * without changing the per-buffer header layout: the primary cloud keeps the
- * original tags 0-12 (byte-identical to every scene ever exported), and each
- * extra cloud's buffers reuse the same tags shifted by `index * STRIDE`. Since
- * the highest tag value is 12, a stride of 16 leaves room for up to
- * `MAX_CLOUDS` clouds while the tag still fits in a single byte.
+ * tags 0-12 and each extra cloud's buffers reuse the same tags shifted by
+ * `index * STRIDE`. Since the highest tag value is 12, a stride of 16 leaves
+ * room for up to `MAX_CLOUDS` clouds while the tag still fits in a single byte.
  */
 const CLOUD_TAG_STRIDE = 16;
 const MAX_CLOUDS = Math.floor(255 / CLOUD_TAG_STRIDE) + 1;
 
+// Les tags 2 et 6 (couleurs par sommet) ont été retirés : la palette est évaluée
+// dans les vertex shaders. Les valeurs restantes gardent leur numéro pour que
+// la table reste lisible à côté des scenes déjà publiées.
 const TAG = {
     shadedPositions: 0,
     shadedNormals: 1,
-    shadedColors: 2,
     shadedClass: 3,
     meshPositions: 4,
     meshNormals: 5,
-    meshColors: 6,
     meshIndices: 7,
     meshMacroNormals: 8,
     shadedForestTfv: 9,
@@ -355,7 +355,6 @@ function collectCloudDescriptors(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>, 
         descriptors.push(
             vertexDescriptor(tagOffset + TAG.shadedPositions, shaded.positions, 12),
             vertexDescriptor(tagOffset + TAG.shadedNormals, shaded.normals, 12),
-            vertexDescriptor(tagOffset + TAG.shadedColors, shaded.colors, 4),
             vertexDescriptor(tagOffset + TAG.shadedClass, shaded.classifications, 1),
         );
         if (shaded.forestTfv) {
@@ -372,7 +371,6 @@ function collectCloudDescriptors(cloud: Pick<ShowcaseScene, 'shaded' | 'mesh'>, 
         descriptors.push(
             vertexDescriptor(tagOffset + TAG.meshPositions, mesh.positions, 12),
             vertexDescriptor(tagOffset + TAG.meshNormals, mesh.normals, 12),
-            vertexDescriptor(tagOffset + TAG.meshColors, mesh.colors, 4),
             indexDescriptor(tagOffset + TAG.meshIndices, mesh.indices),
         );
         if (mesh.macroNormals) {
@@ -582,7 +580,6 @@ function buildShaded(meta: ShadedMeta, buffers: Map<number, Uint8Array>, tagOffs
         pointCount: n,
         positions: floatView(buffers, tagOffset + TAG.shadedPositions, n * 3),
         normals: floatView(buffers, tagOffset + TAG.shadedNormals, n * 3),
-        colors: byteView(buffers, tagOffset + TAG.shadedColors, n * 4),
         classifications: byteView(buffers, tagOffset + TAG.shadedClass, n),
         forestTfv: meta.hasForestTfv ? byteView(buffers, tagOffset + TAG.shadedForestTfv, n) : undefined,
         treeSeed: meta.hasTreeSeed ? byteView(buffers, tagOffset + TAG.shadedTreeSeed, n) : undefined,
@@ -604,7 +601,6 @@ function buildMesh(meta: MeshMeta, buffers: Map<number, Uint8Array>, tagOffset =
         triangleCount: meta.triangleCount,
         positions: floatView(buffers, tagOffset + TAG.meshPositions, v * 3),
         normals: floatView(buffers, tagOffset + TAG.meshNormals, v * 3),
-        colors: byteView(buffers, tagOffset + TAG.meshColors, v * 4),
         indices: new Uint32Array(raw.buffer, 0, meta.triangleCount * 3),
         macroNormals: meta.hasMacroNormals ? byteView(buffers, tagOffset + TAG.meshMacroNormals, v * 3) : undefined,
         baseMask: meta.hasBaseMask ? byteView(buffers, tagOffset + TAG.meshBaseMask, v) : undefined,

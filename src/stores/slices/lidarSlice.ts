@@ -8,7 +8,7 @@ import {
 } from '@/lib/lidarBrowser';
 import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
-import { colorsFromNormals, DEFAULT_ROCK, DEFAULT_SNOW_AMOUNT, DEFAULT_SNOW_LINE, recolorMeshVertices, type PaletteSettings, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
+import { DEFAULT_ROCK, DEFAULT_SNOW_AMOUNT, DEFAULT_SNOW_LINE, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
     clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
     screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
@@ -713,41 +713,13 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarForestSpeciesFilterOn: false,
 };
 
-/** Les trois réglages qui décident d'une couleur de sommet. */
-function paletteOf(s: Pick<LidarSlice, 'lidarShader' | 'lidarSnowLine' | 'lidarSnowAmount' | 'lidarRockType'>): PaletteSettings {
-    return {
-        preset: s.lidarShader,
-        snowLine: s.lidarSnowLine,
-        snowAmount: s.lidarSnowAmount,
-        rock: s.lidarRockType,
-    };
-}
-
 /**
- * Recolor EVERY loaded cloud/mesh (not just the "primary" one): the palette
- * settings are global render settings shown for all simultaneously displayed
- * clouds, so all of them must recolor together.
- *
- * Seul le nuage de POINTS est recolorié ici. Le maillage, lui, évalue la
- * palette par sommet dans son vertex shader (`glsl/lib/palette.glsl`) : les
- * réglages descendent en uniformes et rien ne repart au GPU.
+ * Les quatre réglages de palette (preset, ligne de neige, quantité de neige,
+ * lithologie) ne sont plus que des uniformes : `LidarCloudOverlay` les pousse
+ * au calque WebGL, qui évalue la palette par sommet dans ses vertex shaders
+ * (`glsl/lib/palette.glsl`). Aucun tampon ne repart au GPU, donc leurs setters
+ * n'ont rien à recalculer.
  */
-function repaint(
-    state: Pick<LidarSlice, 'lidarClouds'>,
-    palette: PaletteSettings,
-): Pick<LidarSlice, 'lidarClouds' | 'lidarShaded'> {
-    const lidarClouds = state.lidarClouds.map((cloud) => ({
-        ...cloud,
-        shaded: cloud.shaded
-            ? { ...cloud.shaded, colors: colorsFromNormals(cloud.shaded.normals, palette, cloud.shaded.positions) }
-            : cloud.shaded,
-    }));
-    return {
-        lidarClouds,
-        lidarShaded: lidarClouds[0]?.shaded ?? null,
-    };
-}
-
 export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => {
     /**
      * Apply a patch to the "primary" cloud (`lidarClouds[0]`) and keep the
@@ -779,21 +751,13 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
         setLidarMode: (lidarMode) => set({ lidarMode }),
         lidarShader: SHADER_PRESETS.has(persisted.lidarShader as ShaderPreset) ? persisted.lidarShader as ShaderPreset : LIDAR_RENDER_DEFAULTS.lidarShader,
-        setLidarShader: (preset) => {
-            set({ lidarShader: preset, ...repaint(get(), { ...paletteOf(get()), preset }) });
-        },
+        setLidarShader: (lidarShader) => set({ lidarShader }),
         lidarSnowLine: persisted.lidarSnowLine ?? LIDAR_RENDER_DEFAULTS.lidarSnowLine,
-        setLidarSnowLine: (snowLine) => {
-            set({ lidarSnowLine: snowLine, ...repaint(get(), { ...paletteOf(get()), snowLine }) });
-        },
+        setLidarSnowLine: (lidarSnowLine) => set({ lidarSnowLine }),
         lidarSnowAmount: persisted.lidarSnowAmount ?? LIDAR_RENDER_DEFAULTS.lidarSnowAmount,
-        setLidarSnowAmount: (snowAmount) => {
-            set({ lidarSnowAmount: snowAmount, ...repaint(get(), { ...paletteOf(get()), snowAmount }) });
-        },
+        setLidarSnowAmount: (lidarSnowAmount) => set({ lidarSnowAmount }),
         lidarRockType: ROCK_TYPES.has(persisted.lidarRockType as RockType) ? persisted.lidarRockType as RockType : LIDAR_RENDER_DEFAULTS.lidarRockType,
-        setLidarRockType: (rock) => {
-            set({ lidarRockType: rock, ...repaint(get(), { ...paletteOf(get()), rock }) });
-        },
+        setLidarRockType: (lidarRockType) => set({ lidarRockType }),
         lidarShaded: null,
         lidarMesh: null,
         lidarClouds: [],
@@ -1050,7 +1014,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         stride: state.lidarCloudStride,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        palette: paletteOf(state),
                         gridMesh: state.lidarMeshSmooth,
                         gridCell: state.lidarGridCell,
                         onProgress,
@@ -1076,7 +1039,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         poissonFlatBase: state.lidarCloudPoissonFlatBase,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        palette: paletteOf(state),
                         onProgress,
                     });
                     shadedResult = composite.shaded;
@@ -1092,7 +1054,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         stride: state.lidarCloudStride,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
-                        palette: paletteOf(state),
                         onProgress,
                     });
                     meshResult = null;
@@ -1122,22 +1083,10 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         },
         addLidarCloudSnapshot: (data, meta) => {
             if (!data.shaded && !data.mesh) return;
-            // Incoming geometry may carry colors baked with a stale shader —
-            // the "recently loaded" gallery keys by capture params only (not by
-            // shader), and a saved scene's mesh was colored whenever it was
-            // originally exported. Always recolor against the *currently
-            // selected* shader here so a gallery pick immediately matches what
-            // the UI shows as active, instead of silently keeping old colors
-            // until the next manual toggle.
-            const palette = paletteOf(get());
             const entry: LoadedLidarCloud = {
                 id: `lidar-cloud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                shaded: data.shaded
-                    ? { ...data.shaded, colors: colorsFromNormals(data.shaded.normals, palette, data.shaded.positions) }
-                    : data.shaded,
-                mesh: data.mesh
-                    ? { ...data.mesh, colors: recolorMeshVertices(data.mesh.normals, data.mesh.positions, data.mesh.macroNormals, palette) }
-                    : data.mesh,
+                shaded: data.shaded,
+                mesh: data.mesh,
                 visible: true,
                 createdAt: Date.now(),
                 mode: meta.mode,
@@ -1180,8 +1129,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 contourLinesEnabled: false,
                 contourLinesOpacity: 0.4,
             });
-            // Go through the shader setter so the loaded geometry is recolored.
-            get().setLidarShader(LIDAR_RENDER_DEFAULTS.lidarShader);
         },
     };
 };

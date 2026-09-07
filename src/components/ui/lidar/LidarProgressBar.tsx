@@ -1,7 +1,7 @@
 import { STAGE_LABELS, type LidarProgress, type LidarProgressStage } from '@/lib/lidarBrowser';
 
 /** Progress stage ordering for the progress bar. */
-const STAGE_ORDER: LidarProgressStage[] = ['wfs', 'tiles', 'normals', 'mesh', 'colors', 'forest', 'done'];
+const STAGE_ORDER: LidarProgressStage[] = ['wfs', 'tiles', 'normals', 'mesh', 'forest', 'done'];
 
 /** Staged progress bar shown while a LiDAR cloud is loading. */
 export function LidarProgressBar({ progress }: Readonly<{ progress: LidarProgress }>) {

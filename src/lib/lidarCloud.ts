@@ -31,8 +31,6 @@ export interface LidarMeshData {
     positions: Float32Array;
     /** Interleaved (nx, ny, nz) Float32, length = 3 * vertexCount. */
     normals: Float32Array;
-    /** RGBA Uint8, length = 4 * vertexCount. */
-    colors: Uint8Array;
     /** Triangle vertex indices, length = 3 * triangleCount. */
     indices: Uint32Array;
     /**
@@ -62,8 +60,6 @@ export interface LidarShadedCloudData {
     positions: Float32Array;
     /** Interleaved (nx, ny, nz) Float32 per point. */
     normals: Float32Array;
-    /** RGBA Uint8 per point (slope-based palette). */
-    colors: Uint8Array;
     /** ASPRS LAS classification per point. */
     classifications: Uint8Array;
     /**
@@ -131,7 +127,7 @@ export interface LidarMixedData {
     radius: number;
     /** Ground-only triangulated surface. */
     mesh: LidarMeshData;
-    /** All non-ground points with normals + colors, GPU-class-filterable. */
+    /** All non-ground points with normals, GPU-class-filterable. */
     shaded: LidarShadedCloudData;
 }
 

@@ -330,6 +330,12 @@ function terrainAlbedo(
  * on a 50 cm lapiaz carries tens of degrees of reconstruction noise: feeding it
  * the lighting normal turns that noise into per-vertex salt-and-pepper. See
  * `macroVertexNormals` in `pipeline.ts`.
+ *
+ * Le rendu n'appelle plus cette fonction : la palette est évaluée dans les
+ * vertex shaders (`glsl/lib/palette.glsl`). Elle reste la **référence** — la
+ * seule version testable, les portes ne compilant pas le GLSL — et la source
+ * documentaire du pourquoi de chaque constante. Toute retouche de palette se
+ * fait ici *et* dans le port GLSL.
  */
 export function vertexColor(
     nx: number, ny: number, nz: number,
@@ -343,57 +349,4 @@ export function vertexColor(
     if (palette.preset === 'base') return interpolatePalette(BASE_PALETTE, slopeDeg);
     if (palette.preset === 'slope') return interpolatePalette(SLOPE_PALETTE, slopeDeg);
     return terrainAlbedo(nx, ny, z, slopeDeg, palette.snowLine, palette.snowAmount, palette.rock);
-}
-
-/**
- * Recompute RGBA colors for a mesh given its stored per-vertex data.
- *
- * `macroNormals` is the decametre-scale orientation field (Uint8, 3 per vertex,
- * `v * 127.5 + 127.5`) built at reconstruction time; it — not the lighting
- * normal — is what the palette must see. Meshes built before it existed
- * (Delaunay/Mixed) fall back to the lighting normal.
- */
-export function recolorMeshVertices(
-    normals: Float32Array,
-    positions: Float32Array,
-    macroNormals: Uint8Array | undefined,
-    palette: PaletteSettings,
-): Uint8Array {
-    const n = normals.length / 3;
-    const colors = new Uint8Array(n * 4);
-    for (let i = 0; i < n; i++) {
-        const nx = macroNormals ? macroNormals[i * 3] / 127.5 - 1 : normals[i * 3];
-        const ny = macroNormals ? macroNormals[i * 3 + 1] / 127.5 - 1 : normals[i * 3 + 1];
-        const nz = macroNormals ? macroNormals[i * 3 + 2] / 127.5 - 1 : normals[i * 3 + 2];
-        const z = positions[i * 3 + 2];
-        const [cr, cg, cb] = vertexColor(nx, ny, nz, z, palette);
-        colors[i * 4] = cr;
-        colors[i * 4 + 1] = cg;
-        colors[i * 4 + 2] = cb;
-        colors[i * 4 + 3] = 255;
-    }
-    return colors;
-}
-
-/**
- * Per-point RGBA from a normals buffer (for shaded-cloud mode).
- * Elevation is taken from the positions buffer when available.
- */
-export function colorsFromNormals(
-    normals: Float32Array,
-    palette: PaletteSettings,
-    positions?: Float32Array,
-): Uint8Array {
-    const n = normals.length / 3;
-    const colors = new Uint8Array(n * 4);
-    for (let i = 0; i < n; i++) {
-        const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
-        const z = positions ? positions[i * 3 + 2] : 0;
-        const [r, g, b] = vertexColor(nx, ny, nz, z, palette);
-        colors[i * 4] = r;
-        colors[i * 4 + 1] = g;
-        colors[i * 4 + 2] = b;
-        colors[i * 4 + 3] = 255;
-    }
-    return colors;
 }

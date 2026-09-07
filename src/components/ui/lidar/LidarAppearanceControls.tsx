@@ -9,7 +9,6 @@ import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
-import { useEffect, useState } from 'react';
 
 /**
  * Shared visual treatment for controls gated behind `?debug=`: a dashed amber
@@ -223,26 +222,8 @@ export function ShaderControls() {
     const setShader = useMapStore((s) => s.setLidarShader);
     const snowLine = useMapStore((s) => s.lidarSnowLine);
     const setSnowLine = useMapStore((s) => s.setLidarSnowLine);
-    // Changer la ligne de neige repeint chaque sommet chargé sur le thread
-    // principal (~0,4 s sur un maillage de 1,5 M sommets) : le curseur affiche
-    // sa valeur immédiatement mais ne recolorie qu'une fois le geste stabilisé,
-    // sinon le glissement se fige. Même parti pris que les curseurs forêt.
-    const [snowLineDraft, setSnowLineDraft] = useState(snowLine);
-    useEffect(() => setSnowLineDraft(snowLine), [snowLine]);
-    useEffect(() => {
-        if (snowLineDraft === snowLine) return undefined;
-        const handle = globalThis.setTimeout(() => setSnowLine(snowLineDraft), 150);
-        return () => globalThis.clearTimeout(handle);
-    }, [snowLineDraft, snowLine, setSnowLine]);
     const snowAmount = useMapStore((s) => s.lidarSnowAmount);
     const setSnowAmount = useMapStore((s) => s.setLidarSnowAmount);
-    const [snowAmountDraft, setSnowAmountDraft] = useState(snowAmount);
-    useEffect(() => setSnowAmountDraft(snowAmount), [snowAmount]);
-    useEffect(() => {
-        if (snowAmountDraft === snowAmount) return undefined;
-        const handle = globalThis.setTimeout(() => setSnowAmount(snowAmountDraft), 150);
-        return () => globalThis.clearTimeout(handle);
-    }, [snowAmountDraft, snowAmount, setSnowAmount]);
     const rockType = useMapStore((s) => s.lidarRockType);
     const setRockType = useMapStore((s) => s.setLidarRockType);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
@@ -280,13 +261,13 @@ export function ShaderControls() {
                         <span title="Altitude des derniers névés sur une face sud — les faces nord les tiennent 300 m plus bas. C’est ce curseur qui fait la saison : la neige, la limite de l’alpage et le dessèchement de la pelouse s’y calent tous. Plus on s’en approche, plus l’herbe se clairseme et vire au paillé. À 5000 m il passe au-dessus du mont Blanc : plus un flocon nulle part.">
                             Ligne de neige
                         </span>
-                        <span className="font-mono text-xs text-slate-400">{snowLineDraft} m</span>
+                        <span className="font-mono text-xs text-slate-400">{snowLine} m</span>
                     </div>
                     <input
                         aria-label="Altitude de la ligne de neige"
                         type="range" min={0} max={5000} step={50}
-                        value={snowLineDraft}
-                        onChange={(e) => setSnowLineDraft(Number(e.target.value))}
+                        value={snowLine}
+                        onChange={(e) => setSnowLine(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>
@@ -298,13 +279,13 @@ export function ShaderControls() {
                         <span title="Épaisseur du manteau, indépendante de son altitude : jusqu’où la neige plâtre la pente, et si sa limite basse est franche ou traîne en névés épars. Une pellicule ne se pose que sur les replats et ne masque rien du relief ; un gros manteau couvre les vires et les dalles et ne cède que dans le surplomb. Descendre la ligne de neige ne saura jamais imiter ça : une paroi raide reste nue à toute altitude.">
                             Enneigement
                         </span>
-                        <span className="font-mono text-xs text-slate-400">{Math.round(snowAmountDraft * 100)}%</span>
+                        <span className="font-mono text-xs text-slate-400">{Math.round(snowAmount * 100)}%</span>
                     </div>
                     <input
                         aria-label="Épaisseur du manteau neigeux"
                         type="range" min={0} max={1} step={0.05}
-                        value={snowAmountDraft}
-                        onChange={(e) => setSnowAmountDraft(Number(e.target.value))}
+                        value={snowAmount}
+                        onChange={(e) => setSnowAmount(Number(e.target.value))}
                         className="mt-1 w-full accent-green-600"
                     />
                 </label>
