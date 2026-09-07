@@ -1,81 +1,81 @@
 #version 300 es
 // Pass 1 — render the ground mesh into the same FBO as the points.
 //
-// Le mesh peut recevoir une texture orthophoto IGN drapée en projection nadir
-// (vue de dessus). L'albédo de base (couleur de palette) et la photo sont
-// mélangés dans le fragment shader selon `u_photoOpacity`, puis éclairés par le
-// même modèle ambient/diffus + ombres que les points. Pour pouvoir mélanger
-// l'albédo *avant* l'éclairage, on transmet l'albédo brut (v_albedo) au lieu
-// des termes ambient/diffus pré-calculés.
+// The mesh can receive an IGN orthophoto texture draped in nadir projection
+// (top-down view). The base albedo (palette colour) and the photo are blended
+// in the fragment shader according to `u_photoOpacity`, then lit by the same
+// ambient/diffuse + shadow model as the points. To be able to blend the albedo
+// *before* lighting, the raw albedo (v_albedo) is passed through instead of
+// pre-computed ambient/diffuse terms.
 //
-// L'éclairage lui-même est résolu PAR FRAGMENT (mesh.frag) : ce shader ne fait
-// que transmettre la normale. C'est la condition pour pouvoir la perturber à
-// l'échelle du pixel (mélange avec la normale géométrique, micro-relief) — un
-// terme diffus pré-calculé par sommet ne laisserait rien à perturber.
+// Lighting itself is resolved PER FRAGMENT (mesh.frag): this shader only passes
+// the normal along. That is the prerequisite for perturbing it at pixel scale
+// (blend with the geometric normal, micro-relief) — a diffuse term
+// pre-computed per vertex would leave nothing to perturb.
 precision highp float;
 
 #include ./lib/palette.glsl;
 
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;
-// Normale MACRO encodée (v * 127.5 + 127.5), lue normalisée donc dans [0,1] :
-// c'est l'orientation du terrain à l'échelle décamétrique, la seule que la
-// palette puisse regarder. Voir `macroVertexNormals` dans pipeline.ts.
+// Encoded MACRO normal (v * 127.5 + 127.5), read normalized hence in [0,1]:
+// this is the terrain orientation at decametric scale, the only one the palette
+// may look at. See `macroVertexNormals` in pipeline.ts.
 layout(location = 2) in vec3 a_macro;
-layout(location = 3) in float a_base; // 1 = mur du socle synthétique (à hachurer)
+layout(location = 3) in float a_base; // 1 = synthetic base wall (to be hatched)
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
 uniform mat4 u_lightMatrix;
-uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) en mètres-offset
-// Les maillages Delaunay/Mixte n'ont pas de champ de normales macro : la
-// normale d'éclairage sert alors de repli, comme côté CPU.
+uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) in offset metres
+// Delaunay/Mixed meshes have no macro-normal field: the lighting normal is then
+// used as a fallback, as on the CPU side.
 uniform float u_hasMacro;
 uniform int u_palettePreset;  // 0 = Mono, 1 = Terrain, 2 = Pente
-uniform int u_rockType;       // 0 = calcaire, 1 = granite, 2 = schiste
+uniform int u_rockType;       // 0 = limestone, 1 = granite, 2 = schist
 uniform float u_snowLine;
 uniform float u_snowAmount;
-// Position de l'œil dans le MÊME espace que `pos` (unités Mercator relatives à
-// l'origine du nuage, Y inversé) — reconstruite depuis la matrice par
-// `cameraFromMatrix()`. Divisée par u_mpu, la distance devient métrique.
+// Eye position in the SAME space as `pos` (Mercator units relative to the cloud
+// origin, Y flipped) — reconstructed from the matrix by `cameraFromMatrix()`.
+// Divided by u_mpu, the distance becomes metric.
 uniform vec3 u_camPos;
 
 out vec3 v_albedo;
-out vec3 v_normal; // normale interpolée (frame est/nord/up), éclairage par fragment
+out vec3 v_normal; // interpolated normal (east/north/up frame), per-fragment lighting
 out vec2 v_uv;
 out vec4 v_lightPos;
 out float v_depth;
-out float v_distM;      // distance caméra→fragment en mètres (perspective aérienne)
+out float v_distM;      // camera→fragment distance in metres (aerial perspective)
 out float v_alpha;
 out float v_base;
-out vec3 v_wpos;   // position monde (mètres est/nord/z) pour hachures ancrées au mesh
-out vec3 v_view;   // fragment → œil, mètres, même repère que v_wpos (lobe spéculaire)
-out float v_snow;  // taux de neige peint par la palette, dans [0,1]
+out vec3 v_wpos;   // world position (metres east/north/z) for mesh-anchored hatching
+out vec3 v_view;   // fragment → eye, metres, same frame as v_wpos (specular lobe)
+out float v_snow;  // snow ratio painted by the palette, in [0,1]
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
     gl_Position = u_matrix * vec4(pos, 1.0);
     v_depth = gl_Position.w;
-    // gl_Position.w n'est PAS métrique (MapLibre y replie worldSize = 512·2^zoom),
-    // d'où la distance euclidienne à l'œil ramenée en mètres par u_mpu.
+    // gl_Position.w is NOT metric (MapLibre folds worldSize = 512·2^zoom into
+    // it), hence the Euclidean eye distance converted to metres by u_mpu.
     v_distM = distance(pos, u_camPos) / max(u_mpu, 1e-20);
-    // Non normalisée : l'interpolation la dénormalise de toute façon, mesh.frag
-    // normalise une seule fois côté fragment.
+    // Not normalized: interpolation denormalizes it anyway, mesh.frag normalizes
+    // once on the fragment side.
     v_normal = a_normal;
     v_base = a_base;
     v_wpos = a_pos;
-    // u_camPos est en unités Mercator, Y inversé (cf. `pos` ci-dessus) : on le
-    // ramène dans le repère est/nord/up métrique de a_pos.
+    // u_camPos is in Mercator units, Y flipped (cf. `pos` above): bring it back
+    // into the metric east/north/up frame of a_pos.
     vec3 camW = vec3(u_camPos.x, -u_camPos.y, u_camPos.z) / max(u_mpu, 1e-20);
     v_view = camW - a_pos;
-    // a_pos.z est déjà l'altitude en mètres : la palette la lit directement.
+    // a_pos.z is already the elevation in metres: the palette reads it directly.
     vec3 macro = mix(a_normal, a_macro * 2.0 - 1.0, u_hasMacro);
     vec4 pal = paletteAlbedo(macro, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType);
     v_albedo = pal.rgb;
     v_snow = pal.a;
     v_alpha = 1.0;
-    // Projection planaire nadir : u suit l'est, v suit le nord. La première
-    // ligne de la texture correspond au nord (haut), d'où le flip vertical.
+    // Nadir planar projection: u follows east, v follows north. The first row of
+    // the texture corresponds to north (top), hence the vertical flip.
     v_uv = vec2(
         (a_pos.x - u_uvRect.x) / (u_uvRect.z - u_uvRect.x),
         (u_uvRect.w - a_pos.y) / (u_uvRect.w - u_uvRect.y)

@@ -4,10 +4,10 @@ import { ShadowControls } from './ShadowControls';
 import { SunDateControl } from './SunDateControl';
 
 /**
- * Les quatre grandeurs que la date/heure pilote, exposées directement pour
- * pouvoir forcer un éclairage qui ne correspond à aucun soleil réel. Bouger la
- * date les réécrit toutes (voir `applyLidarSunDate`) : ce panneau est donc un
- * « après-coup » sur le calendrier, pas un mode concurrent.
+ * The four quantities the date/time drives, exposed directly so a lighting
+ * matching no real sun can be forced. Moving the date rewrites all of them (see
+ * `applyLidarSunDate`): this panel is therefore an "afterthought" on top of the
+ * calendar, not a competing mode.
  */
 function SunManualControls() {
     const azimuth = useMapStore((s) => s.lidarSunAzimuth);

@@ -1,4 +1,4 @@
-/** Tailles de shadow map proposées (côté en texels, carte carrée). */
+/** Offered shadow-map sizes (side in texels, square map). */
 const SHADOW_SIZES = [1024, 2048, 4096] as const;
 const SHADOW_SIZE_LABELS: Record<number, string> = { 1024: 'Basse', 2048: 'Moyenne', 4096: 'Haute' };
 

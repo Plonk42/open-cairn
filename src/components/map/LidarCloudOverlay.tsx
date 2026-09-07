@@ -35,8 +35,8 @@ const AO_MAX_STRENGTH = 2.4;
 const AO_RADIUS = 6;
 
 /**
- * Ordre des presets et des lithologies tel que `glsl/lib/palette.glsl` les
- * indexe — GLSL n'a pas de type énuméré, l'entier est le contrat.
+ * Order of the presets and of the lithologies as `glsl/lib/palette.glsl`
+ * indexes them — GLSL has no enum type, the integer is the contract.
  */
 const PALETTE_PRESET_ID: Record<ShaderPreset, number> = { base: 0, terrain: 1, slope: 2 };
 const ROCK_TYPE_ID: Record<RockType, number> = { limestone: 0, granite: 1, schist: 2 };
@@ -207,10 +207,10 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     }, [setLodDebugInfo, lidarShaded, lidarMesh]);
 
     // ── Compute base colour buffer for the WebGL shaded cloud ─────────────────
-    // Chaque point reçoit la couleur de sa classification. Le sol (classe 2) et
-    // le feuillage sont recolorés dans le vertex shader — palette d'albédo et
-    // dégradé de végétation sont des uniformes, donc ce tampon ne dépend
-    // d'aucun réglage et n'est jamais reconstruit.
+    // Every point gets the colour of its classification. The ground (class 2)
+    // and the foliage are recoloured in the vertex shader — albedo palette and
+    // vegetation gradient are uniforms, so this buffer depends on no setting and
+    // is never rebuilt.
     const shadedColors = useMemo(() => {
         if (!lidarShaded) return null;
         const { pointCount, classifications } = lidarShaded;
@@ -374,8 +374,8 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             facet: rockFacet,
             microRelief: rockMicro,
             rockBreak,
-            // La palette du maillage est évaluée par sommet dans mesh.vert : ces
-            // quatre réglages y remplacent le recoloriage CPU.
+            // The mesh palette is evaluated per vertex in mesh.vert: these four
+            // settings replace the CPU-side recolouring there.
             palettePreset: PALETTE_PRESET_ID[shaderPreset],
             rockType: ROCK_TYPE_ID[rockType],
             snowLine,
@@ -457,17 +457,17 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
         return () => globalThis.clearTimeout(handle);
     }, [forestEdgeBlend, forestEdgeBandM, lidarShaded, styleEpoch]);
 
-    // ── Drapage d'un fond de carte IGN/OSM sur le nuage / le mesh ────────────
-    // Récupère une mosaïque (orthophoto, SCAN 25, Plan IGN ou OSM selon
-    // `lidarCloudPhotoSource`) couvrant l'emprise de la géométrie chargée et la
-    // fournit au calque WebGL. Le shader drape la texture aussi bien sur les
-    // points (VS_POINTS/FS_POINTS) que sur le mesh, donc on prend le mesh quand
-    // il existe (modes delaunay/poisson) sinon le nuage de points (mode shaded) ;
-    // les deux partagent le même centre/rayon. Le téléchargement n'a lieu que
-    // lorsqu'une géométrie est chargée et que le drapage est activé ; bouger un
-    // slider ensuite ne re-télécharge rien (le shader mélange juste palette ↔
-    // texture), d'où le booléen `drapeEnabled` en dépendance plutôt que les deux
-    // opacités : sinon chaque cran du slider annulait le téléchargement en cours.
+    // ── Draping an IGN/OSM basemap over the cloud / the mesh ─────────────────
+    // Fetches a mosaic (orthophoto, SCAN 25, Plan IGN or OSM depending on
+    // `lidarCloudPhotoSource`) covering the extent of the loaded geometry and
+    // hands it to the WebGL layer. The shader drapes the texture on the points
+    // (VS_POINTS/FS_POINTS) as well as on the mesh, so the mesh is used when it
+    // exists (delaunay/poisson modes), otherwise the point cloud (shaded mode);
+    // both share the same center/radius. The download only happens when a
+    // geometry is loaded and draping is enabled; moving a slider afterwards
+    // re-downloads nothing (the shader merely blends palette ↔ texture), hence
+    // the `drapeEnabled` boolean as a dependency rather than the two opacities:
+    // otherwise every notch of the slider aborted the in-flight download.
     const orthoSource = lidarMesh ?? lidarShaded;
     const drapeEnabled = photoOpacity > 0 || photoOpacityNonGround > 0;
     // Only SCAN 25 is key-gated, so an unrelated key edit (typed character by
@@ -505,21 +505,21 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
                 if (cancelled || !mosaic) return;
                 webglRef.current?.setOrthoTexture(mosaic.image, mosaic.lngLatRect);
             })
-            .catch(() => { settled = true; /* couverture indisponible : on ignore */ });
+            .catch(() => { settled = true; /* coverage unavailable: ignore */ });
         return () => {
             cancelled = true;
             controller.abort();
-            // Le téléchargement n'a jamais abouti : oublier la tentative, sinon le
-            // garde-fou ci-dessus la considérerait comme déjà satisfaite et ce
-            // nuage resterait définitivement sans texture (c'est ce qui laissait
-            // les nuages ajoutés en dernier sans drapage).
+            // The download never completed: forget the attempt, otherwise the
+            // guard above would consider it already satisfied and this cloud
+            // would stay textureless forever (that is what left the
+            // most-recently-added clouds without draping).
             if (!settled && orthoRef.current === attempt) orthoRef.current = null;
         };
     }, [orthoSource, drapeEnabled, photoSource, drapeKey, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
-    // Les quatre réglages du store SONT la lumière : la date/heure les pilote,
-    // mais l'utilisateur peut les forcer sur un éclairage non physique.
+    // The four store settings ARE the light: the date/time drives them, but the
+    // user can force them to a non-physical lighting.
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return;

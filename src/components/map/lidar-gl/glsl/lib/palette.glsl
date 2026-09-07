@@ -1,23 +1,22 @@
-// Palette d'albédo évaluée sur le GPU — port de `vertexColor` de
-// src/lib/lidarBrowser/slope.ts, qui reste la référence documentaire pour le
-// POURQUOI de chaque constante (profil des rampes, largeur des transitions,
-// désaturation de la pelouse…). Ce fichier n'en porte que le COMMENT.
+// Albedo palette evaluated on the GPU — a port of `vertexColor` from
+// src/lib/lidarBrowser/slope.ts, which remains the documentary reference for the
+// WHY of each constant (ramp profiles, transition widths, turf desaturation…).
+// This file only carries the HOW.
 //
-// L'évaluation vit dans le vertex shader : la palette d'origine est une couleur
-// par sommet interpolée sur le triangle, et l'y garder rend le portage
-// strictement iso-rendu — à la quantification 8 bits près, que le CPU subissait
-// et pas le GPU.
+// Evaluation lives in the vertex shader: the original palette is a per-vertex
+// colour interpolated across the triangle, and keeping it there makes the port
+// strictly iso-render — up to the 8-bit quantization, which the CPU suffered
+// and the GPU does not.
 //
-// Les trois palettes et les trois rampes de roche sont aplaties dans un même
-// couple de tableaux : GLSL ne sait pas passer un tableau de taille variable en
-// paramètre, et une fonction d'interpolation par palette serait le même corps
-// recopié cinq fois.
+// The three palettes and the three rock ramps are flattened into a single pair
+// of arrays: GLSL cannot take a variable-length array as a parameter, and one
+// interpolation function per palette would be the same body copied five times.
 //
 //   Mono       0 → 4      (BASE_PALETTE)
 //   Pente      5 → 22     (SLOPE_PALETTE)
-//   Calcaire  23 → 27     (ROCK_RAMPS.limestone)
+//   Limestone 23 → 27     (ROCK_RAMPS.limestone)
 //   Granite   28 → 31     (ROCK_RAMPS.granite)
-//   Schiste   32 → 35     (ROCK_RAMPS.schist)
+//   Schist    32 → 35     (ROCK_RAMPS.schist)
 
 const float PAL_DEG[36] = float[36](
     0.0, 20.0, 35.0, 55.0, 80.0,
@@ -84,7 +83,7 @@ const float PAL_SNOW_ASPECT_SHIFT_M = 300.0;
 const float PAL_TURF_TOP_GAP_M = 100.0;
 const float PAL_TURF_TOP_FADE_M = 700.0;
 
-/** Rampe linéaire sur la tranche [lo,hi] des tableaux ci-dessus. */
+/** Linear ramp over the [lo,hi] slice of the arrays above. */
 vec3 palInterp(int lo, int hi, float deg) {
     if (deg <= PAL_DEG[lo]) return PAL_COL[lo];
     for (int i = lo + 1; i <= hi; i++) {
@@ -102,7 +101,7 @@ vec3 palAlpineTurf(float z, float slopeDeg, float snowLine) {
     return mix(PAL_TURF_LUSH, PAL_TURF_DRY, clamp(altitude + thin, 0.0, 1.0));
 }
 
-/** @return rgb = albédo, w = taux de neige dans [0,1]. */
+/** @return rgb = albedo, w = snow ratio in [0,1]. */
 vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmount, int rock) {
     int lo = rock == 1 ? 28 : (rock == 2 ? 32 : 23);
     int hi = rock == 1 ? 31 : (rock == 2 ? 35 : 27);
@@ -114,9 +113,9 @@ vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmo
     float amount = clamp(snowAmount, 0.0, 1.0);
     float slopeLimit = mix(PAL_SNOW_SLOPE_LIMIT_MIN, PAL_SNOW_SLOPE_LIMIT_MAX, amount);
     float span = mix(PAL_SNOW_SPAN_MAX_M, PAL_SNOW_SPAN_MIN_M, amount);
-    // cos(atan2(nx, ny)) = ny / hypot(nx, ny), écrit ainsi parce que atan(0,0)
-    // est indéfini en GLSL là où Math.atan2(0,0) vaut 0 côté CPU : un sommet
-    // parfaitement horizontal aurait pris une orientation aléatoire.
+    // cos(atan2(nx, ny)) = ny / hypot(nx, ny), written this way because
+    // atan(0,0) is undefined in GLSL where Math.atan2(0,0) is 0 on the CPU side:
+    // a perfectly horizontal vertex would have taken a random aspect.
     float h = length(nrm.xy);
     float northFacing = h > 1e-8 ? nrm.y / h : 1.0;
     float retention = smoothstep(0.0, 1.0, (slopeLimit - slopeDeg) / PAL_SNOW_SLOPE_FADE_DEG);
@@ -130,13 +129,13 @@ vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmo
 }
 
 /**
- * Albédo d'un sommet. `nrm` doit être la normale MACRO (orientation du terrain
- * à l'échelle décamétrique) : le zonage bascule sur quelques degrés de pente,
- * et la normale d'éclairage d'un lapiaz y sèmerait un poivre-et-sel.
+ * Albedo of a vertex. `nrm` must be the MACRO normal (terrain orientation at
+ * decametric scale): the zoning switches over a few degrees of slope, and the
+ * lighting normal of a lapiaz would sprinkle salt-and-pepper over it.
  *
  * @param preset 0 = Mono, 1 = Terrain, 2 = Pente
- * @param rock   0 = calcaire, 1 = granite, 2 = schiste
- * @return rgb = albédo, w = taux de neige (0 hors preset Terrain)
+ * @param rock   0 = limestone, 1 = granite, 2 = schist
+ * @return rgb = albedo, w = snow ratio (0 outside the Terrain preset)
  */
 vec4 paletteAlbedo(vec3 nrm, float z, int preset, float snowLine, float snowAmount, int rock) {
     float len = length(nrm);

@@ -19,10 +19,10 @@ in float v_emissive;
 
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
-uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
-uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (classe 2)
-uniform float u_photoOpacityNonGround; // 0..1, drapage photo hors-sol (végét./bâti/…)
-uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
+uniform sampler2D u_ortho;       // IGN orthophoto mosaic (texture unit 3)
+uniform float u_photoOpacityGround;    // 0..1, photo draping on the ground (class 2)
+uniform float u_photoOpacityNonGround; // 0..1, photo draping off-ground (veg./buildings/…)
+uniform float u_hasPhoto;        // 0 or 1, photo texture available
 uniform float u_vegNormalShade;  // 0..1 = strength of normal-driven shading on vegetation
 layout(location = 0) out vec4 fragColor;
 // x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag);
@@ -33,24 +33,24 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec2 fragDepth;
 
 void main() {
-    // Splats ronds opaques pour la végétation : on découpe le carré du point
-    // en disque (alpha-test, pas de blending) → feuillage organique tout en
-    // gardant une écriture de profondeur propre pour l'EDL.
+    // Opaque round splats for vegetation: the point's square is cut into a disc
+    // (alpha test, no blending) → organic foliage while keeping a clean depth
+    // write for the EDL.
     if (v_isVeg > 0.5) {
         if (length(gl_PointCoord - 0.5) > 0.5) discard;
     }
-    // Mode diagnostic « Analyse hauteur » : couleur plate émissive — on bypasse
-    // l'ombrage, l'EDL via la profondeur restant écrite pour garder le relief.
+    // « Analyse hauteur » diagnostic mode: flat emissive colour — shading is
+    // bypassed, the depth write (hence the EDL) is kept so the relief remains.
     if (v_emissive > 0.5) {
-        // Couleur prémultipliée : voir mesh.frag (le suréchantillonnage impose
-        // de moyenner des couleurs prémultipliées).
+        // Premultiplied colour: see mesh.frag (supersampling requires averaging
+        // premultiplied colours).
         fragColor = vec4(v_albedo * v_alpha, v_alpha);
         fragDepth = vec2(v_depth, gl_FragCoord.z);
         return;
     }
     float s = sampleShadow();
     vec3 albedo = v_albedo;
-    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque.
+    // Photo draping only inside the mosaic footprint.
     if (u_hasPhoto > 0.5
         && v_uv.x >= 0.0 && v_uv.x <= 1.0
         && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
@@ -61,23 +61,23 @@ void main() {
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * v_diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
-    // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
-    // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
-    // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
-    // L'ombrage par normale n'est atténué que sur la végétation (slider) : à 0 le
-    // feuillage devient plat (EDL seul), à 1 il garde tout son relief de normale.
+    // Neutral lighting (sun disabled): soft fixed direction + high ambient floor
+    // → relief always readable. Cast shadows (s) may apply even without the sun
+    // — the shadow map then follows the fixed direction.
+    // Normal-driven shading is only attenuated on vegetation (slider): at 0 the
+    // foliage goes flat (EDL only), at 1 it keeps all its normal relief.
     float vegNorm = (v_isVeg > 0.5) ? u_vegNormalShade : 1.0;
     float flatMod = mix(1.0, v_flatDiff, vegNorm);
     vec3 neutral = albedo * (0.2 + 0.8 * flatMod * s);
-    // Sur le feuillage, le slider mélange aussi l'éclairage neutre même quand le
-    // soleil est actif : 1 = soleil directionnel pur (inchangé), plus bas = part
-    // croissante d'éclairage neutre/normale pour adoucir le rendu.
+    // On foliage, the slider also mixes in the neutral lighting even when the
+    // sun is active: 1 = pure directional sun (unchanged), lower = growing share
+    // of neutral/normal lighting to soften the render.
     float flatVeg = (v_isVeg > 0.5) ? max(u_flatLight, 1.0 - u_vegNormalShade) : u_flatLight;
     vec3 rgb = mix(lit, neutral, flatVeg);
-    // Chemin photoréaliste : même décomposition, résolue en radiance linéaire
-    // (ambiante hémisphérique + perspective aérienne + tone mapping filmique).
-    // Le slider « ombrage feuillage » continue d'aplatir la normale du feuillage
-    // en le poussant vers la lumière fixe, comme dans le modèle historique.
+    // Photorealistic path: same decomposition, resolved in linear radiance
+    // (hemispheric ambient + aerial perspective + filmic tone mapping).
+    // The « ombrage feuillage » slider still flattens the foliage normal by
+    // pushing it towards the fixed light, as in the legacy model.
     float direct = mix(v_diff, v_flatDirect, flatVeg) * s;
     rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_nz, direct, v_distM)), u_pbr);
     fragColor = vec4(rgb * v_alpha, v_alpha);

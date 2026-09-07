@@ -1,13 +1,13 @@
 import { DEFAULT_PALETTE, vertexColor, type PaletteSettings } from '@/lib/lidarBrowser/slope';
 import { describe, expect, it } from 'vitest';
 
-/** `vertexColor` sur la palette par défaut (Terrain, calcaire, 2700 m). */
+/** `vertexColor` on the default palette (Terrain, limestone, 2700 m). */
 const color = (
     nx: number, ny: number, nz: number, z: number,
     palette: Partial<PaletteSettings> = {},
 ): [number, number, number] => vertexColor(nx, ny, nz, z, { ...DEFAULT_PALETTE, ...palette });
 
-/** Normale d'une pente d'inclinaison `d`, orientée est : aucun décalage d'exposition. */
+/** Normal of a slope of inclination `d`, facing east: no aspect shift at all. */
 const slope = (
     d: number, z: number, palette: Partial<PaletteSettings> = {},
 ): [number, number, number] => {
@@ -49,8 +49,8 @@ describe('vertexColor', () => {
     });
 
     it('keeps alpine turf on a 35° shoulder and bares the rock only above', () => {
-        // Sur la Dent de Crolles l'épaulement herbeux est mesuré à 30-35° par la
-        // carte de pente : il doit rester vert, la roche n'apparaît qu'au-delà.
+        // On the Dent de Crolles the grassy shoulder is measured at 30-35° by
+        // the slope map: it must stay green, the rock only shows up above that.
         const shoulder = slope(33, 1800);
         expect(shoulder[1]).toBeGreaterThan(shoulder[2] + 35);
         const band = slope(55, 1800);
@@ -67,8 +67,8 @@ describe('vertexColor', () => {
     });
 
     it('bakes no aspect shading: a north and a south face of the same rock match', () => {
-        // Même pente, même altitude, orientations opposées — bien en dessous de
-        // la ligne de neige, donc son décalage d'exposition ne peut pas jouer.
+        // Same slope, same altitude, opposite aspects — well below the snow
+        // line, so its aspect shift cannot come into play.
         expect(color(0, 0.9, 0.44, 1200)).toEqual(color(0, -0.9, 0.44, 1200));
     });
 
@@ -93,8 +93,8 @@ describe('vertexColor', () => {
     });
 
     it('holds snow lower on north faces than on south faces', () => {
-        // 3000 m, 45° : au-dessus de la limite des neiges décalée au nord, en
-        // dessous de celle décalée au sud.
+        // 3000 m, 45°: above the snow line shifted north, below the one shifted
+        // south.
         expect(lum(color(0, 1, 1, 3000))).toBeGreaterThan(lum(color(0, -1, 1, 3000)));
     });
 
@@ -110,9 +110,9 @@ describe('vertexColor', () => {
 
 describe('snow line', () => {
     it('pulls the vegetation cover back and pales the ground as it comes down', () => {
-        // Même pente, même altitude : seul le réglage change. Plus la ligne de
-        // neige descend, plus la prairie est proche de sa limite climatique :
-        // elle pâlit, perd son vert, puis cède la place au caillou.
+        // Same slope, same altitude: only the setting changes. The lower the
+        // snow line, the closer the meadow is to its climatic limit: it pales,
+        // loses its green, then gives way to stone.
         const lush = color(0, 0, 1, 1800, { snowLine: 3400 });
         const bare = color(0, 0, 1, 1800, { snowLine: 2000 });
         expect(lum(bare)).toBeGreaterThan(lum(lush));
@@ -124,9 +124,9 @@ describe('snow line', () => {
     });
 
     it('moves the snow with the setting', () => {
-        // 2200 m, terrain doux : sous la ligne par défaut (alpage), très
-        // au-dessus d'une ligne abaissée à 1500 m (névé). C'est ce réglage, et
-        // non un preset, qui fait la saison.
+        // 2200 m, gentle ground: below the default line (alpine pasture), well
+        // above a line lowered to 1500 m (snowfield). It is this setting, and
+        // not a preset, that makes the season.
         expect(lum(color(0, 0, 1, 2200, { snowLine: 2700 }))).toBeLessThan(0.6);
         expect(lum(color(0, 0, 1, 2200, { snowLine: 1500 }))).toBeGreaterThan(0.8);
     });
@@ -142,44 +142,44 @@ describe('snow amount', () => {
     });
 
     it('reaches a steep wall that no snow line can whiten', () => {
-        // La raison d'être du curseur : sous la pente limite, descendre la ligne
-        // de neige ne change rien du tout à une paroi.
+        // The whole point of the slider: below the limit slope, lowering the
+        // snow line changes nothing at all on a wall.
         expect(slope(65, 3400, { snowLine: 1200 })).toEqual(slope(65, 3400, { snowLine: 3000 }));
         expect(lum(slope(65, 3400, { snowAmount: 1 }))).toBeGreaterThan(lum(slope(65, 3400)) + 0.1);
     });
 
     it('sharpens the lower limit instead of trailing off in scattered patches', () => {
-        // 300 m au-dessus de la ligne, sur un replat orienté est pour écarter le
-        // décalage d'exposition : déjà couvert sous un gros manteau, encore à
-        // moitié nu sous un manteau maigre.
+        // 300 m above the line, on an east-facing flat to rule out the aspect
+        // shift: already covered under a thick pack, still half bare under a
+        // thin one.
         expect(lum(slope(5, 3000, { snowAmount: 1 }))).toBeGreaterThan(0.85);
         expect(lum(slope(5, 3000, { snowAmount: 0 }))).toBeLessThan(0.75);
     });
 
     it('leaves the alpine meadow alone', () => {
-        // L'alpage se cale sur le climat du massif, pas sur les chutes de l'hiver.
+        // The alpine pasture follows the climate of the massif, not the
+        // winter's snowfalls.
         expect(color(0, 0, 1, 1800, { snowAmount: 0 })).toEqual(color(0, 0, 1, 1800, { snowAmount: 1 }));
     });
 });
 
 describe('lithology', () => {
-    // 2600 m avec la ligne par défaut : au-dessus de l'alpage, en dessous des
-    // névés — de la roche nue, et rien d'autre.
+    // 2600 m with the default line: above the pasture, below the snowfields —
+    // bare rock, and nothing else.
     it('darkens from limestone to granite to schist at equal slope', () => {
         const limestone = lum(slope(40, 2600, { rock: 'limestone' }));
         const granite = lum(slope(40, 2600, { rock: 'granite' }));
         const schist = lum(slope(40, 2600, { rock: 'schist' }));
         expect(limestone).toBeGreaterThan(granite);
         expect(granite).toBeGreaterThan(schist);
-        // Un schiste ardoisier réfléchit environ deux fois moins qu'un calcaire lavé.
+        // A slaty schist reflects about half as much as a washed limestone.
         expect(schist).toBeLessThan(limestone * 0.65);
     });
 
     it('brightens limestone with slope but darkens granite and schist', () => {
-        // Le profil de la rampe est aussi caractéristique que la teinte : le
-        // calcaire s'éclaircit sur les barres verticales, lavées par le
-        // ruissellement, là où le cristallin et le schiste laissent voir la
-        // cassure fraîche à mesure que la patine s'en va.
+        // The profile of the ramp is as characteristic as the hue: limestone
+        // brightens on the vertical bands, washed by runoff, where crystalline
+        // rock and schist expose the fresh break as the patina wears off.
         expect(lum(slope(58, 2600, { rock: 'limestone' })))
             .toBeGreaterThan(lum(slope(30, 2600, { rock: 'limestone' })));
         expect(lum(slope(55, 2600, { rock: 'granite' })))
@@ -189,8 +189,8 @@ describe('lithology', () => {
     });
 
     it('never falls below the darkest plausible rock reflectance', () => {
-        // ρ ≈ 0.15 est le plancher d'une roche réelle : en dessous, le rendu
-        // photoréaliste ne peut plus rien en tirer, la paroi devient un trou noir.
+        // ρ ≈ 0.15 is the floor of a real rock: below that, the photorealistic
+        // rendering can do nothing with it and the wall becomes a black hole.
         for (const rock of ['limestone', 'granite', 'schist'] as const) {
             for (const d of [0, 30, 60, 90]) {
                 expect(lum(slope(d, 2600, { rock }))).toBeGreaterThan(0.2);

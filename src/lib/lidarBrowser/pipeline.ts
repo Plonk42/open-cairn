@@ -605,21 +605,21 @@ const NORMAL_EDGE_COS = 0.82;
  */
 const NORMAL_SHRED_AGREE = 0.35;
 
-/** smoothstep(0,1,x) sur un x déjà normalisé. */
+/** smoothstep(0,1,x) on an already normalized x. */
 function smoothstep01(x: number): number {
     const t = Math.min(1, Math.max(0, x));
     return t * t * (3 - 2 * t);
 }
 
 /**
- * Poids d'un voisin en fonction du cosinus entre les deux normales : 1 quand
- * elles coïncident, 0 dès qu'on franchit `NORMAL_EDGE_COS` (l'arête).
+ * Weight of a neighbour as a function of the cosine between the two normals: 1
+ * when they coincide, 0 as soon as `NORMAL_EDGE_COS` (the arête) is crossed.
  */
 function creaseWeight(cosine: number, invEdge: number): number {
     return cosine <= NORMAL_EDGE_COS ? 0 : (cosine - NORMAL_EDGE_COS) * invEdge;
 }
 
-/** Une passe Jacobi : accumule les deux moyennes (isotrope et anisotrope). */
+/** One Jacobi pass: accumulates both averages (isotropic and anisotropic). */
 function accumulateNormalPass(
     indices: Uint32Array,
     normals: Float32Array,
@@ -641,14 +641,13 @@ function accumulateNormalPass(
         accIso[b] += sx; accIso[b + 1] += sy; accIso[b + 2] += sz;
         accIso[c] += sx; accIso[c + 1] += sy; accIso[c + 2] += sz;
 
-        // Les normales sont unitaires ici : le produit scalaire EST le cosinus.
+        // The normals are unit vectors here: the dot product IS the cosine.
         const wab = creaseWeight(ax * bx + ay * by + az * bz, invEdge);
         const wac = creaseWeight(ax * cx + ay * cy + az * cz, invEdge);
         const wbc = creaseWeight(bx * cx + by * cy + bz * cz, invEdge);
 
-        // Le sommet lui-même garde le poids 1 (une fois par triangle incident,
-        // exactement comme dans l'accumulateur isotrope : les deux restent
-        // ainsi comparables).
+        // The vertex itself keeps weight 1 (once per incident triangle, exactly
+        // as in the isotropic accumulator: the two therefore stay comparable).
         accAniso[a] += ax + wab * bx + wac * cx;
         accAniso[a + 1] += ay + wab * by + wac * cy;
         accAniso[a + 2] += az + wab * bz + wac * cz;
@@ -665,7 +664,7 @@ function accumulateNormalPass(
     }
 }
 
-/** Mélange les deux moyennes selon l'accord du voisinage, et réécrit `normals`. */
+/** Blends both averages according to neighbourhood agreement, and rewrites `normals`. */
 function resolveNormalPass(
     normals: Float32Array,
     accAniso: Float32Array,
@@ -678,10 +677,10 @@ function resolveNormalPass(
         const i3 = i * 3;
         const agree = agreeCount[i] > 0 ? agreeSum[i] / agreeCount[i] : 1;
         const toIso = 1 - smoothstep01(agree / NORMAL_SHRED_AGREE);
-        // Les deux accumulateurs sont renormalisés avant mélange : leurs
-        // magnitudes brutes diffèrent par construction (l'isotrope n'est jamais
-        // amputé des voisins rejetés) et, sans ça, le mélange serait dominé par
-        // le plus long des deux.
+        // Both accumulators are renormalized before blending: their raw
+        // magnitudes differ by construction (the isotropic one is never stripped
+        // of rejected neighbours) and, without this, the blend would be
+        // dominated by the longer of the two.
         const la = Math.hypot(accAniso[i3], accAniso[i3 + 1], accAniso[i3 + 2]);
         const li = Math.hypot(accIso[i3], accIso[i3 + 1], accIso[i3 + 2]);
         const ka = la > 0 ? (1 - toIso) / la : 0;
@@ -690,7 +689,7 @@ function resolveNormalPass(
         const y = accAniso[i3 + 1] * ka + accIso[i3 + 1] * ki;
         const z = accAniso[i3 + 2] * ka + accIso[i3 + 2] * ki;
         const len = Math.hypot(x, y, z);
-        // Un sommet sans triangle survivant garde ce qu'il avait.
+        // A vertex with no surviving triangle keeps what it had.
         if (len === 0) continue;
         normals[i3] = x / len;
         normals[i3 + 1] = y / len;
@@ -733,32 +732,30 @@ function smoothVertexNormals(indices: Uint32Array, normals: Float32Array, passes
 }
 
 /**
- * Déplacement maximal autorisé par la netteté, en fraction de la longueur
- * moyenne des arêtes incidentes. Le masque flou amplifie indistinctement le
- * relief réel et le bruit de tessellation ; ce plafond garantit qu'aucun
- * sommet ne peut se détacher en pointe de son voisinage, quel que soit le
- * réglage.
+ * Maximum displacement allowed by sharpening, as a fraction of the mean length
+ * of the incident edges. Unsharp masking amplifies real relief and tessellation
+ * noise indiscriminately; this cap guarantees that no vertex can spike out of
+ * its neighbourhood, whatever the setting.
  */
 const MESH_SHARPEN_MAX_RATIO = 0.30;
 
 /**
- * Masque flou (unsharp masking) sur le champ de POSITIONS du maillage.
+ * Unsharp masking on the mesh POSITION field.
  *
- * Le solveur de Poisson résout un champ scalaire lisse : il restitue
- * fidèlement les basses fréquences du terrain mais atténue systématiquement
- * les hautes — exactement les vires, les fissures et les ressauts qui font
- * lire le rocher. On récupère une partie de cette atténuation comme un
- * photographe récupère la netteté d'un scan : en soustrayant la version floue
- * de l'original, c'est-à-dire en éloignant chaque sommet de la moyenne de son
- * anneau de voisins.
+ * The Poisson solver solves a smooth scalar field: it reproduces the low
+ * frequencies of the terrain faithfully but systematically attenuates the high
+ * ones — exactly the ledges, cracks and steps that make rock read as rock. Part
+ * of that attenuation is recovered the way a photographer recovers the
+ * sharpness of a scan: by subtracting the blurred version from the original,
+ * i.e. by pushing each vertex away from the average of its one-ring.
  *
- * Effet nul sur toute surface localement plane (le sommet EST déjà sa
- * moyenne) : le socle synthétique, son fond et ses murs verticaux ne bougent
- * donc pas, sans qu'on ait besoin de les masquer explicitement. Les positions
- * étant modifiées, silhouette et ombres portées suivent — c'est voulu, et
- * c'est aussi pourquoi le déplacement est plafonné.
+ * No effect on any locally planar surface (the vertex already IS its own
+ * average): the synthetic base, its bottom and its vertical walls therefore do
+ * not move, without needing to be masked explicitly. Since positions are
+ * modified, silhouette and cast shadows follow — that is intended, and it is
+ * also why the displacement is capped.
  *
- * Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.B.5.
+ * See docs/ROCK_AND_CLIFF_DETAIL.md §2.B.5.
  */
 function sharpenMeshPositions(indices: Uint32Array, positions: Float32Array, amount: number): void {
     if (amount <= 0) return;
@@ -780,8 +777,8 @@ function sharpenMeshPositions(indices: Uint32Array, positions: Float32Array, amo
             ring[i3] += positions[j3] + positions[l3];
             ring[i3 + 1] += positions[j3 + 1] + positions[l3 + 1];
             ring[i3 + 2] += positions[j3 + 2] + positions[l3 + 2];
-            // Chaque voisin est compté une fois par triangle incident : c'est
-            // une pondération par valence, la même que pour les normales.
+            // Each neighbour is counted once per incident triangle: this is a
+            // valence weighting, the same as for the normals.
             ringCount[indices[t + k]] += 2;
             edgeSum[indices[t + k]] += Math.hypot(jx, jy, jz) + Math.hypot(lx, ly, lz);
         }
@@ -804,28 +801,28 @@ function sharpenMeshPositions(indices: Uint32Array, positions: Float32Array, amo
 }
 
 /**
- * Nombre de passes de moyenne isotrope appliquées à la copie des normales qui
- * sert **à la palette** (et à elle seule).
+ * Number of isotropic averaging passes applied to the copy of the normals used
+ * **by the palette** (and by it alone).
  *
- * La normale d'éclairage doit rester fine : c'est elle qui porte le grain du
- * rocher. Mais l'albédo, lui, est une propriété de paysage — qu'un versant
- * porte de l'herbe ou du calcaire se décide à l'échelle de la dizaine de
- * mètres, pas à celle du triangle. Or les palettes basculent sur des
- * transitions de quelques degrés (herbe → roche à ~30°, rétention de neige…)
- * alors que la normale de sommet d'un lapiaz reconstruit par Poisson porte
- * plusieurs dizaines de degrés de bruit : la coloriser directement transforme
- * ce bruit en poivre-et-sel par sommet, sur toute la surface.
+ * The lighting normal must stay fine-grained: it is what carries the grain of
+ * the rock. The albedo, on the other hand, is a landscape property — whether a
+ * mountain side carries grass or limestone is decided at the scale of tens of
+ * metres, not at the scale of the triangle. Yet the palettes switch over
+ * transitions a few degrees wide (grass → rock at ~30°, snow retention…) while
+ * the vertex normal of a Poisson-reconstructed lapiaz carries tens of degrees
+ * of noise: colouring it directly turns that noise into per-vertex
+ * salt-and-pepper across the whole surface.
  *
- * L'opérateur ombrelle du maillage diffuse d'environ `espacement × √passes` :
- * à ~0,5 m entre sommets, 24 passes portent le lissage à ~2,5 m, ce qui efface
- * le bruit de reconstruction sans effacer la vraie rupture herbe/falaise.
+ * The mesh umbrella operator diffuses over roughly `spacing × √passes`: at
+ * ~0.5 m between vertices, 24 passes bring the smoothing to ~2.5 m, which
+ * erases the reconstruction noise without erasing the real grass/cliff break.
  */
 const MACRO_NORMAL_PASSES = 24;
 
 /**
- * Une passe de moyenne isotrope (Jacobi) sur le voisinage à un anneau, sans
- * pondération de crête : contrairement à {@link smoothVertexNormals}, on veut
- * ici *effacer* les arêtes, pas les préserver.
+ * One isotropic averaging pass (Jacobi) over the one-ring neighbourhood,
+ * without crease weighting: unlike {@link smoothVertexNormals}, the goal here
+ * is to *erase* the arêtes, not to preserve them.
  */
 function macroNormalPass(indices: Uint32Array, normals: Float32Array, acc: Float32Array): void {
     acc.fill(0);
@@ -848,9 +845,9 @@ function macroNormalPass(indices: Uint32Array, normals: Float32Array, acc: Float
 }
 
 /**
- * Champ d'orientation « macro » du terrain, encodé sur un octet par composante
- * (`v * 127.5 + 127.5`) : 3 octets par sommet, stockés avec le maillage pour
- * que le changement de shader à chaud puisse recoloriser sans tout recalculer.
+ * "Macro" terrain orientation field, encoded on one byte per component
+ * (`v * 127.5 + 127.5`): 3 bytes per vertex, stored with the mesh so that a hot
+ * shader switch can recolour without recomputing everything.
  */
 function macroVertexNormals(indices: Uint32Array, normals: Float32Array): Uint8Array {
     const macro = normals.slice();
@@ -906,8 +903,8 @@ function normalsFromMesh(
         }
     }
     smoothVertexNormals(indices, normals, NORMAL_SMOOTHING_PASSES);
-    // La palette lit l'orientation du terrain à l'échelle du paysage, pas celle
-    // du triangle : voir `macroVertexNormals`.
+    // The palette reads the terrain orientation at landscape scale, not at
+    // triangle scale: see `macroVertexNormals`.
     return { normals, macroNormals: macroVertexNormals(indices, normals) };
 }
 

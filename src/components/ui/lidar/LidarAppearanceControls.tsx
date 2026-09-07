@@ -32,7 +32,7 @@ const SHADER_OPTIONS = [
     { value: 'slope', label: SHADER_LABELS.slope, title: 'Dégradé standard par inclinaison : vert (plat) → jaune → orange → rouge → violet/noir (vertical)' },
 ] as const satisfies ReadonlyArray<{ value: ShaderPreset; label: string; title: string }>;
 
-/** Lithologie du massif : change la rampe de roche nue du preset Terrain. */
+/** Lithology of the massif: changes the bare-rock ramp of the Terrain preset. */
 const ROCK_OPTIONS = [
     { value: 'limestone', label: ROCK_LABELS.limestone, title: 'Calcaire urgonien (Chartreuse, Vercors, Dvoluy) : gris clair légèrement chaud, et il s’éclaircit sur les barres verticales, lavées par le ruissellement' },
     { value: 'granite', label: ROCK_LABELS.granite, title: 'Cristallin (Belledonne, cluses, Mont-Blanc) : beige patiné en pied de pente, qui fonce vers le gris fer sur les parois fraîchement fracturées' },
@@ -56,7 +56,7 @@ const FOREST_EDGE_OPTIONS = [
     { value: 'scatter', label: 'Dispersé', title: 'Les essences s’entremêlent point par point de part et d’autre de la limite sur la largeur choisie' },
 ] as const satisfies ReadonlyArray<{ value: ForestEdgeBlend; label: string; title: string }>;
 
-/** Fonds de carte drapables sur la géométrie 3D (voir `fetchDrapeMosaic`). */
+/** Basemaps that can be draped over the 3D geometry (see `fetchDrapeMosaic`). */
 const DRAPE_SOURCE_OPTIONS = [
     { value: 'ortho', label: 'Photo', title: 'Orthophotos IGN (BD ORTHO) — rendu photo-réaliste' },
     { value: 'scan25', label: 'SCAN 25', title: 'Carte topographique SCAN 25 IGN drapée sur le relief (nécessite une clé IGN)' },
@@ -964,8 +964,8 @@ export function VegetationControls() {
                         type="range" min={5} max={40} step={1}
                         value={heightScale}
                         onChange={(e) => {
-                            // Régler la hauteur la passe d'office en manuel : décoche
-                            // « Auto » pour éviter un clic supplémentaire.
+                            // Setting the height switches to manual anyway:
+                            // untick « Auto » to save an extra click.
                             if (heightAuto) setHeightAuto(false);
                             setHeightScale(Number(e.target.value));
                         }}

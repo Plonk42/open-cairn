@@ -13,9 +13,9 @@ const SUN_DAY_START = 4 * 60; // 4h
 const SUN_NIGHT_END = 22 * 60; // 22h
 
 /**
- * Le read-out décrit la lumière **effective** (les réglages bas niveau), pas
- * celle que la date impliquerait : quand l'utilisateur force l'éclairage, un
- * azimut qui ne colle pas à l'heure affichée est justement le signal utile.
+ * The read-out describes the **effective** light (the low-level settings), not
+ * the one the date would imply: when the user forces the lighting, an azimuth
+ * that does not match the displayed time is precisely the useful signal.
  */
 function sunDayState(intensity: number, minutesOfDay: number): SunDayState {
     if (intensity <= 0) return 'night';

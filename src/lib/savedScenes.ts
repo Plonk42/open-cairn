@@ -37,9 +37,9 @@ export interface SavedScene {
     vertexCount?: number;
     /** Total number of clouds bundled in this scene (primary + extraClouds). */
     cloudCount: number;
-    /** Copie de l'ambiance : « Appliquer le style » n'a ainsi pas à tirer la géométrie depuis IndexedDB. */
+    /** Copy of the ambiance: « Appliquer le style » therefore need not pull the geometry out of IndexedDB. */
     ambiance: ShowcaseAmbiance;
-    /** Copie des empreintes de capture, pour la même raison : les détails et « Recapturer » s'affichent sans lire IndexedDB. */
+    /** Copy of the capture fingerprints, for the same reason: the details and « Recapturer » show up without reading IndexedDB. */
     captures?: Array<CaptureRecord | null>;
 }
 

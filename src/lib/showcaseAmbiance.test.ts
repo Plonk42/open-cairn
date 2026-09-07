@@ -3,7 +3,7 @@ import { useMapStore } from '@/stores/mapStore';
 import { LIDAR_RENDER_DEFAULTS } from '@/stores/slices/lidarSlice';
 import { describe, expect, it } from 'vitest';
 
-/** Seul réglage de rendu volontairement hors ambiance : il pèse sur la VRAM de la machine qui affiche. */
+/** The only render setting deliberately kept out of the ambiance: it weighs on the VRAM of the displaying machine. */
 const MACHINE_ONLY = new Set<string>(['lidarShadowMapSize']);
 
 describe('showcaseAmbiance', () => {

@@ -112,7 +112,7 @@ let currentRevision = 0;
 
 const persistedRoute = loadPersistedRoute();
 
-// Initialise le compteur d'ID waypoints pour éviter les collisions après restauration
+// Initialize the waypoint ID counter to avoid collisions after a restore
 if (persistedRoute.waypoints && persistedRoute.waypoints.length > 0) {
     const maxId = persistedRoute.waypoints.reduce((max, wp) => {
         const n = Number.parseInt(wp.id.replace('wp-', ''), 10);

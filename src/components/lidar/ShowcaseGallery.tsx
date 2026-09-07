@@ -185,8 +185,8 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
     const onRecapture = (capture: CaptureRecord) => {
         useMapStore.getState().recallCaptureSetup(capture);
         setOpen(false);
-        // Le panneau de capture possède l'aperçu d'emprise : l'ouvrir est la
-        // seule façon de montrer le rectangle qu'on vient de restaurer.
+        // The capture panel owns the extent preview: opening it is the only way
+        // to show the rectangle that was just restored.
         globalThis.dispatchEvent(new CustomEvent(STUDIO_REVEAL_EVENT, { detail: 'capture' }));
     };
 

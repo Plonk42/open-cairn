@@ -1,53 +1,52 @@
-// Cassure d'albédo du rocher. Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.D.13.
+// Rock albedo breakup. See docs/ROCK_AND_CLIFF_DETAIL.md §2.D.13.
 //
-// La palette `montagne` (src/lib/lidarBrowser/slope.ts) est une fonction lisse
-// de la pente, de l'altitude et de l'orientation : à pente et altitude données,
-// tout le versant reçoit exactement la même couleur. Le rocher réel, lui, est
-// zoné — bancs, veines, patine, lichen, traînées de ruissellement — et cette
-// variation de réflectance est une bonne moitié de ce qui le fait *lire* comme
-// de la roche. On la rajoute ici en espace monde, en réflectance pure : aucune
-// lumière n'est cuite, la palette n'en sait rien, et le résultat suit le mesh
-// quand la caméra bouge.
+// The `montagne` palette (src/lib/lidarBrowser/slope.ts) is a smooth function of
+// slope, elevation and aspect: at a given slope and elevation, the whole
+// mountain side gets exactly the same colour. Real rock, on the other hand, is
+// zoned — beds, veins, patina, lichen, runoff streaks — and that reflectance
+// variation is a good half of what makes it *read* as rock. It is added here in
+// world space, in pure reflectance: no light is baked in, the palette knows
+// nothing about it, and the result follows the mesh when the camera moves.
 //
-// Second effet, même curseur : la limite névé/rocher de `montagneGround` est
-// une rampe lisse → des plaques de neige floues et gélatineuses. On la
-// re-tranche avec le même bruit, ce qui lui rend un bord dentelé.
+// Second effect, same slider: the firn/rock limit of `montagneGround` is a
+// smooth ramp → blurry, gelatinous snow patches. It is re-thresholded with the
+// same noise, which gives it a ragged edge back.
 //
-// DÉPENDANCE : requiert `mrValueNoise` de ./lib/microRelief.glsl, qui doit être
-// inclus AVANT ce fichier (les includes sont textuels et à plat).
+// DEPENDENCY: requires `mrValueNoise` from ./lib/microRelief.glsl, which must be
+// included BEFORE this file (includes are textual and flat).
 
-// Longueurs d'onde (m) des deux octaves de patine : l'échelle du banc rocheux
-// et celle de la dalle.
+// Wavelengths (m) of the two patina octaves: the scale of the rock bed and that
+// of the slab.
 const float RA_BAND_M = 22.0;
 const float RA_DETAIL_M = 6.5;
-// Amplitude de la modulation de luminosité à 100 % (±18 %) et de la dérive
-// chaud/froid associée (oxydation vs roche saine).
+// Amplitude of the brightness modulation at 100 % (±18 %) and of the associated
+// warm/cold drift (oxidation vs fresh rock).
 const float RA_VALUE = 0.18;
 const float RA_TINT = 0.07;
 
-// Fenêtre de luminance dans laquelle on considère qu'on est sur la transition
-// rocher → neige. Ne sert plus qu'au cas de la photo drapée : la palette,
-// évaluée sur le GPU, fournit désormais son taux de neige directement (voir
-// `paletteAlbedo` dans ./palette.glsl), et seule une orthophoto peut encore
-// montrer un névé dont la palette ne sait rien.
+// Luminance window within which we consider ourselves on the rock → snow
+// transition. Only the draped-photo case still uses it: the palette, evaluated
+// on the GPU, now supplies its snow ratio directly (see `paletteAlbedo` in
+// ./palette.glsl), and only an orthophoto can still show a firn patch the
+// palette knows nothing about.
 //
-// La borne basse doit rester AU-DESSUS de la roche la plus claire que la
-// palette sache produire, sinon le masque prend un calcaire lavé pour un début
-// de névé et lui retire sa patine. Le calcaire urgonien plafonne à 172/255 =
-// 0,67 de luminance ; la neige tassée démarre à 0,85.
+// The lower bound must stay ABOVE the lightest rock the palette can produce,
+// otherwise the mask mistakes washed limestone for the start of a firn patch
+// and strips its patina. Urgonian limestone peaks at 172/255 = 0.67 luminance;
+// packed snow starts at 0.85.
 const float RA_SNOW_LO = 0.76;
 const float RA_SNOW_HI = 0.86;
-// Longueur d'onde (m) et amplitude du bruit qui découpe le bord du névé, et
-// raideur du re-seuillage (>1 = bord plus franc que la rampe d'origine).
+// Wavelength (m) and amplitude of the noise that cuts the firn edge, and
+// steepness of the re-thresholding (>1 = sharper edge than the original ramp).
 const float RA_SNOW_M = 5.0;
 const float RA_SNOW_JITTER = 0.42;
 const float RA_SNOW_SHARPEN = 2.6;
 
 /**
- * Bruit fractal 2 octaves en espace monde, dans [-1,1] environ.
- * `pixelM` = empreinte d'un pixel sur la surface (m) : chaque octave s'éteint
- * avant d'atteindre la fréquence de Nyquist de l'écran, sinon la roche
- * fourmille dès qu'on s'éloigne.
+ * 2-octave fractal noise in world space, roughly in [-1,1].
+ * `pixelM` = footprint of one pixel on the surface (m): each octave fades out
+ * before reaching the screen's Nyquist frequency, otherwise the rock crawls as
+ * soon as one moves away.
  */
 float raFbm(vec3 wpos, float pixelM) {
     float w1 = 1.0 - smoothstep(0.25 * RA_BAND_M, 0.9 * RA_BAND_M, pixelM);
@@ -57,41 +56,41 @@ float raFbm(vec3 wpos, float pixelM) {
 }
 
 /**
- * Module l'albédo du rocher et redécoupe le bord des névés.
+ * Modulates the rock albedo and re-cuts the edge of firn patches.
  *
- * @param albedo  couleur de base (palette ou photo drapée), linéaire perceptuel
- * @param wpos    position monde en mètres (est, nord, altitude)
- * @param pixelM  empreinte pixel sur la surface, en mètres
- * @param rock    masque rocher dans [0,1] (0 = neige)
- * @param amount  intensité de l'effet (0 = aucun, 1 = nominal). L'appelant y
- *                annule le socle synthétique, qui n'est pas du terrain.
- * @param snow    taux de neige déjà mélangé dans `albedo`, dans [0,1]. À 0 la
- *                re-découpe du bord de névé est strictement l'identité : une
- *                palette de lecture (Mono, Pente), où la clarté ne veut rien
- *                dire de tel, ne se fait donc plus déchiqueter en plaques.
+ * @param albedo  base colour (palette or draped photo), perceptually linear
+ * @param wpos    world position in metres (east, north, elevation)
+ * @param pixelM  pixel footprint on the surface, in metres
+ * @param rock    rock mask in [0,1] (0 = snow)
+ * @param amount  strength of the effect (0 = none, 1 = nominal). The caller
+ *                zeroes it on the synthetic base, which is not terrain.
+ * @param snow    snow ratio already mixed into `albedo`, in [0,1]. At 0 the
+ *                firn-edge re-cut is strictly the identity: a reading palette
+ *                (Mono, Pente), where lightness means nothing of the sort, is
+ *                therefore no longer torn into patches.
  */
 vec3 rockAlbedoBreakup(vec3 albedo, vec3 wpos, float pixelM, float rock, float amount, float snow) {
     if (amount <= 0.0) return albedo;
 
-    // ── Patine : variation de valeur + dérive chaud/froid ──────────────────
+    // ── Patina: value variation + warm/cold drift ────────────────────────
     float nb = raFbm(wpos, pixelM);
     float k = amount * rock;
-    // Le rouge monte et le bleu descend quand le bruit est positif : c'est la
-    // signature d'une patine ferrugineuse, la dérive inverse donnant la roche
-    // fraîchement cassée, plus grise et plus froide.
+    // Red rises and blue falls when the noise is positive: that is the
+    // signature of a ferrous patina, the opposite drift giving freshly broken
+    // rock, greyer and colder.
     vec3 tint = vec3(1.0 + RA_TINT * nb, 1.0, 1.0 - RA_TINT * nb);
     vec3 out_ = albedo * (1.0 + RA_VALUE * nb * k) * mix(vec3(1.0), tint, k);
 
-    // ── Bord de névé ──────────────────────────────────────────────────────
-    // On reconstruit les deux couleurs extrêmes qui redonnent exactement `out_`
-    // en `t` (donc effet nul quand le bruit est nul), puis on remélange avec un
-    // seuil bruité et plus raide.
+    // ── Firn edge ─────────────────────────────────────────────────
+    // We rebuild the two extreme colours that give exactly `out_` back at `t`
+    // (hence no effect when the noise is zero), then re-mix with a noisy and
+    // steeper threshold.
     float t = clamp(snow, 0.0, 1.0);
-    // Hors zone de transition (t≈0 ou t≈1) le remange doit être STRICTEMENT
-    // l'identité : la dalle rocheuse et le névé franc ne bougent pas. Le bruit
-    // s'éteint donc aux deux bouts (4t(1-t) vaut 1 au milieu, 0 aux bornes),
-    // sinon un `ns` extrême suffisait à pousser `tn` à 0,29 sur du rocher sans
-    // la moindre neige, et à y semer un éclaircissement bruité.
+    // Outside the transition zone (t≈0 or t≈1) the re-mix must be STRICTLY the
+    // identity: bare slab and solid firn do not move. The noise therefore fades
+    // out at both ends (4t(1-t) is 1 in the middle, 0 at the bounds), otherwise
+    // an extreme `ns` was enough to push `tn` to 0.29 on rock without a single
+    // flake of snow, and to sprinkle a noisy brightening over it.
     float ns = mrValueNoise(wpos / RA_SNOW_M) * 4.0 * t * (1.0 - t);
     float tn = clamp((t - 0.5 - RA_SNOW_JITTER * ns) * RA_SNOW_SHARPEN + 0.5, 0.0, 1.0);
     vec3 rockRef = out_ * (1.0 - 0.30 * t);

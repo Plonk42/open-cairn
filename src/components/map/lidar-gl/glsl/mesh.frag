@@ -15,7 +15,7 @@ in float v_snow;
 #include ./lib/sampleShadow.glsl;
 #include ./lib/flatLight.glsl;
 #include ./lib/microRelief.glsl;
-// rockAlbedo utilise mrValueNoise : il doit rester APRÈS microRelief.
+// rockAlbedo uses mrValueNoise: it must stay AFTER microRelief.
 #include ./lib/rockAlbedo.glsl;
 #include ./lib/pbr.glsl;
 
@@ -23,19 +23,19 @@ uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
-// Mélange normale interpolée → normale géométrique (0 = lisse, 1 = facettes).
-// Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.C.8.
+// Blend interpolated normal → geometric normal (0 = smooth, 1 = faceted).
+// See docs/ROCK_AND_CLIFF_DETAIL.md §2.C.8.
 uniform float u_facet;
-// Amplitude du micro-relief procédural (0 = aucun). §2.D.12.
+// Amplitude of the procedural micro-relief (0 = none). §2.D.12.
 uniform float u_microRelief;
-// Amplitude de la cassure d'albédo (patine + bord de névé, 0 = aucune). §2.D.13.
+// Amplitude of the albedo breakup (patina + firn edge, 0 = none). §2.D.13.
 uniform float u_rockBreak;
-// Intensité du lobe spéculaire GGX (0 = diffus pur). §2.C.9.
+// Strength of the GGX specular lobe (0 = pure diffuse). §2.C.9.
 uniform float u_specular;
-uniform sampler2D u_ortho;       // mosaïque orthophoto IGN (unité texture 3)
-uniform float u_photoOpacityGround;    // 0..1, drapage photo sur le sol (le mesh = sol)
-uniform float u_hasPhoto;        // 0 ou 1, texture photo disponible
-uniform float u_wireframe;       // 1 = fil de fer debug (couleur plate, sans lumière/texture)
+uniform sampler2D u_ortho;       // IGN orthophoto mosaic (texture unit 3)
+uniform float u_photoOpacityGround;    // 0..1, photo draping on the ground (the mesh = ground)
+uniform float u_hasPhoto;        // 0 or 1, photo texture available
+uniform float u_wireframe;       // 1 = debug wireframe (flat colour, no light/texture)
 layout(location = 0) out vec4 fragColor;
 // x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag), stored
 // **negated** so the composite pass can tell mesh fragments from point ones:
@@ -49,7 +49,7 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec2 fragDepth;
 
 void main() {
-    // Mode debug fil de fer : couleur plate lisible, aucune lumière ni photo.
+    // Wireframe debug mode: readable flat colour, no light and no photo.
     if (u_wireframe > 0.5) {
         fragColor = vec4(0.15, 1.0, 0.55, 1.0);
         fragDepth = vec2(-v_depth, gl_FragCoord.z);
@@ -59,17 +59,16 @@ void main() {
 
     vec3 nSmooth = normalize(v_normal);
     vec3 albedo = v_albedo;
-    // Drapage photo uniquement à l'intérieur de l'emprise de la mosaïque — et
-    // seulement sur les surfaces qui « voient le ciel ». Une photo nadir n'a
-    // aucun sens sur une face orientée vers le bas : on l'estompe quand la
-    // normale bascule sous l'horizontale, ce qui retire la texture du fond
-    // fermé fantôme du mesh Poisson (et des dessous de surplombs) sans toucher
-    // à la géométrie ni aux falaises verticales. Les murs verticaux du socle
-    // synthétique (v_base, hachurés ci-dessous) ne « voient » pas le ciel non
-    // plus mais leur normale est quasi-horizontale (v_up≈0) donc le lissage
-    // ci-dessus les laisserait recevoir la photo — on les exclut explicitement.
-    // On utilise ici la normale LISSE : le drapage ne doit pas scintiller au
-    // gré de la facettisation.
+    // Photo draping only inside the mosaic footprint — and only on surfaces
+    // that "see the sky". A nadir photo makes no sense on a downward-facing
+    // face: it is faded out as the normal tips below the horizontal, which
+    // removes the texture from the Poisson mesh's phantom closed bottom (and
+    // from the undersides of overhangs) without touching the geometry or the
+    // vertical cliffs. The vertical walls of the synthetic base (v_base,
+    // hatched below) do not "see" the sky either, but their normal is nearly
+    // horizontal (v_up≈0) so the fade above would let them receive the photo —
+    // they are excluded explicitly.
+    // The SMOOTH normal is used here: draping must not shimmer with faceting.
     float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, nSmooth.z);
     float photoK = 0.0;
     if (u_hasPhoto > 0.5
@@ -81,74 +80,74 @@ void main() {
         albedo = mix(v_albedo, photo, photoK);
     }
 
-    // ── Normale de rendu ──────────────────────────────────────────────────
-    // La normale de sommet issue de Poisson est lisse par construction (le
-    // solveur résout un champ scalaire C², et le pipeline lui applique encore
-    // deux passes laplaciennes) : interpolée sur le triangle, elle donne au
-    // rocher un aspect de cire. La normale géométrique — constante sur chaque
-    // facette, reconstruite ici depuis les dérivées écran de la position monde
-    // — restitue au contraire la facettisation réelle du maillage. u_facet
-    // dose entre les deux.
+    // ── Shading normal ──────────────────────────────────────────────
+    // The Poisson vertex normal is smooth by construction (the solver solves a
+    // C² scalar field, and the pipeline applies two further Laplacian passes to
+    // it): interpolated across the triangle, it gives rock a waxy look. The
+    // geometric normal — constant over each facet, reconstructed here from the
+    // screen-space derivatives of the world position — restores the mesh's real
+    // faceting instead. u_facet doses between the two.
     vec3 nGeom = nSmooth;
     if (u_facet > 0.0) {
         vec3 g = cross(dFdx(v_wpos), dFdy(v_wpos));
         float gLen2 = dot(g, g);
-        // Triangle dégénéré / silhouette : pas de normale géométrique exploitable.
+        // Degenerate triangle / silhouette: no usable geometric normal.
         if (gLen2 > 1e-20) {
             nGeom = g * inversesqrt(gLen2);
-            // Le signe dépend du bobinage à l'écran, pas de l'orientation réelle.
+            // The sign depends on screen winding, not on the real orientation.
             if (dot(nGeom, nSmooth) < 0.0) nGeom = -nGeom;
         }
     }
     vec3 n = normalize(mix(nSmooth, nGeom, u_facet));
 
-    // Micro-relief : uniquement sur la roche. La neige est lisse dans la
-    // nature, et les murs verticaux du socle synthétique ne sont pas du terrain.
-    // Multiplié plutôt que branché : `microReliefNormal` prend des dérivées
-    // d'écran, elles seraient indéfinies sous un branchement divergent.
+    // Micro-relief: on rock only. Snow is smooth in nature, and the vertical
+    // walls of the synthetic base are not terrain.
+    // Multiplied rather than branched: `microReliefNormal` takes screen-space
+    // derivatives, which would be undefined under a divergent branch.
     //
-    // Le taux de neige vient de la palette elle-même (v_snow), qui SAIT où elle
-    // en a mis. Sous une photo drapée, en revanche, le névé visible est celui de
-    // la prise de vue et pas celui de la palette : on retombe alors sur la
-    // luminance, seul indice disponible — d'où le fondu sur `photoK`.
+    // The snow ratio comes from the palette itself (v_snow), which KNOWS where
+    // it put snow. Under a draped photo, however, the visible firn is the one
+    // in the photograph, not the palette's: we then fall back on luminance, the
+    // only available cue — hence the cross-fade on `photoK`.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float notBase = 1.0 - step(0.5, v_base);
     float snowT = mix(v_snow, smoothstep(RA_SNOW_LO, RA_SNOW_HI, lum), photoK);
     float rockness = (1.0 - snowT) * notBase;
     n = microReliefNormal(n, v_wpos, u_microRelief * rockness);
 
-    // Cassure d'albédo : patine fractale sur le rocher + bord de névé dentelé.
-    // Purement réflectance — appliquée avant tout calcul de lumière.
+    // Albedo breakup: fractal patina on the rock + ragged firn edge.
+    // Purely reflectance — applied before any lighting computation.
     float pixelM = max(length(dFdx(v_wpos)), length(dFdy(v_wpos)));
     albedo = rockAlbedoBreakup(albedo, v_wpos, pixelM, rockness, u_rockBreak * notBase, snowT);
 
     float diff = max(0.0, dot(n, u_sunDir)) * u_sunIntensity;
-    vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Éclairage neutre : wrap-lighting doux → relief lisible sans dureté.
+    vec3 flatDir = normalize(FLAT_LIGHT_DIR);    // Neutral lighting: soft wrap lighting → readable relief without harshness.
     float flatDiff = dot(n, flatDir) * 0.5 + 0.5;
-    // Le chemin PBR fournit déjà un plancher via l'ambiante hémisphérique : il
-    // lui faut un N·L franc, pas le wrap (qui rajouterait de la lumière fantôme
-    // sur les faces détournées de la lumière et écraserait le relief).
+    // The PBR path already provides a floor through the hemispheric ambient: it
+    // needs a plain N·L, not the wrap (which would add phantom light on faces
+    // turned away from the light and flatten the relief).
     float flatDirect = max(0.0, dot(n, flatDir));
 
-    // ── Lobe spéculaire ───────────────────────────────────────────────────
-    // Le rocher n'est pas de l'argile : l'essentiel de son caractère minéral
-    // vient d'un reflet large qui suit la lumière rasante. La neige est plus
-    // lisse et moins réfléchissante que la roche (F0 diélectrique nu), d'où des
-    // paramètres interpolés sur `rockness`.
+    // ── Specular lobe ───────────────────────────────────────────────
+    // Rock is not clay: most of its mineral character comes from a broad
+    // reflection that follows grazing light. Snow is smoother and less
+    // reflective than rock (bare dielectric F0), hence parameters interpolated
+    // on `rockness`.
     const float SPEC_ROUGH_ROCK = 0.42;
     const float SPEC_ROUGH_SNOW = 0.22;
     const float SPEC_F0_ROCK = 0.09;
     const float SPEC_F0_SNOW = 0.03;
-    // Gain artistique. Un lobe diélectrique physiquement exact est presque
-    // invisible à côté du diffus (mesuré : ~3 % en valeur d'affichage), d'autant
-    // que l'anti-scintillement élargit le lobe. Le curseur pilote donc une
-    // exagération assumée, calibrée pour que 100 % lise « minéral » sans brûler.
+    // Artistic gain. A physically exact dielectric lobe is nearly invisible next
+    // to the diffuse term (measured: ~3 % in display value), all the more so as
+    // the anti-shimmer term widens the lobe. The slider therefore drives a
+    // deliberate exaggeration, calibrated so that 100 % reads as "mineral"
+    // without blowing out.
     const float SPEC_GAIN = 6.0;
     vec3 dnx = dFdx(n);
     vec3 dny = dFdy(n);
-    // Anti-scintillement (Kaplanyan) : la variance de la normale à l'échelle du
-    // pixel est convertie en rugosité supplémentaire, sinon le micro-relief
-    // ferait pétiller le lobe au moindre mouvement de caméra.
+    // Anti-shimmer (Kaplanyan): the pixel-scale variance of the normal is
+    // converted into extra roughness, otherwise the micro-relief would make the
+    // lobe sparkle at the slightest camera movement.
     float nVar = min(dot(dnx, dnx) + dot(dny, dny), 0.12);
     float rough = mix(SPEC_ROUGH_SNOW, SPEC_ROUGH_ROCK, rockness);
     rough = min(1.0, sqrt(rough * rough + nVar));
@@ -161,34 +160,34 @@ void main() {
     vec3 ambient = albedo * 0.35;
     vec3 diffuse = albedo * (0.75 * diff) * u_sunColor;
     vec3 lit = ambient + diffuse * s;
-    // Éclairage neutre (soleil désactivé) : direction fixe douce + plancher
-    // ambiant élevé → relief toujours lisible. Les ombres portées (s) peuvent
-    // s'appliquer même sans soleil — la shadow map suit alors la direction fixe.
+    // Neutral lighting (sun disabled): soft fixed direction + high ambient
+    // floor → relief always readable. Cast shadows (s) may apply even without
+    // the sun — the shadow map then follows the fixed direction.
     vec3 neutral = albedo * (0.2 + 0.8 * flatDiff * s);
     vec3 rgb = mix(lit, neutral, u_flatLight);
-    // Chemin photoréaliste : même décomposition (direct × ombre, soleil ou
-    // lumière fixe) mais résolue en radiance linéaire avec ambiante
-    // hémisphérique, perspective aérienne et tone mapping filmique.
+    // Photorealistic path: same decomposition (direct × shadow, sun or fixed
+    // light) but resolved in linear radiance with hemispheric ambient, aerial
+    // perspective and filmic tone mapping.
     float direct = mix(diff, flatDirect, u_flatLight) * s;
     rgb = mix(rgb, pbrEncode(pbrShadeSpec(albedo, n.z, direct, v_distM, spec)), u_pbr);
-    // Hachures à 45° gravées sur les murs du socle synthétique. En espace-monde
-    // (v_wpos, mètres) : les lignes suivent le mesh (elles restent fixées à la
-    // paroi quand la caméra bouge). L'épaisseur est mesurée en pixels via fwidth
-    // pour rester un trait fin d'~1 px quel que soit le zoom.
+    // 45° hatching engraved on the walls of the synthetic base. In world space
+    // (v_wpos, metres): the lines follow the mesh (they stay pinned to the wall
+    // when the camera moves). Thickness is measured in pixels through fwidth so
+    // it stays a thin ~1 px stroke at any zoom.
     if (v_base > 0.5) {
-        const float HATCH_PERIOD_M = 10.0; // espacement des lignes (mètres, sur le mesh)
+        const float HATCH_PERIOD_M = 10.0; // line spacing (metres, on the mesh)
         float coord = (v_wpos.z + v_wpos.x + v_wpos.y) / HATCH_PERIOD_M;
         float f = fract(coord);
-        float line = min(f, 1.0 - f);                  // distance à la ligne la plus proche
-        float dist = line / max(fwidth(coord), 1e-5);  // distance en pixels
-        float lineMask = 1.0 - smoothstep(0.5, 1.0, dist); // trait fin d'~1 px
+        float line = min(f, 1.0 - f);                  // distance to the nearest line
+        float dist = line / max(fwidth(coord), 1e-5);  // distance in pixels
+        float lineMask = 1.0 - smoothstep(0.5, 1.0, dist); // thin ~1 px stroke
         rgb = mix(rgb, rgb * 0.75, lineMask);
     }
-    // Couleur PRÉMULTIPLIÉE par l'alpha : la passe géométrique peut être rendue
-    // en suréchantillonnage, et seule une couleur prémultipliée se moyenne
-    // correctement — sinon les silhouettes, moyennées avec le fond effacé à
-    // (0,0,0,0), ressortent assombries. Le compositing (edl.frag) applique donc
-    // un blend prémultiplié.
+    // Colour PREMULTIPLIED by alpha: the geometry pass may be rendered
+    // supersampled, and only a premultiplied colour averages correctly —
+    // otherwise silhouettes, averaged with the background cleared to (0,0,0,0),
+    // come out darkened. Compositing (edl.frag) therefore uses a premultiplied
+    // blend.
     fragColor = vec4(rgb * v_alpha, v_alpha);
     fragDepth = vec2(-v_depth, gl_FragCoord.z);
 }

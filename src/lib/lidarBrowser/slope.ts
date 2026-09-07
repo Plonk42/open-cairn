@@ -1,25 +1,25 @@
 /**
  * Slope-based palette + per-point/per-vertex colorization.
  *
- * Trois presets, de deux natures différentes :
+ * Three presets, of two different natures:
  *
- *   'terrain' — le seul **albédo** : réflectances diffuses réelles d'un versant
- *               (roche nue, pelouse alpine, névé), sans le moindre ombrage
- *               peint. Le chemin photoréaliste fournit toute la lumière, donc
- *               toute variation de luminosité cuite ici serait comptée deux
- *               fois. Trois variables continues le pilotent : la pente,
- *               l'altitude relative à la ligne de neige, et la lithologie.
- *   'base'    — dégradé chaud sable/brun (CloudCompare).
- *   'slope'   — carte de pente conventionnelle : vert (plat) → jaune → orange
- *               → rouge → violet clair (vertical), la convention des cartes de
- *               pente pour le ski de rando (CalTopo, Avalanche Canada, IGN).
- *               Sert aussi d'instrument de mesure : c'est lui qui a montré que
- *               l'épaulement herbeux de la Dent de Crolles est à 30-32°, donc
- *               que la rupture vers le calcaire était placée trop bas.
+ *   'terrain' — the only **albedo**: real diffuse reflectances of a mountain
+ *               side (bare rock, alpine turf, firn), with no painted shading
+ *               whatsoever. The photorealistic path supplies all the light, so
+ *               any brightness variation baked in here would be counted twice.
+ *               Three continuous variables drive it: slope, elevation relative
+ *               to the snow line, and lithology.
+ *   'base'    — warm sand/brown gradient (CloudCompare).
+ *   'slope'   — conventional steepness map: green (flat) → yellow → orange →
+ *               red → light violet (vertical), the slope-map convention used
+ *               for ski touring (CalTopo, Avalanche Canada, IGN).
+ *               It doubles as a measuring instrument: it is what showed that
+ *               the grassy shoulder of the Dent de Crolles sits at 30-32°, and
+ *               therefore that the turf/limestone break was set too low.
  *
- * Les deux dernières ne sont PAS des albédos : leur luminance n'a aucun sens
- * physique. D'où le drapeau `u_snowPalette` côté fragment, qui n'autorise que
- * 'terrain' à relire un taux de neige dans la clarté de la couleur.
+ * The last two are NOT albedos: their luminance has no physical meaning. Hence
+ * the fragment-side `u_snowPalette` flag, which only lets 'terrain' read a snow
+ * ratio back out of the colour's lightness.
  */
 
 export type ShaderPreset = 'base' | 'terrain' | 'slope';
@@ -31,11 +31,11 @@ export const SHADER_LABELS: Record<ShaderPreset, string> = {
 };
 
 /**
- * Lithologie du massif rendu. Ni une saison ni une ambiance : la roche ne
- * dépend que du massif, et c'est le seul écart qu'un réglage continu ne pouvait
- * pas combler entre les anciens presets *Été* et *Montagne*. Un calcaire
- * urgonien lavé est deux fois plus clair qu'un schiste ardoisier, et il
- * s'éclaircit avec la pente là où le cristallin et le schiste s'assombrissent.
+ * Lithology of the rendered range. Neither a season nor an ambiance: rock only
+ * depends on the range, and it was the one gap a continuous setting could not
+ * bridge between the former *Été* and *Montagne* presets. Washed Urgonian
+ * limestone is twice as light as slate schist, and it BRIGHTENS with slope
+ * where crystalline rock and schist darken.
  */
 export type RockType = 'limestone' | 'granite' | 'schist';
 
@@ -45,12 +45,12 @@ export const ROCK_LABELS: Record<RockType, string> = {
     schist: 'Schiste',
 };
 
-/** Tout ce dont une couleur de sommet a besoin, hors géométrie. */
+/** Everything a vertex colour needs, geometry aside. */
 export interface PaletteSettings {
     readonly preset: ShaderPreset;
-    /** Voir {@link DEFAULT_SNOW_LINE}. */
+    /** See {@link DEFAULT_SNOW_LINE}. */
     readonly snowLine: number;
-    /** Voir {@link DEFAULT_SNOW_AMOUNT}. */
+    /** See {@link DEFAULT_SNOW_AMOUNT}. */
     readonly snowAmount: number;
     readonly rock: RockType;
 }
@@ -64,25 +64,23 @@ const BASE_PALETTE: Array<[number, [number, number, number]]> = [
     [80, [70, 45, 30]],
 ];
 
-// ─── Roche nue : réflectances diffuses réelles, en valeurs sRGB (≈ ρ^(1/2.2)) ─
-// Aucun ombrage n'y est cuit : le chemin photoréaliste multiplie ces valeurs
-// par l'irradiance ciel + soleil, donc toute variation de luminosité peinte ici
-// serait comptée deux fois. Les valeurs historiques (rocher à 190-200, soit
-// ρ ≈ 0,5) avaient été choisies pour rester lisibles sous une ambiante
-// constante de 0,35 ; sous l'éclairage physique elles saturent en blanc dès le
-// premier rayon de soleil.
+// ─── Bare rock: real diffuse reflectances, as sRGB values (≈ ρ^(1/2.2)) ──────
+// No shading is baked in: the photorealistic path multiplies these values by
+// the sky + sun irradiance, so any brightness variation painted here would be
+// counted twice. The historical values (rock at 190-200, i.e. ρ ≈ 0.5) had been
+// picked to stay readable under a constant 0.35 ambient; under physical
+// lighting they blow out to white at the first ray of sun.
 //
-// Chaque rampe court de 0° (replats, éboulis) à 90° (paroi, surplomb), et son
-// PROFIL est aussi caractéristique que sa teinte : le calcaire s'éclaircit sur
-// les barres verticales, lavées par le ruissellement et qui n'ont pas le temps
-// de se patiner, là où le cristallin et le schiste s'assombrissent à mesure que
-// la patine ferrugineuse laisse place à la cassure fraîche. Rien n'y descend
-// sous ρ ≈ 0,15 : sur une montagne aucune paroi n'est un piège à lumière, et
-// une valeur plus sombre s'effondre en noir dès que la face se détourne du
-// soleil (elle passait pour « dramatique » sous l'ancien éclairage plat).
+// Each ramp runs from 0° (benches, scree) to 90° (wall, overhang), and its
+// PROFILE is as characteristic as its hue: limestone brightens on the vertical
+// bars, washed by runoff and given no time to develop a patina, whereas
+// crystalline rock and schist darken as the ferrous patina gives way to fresh
+// fracture. Nothing goes below ρ ≈ 0.15: on a mountain no wall is a light trap,
+// and a darker value collapses to black as soon as the face turns away from the
+// sun (it merely looked "dramatic" under the old flat lighting).
 const ROCK_RAMPS: Record<RockType, Array<[number, [number, number, number]]>> = {
-    // Calcaire urgonien — Chartreuse, Vercors, Dévoluy.
-    // éboulis ρ ≈ 0,30   barre lavée ρ ≈ 0,40   paroi ruisselée ρ ≈ 0,20
+    // Urgonian limestone — Chartreuse, Vercors, Dévoluy.
+    // scree ρ ≈ 0.30   washed bar ρ ≈ 0.40   runoff-streaked wall ρ ≈ 0.20
     limestone: [
         [0, [166, 160, 141]],
         [30, [160, 154, 136]],
@@ -90,19 +88,18 @@ const ROCK_RAMPS: Record<RockType, Array<[number, [number, number, number]]>> = 
         [75, [164, 159, 148]],
         [90, [128, 124, 116]],
     ],
-    // Cristallin — Mont-Blanc, Écrins, Belledonne. Le lichen, l'oxydation du fer
-    // et la cuisson au soleil donnent au granite un tan franchement chaud
-    // (R:G:B ≈ 1,00 : 0,90 : 0,73, relevé sur les rendus de référence) ; la
-    // cassure fraîche et les surplombs n'ont jamais cette patine et restent
-    // d'un gris presque neutre, un peu froid.
+    // Crystalline — Mont-Blanc, Écrins, Belledonne. Lichen, iron oxidation and
+    // sun baking give granite a distinctly warm tan (R:G:B ≈ 1.00 : 0.90 : 0.73,
+    // measured on the reference renders); fresh fracture and overhangs never
+    // carry that patina and stay an almost neutral, slightly cold grey.
     granite: [
         [0, [162, 146, 118]],
         [25, [148, 133, 106]],
         [55, [116, 106, 90]],
         [90, [88, 84, 80]],
     ],
-    // Schistes et ardoisiers — Queyras, Beaufortain, Maurienne. Sombre et froid,
-    // et le débit en plaques ne produit aucune face lavée claire.
+    // Schist and slate — Queyras, Beaufortain, Maurienne. Dark and cold, and its
+    // platy cleavage never produces a light washed face.
     schist: [
         [0, [122, 116, 106]],
         [25, [108, 103, 96]],
@@ -160,60 +157,60 @@ function interpolatePalette(
     return palette.at(-1)![1];
 }
 
-// ─── Névé ────────────────────────────────────────────────────────────────────
-// ρ ≈ 0,85 fraîche, un peu moins tassée. C'est cette plage — roche à ~0,2,
-// neige à ~0,85 — qui donne aux rendus de référence leur dynamique.
+// ─── Firn ──────────────────────────────────────────────────────────────
+// ρ ≈ 0.85 fresh, slightly less once packed. That range — rock at ~0.2, snow at
+// ~0.85 — is what gives the reference renders their dynamic range.
 const SNOW_FRESH: readonly [number, number, number] = [238, 240, 245];
 const SNOW_PACKED: readonly [number, number, number] = [214, 217, 223];
 
 /**
- * Albédo de la pelouse alpine, entre l'alpage gras des replats bien arrosés et
- * la pelouse rase et brûlée des derniers mètres sous les névés. La transition
- * est une vraie variable de terrain : plus on monte vers la limite des neiges,
- * plus la saison végétative est courte, plus l'herbe se clairseme et laisse
- * voir la terre et le caillou — l'albédo gagne en clarté en perdant son vert.
- * D'où le lien avec le réglage « Ligne de neige » : c'est la même limite
- * climatique qui place les névés et qui date la pelouse.
+ * Alpine turf albedo, between the lush pasture of well-watered benches and the
+ * short, burnt sward of the last metres below the firn. The transition is a
+ * genuine field variable: the higher one climbs towards the snow line, the
+ * shorter the growing season, the sparser the grass and the more soil and
+ * stone show through — the albedo gains lightness as it loses its green. Hence
+ * the link with the « Ligne de neige » setting: the same climatic limit places
+ * the firn and dates the turf.
  *
- * SATURATION : l'ambiante hémisphérique est une lumière de ciel, donc bleue.
- * Additionnée au soleil elle remonte le canal bleu d'environ 25 % avant le
- * tone mapping, qui désature encore les hautes lumières : une herbe neutre
- * ressort en kaki pastel. Le bleu est donc creusé ici, mais modérément — trop
- * et la prairie vire au jaune de paille en plein soleil.
+ * SATURATION: the hemispheric ambient is sky light, hence blue. Added to the
+ * sun it lifts the blue channel by about 25 % before tone mapping, which
+ * desaturates the highlights further: neutral grass comes out pastel khaki.
+ * Blue is therefore scooped out here, but moderately — too much and the meadow
+ * turns straw yellow in full sun.
  */
 const TURF_LUSH: readonly [number, number, number] = [104, 132, 58];
 const TURF_DRY: readonly [number, number, number] = [146, 138, 82];
 /**
- * Dénivelé sous la ligne de neige où la pelouse passe de grasse à brûlée. Court
- * volontairement : l'alpage reste vert jusqu'à très près de sa limite, ce n'est
- * que dans la dernière ceinture — sol squelettique, saison de végétation de
- * quelques semaines — qu'il se clairseme et laisse voir la terre.
+ * Drop below the snow line over which the turf goes from lush to burnt.
+ * Deliberately short: the pasture stays green until very close to its limit,
+ * and only in the last belt — skeletal soil, a growing season of a few weeks —
+ * does it thin out and let the soil show.
  */
 const TURF_DRY_SPAN_M = 700;
 
 /**
- * Altitude (m) de la limite des neiges d'été sur une face sud. Les névés
- * résiduels d'août dans les Alpes du Nord commencent vers 2400 m en exposition
- * nord et ne deviennent continus que vers 2900 — en dessous, une scène de
- * montagne en été n'a pas un flocon. Réglable : c'est le curseur « Ligne de
- * neige », qui déplace aussi la ceinture d'alpage et la pelouse. Sa course va
- * de 0 m à 5000 m, soit au-dessus du mont Blanc : c'est ce qui permet de
- * garantir une scène sans un flocon, quelle que soit l'altitude du massif.
+ * Elevation (m) of the summer snow line on a south face. Residual August firn
+ * in the Northern Alps starts around 2400 m on north aspects and only becomes
+ * continuous around 2900 — below that, a summer mountain scene has not a single
+ * flake. Adjustable: this is the « Ligne de neige » slider, which also moves the
+ * pasture belt and the turf. Its range runs from 0 m to 5000 m, i.e. above Mont
+ * Blanc: that is what makes a completely snowless scene reachable whatever the
+ * elevation of the range.
  */
 export const DEFAULT_SNOW_LINE = 2700;
 
 /**
- * Épaisseur du manteau, dans [0,1] — l'accumulation, là où la ligne de neige
- * est la température. Les deux sont indépendantes sur le terrain : un coup de
- * froid de novembre blanchit jusqu'au fond de vallée sans rien plâtrer, un mois
- * de juin après un gros hiver ne laisse rien sous 2200 m mais couvre tout
- * au-dessus. Descendre la ligne ne saura jamais imiter ni l'un ni l'autre : à
- * 1200 m comme à 2700 m les parois raides restent nues et la transition prend
- * le même dénivelé. 0,5 est la valeur qui reproduit le rendu d'origine.
+ * Snowpack depth, in [0,1] — accumulation, where the snow line is temperature.
+ * The two are independent in the field: a November cold snap whitens down to
+ * the valley floor without plastering anything, a June after a heavy winter
+ * leaves nothing below 2200 m but covers everything above. Lowering the line
+ * can never mimic either: at 1200 m as at 2700 m the steep walls stay bare and
+ * the transition spans the same drop. 0.5 is the value that reproduces the
+ * original render.
  */
 export const DEFAULT_SNOW_AMOUNT = 0.5;
 
-/** Massif calcaire par défaut : c'est la Chartreuse qui sert de référence ici. */
+/** Default limestone range: the Chartreuse is the reference here. */
 export const DEFAULT_ROCK: RockType = 'limestone';
 
 export const DEFAULT_PALETTE: PaletteSettings = {
@@ -224,29 +221,28 @@ export const DEFAULT_PALETTE: PaletteSettings = {
 };
 
 /**
- * Pente au-delà de laquelle plus rien ne tient, du manteau maigre au gros
- * manteau : une pellicule ne se pose que sur les replats, une couche épaisse
- * plâtre les vires et les dalles et ne cède que dans le surplomb. Les deux
- * bornes débordent volontairement le plausible — elles cadrent un curseur, pas
- * un climat — mais leur milieu tombe sur les 58° d'origine.
+ * Slope past which nothing holds any more, from a thin pack to a deep one: a
+ * dusting only settles on benches, a thick layer plasters ledges and slabs and
+ * only gives up in the overhang. Both bounds deliberately overshoot the
+ * plausible — they frame a slider, not a climate — but their midpoint lands on
+ * the original 58°.
  */
 const SNOW_SLOPE_LIMIT_MIN = 30;
 const SNOW_SLOPE_LIMIT_MAX = 86;
-/** Largeur de la rampe de purge sous cette limite. */
+/** Width of the purge ramp below that limit. */
 const SNOW_SLOPE_FADE_DEG = 26;
 /**
- * Dénivelé sur lequel la neige devient continue au-dessus de la ligne. Un
- * manteau maigre traîne en névés épars sur 900 m ; un manteau épais donne une
- * limite franche.
+ * Drop over which snow becomes continuous above the line. A thin pack lingers
+ * as scattered patches over 900 m; a thick one gives a sharp limit.
  */
 const SNOW_SPAN_MAX_M = 900;
 const SNOW_SPAN_MIN_M = 100;
-/** Décalage de la ligne de neige entre une face plein nord et une face plein sud. */
+/** Snow-line offset between a due-north and a due-south face. */
 const SNOW_ASPECT_SHIFT_M = 300;
 /**
- * Écart entre la ligne de neige et le dernier gazon, et hauteur de la rampe qui
- * y mène. La pelouse continue s'arrête juste sous les premiers névés ; elle se
- * clairseme bien avant, d'où une rampe large plutôt qu'un seuil.
+ * Gap between the snow line and the last grass, and height of the ramp leading
+ * up to it. Continuous turf stops just below the first firn patches; it thins
+ * out well before, hence a wide ramp rather than a threshold.
  */
 const TURF_TOP_GAP_M = 100;
 const TURF_TOP_FADE_M = 700;
@@ -265,32 +261,31 @@ const smoothstep01 = (x: number): number => {
     return t * t * (3 - 2 * t);
 };
 
-/** Voir {@link TURF_LUSH} : dessèchement avec l'altitude, puis avec la pente. */
+/** See {@link TURF_LUSH}: drying with elevation, then with slope. */
 function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, number, number] {
     const altitude = smoothstep01(1 - (snowLine - z) / TURF_DRY_SPAN_M);
-    // Sol maigre : sur la pente la terre est plus mince et mieux drainée, le
-    // caillou perce. Ne suffit jamais à lui seul à brûler complètement l'herbe.
+    // Thin soil: on a slope the earth is shallower and better drained, so stone
+    // shows through. Never enough on its own to burn the grass completely.
     const thin = smoothstep01(slopeDeg / 45) * 0.45;
     return lerp3(TURF_LUSH, TURF_DRY, altitude + thin);
 }
 
 /**
- * Versant de montagne : roche nue, pelouse alpine là où la pente et l'altitude
- * la laissent tenir, névé au-dessus de la ligne de neige. Sans texture et sans
- * ombrage — les trois mêmes entrées que les rendus de référence : pente,
- * altitude, orientation.
+ * Mountain side: bare rock, alpine turf wherever slope and elevation let it
+ * hold, firn above the snow line. No texture and no shading — the same three
+ * inputs as the reference renders: slope, elevation, aspect.
  *
- * L'herbe tient bien plus raide qu'on ne le croit — sur les épaulements de la
- * Dent de Crolles la pelouse couvre encore des pentes à 35-40°, et la carte de
- * pente du même maillage donne ~30-32° sur tout l'épaulement herbeux : une
- * rupture placée à 30° repeignait la prairie en rocher, qui ressortait blanc.
+ * Grass holds on far steeper ground than one would think — on the shoulders of
+ * the Dent de Crolles the turf still covers 35-40° slopes, and the slope map of
+ * the same mesh reads ~30-32° across the whole grassy shoulder: a break set at
+ * 30° repainted the meadow as rock, which then came out white.
  *
- * L'orientation ne décale que la neige, pas la pelouse : une face nord porte
- * bien sa limite de végétation plus bas, mais elle est aussi plus humide donc
- * plus verte, et un seul paramètre ne peut pas départager les deux effets.
+ * Aspect only shifts the snow, not the turf: a north face does carry its
+ * vegetation limit lower, but it is also wetter hence greener, and a single
+ * parameter cannot separate the two effects.
  *
- * La pelouse ignore aussi `snowAmount` : l'alpage se cale sur le climat du
- * massif, pas sur les chutes de l'hiver en cours.
+ * The turf also ignores `snowAmount`: the pasture follows the climate of the
+ * range, not the snowfall of the current winter.
  */
 function terrainAlbedo(
     nx: number, ny: number,
@@ -306,15 +301,15 @@ function terrainAlbedo(
     const slopeLimit = SNOW_SLOPE_LIMIT_MIN + (SNOW_SLOPE_LIMIT_MAX - SNOW_SLOPE_LIMIT_MIN) * amount;
     const span = SNOW_SPAN_MAX_M + (SNOW_SPAN_MIN_M - SNOW_SPAN_MAX_M) * amount;
 
-    // +1 = plein nord (à l'ombre, tient la neige plus bas), -1 = plein sud.
+    // +1 = due north (shaded, holds snow lower), -1 = due south.
     const northFacing = Math.cos(Math.atan2(nx, ny));
     const retention = smoothstep01((slopeLimit - slopeDeg) / SNOW_SLOPE_FADE_DEG);
     const elevation = smoothstep01((z - (snowLine - northFacing * SNOW_ASPECT_SHIFT_M)) / span);
     const snow = retention * elevation;
     if (snow <= 0.01) return ground.map(Math.round) as [number, number, number];
 
-    // Plus haut et plus plat, l'accumulation reste fraîche et brillante ; les
-    // crêtes balayées par le vent et les névés bas sont tassés, plus sourds.
+    // Higher and flatter, the accumulation stays fresh and bright; wind-swept
+    // ridges and low firn patches are packed, and duller.
     const freshness = smoothstep01((z - snowLine - span) / 600) * 0.6 + retention * 0.4;
     return lerp3(ground, lerp3(SNOW_PACKED, SNOW_FRESH, freshness), snow)
         .map(Math.round) as [number, number, number];
@@ -331,11 +326,11 @@ function terrainAlbedo(
  * the lighting normal turns that noise into per-vertex salt-and-pepper. See
  * `macroVertexNormals` in `pipeline.ts`.
  *
- * Le rendu n'appelle plus cette fonction : la palette est évaluée dans les
- * vertex shaders (`glsl/lib/palette.glsl`). Elle reste la **référence** — la
- * seule version testable, les portes ne compilant pas le GLSL — et la source
- * documentaire du pourquoi de chaque constante. Toute retouche de palette se
- * fait ici *et* dans le port GLSL.
+ * Rendering no longer calls this function: the palette is evaluated in the
+ * vertex shaders (`glsl/lib/palette.glsl`). It remains the **reference** — the
+ * only testable version, since the gates do not compile GLSL — and the
+ * documentary source for why each constant is what it is. Any palette tweak
+ * must be made here *and* in the GLSL port.
  */
 export function vertexColor(
     nx: number, ny: number, nz: number,

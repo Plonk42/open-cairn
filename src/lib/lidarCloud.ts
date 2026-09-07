@@ -34,11 +34,11 @@ export interface LidarMeshData {
     /** Triangle vertex indices, length = 3 * triangleCount. */
     indices: Uint32Array;
     /**
-     * Champ d'orientation « macro » du terrain, (nx, ny, nz) encodés sur un
-     * octet chacun (`v * 127.5 + 127.5`), soit 3 par sommet. C'est lui — et non
-     * la normale d'éclairage — que lit la palette, dont les transitions ne font
-     * que quelques degrés alors que la normale de sommet en porte des dizaines
-     * de bruit de reconstruction. Présent pour les maillages Poisson seulement.
+     * "Macro" terrain orientation field, (nx, ny, nz) each encoded on one byte
+     * (`v * 127.5 + 127.5`), i.e. 3 per vertex. This — and not the lighting
+     * normal — is what the palette reads, since its transitions are only a few
+     * degrees wide while the vertex normal carries tens of degrees of
+     * reconstruction noise. Present for Poisson meshes only.
      */
     macroNormals?: Uint8Array;
     /**

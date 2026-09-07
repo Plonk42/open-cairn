@@ -46,9 +46,9 @@ const ENC_INDEX = 1;
 const CLOUD_TAG_STRIDE = 16;
 const MAX_CLOUDS = Math.floor(255 / CLOUD_TAG_STRIDE) + 1;
 
-// Les tags 2 et 6 (couleurs par sommet) ont été retirés : la palette est évaluée
-// dans les vertex shaders. Les valeurs restantes gardent leur numéro pour que
-// la table reste lisible à côté des scenes déjà publiées.
+// Tags 2 and 6 (per-vertex colours) were removed: the palette is evaluated in
+// the vertex shaders. The remaining values keep their number so the table stays
+// readable next to the already-published scenes.
 const TAG = {
     shadedPositions: 0,
     shadedNormals: 1,
@@ -107,7 +107,7 @@ export interface ShowcaseAmbiance {
     lidarVegIntensity: number;
     lidarVegNormalShade: number;
     lidarVegSizeBoost: number;
-    /** Réglages de hauteur de végétation : cuits à la capture, mais rejoués à chaud par `recomputeVegHeights`. */
+    /** Vegetation-height settings: baked at capture time, but replayed hot by `recomputeVegHeights`. */
     lidarVegGroundGap: number;
     lidarVegGroundRough: number;
     lidarForestGrouping: ForestGrouping;
@@ -152,12 +152,12 @@ export interface ShowcaseScene {
      */
     extraClouds?: Array<{ shaded: LidarShadedCloudData | null; mesh: LidarMeshData | null }>;
     /**
-     * Emprise et réglages de génération de chaque nuage, primaire en premier
-     * puis les `extraClouds` dans l'ordre (voir `captureParams.ts`). C'est ce
-     * qui permet d'afficher le détail d'une scène et de « Recapturer » sa zone
-     * sans avoir à en télécharger la géométrie. `null` pour un nuage dont on ne
-     * sait rien — une scène exportée avant ce champ n'en a aucun, et se
-     * recharge sans rien perdre.
+     * Extent and generation settings of each cloud, primary first then the
+     * `extraClouds` in order (see `captureParams.ts`). This is what makes it
+     * possible to display the details of a scene and to « Recapturer » its area
+     * without having to download its geometry. `null` for a cloud nothing is
+     * known about — a scene exported before this field has none, and reloads
+     * without losing anything.
      */
     captures?: Array<CaptureRecord | null>;
 }

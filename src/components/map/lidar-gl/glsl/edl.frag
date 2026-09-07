@@ -16,7 +16,7 @@ uniform float u_farPlane;   // depth normalization, in same units as v_depth
 uniform float u_aoStrength; // additional ambient-occlusion darkening (0 = off)
 uniform float u_aoRadius;   // AO sampling radius, in 2-pixel units
 uniform float u_opacity;    // overall layer opacity (0..1)
-// 1 sur le chemin photoréaliste, où l'AO remplace l'EDL sur le maillage.
+// 1 on the photorealistic path, where AO replaces EDL on the mesh.
 uniform float u_meshAo;
 out vec4 fragColor;
 
@@ -185,19 +185,19 @@ void main() {
     float ownDepth = texture(u_depth, v_uv).g;
     float nearestDepth = texture(u_sharedDepth, v_uv).r;
     if (ownDepth > nearestDepth + 1e-6) discard;
-    // Les deux indices d'espace écran sont répartis selon le type de géométrie,
-    // via le signe que mesh.frag écrit dans la profondeur linéaire (cf. depthAt).
+    // The two screen-space cues are dispatched by geometry type, through the
+    // sign mesh.frag writes into the linear depth (cf. depthAt).
     //   points -> EDL. Its black silhouettes are what separates discrete
     //             samples; a cavity lobe would only mud them up.
-    //   maillage -> AO en photoréaliste (l'occlusion est un vrai indice de relief
-    //             sur une surface continue, là où l'EDL transformait chaque pli
-    //             et chaque couture en fissure), EDL sinon — c'est le seul
-    //             ombrage du mode classique, qui n'a pas de terme d'occlusion.
+    //   mesh   -> AO in photorealistic mode (occlusion is a genuine relief cue
+    //             on a continuous surface, where EDL turned every fold and every
+    //             seam into a crack), EDL otherwise — it is the only shading the
+    //             classic mode has, since it carries no occlusion term.
     bool meshAo = texture(u_depth, v_uv).r < 0.0 && u_meshAo > 0.5;
     float edl = meshAo ? 0.0 : edlFactor();
     float ao = meshAo ? aoFactor() : 0.0;
     float shade = exp(-edl * u_strength) * exp(-ao * u_aoStrength);
-    // `u_color` est prémultiplié (voir mesh.frag / points.frag) : le blend côté
-    // MapLibre est ONE / ONE_MINUS_SRC_ALPHA.
+    // `u_color` is premultiplied (see mesh.frag / points.frag): the MapLibre-side
+    // blend is ONE / ONE_MINUS_SRC_ALPHA.
     fragColor = vec4(color.rgb * shade * u_opacity, color.a * u_opacity);
 }

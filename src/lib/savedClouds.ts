@@ -72,9 +72,10 @@ export function makeCloudKey(p: SavedCloudParams): string {
     // that happen to share the same enclosing radius (e.g. 500×300 vs a
     // near-square rect) don't dedupe together.
     const size = `${p.widthM.toFixed(0)}x${p.lengthM.toFixed(0)}`;
-    // Les réglages de génération en font partie eux aussi, sans quoi deux essais
-    // de la même zone à profondeur ou netteté différentes s'écraseraient. Ceux
-    // du rendu en sont absents : ils se rejouent à chaud (voir `captureParams.ts`).
+    // The generation settings are part of it too, otherwise two attempts at the
+    // same area with a different depth or sharpness would overwrite each other.
+    // The render settings are absent from it: they replay hot (see
+    // `captureParams.ts`).
     return `${p.mode}:${lng}:${lat}:${size}:${captureParamsSignature(p.params)}`;
 }
 

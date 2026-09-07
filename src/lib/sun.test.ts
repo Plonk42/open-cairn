@@ -115,8 +115,8 @@ describe('sunLight', () => {
     });
 
     it('honours forced values that no real sun would produce', () => {
-        // Nuit astronomique (soleil sous l'horizon) mais lumière à fond : c'est
-        // exactement ce que l'override doit permettre.
+        // Astronomical night (sun below the horizon) but the light turned all
+        // the way up: exactly what the override must allow.
         const { dir, intensity } = sunLight({ azimuthDeg: 0, elevationDeg: -30, warmth: 0.2, intensity: 1 });
         expect(dir[2]).toBeLessThan(0);
         expect(intensity).toBe(1);

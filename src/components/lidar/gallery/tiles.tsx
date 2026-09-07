@@ -72,7 +72,7 @@ function captureSizeLabel(capture: CaptureRecord): string {
     return `${Math.round(capture.widthM)} × ${Math.round(capture.lengthM)} m`;
 }
 
-/** Jour + heure : deux essais de la même zone ne se distinguent souvent que par là. */
+/** Day + time: two attempts at the same area often only differ by that. */
 function captureTimeLabel(iso: string): string {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -91,7 +91,7 @@ const ChevronGlyph = ({ open }: Readonly<{ open: boolean }>) => (
     </svg>
 );
 
-/** Lignes libellé / valeur du dépliant « Détails ». */
+/** Label / value rows of the « Détails » disclosure. */
 function DetailRows({ entries }: Readonly<{ entries: readonly CaptureParamEntry[] }>) {
     return (
         <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 px-2.5 text-[11px]">
@@ -105,7 +105,7 @@ function DetailRows({ entries }: Readonly<{ entries: readonly CaptureParamEntry[
     );
 }
 
-/** L'emprise puis tous les réglages d'une capture, y compris une clé inconnue. */
+/** The extent then every setting of a capture, including an unknown key. */
 function captureRows(capture: CaptureRecord): CaptureParamEntry[] {
     return [
         { key: 'mode', label: 'Mode', text: CLOUD_MODE_LABELS[capture.mode] },
@@ -115,7 +115,7 @@ function captureRows(capture: CaptureRecord): CaptureParamEntry[] {
     ];
 }
 
-/** Bascule du dépliant, à placer dans la barre d'actions d'une tuile. */
+/** Disclosure toggle, to be placed in the action bar of a tile. */
 function DetailsToggle({ open, onToggle }: Readonly<{ open: boolean; onToggle: () => void }>) {
     return (
         <button
@@ -143,7 +143,7 @@ function RecaptureButton({ onClick, title }: Readonly<{ onClick: () => void; tit
     );
 }
 
-/** Une scène multi-nuage ne rejoue que son nuage principal : autant le dire. */
+/** A multi-cloud scene only replays its primary cloud: better say so. */
 function recaptureTitle(cloudCount: number): string {
     return cloudCount > 1
         ? 'Reprendre l’emprise et les réglages du nuage principal de cette scène, sans lancer la capture'
@@ -151,9 +151,9 @@ function recaptureTitle(cloudCount: number): string {
 }
 
 /**
- * Détails d'une scène : ce qui la caractérise (ambiance, comptes), puis
- * l'emprise et les réglages de chacun de ses nuages. Une scène exportée avant
- * que les empreintes ne soient embarquées n'affiche que la première partie.
+ * Details of a scene: what characterizes it (ambiance, counts), then the extent
+ * and the settings of each of its clouds. A scene exported before the
+ * fingerprints were embedded only shows the first part.
  */
 function SceneDetails({
     facts,
@@ -297,7 +297,7 @@ function LocalThumb({ id, alt }: Readonly<{ id: string; alt: string }>) {
     );
 }
 
-/** Ce qu'une scène a de plus qu'une capture : son poids et sa date. */
+/** What a scene has that a capture does not: its size and its date. */
 function sceneFacts(scene: SavedScene): CaptureParamEntry[] {
     const counts: CaptureParamEntry[] = [];
     if (scene.pointCount > 0) counts.push({ key: 'points', label: 'Points', text: formatCount(scene.pointCount) });
@@ -527,16 +527,16 @@ function RecentTile({
     );
 }
 
-/** Regroupe les captures par zone : même mode, même centre, même rectangle. */
+/** Groups captures by area: same mode, same center, same rectangle. */
 function zoneGroupKey(c: SavedCloud): string {
     return `${c.mode}:${c.centerLng.toFixed(4)}:${c.centerLat.toFixed(4)}:${Math.round(c.widthM)}x${Math.round(c.lengthM)}`;
 }
 
 /**
- * Pour chaque nuage, les réglages qui le distinguent des *autres captures de la
- * même zone*. Comparé à l'ensemble de la liste, presque tout différerait et la
- * tuile deviendrait illisible ; entre voisins d'une même zone, il ne reste que
- * la poignée de curseurs qu'on était justement en train de comparer.
+ * For each cloud, the settings that tell it apart from the *other captures of
+ * the same area*. Compared against the whole list, nearly everything would
+ * differ and the tile would become unreadable; between neighbours of the same
+ * area, only the handful of sliders one was actually comparing remains.
  */
 function useHighlightKeys(clouds: SavedCloud[]): ReadonlyMap<string, string[]> {
     return useMemo(() => {

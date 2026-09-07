@@ -1,11 +1,11 @@
-// Échantillonnage de la shadow map (PCF 3×3) partagé par FS_POINTS et FS_MESH.
-// Requiert qu'une varying `in vec4 v_lightPos;` (world-meters → light-clip)
-// soit déclarée AVANT le point d'inclusion.
+// Shadow-map sampling (3×3 PCF) shared by FS_POINTS and FS_MESH.
+// Requires an `in vec4 v_lightPos;` varying (world-meters → light-clip) to be
+// declared BEFORE the include point.
 uniform sampler2D u_shadowMap;
-uniform float u_shadowEnabled;   // 0 ou 1
+uniform float u_shadowEnabled;   // 0 or 1
 uniform float u_shadowBias;
 uniform vec2 u_shadowTexel;      // 1/shadowMapSize (x,y)
-uniform float u_shadowStrength;  // 0..1, intensité des ombres portées
+uniform float u_shadowStrength;  // 0..1, strength of the cast shadows
 
 float sampleShadow() {
     if (u_shadowEnabled < 0.5) return 1.0;

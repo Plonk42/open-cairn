@@ -1,32 +1,32 @@
 /**
- * Réglages de génération embarqués avec un nuage enregistré, pour pouvoir
- * comparer plusieurs captures de la même zone sans avoir à deviner lequel
- * portait quel réglage.
+ * Generation settings embedded with a saved cloud, so several captures of the
+ * same area can be compared without having to guess which one carried which
+ * setting.
  *
- * Volontairement un JSON libre (`Record<string, …>`) plutôt qu'une interface
- * figée : une entrée écrite par une version antérieure garde ses clés telles
- * quelles, une clé ajoutée plus tard n'apparaît que sur les nouvelles entrées,
- * et aucune des deux ne casse l'autre. En contrepartie, l'affichage doit
- * tolérer une clé inconnue — d'où le repli sur la clé brute ci-dessous.
+ * Deliberately a free-form JSON (`Record<string, …>`) rather than a frozen
+ * interface: an entry written by an earlier version keeps its keys as they are,
+ * a key added later only shows up on new entries, and neither breaks the other.
+ * In exchange, the display must tolerate an unknown key — hence the fallback to
+ * the raw key below.
  */
 
 export type CaptureParamValue = string | number | boolean | number[];
 export type CaptureParams = Readonly<Record<string, CaptureParamValue>>;
 
-/** Mode de génération ; `LidarMode` et `LidarCloudMode` en sont des alias. */
+/** Generation mode; `LidarMode` and `LidarCloudMode` are aliases of it. */
 export type CaptureMode = 'shaded' | 'delaunay' | 'poisson';
 
 /**
- * Tout ce qu'il faut pour rejouer une capture. Les réglages seuls ne suffisent
- * pas : sans l'emprise on sait comment générer, pas où — d'où l'emprise et les
- * réglages dans le même objet, celui qu'un nuage enregistré comme une scène
- * embarque et que « Recapturer » applique.
+ * Everything needed to replay a capture. The settings alone are not enough:
+ * without the extent one knows how to generate, not where — hence the extent
+ * and the settings in the same object, the one a cloud saved as a scene embeds
+ * and that « Recapturer » applies.
  */
 export interface CaptureRecord {
     mode: CaptureMode;
     centerLng: number;
     centerLat: number;
-    /** Dimensions du rectangle de capture (m). */
+    /** Dimensions of the capture rectangle (m). */
     widthM: number;
     lengthM: number;
     params?: CaptureParams;
@@ -51,9 +51,9 @@ interface CaptureParamSpec {
 }
 
 /**
- * Libellés et mise en forme des clés connues. L'ordre d'insertion est l'ordre
- * d'affichage ; les clés absentes d'ici restent affichables (clé brute + valeur
- * générique), ce qui est tout l'intérêt du format libre.
+ * Labels and formatting of the known keys. Insertion order is display order;
+ * keys missing from here remain displayable (raw key + generic value), which is
+ * the whole point of the free-form format.
  */
 const CAPTURE_PARAM_SPECS: Readonly<Record<string, CaptureParamSpec>> = {
     stride: { label: 'Densité', format: strideLabel },
@@ -88,7 +88,7 @@ export interface CaptureParamEntry {
     text: string;
 }
 
-/** Les réglages mis en forme, clés connues d'abord (dans l'ordre du barème). */
+/** The formatted settings, known keys first (in the order of the spec table). */
 export function captureParamEntries(params: CaptureParams | undefined, keys?: readonly string[]): CaptureParamEntry[] {
     if (!params) return [];
     const known = Object.keys(CAPTURE_PARAM_SPECS).filter((k) => k in params);
@@ -100,10 +100,10 @@ export function captureParamEntries(params: CaptureParams | undefined, keys?: re
 }
 
 /**
- * Empreinte stable d'un jeu de réglages, indépendante de l'ordre des clés.
- * Sert de suffixe à la clé de dédoublonnage des nuages enregistrés : deux
- * captures de la même zone avec des réglages différents doivent cohabiter,
- * sinon la seconde écrase la première et il n'y a plus rien à comparer.
+ * Stable fingerprint of a set of settings, independent of key order. Used as a
+ * suffix of the dedup key of saved clouds: two captures of the same area with
+ * different settings must coexist, otherwise the second overwrites the first
+ * and there is nothing left to compare.
  */
 export function captureParamsSignature(params: CaptureParams | undefined): string {
     if (!params) return '';
@@ -117,9 +117,9 @@ export function captureParamsSignature(params: CaptureParams | undefined): strin
 }
 
 /**
- * Clés dont la valeur n'est pas la même partout — celles qui distinguent les
- * entrées les unes des autres. Une clé absente d'une entrée compte comme une
- * valeur à part entière, sinon un réglage apparu après coup passerait inaperçu.
+ * Keys whose value is not the same everywhere — the ones that tell the entries
+ * apart. A key missing from an entry counts as a value in its own right,
+ * otherwise a setting introduced afterwards would go unnoticed.
  */
 export function differingCaptureParamKeys(list: readonly (CaptureParams | undefined)[]): string[] {
     const values = new Map<string, Set<string>>();

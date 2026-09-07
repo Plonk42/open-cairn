@@ -321,10 +321,10 @@ export interface LidarWebGLLayerConfig {
      */
     lodForceLevel: number | null;
     /**
-     * Force du drapage de l'orthophoto IGN sur la géométrie, séparée en deux :
-     * `photoOpacityGround` s'applique au sol (points classes 2 sol + 9 eau + mesh reconstruit)
-     * et `photoOpacityNonGround` au hors-sol (végétation, bâti, …). 0 = palette
-     * de relief pure, 1 = photo opaque.
+     * Strength of the IGN orthophoto draping on the geometry, split in two:
+     * `photoOpacityGround` applies to the ground (points of classes 2 ground + 9 water + reconstructed mesh)
+     * and `photoOpacityNonGround` to the off-ground (vegetation, buildings, …).
+     * 0 = pure relief palette, 1 = opaque photo.
      */
     photoOpacityGround: number;
     photoOpacityNonGround: number;
@@ -418,14 +418,14 @@ export interface LidarWebGLLayerConfig {
      */
     rockBreak: number;
     /**
-     * Ground mesh only — réglages de la palette, évaluée par sommet dans
-     * `glsl/mesh.vert`. La recolorier côté CPU coûtait ~0,5 s par cran de
-     * curseur sur un maillage dense, et forçait le fragment à relire un taux de
-     * neige dans la luminance de l'albédo faute de mieux. Voir
-     * `glsl/lib/palette.glsl`, port de `vertexColor` de `lib/lidarBrowser/slope.ts`.
+     * Ground mesh only — palette settings, evaluated per vertex in
+     * `glsl/mesh.vert`. Recolouring it CPU-side cost ~0.5 s per slider notch on
+     * a dense mesh, and forced the fragment to read a snow ratio back out of the
+     * albedo luminance for lack of anything better. See
+     * `glsl/lib/palette.glsl`, a port of `vertexColor` from `lib/lidarBrowser/slope.ts`.
      */
-    palettePreset: number;  // 0 = Mono, 1 = Terrain, 2 = Pente
-    rockType: number;       // 0 = calcaire, 1 = granite, 2 = schiste
+    palettePreset: number;  // 0 = Mono, 1 = Terrain, 2 = Slope
+    rockType: number;       // 0 = limestone, 1 = granite, 2 = schist
     snowLine: number;
     snowAmount: number;
     /**
@@ -654,8 +654,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshBaseBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
-    // Le maillage courant porte-t-il un champ de normales macro ? Sinon le
-    // vertex shader retombe sur la normale d'éclairage pour évaluer la palette.
+    // Does the current mesh carry a macro normal field? If not, the vertex
+    // shader falls back on the lighting normal to evaluate the palette.
     private _meshHasMacro = false;
     // Debug wireframe: a deduplicated GL_LINES edge buffer per LOD level (index i
     // mirrors `_meshLodIdxBuf`, level 0 = full-res), drawn instead of the filled
@@ -704,11 +704,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         specular: WebGLUniformLocation | null;
     } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, specular: null };
 
-    // Orthophoto drapée sur le mesh (modes delaunay/poisson). La texture est
-    // chargée à la demande par l'overlay quand l'utilisateur active le drapage.
+    // Orthophoto draped over the mesh (delaunay/poisson modes). The texture is
+    // loaded on demand by the overlay when the user enables draping.
     private _orthoTex: WebGLTexture | null = null;
     private _hasPhoto = false;
-    /** Emprise de la mosaïque en mètres-offset : (eMin, nMin, eMax, nMax). */
+    /** Extent of the mosaic in offset metres: (eMin, nMin, eMax, nMax). */
     private readonly _uvRect = new Float32Array([0, 0, 1, 1]);
 
     // EDL post-processing
@@ -915,16 +915,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locPoints.sunIntensity, this.config.sunIntensity);
         gl.uniform3fv(this._locPoints.sunColor, this.config.sunColor);
         gl.uniform1f(this._locPoints.flatLight, this.config.sunLightingEnabled ? 0 : 1);
-        // Végétation enrichie : splats ronds, boost de taille, ombrage par normale.
+        // Enhanced vegetation: round splats, size boost, normal-based shading.
         gl.uniform1f(this._locPoints.vegEnhance, this.config.vegEnhance ? 1 : 0);
         gl.uniform1f(this._locPoints.vegSizeBoost, this.config.vegEnhance ? this.config.vegSizeBoost : 1);
         gl.uniform1f(this._locPoints.vegNormalShade, this.config.vegEnhance ? this.config.vegNormalShade : 1);
-        // Coloration du feuillage (calculée dans le VS) : intensité du dégradé,
-        // hauteur de référence et palette — de simples uniforms (sliders instantanés).
+        // Foliage colouring (computed in the VS): gradient intensity, reference
+        // height and palette — plain uniforms (instantaneous sliders).
         gl.uniform1f(this._locPoints.vegIntensity, this.config.vegEnhance ? this.config.vegIntensity : 0);
         gl.uniform1f(this._locPoints.vegHeightScale, this.config.vegHeightScale);
         gl.uniform1f(this._locPoints.vegColorMode, this.config.vegColorMode);
-        // Palette d'albédo du sol, évaluée dans le VS comme pour le maillage.
+        // Ground albedo palette, evaluated in the VS just like for the mesh.
         gl.uniform1i(this._locPoints.palettePreset, this.config.palettePreset);
         gl.uniform1i(this._locPoints.rockType, this.config.rockType);
         gl.uniform1f(this._locPoints.snowLine, this.config.snowLine);
@@ -943,7 +943,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1iv(this._locPoints.catMixCount, this._forestCatMixCount);
         gl.uniform1iv(this._locPoints.mixSpecies, this._forestMixSpecies);
         gl.uniform1uiv(this._locPoints.speciesMask, this._speciesMask);
-        // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
+        // Draped orthophoto (texture unit 3; 2 is reserved for the shadow map).
         const photoOn = this._hasPhoto && (this.config.photoOpacityGround > 0 || this.config.photoOpacityNonGround > 0);
         gl.uniform4fv(this._locPoints.uvRect, this._uvRect);
         gl.uniform1f(this._locPoints.hasPhoto, photoOn ? 1 : 0);
@@ -1443,9 +1443,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         uploadIfChanged(gl, this._meshNorBuf, normals, geometryChanged || prev?.normals !== normals);
         if (geometryChanged || prev?.macroNormals !== macroNormals) {
             gl.bindBuffer(gl.ARRAY_BUFFER, this._meshMacroBuf);
-            // Sans champ macro, le shader retombe sur la normale d'éclairage et
-            // ne lit jamais cet attribut — mais WebGL veut quand même un buffer
-            // à la bonne taille derrière lui, d'où l'allocation sans transfert.
+            // Without a macro field the shader falls back on the lighting normal
+            // and never reads this attribute — but WebGL still wants a buffer of
+            // the right size behind it, hence the allocation without transfer.
             if (macroNormals) gl.bufferData(gl.ARRAY_BUFFER, macroNormals, gl.STATIC_DRAW);
             else gl.bufferData(gl.ARRAY_BUFFER, positions.length, gl.STATIC_DRAW);
         }
@@ -1788,7 +1788,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1f(this._locMesh.snowLine, this.config.snowLine);
         gl.uniform1f(this._locMesh.snowAmount, this.config.snowAmount);
         gl.uniform1f(this._locMesh.specular, this.config.specular);
-        // Orthophoto drapée (unité texture 3 ; 2 est réservée à la shadow map).
+        // Draped orthophoto (texture unit 3; 2 is reserved for the shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
         gl.uniform4fv(this._locMesh.uvRect, this._uvRect);
         gl.uniform1f(this._locMesh.hasPhoto, photoOn ? 1 : 0);
@@ -1804,9 +1804,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             this._drawMeshWire(gl);
         } else {
             gl.uniform1f(this._locMesh.wireframe, 0);
-            // Pas de back-face culling : la sortie Poisson n'a pas un winding
-            // globalement cohérent, et culler y ouvre de vrais trous, différents
-            // à chaque angle de vue.
+            // No back-face culling: the Poisson output has no globally
+            // consistent winding, and culling it opens real holes, different at
+            // every viewing angle.
             this._drawMeshChunked(gl);
         }
     }
@@ -2188,7 +2188,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
 
-        // Texture orthophoto (1×1 par défaut, remplie par setOrthoTexture).
+        // Orthophoto texture (1×1 by default, filled in by setOrthoTexture).
         this._orthoTex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);

@@ -1,17 +1,16 @@
-// Micro-relief procédural pour le maillage rocheux.
+// Procedural micro-relief for the rock mesh.
 //
-// La reconstruction Poisson plafonne à la résolution de la donnée (~0,45 m
-// d'espacement d'échantillons sur les pentes douces, bien moins sur les
-// parois : un LiDAR nadir échantillonne une pente à densité × cos θ, soit 9 %
-// à 85°). Tout ce qui est plus fin que ça — la granulométrie de la roche, les
-// fissures décimétriques, l'écaillage — n'existe tout simplement pas dans la
-// géométrie et n'y sera jamais.
+// Poisson reconstruction is capped by the resolution of the data (~0.45 m
+// sample spacing on gentle slopes, far less on walls: a nadir LiDAR samples a
+// slope at density × cos θ, i.e. 9 % at 85°). Anything finer than that — the
+// grain of the rock, decimetric cracks, flaking — simply does not exist in the
+// geometry and never will.
 //
-// On le restitue donc en éclairage : un champ de hauteur fractal en espace
-// monde perturbe la normale d'ombrage, sans toucher ni à la silhouette ni aux
-// ombres portées. Voir docs/ROCK_AND_CLIFF_DETAIL.md §2.D.12.
+// It is therefore restored through lighting: a fractal height field in world
+// space perturbs the shading normal, without touching either the silhouette or
+// the cast shadows. See docs/ROCK_AND_CLIFF_DETAIL.md §2.D.12.
 
-/** Hash 3D → [0,1). Variante Dave Hoskins (hash13), sans sin(). */
+/** 3D hash → [0,1). Dave Hoskins variant (hash13), without sin(). */
 float mrHash(vec3 p) {
     p = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p += dot(p, p.yxz + 33.33);
@@ -19,15 +18,15 @@ float mrHash(vec3 p) {
 }
 
 /**
- * Bruit de valeur 3D interpolé en Hermite, dans [-1,1], ET son gradient
- * analytique `grad` (par unité de `p`).
+ * 3D value noise with Hermite interpolation, in [-1,1], AND its analytic
+ * gradient `grad` (per unit of `p`).
  *
- * Le gradient est indispensable : le prendre en dérivées d'écran (dFdx/dFdy)
- * le rendrait constant sur le quad 2×2 du GPU, donc tout le relief rocheux
- * serait ombré à la moitié de la résolution linéaire de l'écran. Voir
- * docs/ROCK_AND_CLIFF_DETAIL.md §4. Le trilinéaire est réécrit sous forme
- * développée (k0..k7) — algébriquement identique au `mix` imbriqué, mais les
- * trois dérivées partielles s'en déduisent sans réévaluer les 8 coins.
+ * The gradient is essential: taking it from screen derivatives (dFdx/dFdy)
+ * would make it constant over the GPU's 2×2 quad, so all the rock relief would
+ * be shaded at half the linear resolution of the screen. See
+ * docs/ROCK_AND_CLIFF_DETAIL.md §4. The trilinear form is written out expanded
+ * (k0..k7) — algebraically identical to the nested `mix`, but the three partial
+ * derivatives follow from it without re-evaluating the 8 corners.
  */
 float mrValueNoiseD(vec3 p, out vec3 grad) {
     vec3 i = floor(p);
@@ -56,7 +55,7 @@ float mrValueNoiseD(vec3 p, out vec3 grad) {
         + k4 * u.x * u.y + k5 * u.x * u.z + k6 * u.y * u.z
         + k7 * u.x * u.y * u.z;
 
-    // ×2 pour suivre la remise à l'échelle [0,1] → [-1,1] du retour.
+    // ×2 to follow the [0,1] → [-1,1] rescaling of the return value.
     grad = 2.0 * du * vec3(
         k1 + k4 * u.y + k5 * u.z + k7 * u.y * u.z,
         k2 + k4 * u.x + k6 * u.z + k7 * u.x * u.z,
@@ -65,33 +64,33 @@ float mrValueNoiseD(vec3 p, out vec3 grad) {
     return n * 2.0 - 1.0;
 }
 
-/** Même bruit, sans le gradient (le calcul de `grad` est éliminé à la compilation). */
+/** Same noise, without the gradient (`grad` is eliminated at compile time). */
 float mrValueNoise(vec3 p) {
     vec3 grad;
     return mrValueNoiseD(p, grad);
 }
 
-// Longueur d'onde (m) et amplitude (m) de la première octave. 1,6 m / 13,5 cm :
-// l'échelle du bloc et de l'écaille, juste sous ce que la reconstruction sait
-// résoudre — assez gros pour se lire à 200 m, assez fin pour ne pas concurrencer
-// le relief réel. Amplitude calée à l'œil sur les Aiguilles Rouges : au-delà, le
-// rocher part en bruit plutôt qu'en grain.
+// Wavelength (m) and amplitude (m) of the first octave. 1.6 m / 13.5 cm: the
+// scale of the block and of the flake, just below what the reconstruction can
+// resolve — coarse enough to read at 200 m, fine enough not to compete with the
+// real relief. Amplitude tuned by eye on the Aiguilles Rouges: beyond that, the
+// rock turns into noise rather than grain.
 const float MR_BASE_M = 1.6;
 const float MR_AMPL_M = 0.135;
 const int MR_OCTAVES = 3;
-// Fondu d'octave, en fractions de la longueur d'onde : une octave commence à
-// s'éteindre dès que l'empreinte pixel atteint la moitié de sa longueur d'onde
-// et a disparu à 1,4 λ. Volontairement anticipé — à 0,9 λ une octave battait
-// encore à moitié pile sur la fréquence de Nyquist de l'écran (§4.2).
+// Octave fade, in fractions of the wavelength: an octave starts fading out as
+// soon as the pixel footprint reaches half its wavelength and is gone at 1.4 λ.
+// Deliberately early — at 0.9 λ an octave was still beating at half amplitude
+// right on the screen's Nyquist frequency (§4.2).
 const float MR_FADE_LO = 0.5;
 const float MR_FADE_HI = 1.4;
 
 /**
- * Champ de hauteur fractal en mètres, et son gradient monde `grad` (sans unité).
- * `pixelM` est l'empreinte monde d'un pixel : une octave dont la longueur d'onde
- * passe sous la taille du pixel ne peut plus être échantillonnée et
- * scintillerait, on l'éteint progressivement — c'est ce qui remplace le
- * mip-mapping dont on ne dispose pas ici.
+ * Fractal height field in metres, and its world gradient `grad` (dimensionless).
+ * `pixelM` is the world footprint of one pixel: an octave whose wavelength
+ * drops below the pixel size can no longer be sampled and would shimmer, so it
+ * is faded out progressively — this stands in for the mip-mapping we do not
+ * have here.
  */
 float mrHeight(vec3 wpos, float pixelM, out vec3 grad) {
     float h = 0.0;
@@ -110,17 +109,18 @@ float mrHeight(vec3 wpos, float pixelM, out vec3 grad) {
 }
 
 /**
- * Perturbe `n` par le micro-relief, `amount` dosant l'amplitude (0 = aucun effet).
+ * Perturbs `n` with the micro-relief, `amount` dosing the amplitude (0 = no
+ * effect).
  *
- * Méthode de Mikkelsen (« bump mapping unparametrized surfaces ») : le gradient
- * de surface est la composante tangentielle du gradient 3D de la hauteur, donc
- * ni tangentes ni UV — ce qui tombe bien, un maillage Poisson n'en a aucune.
- * Le gradient étant analytique, la perturbation est calculée PAR PIXEL (elle
- * l'était par quad 2×2 tant qu'elle venait de dFdx/dFdy — voir §4.2).
+ * Mikkelsen's method ("bump mapping unparametrized surfaces"): the surface
+ * gradient is the tangential component of the 3D height gradient, so no
+ * tangents and no UVs — which is convenient, since a Poisson mesh has neither.
+ * The gradient being analytic, the perturbation is computed PER PIXEL (it was
+ * per 2×2 quad as long as it came from dFdx/dFdy — see §4.2).
  */
 vec3 microReliefNormal(vec3 n, vec3 wpos, float amount) {
-    // Seule l'empreinte pixel reste une dérivée d'écran : c'est une grandeur
-    // basse fréquence, sa quantification par quad est sans effet visible.
+    // Only the pixel footprint remains a screen derivative: it is a
+    // low-frequency quantity, so its per-quad quantization has no visible effect.
     float pixelM = max(length(dFdx(wpos)), length(dFdy(wpos)));
     vec3 grad;
     mrHeight(wpos, pixelM, grad);

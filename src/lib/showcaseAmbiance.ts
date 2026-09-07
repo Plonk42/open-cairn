@@ -132,7 +132,7 @@ function applyOne<K extends keyof ShowcaseAmbiance>(st: MapState, a: ShowcaseAmb
     AMBIANCE_SETTERS[key](st, a[key]);
 }
 
-/** `lidarMode` décide de ce que fera la prochaine capture, pas de l'aspect des nuages déjà chargés. */
+/** `lidarMode` decides what the next capture will do, not the look of the already-loaded clouds. */
 const NOT_STYLE: ReadonlySet<keyof ShowcaseAmbiance> = new Set(['lidarMode']);
 
 function applyKeys(a: ShowcaseAmbiance, skip?: ReadonlySet<keyof ShowcaseAmbiance>): void {
@@ -148,22 +148,22 @@ export function applyAmbiance(a: ShowcaseAmbiance): void {
 }
 
 /**
- * Applique le seul aspect d'une scène aux nuages actuellement chargés, sans
- * toucher au mode. Le shader et le masque de classes étant globaux, cela
- * repeint toute la vue — il n'existe pas de style par nuage.
+ * Applies only the look of a scene to the currently loaded clouds, without
+ * touching the mode. Since the shader and the class mask are global, this
+ * repaints the whole view — there is no per-cloud style.
  */
 export function applyAmbianceStyle(a: ShowcaseAmbiance): void {
     applyKeys(a, NOT_STYLE);
 }
 
 /**
- * Résumé lisible d'une ambiance, pour le dépliant « Détails » d'une scène :
- * seulement ce qui distingue une vue d'une autre au premier coup d'œil. La
- * cinquantaine de réglages restants n'a pas sa place sur une tuile.
+ * Readable summary of an ambiance, for the « Détails » disclosure of a scene:
+ * only what tells one view from another at a glance. The remaining fifty-odd
+ * settings have no place on a tile.
  */
 export function describeAmbiance(a: ShowcaseAmbiance): CaptureParamEntry[] {
-    // Roche et ligne de neige ne peignent que la palette Terrain : les montrer
-    // ailleurs ferait passer un réglage inerte pour une caractéristique de la vue.
+    // Rock and snow line only paint the Terrain palette: showing them elsewhere
+    // would pass an inert setting off as a characteristic of the view.
     const terrain: CaptureParamEntry[] = a.lidarShader === 'terrain'
         ? [
             { key: 'rock', label: 'Roche', text: ROCK_LABELS[a.lidarRockType] },

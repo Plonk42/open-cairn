@@ -78,16 +78,15 @@ function captureGeometry(
 export type LidarMode = CaptureMode;
 
 /**
- * Tous les réglages qui entrent dans la génération, figés au moment de la
- * capture. Seuls ceux que le mode utilise réellement sont retenus : une clé
- * inerte polluerait la clé de dédoublonnage et ferait croire à deux captures
- * différentes là où le résultat est identique.
+ * Every setting that feeds the generation, frozen at capture time. Only those
+ * the mode actually uses are kept: an inert key would pollute the dedup key and
+ * make two captures look different where the result is identical.
  *
- * Ce qui se rejoue à chaud en est exclu, même si le worker le cuit une
- * première fois : le shader et le masque de classes se réappliquent sur la
- * géométrie chargée, et `recomputeVegHeights` refait les hauteurs de
- * végétation. Ces réglages-là appartiennent à l'ambiance d'une scène
- * (`showcaseAmbiance.ts`), pas à l'identité d'une capture.
+ * Whatever replays hot is excluded, even if the worker bakes it once: the
+ * shader and the class mask are reapplied to the loaded geometry, and
+ * `recomputeVegHeights` recomputes the vegetation heights. Those settings
+ * belong to a scene's ambiance (`showcaseAmbiance.ts`), not to the identity of
+ * a capture.
  */
 function captureParamsFromState(state: MapState): CaptureParams {
     const common = { stride: state.lidarCloudStride };
@@ -111,13 +110,13 @@ function captureParamsFromState(state: MapState): CaptureParams {
 }
 
 /**
- * Inverse de `captureParamsFromState`. Chaque valeur est retypée à la volée :
- * un enregistrement ancien peut porter n'importe quoi sous une clé connue, et
- * un réglage absent doit laisser le curseur actuel en place.
+ * Inverse of `captureParamsFromState`. Every value is retyped on the fly: a
+ * record may carry anything under a known key, and a missing setting must leave
+ * the current slider where it is.
  *
- * Les clés de rendu que portent les enregistrements antérieurs (`classes`,
- * `shader`, `groundGapM`, `groundRoughM`) sont volontairement ignorées ici :
- * reprendre une emprise ne doit pas repeindre les nuages déjà affichés.
+ * The render keys some records carry (`classes`, `shader`, `groundGapM`,
+ * `groundRoughM`) are deliberately ignored here: reusing an extent must not
+ * repaint the clouds already displayed.
  */
 function applyCaptureParams(p: CaptureParams, st: MapState): void {
     const num = (k: string): number | undefined => (typeof p[k] === 'number' ? p[k] : undefined);
@@ -162,7 +161,7 @@ export interface LoadedLidarCloud {
     sourceKey?: string;
     /** Matches a showcase `GalleryEntry.id` / `SavedScene.id` — used to badge/skip already-loaded Gallery scenes. */
     sourceSceneId?: string;
-    /** Emprise et réglages ayant servi à la génération, reportés tels quels à l'export. */
+    /** Extent and settings used for the generation, carried over as-is to the export. */
     capture?: CaptureRecord;
 }
 
@@ -173,15 +172,15 @@ export interface LidarSlice {
     /** Colour shader preset for geometry colorization. */
     lidarShader: ShaderPreset;
     setLidarShader: (v: ShaderPreset) => void;
-    /** Altitude (m) de la limite des neiges d'été : place la neige des palettes
-     *  et le dessèchement de la pelouse alpine. Voir `slope.ts`. */
+    /** Altitude (m) of the summer snow line: places the palette snow and the
+     *  drying-out of the alpine turf. See `slope.ts`. */
     lidarSnowLine: number;
     setLidarSnowLine: (v: number) => void;
-    /** Épaisseur du manteau neigeux dans [0,1] : jusqu'où la neige plâtre la
-     *  pente, et si sa limite basse est franche ou en névés épars. */
+    /** Snowpack thickness in [0,1]: how far the snow plasters the slope, and
+     *  whether its lower limit is a clean line or scattered patches. */
     lidarSnowAmount: number;
     setLidarSnowAmount: (v: number) => void;
-    /** Lithologie du massif rendu : change la rampe de roche nue. */
+    /** Lithology of the rendered massif: changes the bare-rock ramp. */
     lidarRockType: RockType;
     setLidarRockType: (v: RockType) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors) — mirrors `lidarClouds[0]`. */
@@ -331,13 +330,13 @@ export interface LidarSlice {
     /** Overall layer opacity 0..1 (default 1 = fully opaque). */
     lidarCloudOpacity: number;
     setLidarCloudOpacity: (v: number) => void;
-    /** Drapage orthophoto IGN sur le SOL (points classes 2 sol + 9 eau + mesh) 0..1 (0 = palette, 1 = photo). */
+    /** IGN orthophoto draping on the GROUND (points of classes 2 ground + 9 water + mesh) 0..1 (0 = palette, 1 = photo). */
     lidarCloudPhotoOpacity: number;
     setLidarCloudPhotoOpacity: (v: number) => void;
-    /** Drapage orthophoto IGN sur le HORS-SOL (végétation, bâti, …) 0..1 (0 = palette, 1 = photo). */
+    /** IGN orthophoto draping OFF-GROUND (vegetation, buildings, …) 0..1 (0 = palette, 1 = photo). */
     lidarCloudPhotoOpacityNonGround: number;
     setLidarCloudPhotoOpacityNonGround: (v: number) => void;
-    /** Fond de carte drapé sur la géométrie (orthophoto, SCAN 25, Plan IGN, OSM). */
+    /** Basemap draped over the geometry (orthophoto, SCAN 25, Plan IGN, OSM). */
     lidarCloudPhotoSource: DrapeSource;
     setLidarCloudPhotoSource: (v: DrapeSource) => void;
     /** Underlying basemap opacity 0..1 when the cloud is visible (1 = full, lower = "estompé"). */
@@ -386,7 +385,7 @@ export interface LidarSlice {
      * taken from the currently-loaded cloud center (map center as fallback).
      */
     lidarSunDate: string;
-    /** Écrit la date seule, sans recalculer la lumière (restauration d'ambiance). */
+    /** Writes the date alone, without recomputing the light (ambiance restore). */
     setLidarSunDate: (v: string) => void;
     /**
      * Set the date/time AND re-derive the four low-level values from the real
@@ -396,16 +395,16 @@ export interface LidarSlice {
      * real sun would produce.
      */
     applyLidarSunDate: (v: string) => void;
-    /** Azimut de la lumière (° depuis le nord, sens horaire). */
+    /** Light azimuth (° from north, clockwise). */
     lidarSunAzimuth: number;
     setLidarSunAzimuth: (v: number) => void;
-    /** Hauteur de la lumière (° au-dessus de l'horizon, négatif = sous l'horizon). */
+    /** Light height (° above the horizon, negative = below the horizon). */
     lidarSunElevation: number;
     setLidarSunElevation: (v: number) => void;
-    /** Teinte : 0 = orangé rasant, 1 = blanc neutre. */
+    /** Hue: 0 = grazing orange, 1 = neutral white. */
     lidarSunWarmth: number;
     setLidarSunWarmth: (v: number) => void;
-    /** Intensité de la lumière directe (0 = nuit, 1 = plein jour). */
+    /** Direct light intensity (0 = night, 1 = broad daylight). */
     lidarSunIntensity: number;
     setLidarSunIntensity: (v: number) => void;
     /**
@@ -572,8 +571,9 @@ export interface LidarSlice {
     /** Load the point cloud centered on the current map view. */
     loadLidarCloud: () => Promise<void>;
     /**
-     * Rejoue le décor d'une capture passée — mode, emprise, cadrage et tous ses
-     * réglages — sans lancer la capture, pour pouvoir en changer un avant.
+     * Replay the setup of a past capture — mode, extent, framing and all of its
+     * settings — without launching the capture, so one of them can be changed
+     * first.
      */
     recallCaptureSetup: (capture: CaptureRecord) => void;
     /**
@@ -714,11 +714,11 @@ export const LIDAR_RENDER_DEFAULTS = {
 };
 
 /**
- * Les quatre réglages de palette (preset, ligne de neige, quantité de neige,
- * lithologie) ne sont plus que des uniformes : `LidarCloudOverlay` les pousse
- * au calque WebGL, qui évalue la palette par sommet dans ses vertex shaders
- * (`glsl/lib/palette.glsl`). Aucun tampon ne repart au GPU, donc leurs setters
- * n'ont rien à recalculer.
+ * The four palette settings (preset, snow line, snow amount, lithology) are now
+ * nothing but uniforms: `LidarCloudOverlay` pushes them to the WebGL layer,
+ * which evaluates the palette per vertex in its vertex shaders
+ * (`glsl/lib/palette.glsl`). No buffer goes back to the GPU, so their setters
+ * have nothing to recompute.
  */
 export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set, get) => {
     /**
@@ -738,9 +738,9 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         });
     };
 
-    // Rien n'a encore été rendu : la lumière de départ est celle du vrai soleil
-    // à la date persistée, vue depuis la position persistée — de sorte que les
-    // curseurs bas niveau soient d'emblée cohérents avec la date affichée.
+    // Nothing has been rendered yet: the initial light is that of the real sun
+    // at the persisted date, seen from the persisted position — so that the
+    // low-level sliders are consistent with the displayed date from the start.
     const initialSunDate = persisted.lidarSunDate ?? defaultSunDate();
     const initialSun = sunStateFor(
         { lidarShaded: null, lidarMesh: null, view: persisted.view ?? DEFAULT_VIEW },
@@ -1122,8 +1122,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         resetLidarRenderSettings: () => {
             set({
                 ...LIDAR_RENDER_DEFAULTS,
-                // Un éclairage forcé n'a pas de "défaut" : on le recale sur le
-                // vrai soleil de la date en cours plutôt que sur une constante.
+                // A forced lighting has no "default": it is re-synced to the
+                // real sun of the current date rather than to a constant.
                 ...sunStateFor(get(), get().lidarSunDate),
                 // Contour lines belong to terrainSlice but are part of the render reset.
                 contourLinesEnabled: false,
