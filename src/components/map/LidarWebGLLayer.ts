@@ -160,6 +160,21 @@ function pointStrideIndices(total: number, target: number): Uint32Array {
     return out;
 }
 
+/**
+ * Re-send a vertex buffer only when its source array changed identity, so a
+ * palette recolor doesn't drag the whole geometry back across the bus.
+ */
+function uploadIfChanged(
+    gl: WebGL2RenderingContext,
+    buf: WebGLBuffer | null,
+    src: ArrayBufferView,
+    changed: boolean,
+): void {
+    if (!changed) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, src, gl.STATIC_DRAW);
+}
+
 function computeBbox(positions: Float32Array): Bbox | null {
     if (positions.length < 3) return null;
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -759,6 +774,23 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshLodLevel = 0;
     private _meshGeneration = 0;
 
+    /**
+     * Arrays already uploaded, so `setData`/`setMesh` can re-send only what
+     * actually changed. Recoloring a palette replaces the colour array alone,
+     * and re-simplifying an unchanged mesh costs a full WASM edge-collapse
+     * pass — plus a drop back to LOD 0 until the worker answers. Compared by
+     * reference: every producer builds a fresh array, none mutates in place.
+     */
+    private _uploadedPoints: {
+        positions: Float32Array; normals: Float32Array; colors: Uint8Array;
+        classifications: Uint8Array; heights: Float32Array;
+        forestTfv?: Uint8Array; treeSeed?: Uint8Array; vegDiag?: Uint8Array;
+    } | null = null;
+    private _uploadedMesh: {
+        positions: Float32Array; normals: Float32Array; colors: Uint8Array;
+        indices: Uint32Array; baseMask?: Uint8Array;
+    } | null = null;
+
     config: LidarWebGLLayerConfig = {
         pointSize: 2,
         adaptiveSize: true,
@@ -1266,46 +1298,46 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._ox = mc.x;
         this._oy = mc.y;
         this._mpu = mc.meterInMercatorCoordinateUnits();
-        this._count = positions.length / 3;
-        this._pointBbox = computeBbox(positions);
-        this._pointLodCount = POINT_LOD_LEVELS.map(() => 0);
-        this._pointLodLevel = 0;
 
         const gl = this._gl;
         if (!gl) return;
 
-        const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+        const prev = this._uploadedPoints;
+        const geometryChanged = prev?.positions !== positions;
+        if (geometryChanged) {
+            this._count = positions.length / 3;
+            this._pointBbox = computeBbox(positions);
+            this._pointLodCount = POINT_LOD_LEVELS.map(() => 0);
+            this._pointLodLevel = 0;
+        }
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._posBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._norBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._colBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._clsBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, classifications, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._hgtBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, heights, gl.STATIC_DRAW);
+        const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+        uploadIfChanged(gl, this._posBuf, positions, geometryChanged);
+        uploadIfChanged(gl, this._norBuf, normals, geometryChanged || prev?.normals !== normals);
+        uploadIfChanged(gl, this._colBuf, colors, geometryChanged || prev?.colors !== colors);
+        uploadIfChanged(gl, this._clsBuf, classifications, geometryChanged || prev?.classifications !== classifications);
+        uploadIfChanged(gl, this._hgtBuf, heights, geometryChanged || prev?.heights !== heights);
         // BD Forêt category + per-tree seed. Default to 255 (no forest data) when
         // the pipeline could not type the vegetation — the shader then falls back
         // to the generic height ramp.
         const tfv = data.forestTfv ?? new Uint8Array(this._count).fill(255);
         const seed = data.treeSeed ?? new Uint8Array(this._count).fill(255);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._tfvBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, tfv, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._seedBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, seed, gl.STATIC_DRAW);
+        uploadIfChanged(gl, this._tfvBuf, tfv, geometryChanged || prev?.forestTfv !== data.forestTfv);
+        uploadIfChanged(gl, this._seedBuf, seed, geometryChanged || prev?.treeSeed !== data.treeSeed);
         // Per-point height-decision diagnostics (4 bytes/point). Zeros when the
         // cloud predates the diagnostics (restored scene) — the shader then never
         // enters a diagnostic mode for it.
         const diag = data.vegDiag ?? new Uint8Array(this._count * 4);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._diagBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, diag, gl.STATIC_DRAW);
+        uploadIfChanged(gl, this._diagBuf, diag, geometryChanged || prev?.vegDiag !== data.vegDiag);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+        this._uploadedPoints = {
+            positions, normals, colors, classifications, heights,
+            forestTfv: data.forestTfv, treeSeed: data.treeSeed, vegDiag: data.vegDiag,
+        };
         gl.bindVertexArray(prevVAO);
         this._map?.triggerRepaint();
-        this._computePointLods(positions);
+        if (geometryChanged) this._computePointLods(positions);
     }
 
     /**
@@ -1341,6 +1373,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._pointBbox = null;
         this._pointLodCount = POINT_LOD_LEVELS.map(() => 0);
         this._pointLodLevel = 0;
+        this._uploadedPoints = null;
         this._map?.triggerRepaint();
     }
 
@@ -1365,34 +1398,45 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._ox = mc.x;
         this._oy = mc.y;
         this._mpu = mc.meterInMercatorCoordinateUnits();
-        this._meshIndexCount = indices.length;
-        this._meshBbox = computeBbox(positions);
-        this._shadowDirty = true;
-        const generation = ++this._meshGeneration;
-        this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
-        this._meshWireCount = MESH_LOD_LEVELS.map(() => 0);
-        this._meshCpuIndices = MESH_LOD_LEVELS.map(() => null);
-        this._meshLodLevel = 0;
+
+        const prev = this._uploadedMesh;
+        const geometryChanged = prev?.positions !== positions || prev.indices !== indices;
+        const generation = geometryChanged ? ++this._meshGeneration : this._meshGeneration;
+        if (geometryChanged) {
+            this._meshIndexCount = indices.length;
+            this._meshBbox = computeBbox(positions);
+            this._shadowDirty = true;
+            this._meshLodCount = MESH_LOD_LEVELS.map(() => 0);
+            this._meshWireCount = MESH_LOD_LEVELS.map(() => 0);
+            this._meshCpuIndices = MESH_LOD_LEVELS.map(() => null);
+            this._meshLodLevel = 0;
+        }
+
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshPosBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshNorBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshColBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshBaseBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, baseMask ?? new Uint8Array(positions.length / 3), gl.STATIC_DRAW);
-        gl.bindVertexArray(this._vaoMesh);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-        gl.bindVertexArray(prevVAO);
+        uploadIfChanged(gl, this._meshPosBuf, positions, geometryChanged);
+        uploadIfChanged(gl, this._meshNorBuf, normals, geometryChanged || prev?.normals !== normals);
+        uploadIfChanged(gl, this._meshColBuf, colors, geometryChanged || prev?.colors !== colors);
+        uploadIfChanged(
+            gl,
+            this._meshBaseBuf,
+            baseMask ?? new Uint8Array(positions.length / 3),
+            geometryChanged || prev?.baseMask !== baseMask,
+        );
+        if (geometryChanged) {
+            gl.bindVertexArray(this._vaoMesh);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+            gl.bindVertexArray(prevVAO);
+        }
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-        if (isMeshWireframeDebugEnabled()) {
+
+        this._uploadedMesh = { positions, normals, colors, indices, baseMask };
+        if (geometryChanged && isMeshWireframeDebugEnabled()) {
             this._meshCpuIndices[0] = indices;
             if (this.config.meshWireframe) this._buildWireLevel(gl, indices, 0);
         }
         this._map?.triggerRepaint();
-        this._computeMeshLods(generation, positions, indices);
+        if (geometryChanged) this._computeMeshLods(generation, positions, indices);
     }
 
     /**
@@ -1439,6 +1483,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._meshWireCount = MESH_LOD_LEVELS.map(() => 0);
         this._meshCpuIndices = MESH_LOD_LEVELS.map(() => null);
         this._meshLodLevel = 0;
+        this._uploadedMesh = null;
         this._map?.triggerRepaint();
     }
 

@@ -173,6 +173,15 @@ Deux cas particuliers :
 : un curseur qui appelle le setter à chaque `input` fige la page. Utiliser un brouillon local et
 un `setTimeout(150)` dans un effet (cf. les curseurs « Ligne de neige » et « Enneigement »).
 
+Le recoloriage remplace l'objet `mesh`/`shaded`, donc les effets de poussée rappellent
+`setMesh`/`setData` avec **le même maillage**. Ces deux méthodes comparent les références des
+tableaux déjà téléversés (`_uploadedMesh` / `_uploadedPoints`) et ne renvoient au GPU que ceux qui
+ont changé : sans cela un simple changement de palette re-téléversait positions, normales, indices
+et masques, et surtout relançait toute la simplification LOD (passe WASM d'effondrement d'arêtes),
+faisant retomber le maillage au LOD 0 à chaque pas de curseur. Corollaire pour qui touche à ce
+code : **un producteur doit allouer un nouveau tableau plutôt que muter le précédent en place**,
+sinon la modification est invisible pour le GPU. `clear()` / `clearMesh()` vident ces caches.
+
 ### Limitations techniques
 
 - **Pas de garbage-collection** localStorage : les clés d'anciennes formes du schéma s'y
