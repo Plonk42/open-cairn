@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeShowcaseGeometry, encodeShowcaseGeometry } from '@/lib/showcaseScene';
 import type { LidarShadedCloudData } from '@/lib/lidarCloud';
+import { decodeShowcaseGeometry, encodeShowcaseGeometry } from '@/lib/showcaseScene';
 
 /** Build a tiny synthetic shaded cloud so encode/decode has real buffers to round-trip. */
 function makeShaded(seed: number, pointCount = 4): LidarShadedCloudData {
