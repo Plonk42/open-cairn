@@ -462,10 +462,13 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
                                 Itinéraires enregistrés dans ce navigateur.
                             </p>
                             <div className="flex shrink-0 items-center gap-1.5">
-                                <label className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15">
+                                <label
+                                    title="Ne sert qu'aux fichiers sans itinéraire (rte) : nombre de points créés le long de la trace. Les points d'un GPX qui en contient un sont repris tels quels."
+                                    className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15"
+                                >
                                     <span className="whitespace-nowrap">Points interm.</span>
                                     <input
-                                        aria-label="Nombre de points intermédiaires à l'import GPX"
+                                        aria-label="Nombre de points intermédiaires créés à l'import d'un GPX sans itinéraire"
                                         type="number"
                                         min={0}
                                         max={100}

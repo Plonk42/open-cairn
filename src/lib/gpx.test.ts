@@ -58,6 +58,23 @@ const WPT_ON_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
   </trkseg></trk>
 </gpx>`;
 
+/** A loop: the last waypoint is back where the first one started. */
+const LOOP_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <rte>
+    <rtept lat="45.00" lon="5.00"><name>Départ</name></rtept>
+    <rtept lat="45.02" lon="5.02"><name>Col</name></rtept>
+    <rtept lat="45.00" lon="5.00"><name>Arrivée</name></rtept>
+  </rte>
+  <trk><trkseg>
+    <trkpt lat="45.00" lon="5.00"></trkpt>
+    <trkpt lat="45.01" lon="5.01"></trkpt>
+    <trkpt lat="45.02" lon="5.02"></trkpt>
+    <trkpt lat="45.01" lon="5.00"></trkpt>
+    <trkpt lat="45.00" lon="5.00"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
 /** Both elements used as the standard intends: <rte> is the route, <wpt> a point of interest. */
 const RTE_AND_POI_GPX = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
@@ -92,6 +109,20 @@ describe('parseGpx', () => {
     it('prefers <rte> over <wpt> when both are present', () => {
         const { waypoints } = parseGpx(RTE_AND_POI_GPX);
         expect(waypoints.map((wp) => wp.name)).toEqual(['Départ', 'Arrivée']);
+    });
+
+    it('never resamples a route the file already describes, whatever maxWaypoints says', () => {
+        const { waypoints } = parseGpx(RTE_GPX, 2);
+        expect(waypoints).toHaveLength(3);
+    });
+
+    it('snaps a loop closing on its start point to the end of the track, not back to index 0', () => {
+        const { waypoints, segments } = parseGpx(LOOP_GPX, 8);
+        expect(waypoints.map((wp) => wp.name)).toEqual(['Départ', 'Col', 'Arrivée']);
+        expect(waypoints.at(-1)?.coordinate).toEqual([5, 45]);
+        expect(segments).toHaveLength(2);
+        // The closing leg follows the return branch of the track, not a straight line back.
+        expect(segments![1].coordinates).toHaveLength(3);
     });
 
     it('samples waypoints from a track-only file and builds segments', () => {

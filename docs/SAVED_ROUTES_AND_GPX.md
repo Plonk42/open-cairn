@@ -51,6 +51,9 @@ Ils ne sont pour l'instant ni créables à la main ni réexportés.
 - **GPX import** : les fichiers très complexes (multitrack, extensions Garmin) peuvent
   perdre des informations ; les points de `<rte>` sont préférés, sinon les `<wpt>`,
   sinon échantillonnage de la trace `<trkpt>`.
+- **« Points interm. »** ne s'applique **qu'à ce dernier repli** : un fichier qui porte un
+  `<rte>` exploitable garde tous ses `<rtept>`, quelle que soit la valeur du champ. On ne
+  redécoupe jamais un itinéraire que le fichier décrit déjà.
 - **Balises `<wpt>` de signalisation** : beaucoup d'exports de course (Openrunner, par
   exemple) placent dans `<wpt>` des repères d'organisation — signaleurs, postes de secours,
   ravitaillements — qui ne sont ni sur la trace ni dans l'ordre du parcours. open-cairn les
@@ -152,8 +155,8 @@ flowchart TD
 
     WPT --> TRACK{trk présent?}
     RTE --> TRACK
-    TRACK -->|oui| SNAP[Snapper waypoints<br/>aux index trk les plus proches]
-    SNAP --> VALID{sur la trace<br/>et dans l'ordre?}
+    TRACK -->|oui| SNAP[Snapper waypoints<br/>au trkpt le plus proche<br/>en avançant seulement]
+    SNAP --> VALID{à moins de 50 m<br/>de la trace?}
     VALID -->|oui| SEG[Construire segments<br/>avec géométrie trk préservée]
     VALID -->|non| TRK
     TRACK -->|non| SEGD[Segments en mode<br/>libre/auto par défaut]
@@ -168,17 +171,21 @@ trkpt le plus proche, puis on construit chaque segment à partir de la portion d
 entre deux index consécutifs. Cela préserve la géométrie originale (sentiers virages
 serrés, etc.) plutôt que de demander à l'API IGN un re-routing.
 
-**Validation du snapping** (`snapWaypointsToTrack`) : les index doivent être strictement
-croissants et chaque waypoint doit se trouver à moins de `TRACK_SNAP_TOLERANCE_M` (50 m)
-de la trace. Sinon les points ne décrivent pas ce tracé et on retombe sur l'échantillonnage
-de la trace seule. Sans ce contrôle, `trackCoords.slice(a, b + 1)` avec `b < a` rend un
-tableau vide et on pousserait dans le store un segment sans coordonnées ; l'ancien
-garde-fou (forcer un ordre monotone en recopiant l'index précédent) le remplaçait par une
-ligne droite — d'où les « points fantômes » qui traversaient la carte.
+**Validation du snapping** (`snapWaypointsToTrack`) : chaque waypoint doit se trouver à
+moins de `TRACK_SNAP_TOLERANCE_M` (50 m) de la trace. Sinon les points ne décrivent pas ce
+tracé et on retombe sur l'échantillonnage de la trace seule. Sans ce contrôle,
+`trackCoords.slice(a, b + 1)` avec `b < a` rend un tableau vide et on pousserait dans le
+store un segment sans coordonnées ; l'ancien garde-fou (forcer un ordre monotone en
+recopiant l'index précédent) le remplaçait par une ligne droite — d'où les « points
+fantômes » qui traversaient la carte.
 
-Ce n'est toujours pas robuste pour une trace parcourue en sens inverse : un waypoint
-légitime peut alors snapper sur le mauvais passage d'une boucle, ce qui invalide la série
-et déclenche l'échantillonnage.
+La recherche du trkpt le plus proche **ne repart jamais en arrière** : elle démarre à
+l'index suivant celui du waypoint précédent. C'est indispensable pour une boucle ou un
+aller-retour — un itinéraire exporté par open-cairn puis réimporté a un point d'arrivée
+aux coordonnées exactes de son point de départ, et une recherche globale le snappait sur
+l'index 0, invalidant toute la série et faisant bouger les points au réimport. L'ordre est
+donc garanti par construction, et un waypoint réellement dans le désordre se retrouve trop
+loin de tout ce qui reste devant lui : c'est la tolérance qui le rejette.
 
 #### Marqueurs
 

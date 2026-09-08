@@ -108,10 +108,11 @@ const WALKING_SPEED = 4 / 3.6; // m/s
 /** Beyond this distance from the track, a point is a POI marker rather than a route waypoint. */
 const TRACK_SNAP_TOLERANCE_M = 50;
 
-function nearestTrackIndex(trackCoords: LngLatTuple[], target: LngLatTuple): number {
-    let bestIdx = 0;
+/** Closest track point at or after `fromIdx`, or -1 if the track ends before it. */
+function nearestTrackIndex(trackCoords: LngLatTuple[], target: LngLatTuple, fromIdx: number): number {
+    let bestIdx = -1;
     let bestDist = Infinity;
-    for (let i = 0; i < trackCoords.length; i++) {
+    for (let i = fromIdx; i < trackCoords.length; i++) {
         const dx = trackCoords[i][0] - target[0];
         const dy = trackCoords[i][1] - target[1];
         const d = dx * dx + dy * dy;
@@ -129,13 +130,18 @@ function nearestTrackIndex(trackCoords: LngLatTuple[], target: LngLatTuple): num
  * carry `<wpt>` that are standalone markers (ravitaillements, secours…) scattered
  * off-route and in arbitrary order — forcing those into an ordered route produces
  * phantom back-and-forth segments.
+ *
+ * The search only ever moves forward, so a loop or an out-and-back coming back to a
+ * place already visited snaps to the pass it belongs to rather than to the first one.
+ * Order is therefore guaranteed by construction, and a waypoint that is out of order
+ * ends up too far from anything ahead of it and fails the tolerance test.
  */
 function snapWaypointsToTrack(waypoints: RouteWaypoint[], trackCoords: LngLatTuple[]): number[] | null {
     const indices: number[] = [];
     let previous = -1;
     for (const wp of waypoints) {
-        const idx = nearestTrackIndex(trackCoords, wp.coordinate);
-        if (idx <= previous) return null;
+        const idx = nearestTrackIndex(trackCoords, wp.coordinate, previous + 1);
+        if (idx < 0) return null;
         if (distanceMeters(trackCoords[idx], wp.coordinate) > TRACK_SNAP_TOLERANCE_M) return null;
         indices.push(idx);
         previous = idx;
