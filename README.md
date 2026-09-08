@@ -25,7 +25,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Profil altimétrique interactif** — Chart.js avec coloration par pente, survol synchronisé, sélection drag
 - **Survol 3D** — animation caméra le long de l'itinéraire (look-ahead, lissage, cap)
 - **Itinéraires sauvegardés** — localStorage avec aperçu polyline + thumbnail
-- **Import / export GPX** — preserves la géométrie originale des traces
+- **Import / export GPX** — preserves la géométrie originale des traces, affiche les `<wpt>` comme marqueurs nommés
 - **Vue partageable** — URL hash encodant tout l'état de l'application
 - **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL 2 custom avec
   Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes de reconstruction :

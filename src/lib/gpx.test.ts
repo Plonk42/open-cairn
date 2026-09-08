@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { buildGpxString, parseGpx } from '@/lib/gpx';
 import type { RouteWaypoint } from '@/stores/routeStore';
+import { describe, expect, it } from 'vitest';
 
 const WPT_GPX = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
@@ -28,8 +28,48 @@ const TRACK_ONLY_GPX = `<?xml version="1.0" encoding="UTF-8"?>
   </trkseg></trk>
 </gpx>`;
 
+/** Race markers: scattered off the track and in arbitrary order, like an Openrunner export. */
+const POI_MARKERS_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="45.03" lon="5.03"><name>Ravitaillement</name></wpt>
+  <wpt lat="45.01" lon="5.01"><name>Signaleur</name></wpt>
+  <wpt lat="45.20" lon="5.20"><name>Secours</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="45.00" lon="5.00"></trkpt>
+    <trkpt lat="45.01" lon="5.01"></trkpt>
+    <trkpt lat="45.02" lon="5.02"></trkpt>
+    <trkpt lat="45.03" lon="5.03"></trkpt>
+    <trkpt lat="45.04" lon="5.04"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
+/** Waypoints that really describe the track: on it, and in order. */
+const WPT_ON_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="45.00" lon="5.00"><name>Départ</name></wpt>
+  <wpt lat="45.02" lon="5.02"><name>Col</name></wpt>
+  <wpt lat="45.04" lon="5.04"><name>Arrivée</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="45.00" lon="5.00"></trkpt>
+    <trkpt lat="45.01" lon="5.01"></trkpt>
+    <trkpt lat="45.02" lon="5.02"></trkpt>
+    <trkpt lat="45.03" lon="5.03"></trkpt>
+    <trkpt lat="45.04" lon="5.04"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
+/** Both elements used as the standard intends: <rte> is the route, <wpt> a point of interest. */
+const RTE_AND_POI_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="45.50" lon="5.50"><name>Refuge</name></wpt>
+  <rte>
+    <rtept lat="45.10" lon="5.70"><name>Départ</name></rtept>
+    <rtept lat="45.20" lon="5.80"><name>Arrivée</name></rtept>
+  </rte>
+</gpx>`;
+
 describe('parseGpx', () => {
-    it('parses <wpt> waypoints with names and [lon, lat] order', () => {
+    it('falls back to <wpt> when the file carries no <rte>', () => {
         const { waypoints } = parseGpx(WPT_GPX);
         expect(waypoints).toHaveLength(2);
         expect(waypoints[0].coordinate).toEqual([6.86, 45.83]);
@@ -43,10 +83,15 @@ describe('parseGpx', () => {
         expect(waypoints[1].modeFromPrevious).toBe('free');
     });
 
-    it('falls back to <rtept> route points when there are no waypoints', () => {
+    it('reads the route from <rtept>', () => {
         const { waypoints } = parseGpx(RTE_GPX);
         expect(waypoints).toHaveLength(3);
         expect(waypoints[2].coordinate).toEqual([5.9, 45.3]);
+    });
+
+    it('prefers <rte> over <wpt> when both are present', () => {
+        const { waypoints } = parseGpx(RTE_AND_POI_GPX);
+        expect(waypoints.map((wp) => wp.name)).toEqual(['Départ', 'Arrivée']);
     });
 
     it('samples waypoints from a track-only file and builds segments', () => {
@@ -60,6 +105,42 @@ describe('parseGpx', () => {
 
     it('throws on malformed XML', () => {
         expect(() => parseGpx('<gpx><wpt</gpx>')).toThrow();
+    });
+
+    it('ignores <wpt> markers that are off-track or out of order and samples the track instead', () => {
+        const { waypoints, segments } = parseGpx(POI_MARKERS_GPX, 3);
+        expect(waypoints.map((wp) => wp.name)).toEqual(['Départ', undefined, 'Arrivée']);
+        expect(waypoints.at(-1)?.coordinate).toEqual([5.04, 45.04]);
+        expect(segments).toHaveLength(2);
+    });
+
+    it('keeps <wpt> that lie on the track in order, and cuts the segments out of it', () => {
+        const { waypoints, segments } = parseGpx(WPT_ON_TRACK_GPX, 3);
+        expect(waypoints.map((wp) => wp.name)).toEqual(['Départ', 'Col', 'Arrivée']);
+        expect(segments).toHaveLength(2);
+        expect(segments![0].coordinates).toHaveLength(3);
+    });
+
+    it('reports <wpt> as markers when <rte> carries the route', () => {
+        const { markers } = parseGpx(RTE_AND_POI_GPX);
+        expect(markers).toHaveLength(1);
+        expect(markers[0].name).toBe('Refuge');
+        expect(markers[0].coordinate).toEqual([5.5, 45.5]);
+    });
+
+    it('reports the ignored <wpt> as markers when it falls back to sampling the track', () => {
+        const { markers } = parseGpx(POI_MARKERS_GPX, 3);
+        expect(markers.map((m) => m.name)).toEqual(['Ravitaillement', 'Signaleur', 'Secours']);
+    });
+
+    it('reports no marker for <wpt> promoted to the route', () => {
+        expect(parseGpx(WPT_GPX).markers).toEqual([]);
+        expect(parseGpx(WPT_ON_TRACK_GPX, 3).markers).toEqual([]);
+    });
+
+    it('gives markers ids that cannot collide with waypoint ids', () => {
+        const { waypoints, markers } = parseGpx(RTE_AND_POI_GPX);
+        expect(markers.every((m) => !waypoints.some((wp) => wp.id === m.id))).toBe(true);
     });
 });
 
@@ -75,6 +156,29 @@ describe('buildGpxString', () => {
         const { waypoints: parsed } = parseGpx(xml);
         expect(parsed).toHaveLength(2);
         expect(parsed[0].coordinate).toEqual([6.86, 45.83]);
+    });
+
+    it('puts the route in <rte> and the geometry in <trk>, and emits no <wpt>', () => {
+        const xml = buildGpxString(waypoints, [
+            [6.86, 45.83],
+            [6.865, 45.835],
+            [6.87, 45.84],
+        ]);
+        expect(xml).toContain('<rtept lat="45.83" lon="6.86">');
+        expect(xml).toContain('<trkpt lat="45.835" lon="6.865">');
+        expect(xml).not.toContain('<wpt');
+    });
+
+    it('round-trips the track geometry into segments', () => {
+        const xml = buildGpxString(waypoints, [
+            [6.86, 45.83],
+            [6.865, 45.835],
+            [6.87, 45.84],
+        ]);
+        const { waypoints: parsed, segments } = parseGpx(xml);
+        expect(parsed.map((wp) => wp.name)).toEqual(['A', 'Point 2']);
+        expect(segments).toHaveLength(1);
+        expect(segments![0].coordinates).toHaveLength(3);
     });
 
     it('uses a default name for unnamed waypoints', () => {

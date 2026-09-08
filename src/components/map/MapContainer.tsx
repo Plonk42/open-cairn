@@ -214,6 +214,7 @@ const ROUTE_POINTS_SOURCE = 'open-cairn-route-points';
 const ROUTE_HOVER_SOURCE = 'open-cairn-route-hover';
 const ROUTE_SELECTION_SOURCE = 'open-cairn-route-selection';
 const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
+const MARKERS_SOURCE = 'open-cairn-markers';
 const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
 
 /** Classic map view: stay at MapLibre's traditional near-horizon ceiling. */
@@ -292,6 +293,55 @@ function ensureSnapOverlay(map: maplibregl.Map): void {
                 'line-opacity': 1,
                 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4, 20, 5],
                 'line-dasharray': [1, 2],
+            },
+        });
+    }
+}
+
+/**
+ * Standalone points of interest (GPX `<wpt>`): a coloured dot plus its name.
+ * Distinct from the itinerary's numbered waypoints, in both shape and colour.
+ * Labels may be dropped on collision (a race file carries dozens of them) but
+ * the dots always draw.
+ */
+function ensureMarkerLayers(map: maplibregl.Map): void {
+    if (!map.getSource(MARKERS_SOURCE)) {
+        map.addSource(MARKERS_SOURCE, {
+            type: 'geojson',
+            maxzoom: 22,
+            data: { type: 'FeatureCollection', features: [] },
+        });
+    }
+    if (!map.getLayer('open-cairn-marker-point')) {
+        map.addLayer({
+            id: 'open-cairn-marker-point',
+            type: 'circle',
+            source: MARKERS_SOURCE,
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3.5, 18, 7],
+                'circle-color': '#a855f7',
+                'circle-stroke-color': '#f8fafc',
+                'circle-stroke-width': 1.5,
+            },
+        });
+    }
+    if (!map.getLayer('open-cairn-marker-label')) {
+        map.addLayer({
+            id: 'open-cairn-marker-label',
+            type: 'symbol',
+            source: MARKERS_SOURCE,
+            layout: {
+                'text-field': ['get', 'name'],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 18, 13],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-anchor': 'top',
+                'text-offset': [0, 0.7],
+                'text-optional': true,
+            },
+            paint: {
+                'text-color': '#faf5ff',
+                'text-halo-color': '#581c87',
+                'text-halo-width': 1.5,
             },
         });
     }
@@ -451,6 +501,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             },
         });
     }
+    ensureMarkerLayers(map);
     // Keep the LiDAR cloud layers directly above the basemap but under the
     // route layers, so the itinerary stays visible on top. A style diff (e.g.
     // a per-view Photo/Plan switch) re-adds the `base` raster layer at the TOP
@@ -508,6 +559,17 @@ function routePointsGeoJson(waypoints: ReturnType<typeof useRouteStore.getState>
     };
 }
 
+function markersGeoJson(markers: ReturnType<typeof useRouteStore.getState>['markers']): GeoJSON.FeatureCollection {
+    return {
+        type: 'FeatureCollection',
+        features: markers.map((marker) => ({
+            type: 'Feature',
+            properties: { id: marker.id, name: marker.name ?? '' },
+            geometry: { type: 'Point', coordinates: marker.coordinate },
+        })),
+    };
+}
+
 function hoverGeoJson(coordinate: [number, number] | null): GeoJSON.FeatureCollection {
     return {
         type: 'FeatureCollection',
@@ -550,6 +612,7 @@ function syncRouteToMap(map: maplibregl.Map): void {
     const route = useRouteStore.getState();
     updateGeoJsonSource(map, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
     updateGeoJsonSource(map, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
+    updateGeoJsonSource(map, MARKERS_SOURCE, markersGeoJson(route.markers));
     updateGeoJsonSource(map, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
     updateGeoJsonSource(map, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
     updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
@@ -993,6 +1056,7 @@ export function MapContainer() {
             ensureRouteLayers(m);
             updateGeoJsonSource(m, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
             updateGeoJsonSource(m, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
+            updateGeoJsonSource(m, MARKERS_SOURCE, markersGeoJson(route.markers));
             updateGeoJsonSource(m, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
             updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
             updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));

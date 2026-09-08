@@ -25,6 +25,20 @@ Depuis le panneau itinéraire :
 - **Exporter GPX** : télécharge un fichier `.gpx` 1.1 contenant les waypoints et la
   polyline complète de l'itinéraire.
 
+### Marqueurs (`<wpt>`)
+
+Un `<wpt>` GPX est un **point autonome** : un point d'intérêt, pas une étape de
+l'itinéraire. Quand un fichier importé en contient (repères de course, refuges, sources…),
+open-cairn les affiche sur la carte sous forme de **pastilles violettes accompagnées de
+leur nom**, distinctes des waypoints numérotés de l'itinéraire.
+
+Les noms qui se chevauchent sont masqués automatiquement (un fichier de course peut porter
+des dizaines de repères) ; les pastilles, elles, restent toujours visibles.
+
+Les marqueurs sont conservés au rechargement de la page, remplacés à l'import suivant, et
+effacés par **Effacer l'itinéraire**. Ils ne sont pour l'instant ni créables à la main ni
+réexportés.
+
 ### Limitations connues
 
 - **Quota localStorage** ~5 MB selon le navigateur ; dépassé silencieusement → la
@@ -34,8 +48,13 @@ Depuis le panneau itinéraire :
   l'onglet courant uniquement).
 - **GPX export sans altitude** : le profil altimétrique n'est pas inclus dans l'export.
 - **GPX import** : les fichiers très complexes (multitrack, extensions Garmin) peuvent
-  perdre des informations ; les waypoints `<wpt>` sont préférés, sinon `<rtept>`,
-  sinon échantillonnage de la trace `<trkpt>` (max 10 waypoints).
+  perdre des informations ; les points de `<rte>` sont préférés, sinon les `<wpt>`,
+  sinon échantillonnage de la trace `<trkpt>`.
+- **Balises `<wpt>` de signalisation** : beaucoup d'exports de course (Openrunner, par
+  exemple) placent dans `<wpt>` des repères d'organisation — signaleurs, postes de secours,
+  ravitaillements — qui ne sont ni sur la trace ni dans l'ordre du parcours. open-cairn les
+  détecte, échantillonne la trace pour l'itinéraire plutôt que de fabriquer un parcours qui
+  fait des allers-retours, et affiche ces repères comme marqueurs.
 
 ---
 
@@ -109,54 +128,125 @@ avec un padding fixe.
 |---------|------|
 | [src/lib/gpx.ts](../src/lib/gpx.ts) | `parseGpx()`, `exportGpx()`, `importGpxFile()` |
 
+#### Sémantique GPX 1.1
+
+open-cairn s'en tient au sens que la spécification donne à chaque élément :
+
+| Élément | Spécification | Usage open-cairn |
+|---|---|---|
+| `<rte>` / `<rtept>` | *« an ordered list of waypoints representing a series of turn points »* | les waypoints placés par l'utilisateur |
+| `<trk>` / `<trkpt>` | *« an ordered list of points describing a path »* | la géométrie calculée des segments |
+| `<wpt>` | *« a waypoint, point of interest, or named feature »* — point autonome | jamais exporté ; à l'import, marqueurs (ou repli d'itinéraire) |
+
 #### Parsing — stratégie de fallback
 
 ```mermaid
 flowchart TD
     GPX[Fichier .gpx] --> DOM[DOMParser]
-    DOM --> CHK{wpt présents?}
-    CHK -->|oui| WPT[Extraire wpt comme waypoints]
-    CHK -->|non| CHK2{rtept présents?}
-    CHK2 -->|oui| RTE[Extraire rtept]
-    CHK2 -->|non| TRK[Échantillonner trkpt<br/>max 10 waypoints]
+    DOM --> CHK{rtept présents?}
+    CHK -->|oui| RTE[Extraire rtept]
+    CHK -->|non| CHK2{wpt présents?}
+    CHK2 -->|oui| WPT[Extraire wpt<br/>en dernier recours]
+    CHK2 -->|non| TRK[Échantillonner trkpt<br/>max maxWaypoints]
 
     WPT --> TRACK{trk présent?}
     RTE --> TRACK
     TRACK -->|oui| SNAP[Snapper waypoints<br/>aux index trk les plus proches]
-    SNAP --> SEG[Construire segments<br/>avec géométrie trk préservée]
+    SNAP --> VALID{sur la trace<br/>et dans l'ordre?}
+    VALID -->|oui| SEG[Construire segments<br/>avec géométrie trk préservée]
+    VALID -->|non| TRK
     TRACK -->|non| SEGD[Segments en mode<br/>libre/auto par défaut]
 ```
+
+`<rte>` fait autorité quand il est présent : c'est l'élément qui décrit un parcours. Les
+`<wpt>` ne sont lus que si le fichier n'en contient aucun, car rien ne garantit qu'ils
+décrivent l'itinéraire.
 
 Quand une `<trk>` accompagne les waypoints, on **snappe** chaque waypoint à l'index de
 trkpt le plus proche, puis on construit chaque segment à partir de la portion de trk
 entre deux index consécutifs. Cela préserve la géométrie originale (sentiers virages
 serrés, etc.) plutôt que de demander à l'API IGN un re-routing.
 
-Garde-fou : on impose un ordre monotone des index (si un waypoint « recule », on snap
-à l'index courant + 1). Ce n'est pas robuste pour les boucles ou traces inversées.
+**Validation du snapping** (`snapWaypointsToTrack`) : les index doivent être strictement
+croissants et chaque waypoint doit se trouver à moins de `TRACK_SNAP_TOLERANCE_M` (50 m)
+de la trace. Sinon les points ne décrivent pas ce tracé et on retombe sur l'échantillonnage
+de la trace seule. Sans ce contrôle, `trackCoords.slice(a, b + 1)` avec `b < a` rend un
+tableau vide et on pousserait dans le store un segment sans coordonnées ; l'ancien
+garde-fou (forcer un ordre monotone en recopiant l'index précédent) le remplaçait par une
+ligne droite — d'où les « points fantômes » qui traversaient la carte.
+
+Ce n'est toujours pas robuste pour une trace parcourue en sens inverse : un waypoint
+légitime peut alors snapper sur le mauvais passage d'une boucle, ce qui invalide la série
+et déclenche l'échantillonnage.
+
+#### Marqueurs
+
+`parseGpx` renvoie, à côté de `waypoints` / `segments`, un tableau `markers: MapMarker[]`
+(champ **requis**) alimenté par les `<wpt>` :
+
+```ts
+export interface MapMarker { id: string; coordinate: LngLatTuple; name?: string }
+```
+
+Règle : un `<wpt>` devient un marqueur **sauf** s'il a été promu waypoint d'itinéraire
+(fichier sans `<rte>` dont les `<wpt>` passent la validation du snapping) — sinon il serait
+dessiné deux fois. En particulier le cas Openrunner (repli sur l'échantillonnage de la
+trace) renvoie tous les `<wpt>` en marqueurs : c'est ce qui évite de perdre les noms.
+
+Les id sont préfixés `mk-`, jamais `wp-`, pour ne pas entrer en collision avec les id de
+waypoints utilisés comme `id` de feature MapLibre et par la garde anti-collision de
+`routeStore`.
+
+État et rendu :
+
+| Élément | Emplacement |
+|---|---|
+| `markers` / `setMarkers` | [src/stores/routeStore.ts](../src/stores/routeStore.ts), persistés dans `open-cairn-route` |
+| source `open-cairn-markers` + couches `open-cairn-marker-point` / `-label` | `ensureMarkerLayers()` dans [src/components/map/MapContainer.tsx](../src/components/map/MapContainer.tsx) |
+
+Les couches sont (ré)installées par `ensureRouteLayers()`, appelée à chaque `styledata`,
+donc elles survivent aux reconstructions de style et aux bascules de vue. Le label utilise
+`text-optional: true` sans `icon-image` : MapLibre laisse tomber les noms qui se
+chevauchent, les cercles ne collisionnent jamais.
+
+Prochaine étape prévue : créer et enregistrer des marqueurs à la main, ce qui demandera
+d'émettre un bloc `<wpt>*` à l'export — **avant** `<rte>`, l'ordre imposé par le schéma
+étant `metadata, wpt*, rte*, trk*`.
 
 #### Export GPX
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="open-cairn">
-  <metadata>
-    <name>{routeName}</name>
-    <time>{ISO 8601}</time>
-  </metadata>
-  <wpt lat="..." lon="...">
-    <name>...</name>
-  </wpt>
-  ...
+<gpx version="1.1" creator="open-cairn"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata><time>{ISO 8601}</time></metadata>
   <rte>
-    <rtept lat="..." lon="..." />
+    <name>Itinéraire</name>
+    <rtept lat="..." lon="..."><name>...</name></rtept>
     ...
   </rte>
+  <trk>
+    <name>Tracé</name>
+    <trkseg>
+      <trkpt lat="..." lon="..."></trkpt>
+      ...
+    </trkseg>
+  </trk>
 </gpx>
 ```
 
-L'échappement XML est minimal (`& < > " '` → entités). Pas de `<trk>` exporté car les
-segments sont déjà aplatis dans la `<rte>`.
+L'ordre `metadata, rte, trk` est celui qu'impose le schéma. Aucun `<wpt>` n'est émis : les
+waypoints de l'itinéraire ne sont pas des points d'intérêt autonomes. L'échappement XML est
+minimal (`& < > "` → entités).
+
+Le fichier produit valide contre le XSD officiel :
+
+```bash
+curl -sO https://www.topografix.com/GPX/1/1/gpx.xsd
+xmllint --noout --schema gpx.xsd itineraire.gpx
+```
 
 #### Limitations
 

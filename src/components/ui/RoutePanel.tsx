@@ -236,6 +236,7 @@ export function RoutePanel() {
                             } else {
                                 restoreWaypoints(result.waypoints);
                             }
+                            useRouteStore.getState().setMarkers(result.markers);
                             // Center map on imported waypoints
                             const coords = result.waypoints.map((wp) => wp.coordinate);
                             const lngs = coords.map((c) => c[0]);

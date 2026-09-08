@@ -1,5 +1,5 @@
-import { lineDistanceMeters, type LngLatTuple } from '@/lib/geo';
-import type { RouteSegment, RouteWaypoint } from '@/stores/routeStore';
+import { distanceMeters, lineDistanceMeters, type LngLatTuple } from '@/lib/geo';
+import type { MapMarker, RouteSegment, RouteWaypoint } from '@/stores/routeStore';
 
 function escapeXml(str: string): string {
     return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -9,6 +9,8 @@ export interface GpxImportResult {
     waypoints: RouteWaypoint[];
     /** Pre-computed segments from track data (preserves original geometry). */
     segments?: RouteSegment[];
+    /** The file's `<wpt>`, unless they had to stand in as the route itself. */
+    markers: MapMarker[];
 }
 
 let importWaypointId = 1000;
@@ -30,26 +32,31 @@ export function parseGpx(gpxString: string, maxWaypoints = 10): GpxImportResult 
     }
 
     const ns = 'http://www.topografix.com/GPX/1/1';
-    let waypoints = parseWptElements(doc, ns);
+    // <rte> is the route by definition; <wpt> are standalone points of interest and only a
+    // fallback for files that carry none.
+    const routePoints = parseRteElements(doc, ns);
+    const wptPoints = parseWptElements(doc, ns);
+    const waypoints = routePoints.length > 0 ? routePoints : wptPoints;
+    const markers = routePoints.length > 0 ? toMarkers(wptPoints) : [];
 
-    // If no waypoints found, try to extract from <rte> (route points)
-    if (waypoints.length === 0) {
-        waypoints = parseRteElements(doc, ns);
-    }
-
-    // If we have waypoints (from <wpt> or <rte>), also check for track to use as segments
     const trackCoords = parseTrackCoordinates(doc, ns);
-    if (waypoints.length >= 2 && trackCoords.length >= 2) {
-        const segments = buildSegmentsFromTrack(waypoints, trackCoords);
-        if (segments) return { waypoints, segments };
+    if (trackCoords.length >= 2) {
+        const indices = waypoints.length >= 2 ? snapWaypointsToTrack(waypoints, trackCoords) : null;
+        if (indices) return { waypoints, segments: buildSegmentsFromTrack(waypoints, trackCoords, indices), markers };
+        // The points do not describe this track: sample it instead, and the <wpt> keep their
+        // own identity as markers.
+        return { ...buildFromTrackOnly(trackCoords, maxWaypoints), markers: toMarkers(wptPoints) };
     }
 
-    // If no waypoints at all, sample from track
-    if (waypoints.length === 0 && trackCoords.length >= 2) {
-        return buildFromTrackOnly(trackCoords, maxWaypoints);
-    }
+    return { waypoints, markers };
+}
 
-    return { waypoints };
+function toMarkers(wptPoints: RouteWaypoint[]): MapMarker[] {
+    return wptPoints.map((wpt, index) => ({
+        id: `mk-${index + 1}`,
+        coordinate: wpt.coordinate,
+        name: wpt.name,
+    }));
 }
 
 function parseWptElements(doc: Document, ns: string): RouteWaypoint[] {
@@ -98,39 +105,56 @@ function parseTrackCoordinates(doc: Document, ns: string): LngLatTuple[] {
 
 const WALKING_SPEED = 4 / 3.6; // m/s
 
-function buildSegmentsFromTrack(waypoints: RouteWaypoint[], trackCoords: LngLatTuple[]): RouteSegment[] | null {
-    // For each waypoint, find the closest track point index
-    const indices = waypoints.map((wp) => {
-        let bestIdx = 0;
-        let bestDist = Infinity;
-        for (let i = 0; i < trackCoords.length; i++) {
-            const dx = trackCoords[i][0] - wp.coordinate[0];
-            const dy = trackCoords[i][1] - wp.coordinate[1];
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) {
-                bestDist = d;
-                bestIdx = i;
-            }
+/** Beyond this distance from the track, a point is a POI marker rather than a route waypoint. */
+const TRACK_SNAP_TOLERANCE_M = 50;
+
+function nearestTrackIndex(trackCoords: LngLatTuple[], target: LngLatTuple): number {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < trackCoords.length; i++) {
+        const dx = trackCoords[i][0] - target[0];
+        const dy = trackCoords[i][1] - target[1];
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
         }
-        return bestIdx;
-    });
-
-    // Ensure indices are monotonically non-decreasing (snap to closest valid position)
-    for (let i = 1; i < indices.length; i++) {
-        if (indices[i] < indices[i - 1]) indices[i] = indices[i - 1];
     }
+    return bestIdx;
+}
 
+/**
+ * Snap each waypoint to its closest track point, and return the indices only if the
+ * waypoints really describe the track: all on it, all in order. A GPX may otherwise
+ * carry `<wpt>` that are standalone markers (ravitaillements, secours…) scattered
+ * off-route and in arbitrary order — forcing those into an ordered route produces
+ * phantom back-and-forth segments.
+ */
+function snapWaypointsToTrack(waypoints: RouteWaypoint[], trackCoords: LngLatTuple[]): number[] | null {
+    const indices: number[] = [];
+    let previous = -1;
+    for (const wp of waypoints) {
+        const idx = nearestTrackIndex(trackCoords, wp.coordinate);
+        if (idx <= previous) return null;
+        if (distanceMeters(trackCoords[idx], wp.coordinate) > TRACK_SNAP_TOLERANCE_M) return null;
+        indices.push(idx);
+        previous = idx;
+    }
+    return indices;
+}
+
+function buildSegmentsFromTrack(
+    waypoints: RouteWaypoint[],
+    trackCoords: LngLatTuple[],
+    indices: number[],
+): RouteSegment[] {
     const segments: RouteSegment[] = [];
     for (let i = 0; i < waypoints.length - 1; i++) {
-        const startIdx = indices[i];
-        const endIdx = indices[i + 1];
-        const coords = trackCoords.slice(startIdx, endIdx + 1);
-        // Need at least 2 points for a valid segment
-        const segCoords = coords.length >= 2 ? coords : [waypoints[i].coordinate, waypoints[i + 1].coordinate];
-        const distance = lineDistanceMeters(segCoords);
+        const coords = trackCoords.slice(indices[i], indices[i + 1] + 1);
+        const distance = lineDistanceMeters(coords);
         segments.push({
             id: `${waypoints[i].id}-${waypoints[i + 1].id}`,
-            coordinates: segCoords,
+            coordinates: coords,
             distance,
             duration: distance / WALKING_SPEED,
             mode: 'free',
@@ -142,7 +166,7 @@ function buildSegmentsFromTrack(waypoints: RouteWaypoint[], trackCoords: LngLatT
     return segments;
 }
 
-function buildFromTrackOnly(trackCoords: LngLatTuple[], maxWaypoints: number): GpxImportResult {
+function buildFromTrackOnly(trackCoords: LngLatTuple[], maxWaypoints: number): { waypoints: RouteWaypoint[]; segments: RouteSegment[] } {
     // Sample up to maxWaypoints waypoints evenly along the track
     const maxPoints = Math.min(maxWaypoints, trackCoords.length);
     const step = (trackCoords.length - 1) / (maxPoints - 1);
@@ -214,19 +238,24 @@ export function buildGpxString(waypoints: RouteWaypoint[], trackCoordinates: Lng
     gpx += `  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">\n`;
     gpx += `  <metadata><time>${timestamp}</time></metadata>\n`;
 
-    // Waypoints
-    for (let i = 0; i < waypoints.length; i++) {
-        const wp = waypoints[i];
-        const name = wp.name || `Point ${i + 1}`;
-        gpx += `  <wpt lat="${wp.coordinate[1]}" lon="${wp.coordinate[0]}">\n`;
-        gpx += `    <name>${escapeXml(name)}</name>\n`;
-        gpx += `  </wpt>\n`;
+    // The waypoints the user placed: an ordered list of turn points, i.e. a <rte>.
+    if (waypoints.length > 0) {
+        gpx += `  <rte>\n`;
+        gpx += `    <name>Itinéraire</name>\n`;
+        for (let i = 0; i < waypoints.length; i++) {
+            const wp = waypoints[i];
+            const name = wp.name || `Point ${i + 1}`;
+            gpx += `    <rtept lat="${wp.coordinate[1]}" lon="${wp.coordinate[0]}">\n`;
+            gpx += `      <name>${escapeXml(name)}</name>\n`;
+            gpx += `    </rtept>\n`;
+        }
+        gpx += `  </rte>\n`;
     }
 
-    // Track
+    // The computed geometry between them: a <trk>.
     if (trackCoordinates.length > 0) {
         gpx += `  <trk>\n`;
-        gpx += `    <name>Itinéraire</name>\n`;
+        gpx += `    <name>Tracé</name>\n`;
         gpx += `    <trkseg>\n`;
         for (const coord of trackCoordinates) {
             gpx += `      <trkpt lat="${coord[1]}" lon="${coord[0]}"></trkpt>\n`;

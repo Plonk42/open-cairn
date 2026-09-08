@@ -214,6 +214,7 @@ export function ShowcaseGallery({ variant = 'dark', inline = false }: Readonly<{
         if (rs.waypoints.length > 0 && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
         if (result.segments) rs.importRoute(result.waypoints, result.segments);
         else rs.restoreWaypoints(result.waypoints);
+        rs.setMarkers(result.markers);
         rs.setActive(true);
         const lngs = result.waypoints.map((wp) => wp.coordinate[0]);
         const lats = result.waypoints.map((wp) => wp.coordinate[1]);

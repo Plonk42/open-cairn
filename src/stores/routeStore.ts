@@ -10,6 +10,7 @@ const ROUTE_STORAGE_KEY = 'open-cairn-route';
 
 type PersistedRoute = {
     waypoints?: RouteWaypoint[];
+    markers?: MapMarker[];
     active?: boolean;
     mode?: RouteMode;
     colorElevationBySlope?: boolean;
@@ -37,6 +38,13 @@ export interface RouteWaypoint {
     id: string;
     coordinate: LngLatTuple;
     modeFromPrevious?: RouteMode;
+    name?: string;
+}
+
+/** A standalone point of interest — a GPX `<wpt>`, not part of the itinerary. */
+export interface MapMarker {
+    id: string;
+    coordinate: LngLatTuple;
     name?: string;
 }
 
@@ -75,6 +83,8 @@ interface RouteState {
     setGpxImportWaypoints: (count: number) => void;
 
     waypoints: RouteWaypoint[];
+    markers: MapMarker[];
+    setMarkers: (markers: MapMarker[]) => void;
     routeSegments: RouteSegment[];
     routeCoordinates: LngLatTuple[];
     profile: ElevationSample[];
@@ -321,6 +331,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     setGpxImportWaypoints: (gpxImportWaypoints) => set({ gpxImportWaypoints }),
 
     waypoints: [],
+    markers: persistedRoute.markers ?? [],
+    setMarkers: (markers) => set({ markers }),
     routeSegments: [],
     routeCoordinates: [],
     profile: [],
@@ -506,6 +518,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         currentRevision += 1;
         set({
             waypoints: [],
+            markers: [],
             routeSegments: [],
             routeCoordinates: [],
             profile: [],
@@ -552,6 +565,7 @@ useRouteStore.subscribe((state) => {
     _routeSaveTimer = setTimeout(() => {
         savePersistedRoute({
             waypoints: state.waypoints,
+            markers: state.markers,
             active: state.active,
             mode: state.mode,
             colorElevationBySlope: state.colorElevationBySlope,

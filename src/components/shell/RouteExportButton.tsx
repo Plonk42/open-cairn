@@ -33,6 +33,7 @@ function GpxExportTab({ onClose }: Readonly<{ onClose: () => void }>) {
         if (state.waypoints.length > 0 && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
         if (result.segments) state.importRoute(result.waypoints, result.segments);
         else state.restoreWaypoints(result.waypoints);
+        state.setMarkers(result.markers);
         state.setActive(true);
         const lngs = result.waypoints.map((wp) => wp.coordinate[0]);
         const lats = result.waypoints.map((wp) => wp.coordinate[1]);
