@@ -481,6 +481,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const merged = mergeSegments(segments);
         set({
             waypoints: normalizeWaypoints(waypoints),
+            // Markers belong to whatever was loaded before; a GPX import re-sets them right after.
+            markers: [],
             routeSegments: segments,
             routeCoordinates: merged.coordinates,
             stats: { distance: merged.distance, duration: merged.duration, ascent: 0, descent: 0 },

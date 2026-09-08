@@ -33,6 +33,7 @@ if (shared) {
     if (shared.waypoints.length > 0) {
         route.restoreWaypoints(shared.waypoints);
     }
+    route.setMarkers([]); // a shared link carries no marker: drop this browser's leftovers
     if (shared.selectionRange) {
         // Store only the range; coordinates will be computed once route finishes
         useRouteStore.setState({ selectionRange: shared.selectionRange });

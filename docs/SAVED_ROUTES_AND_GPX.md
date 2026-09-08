@@ -35,9 +35,10 @@ leur nom**, distinctes des waypoints numérotés de l'itinéraire.
 Les noms qui se chevauchent sont masqués automatiquement (un fichier de course peut porter
 des dizaines de repères) ; les pastilles, elles, restent toujours visibles.
 
-Les marqueurs sont conservés au rechargement de la page, remplacés à l'import suivant, et
-effacés par **Effacer l'itinéraire**. Ils ne sont pour l'instant ni créables à la main ni
-réexportés.
+Les marqueurs sont conservés au rechargement de la page et effacés par **Effacer
+l'itinéraire**. Charger un autre itinéraire — GPX, itinéraire sauvegardé, galerie, lien
+partagé — les remplace par ceux du nouveau fichier, ou par rien s'il n'en contient pas.
+Ils ne sont pour l'instant ni créables à la main ni réexportés.
 
 ### Limitations connues
 
@@ -203,6 +204,14 @@ waypoints utilisés comme `id` de feature MapLibre et par la garde anti-collisio
 |---|---|
 | `markers` / `setMarkers` | [src/stores/routeStore.ts](../src/stores/routeStore.ts), persistés dans `open-cairn-route` |
 | source `open-cairn-markers` + couches `open-cairn-marker-point` / `-label` | `ensureMarkerLayers()` dans [src/components/map/MapContainer.tsx](../src/components/map/MapContainer.tsx) |
+
+`importRoute()` remet `markers: []` : remplacer l'itinéraire en bloc (itinéraire sauvegardé,
+galerie) doit jeter les marqueurs du chargement précédent, sinon les postes de secours d'une
+course se retrouvent sur un parcours sans rapport. L'import GPX appelle `setMarkers()` juste
+après, donc l'ordre compte. `restoreWaypoints()` ne les touche PAS, sinon la restauration
+localStorage au démarrage ([src/main.tsx](../src/main.tsx)) effacerait des marqueurs qui ont
+été persistés avec l'itinéraire ; c'est la branche « lien partagé » de `main.tsx` qui vide
+explicitement, un lien ne transportant aucun marqueur.
 
 Les couches sont (ré)installées par `ensureRouteLayers()`, appelée à chaque `styledata`,
 donc elles survivent aux reconstructions de style et aux bascules de vue. Le label utilise
