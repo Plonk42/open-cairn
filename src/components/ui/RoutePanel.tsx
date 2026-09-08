@@ -8,7 +8,7 @@ import { buildPreview, getSavedRouteById, saveRoute } from '@/lib/savedRoutes';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore, type RouteMode } from '@/stores/routeStore';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 function segmentMode(waypointMode: RouteMode | undefined): RouteMode {
     return waypointMode ?? 'auto';
@@ -84,7 +84,10 @@ export function RoutePanel() {
     const loadedRouteId = useRouteStore((s) => s.loadedRouteId);
     const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
     const flyoverRef = useRef<FlyoverController | null>(null);
-    const waypointMarkers: WaypointGraphMarker[] = (() => {
+    // Both feed ElevationChart's build effect: a new array identity there tears
+    // down and rebuilds the whole Chart.js instance, which the flyover would
+    // otherwise trigger on every frame through setHoverDistance.
+    const waypointMarkers: WaypointGraphMarker[] = useMemo(() => {
         const markers: WaypointGraphMarker[] = [];
         let cumulativeDistance = 0;
         for (let i = 0; i < waypoints.length; i++) {
@@ -92,9 +95,9 @@ export function RoutePanel() {
             if (i < routeSegments.length) cumulativeDistance += routeSegments[i].distance;
         }
         return markers;
-    })();
+    }, [waypoints, routeSegments]);
 
-    const dashedRanges: DashedRange[] = (() => {
+    const dashedRanges: DashedRange[] = useMemo(() => {
         const ranges: DashedRange[] = [];
         let cumDist = 0;
         for (const seg of routeSegments) {
@@ -115,7 +118,7 @@ export function RoutePanel() {
             cumDist = segEnd;
         }
         return ranges;
-    })();
+    }, [routeSegments]);
 
     const handleDragStart = (e: React.DragEvent, index: number) => {
         setDraggedIndex(index);
@@ -202,6 +205,7 @@ export function RoutePanel() {
                                 flyoverRef.current = controller;
                                 setIsFlying(true);
                                 controller.start(map, routeCoordinates, {
+                                    profile,
                                     onProgress: (d: number) => setHoverDistance(d),
                                     onEnd: () => {
                                         setIsFlying(false);

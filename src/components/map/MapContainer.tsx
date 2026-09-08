@@ -1050,16 +1050,28 @@ export function MapContainer() {
     useEffect(() => {
         const map = mapRef.current;
         if (map?.isStyleLoaded()) syncRouteToMap(map);
-        return useRouteStore.subscribe((route) => {
+        return useRouteStore.subscribe((route, prev) => {
             const m = mapRef.current;
             if (!m?.getStyle()?.layers) return;
             ensureRouteLayers(m);
-            updateGeoJsonSource(m, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
-            updateGeoJsonSource(m, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
-            updateGeoJsonSource(m, MARKERS_SOURCE, markersGeoJson(route.markers));
-            updateGeoJsonSource(m, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
-            updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
-            updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
+            // setData re-tiles a source's whole geometry in the worker. During a
+            // flyover only `hoverCoordinate` changes, on every single frame.
+            if (route.routeSegments !== prev.routeSegments) {
+                updateGeoJsonSource(m, ROUTE_LINE_SOURCE, routeLineGeoJson(route.routeSegments));
+                updateGeoJsonSource(m, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
+            }
+            if (route.waypoints !== prev.waypoints || route.deleteMode !== prev.deleteMode) {
+                updateGeoJsonSource(m, ROUTE_POINTS_SOURCE, routePointsGeoJson(route.waypoints, route.deleteMode));
+            }
+            if (route.markers !== prev.markers) {
+                updateGeoJsonSource(m, MARKERS_SOURCE, markersGeoJson(route.markers));
+            }
+            if (route.hoverCoordinate !== prev.hoverCoordinate) {
+                updateGeoJsonSource(m, ROUTE_HOVER_SOURCE, hoverGeoJson(route.hoverCoordinate));
+            }
+            if (route.selectionCoordinates !== prev.selectionCoordinates) {
+                updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
+            }
             m.getCanvas().style.cursor = routeCursor(route);
         });
     }, []);
