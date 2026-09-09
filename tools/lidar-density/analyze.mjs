@@ -58,7 +58,7 @@ const [X0, Y0] = to2154.forward([LNG, LAT]);
 // WFS tile discovery
 // ---------------------------------------------------------------------------
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
-const TYPENAME = 'IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle';
+const TYPENAME = 'IGNF_LIDAR-HD_METADONNEE:metadata';
 
 async function findTiles(minLng, minLat, maxLng, maxLat) {
     const params = new URLSearchParams({
@@ -76,12 +76,9 @@ async function findTiles(minLng, minLat, maxLng, maxLat) {
     const data = await res.json();
     const tiles = [];
     for (const f of data.features ?? []) {
-        const props = f.properties ?? {};
-        const url = [props.url, props.url_telech, props.name, ...Object.values(props)].find(
-            (v) => typeof v === 'string' && /^https?:\/\/.+\.(copc\.)?laz$/i.test(v),
-        );
-        if (!url) continue;
-        tiles.push({ url, name: props.name ?? url.split('/').pop() });
+        const url = f.properties?.url_npl;
+        if (typeof url !== 'string' || !/\.(copc\.)?laz$/i.test(url)) continue;
+        tiles.push({ url, name: url.split('/').pop() });
     }
     return tiles;
 }

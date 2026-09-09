@@ -7,13 +7,13 @@
  */
 
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
-const TYPENAME = 'IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle';
+const TYPENAME = 'IGNF_LIDAR-HD_METADONNEE:metadata';
 const MAX_TILES = 8;
 
 export interface LidarTileRef {
     /** Public download URL of the .copc.laz file (also on data.geopf.fr). */
     url: string;
-    /** Tile name from the WFS (LHD_FXX_xxxx_yyyy_PTS_O_LAMB93_IGN69). */
+    /** Tile name from the WFS (LHD_FXX_xxxx_yyyy_PTS_LAMB93_IGN69). */
     name: string;
 }
 
@@ -53,20 +53,10 @@ export async function findTiles(
     const tiles: LidarTileRef[] = [];
     for (const f of features) {
         const props = ((f as { properties?: Record<string, unknown> }).properties) ?? {};
-        // The WFS schema has shifted over the years; accept the first value
-        // that looks like a .laz/.copc.laz URL among the known property names.
-        const candidates: unknown[] = [
-            props.url, props.url_telech, props.name, ...Object.values(props),
-        ];
-        const lazUrl = candidates.find(
-            (v): v is string =>
-                typeof v === 'string' && /^https?:\/\/.+\.(copc\.)?laz$/i.test(v),
-        );
-        if (!lazUrl) continue;
-        const name = typeof props.name === 'string' && props.name.length > 0
-            ? props.name
-            : lazUrl.substring(lazUrl.lastIndexOf('/') + 1);
-        tiles.push({ url: lazUrl, name });
+        // `url_npl` = nuage de points LAZ; the sibling url_mnt/mns/mnh are raster WMS.
+        const lazUrl = props.url_npl;
+        if (typeof lazUrl !== 'string' || !/\.(copc\.)?laz$/i.test(lazUrl)) continue;
+        tiles.push({ url: lazUrl, name: lazUrl.substring(lazUrl.lastIndexOf('/') + 1) });
         if (tiles.length >= MAX_TILES) break;
     }
     return tiles;

@@ -84,7 +84,7 @@ GET https://data.geopf.fr/wfs/ows
   ?service=WFS
   &version=2.0.0
   &request=GetFeature
-  &typenames=IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle
+  &typenames=IGNF_LIDAR-HD_METADONNEE:metadata
   &srsname=EPSG:4326
   &bbox=minLng,minLat,maxLng,maxLat,EPSG:4326
   &count=8
@@ -93,8 +93,9 @@ GET https://data.geopf.fr/wfs/ows
 > ⚠️ **Piège connu** : malgré `srsname=EPSG:4326`, l'axe-order du paramètre `bbox` est
 > **lng,lat** (et non lat,lng comme l'EPSG le voudrait). Voir [wfs.ts](../src/lib/lidarBrowser/wfs.ts).
 
-Réponse : GeoJSON dont chaque feature porte l'URL de la dalle COPC LAZ
-(typiquement 500 MB à 2 GB) hébergée sur le CDN IGN.
+Réponse : GeoJSON dont chaque feature porte, dans la propriété `url_npl`, l'URL de la
+dalle COPC LAZ (typiquement 500 MB à 2 GB) hébergée sur le CDN IGN. Les propriétés
+voisines `url_mnt` / `url_mns` / `url_mnh` sont des rasters WMS, pas des nuages de points.
 
 #### COPC LAZ
 
