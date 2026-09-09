@@ -2,8 +2,9 @@
 
 ## Pour les utilisateurs
 
-Le bouton **Survol** dans le panneau d'itinéraire lance une animation de la caméra
-le long du tracé, en vue 3D inclinée, comme un drone.
+Le bouton **Survol** lance une animation de la caméra le long du tracé, en vue 3D
+inclinée, comme un drone. Il est présent dans le panneau d'itinéraire *et* dans la barre
+de résumé du dock réduit, où une ligne colorée par la pente montre l'avancement.
 
 - **Vitesse** ajustée automatiquement : un trajet trop court est ralenti (min ~15 s),
   un trajet trop long est accéléré (max ~90 s). Le départ et l'arrivée sont **progressifs**
@@ -41,6 +42,16 @@ clic sur un autre bouton) interrompra également l'animation visuellement, mais 
 ### Fichier
 
 [src/lib/flyover.ts](../src/lib/flyover.ts) — classe `FlyoverController`.
+
+Côté UI, [src/lib/useFlyover.ts](../src/lib/useFlyover.ts) garde **le contrôleur au
+niveau module** et l'état `flyoverActive` **dans le `routeStore`** : réduire le dock
+démonte `RoutePanel` en plein vol, un état local serait perdu et le bouton de la barre
+de résumé afficherait « démarrer » pendant que la caméra vole encore. Le seul bouton,
+[FlyoverButton.tsx](../src/components/ui/common/FlyoverButton.tsx), est monté aux deux
+endroits.
+
+`stop()` annule l'image programmée : `onEnd` n'est donc **pas** appelé, c'est
+`useFlyover` qui remet `flyoverActive` et `hoverDistance` à zéro dans ce cas.
 
 ### API
 

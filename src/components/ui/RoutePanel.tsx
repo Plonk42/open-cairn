@@ -1,6 +1,6 @@
+import { FlyoverButton } from '@/components/ui/common/FlyoverButton';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import { ElevationChart, type DashedRange, type WaypointGraphMarker } from '@/components/ui/ElevationChart';
-import { FlyoverController } from '@/lib/flyover';
 import { distanceMeters, formatDistance, formatElevation } from '@/lib/geo';
 import { exportGpx, importGpxFile } from '@/lib/gpx';
 import { ignReverse } from '@/lib/ignGeocoding';
@@ -78,12 +78,10 @@ export function RoutePanel() {
     const routeCoordinates = useRouteStore((s) => s.routeCoordinates);
     const [editingNameId, setEditingNameId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
-    const [isFlying, setIsFlying] = useState(false);
     const [saveDialogOpen, setSaveDialogOpen] = useState(false);
     const [saveNameDraft, setSaveNameDraft] = useState('');
     const loadedRouteId = useRouteStore((s) => s.loadedRouteId);
     const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
-    const flyoverRef = useRef<FlyoverController | null>(null);
     // Both feed ElevationChart's build effect: a new array identity there tears
     // down and rebuilds the whole Chart.js instance, which the flyover would
     // otherwise trigger on every frame through setHoverDistance.
@@ -192,36 +190,7 @@ export function RoutePanel() {
                         </svg>
                     </button>
                     {/* Flyover 3D */}
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (isFlying) {
-                                flyoverRef.current?.stop();
-                                setIsFlying(false);
-                            } else {
-                                const map = useMapStore.getState().mapInstance;
-                                if (!map || routeCoordinates.length < 2) return;
-                                const controller = new FlyoverController();
-                                flyoverRef.current = controller;
-                                setIsFlying(true);
-                                controller.start(map, routeCoordinates, {
-                                    profile,
-                                    onProgress: (d: number) => setHoverDistance(d),
-                                    onEnd: () => {
-                                        setIsFlying(false);
-                                        setHoverDistance(null);
-                                    },
-                                });
-                            }
-                        }}
-                        disabled={routeCoordinates.length < 2}
-                        className={`flex items-center justify-center rounded-md ring-1 ring-gray-200 transition disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 ${isFlying ? 'bg-violet-50 text-violet-600 ring-violet-300 dark:bg-violet-900/30 dark:text-violet-400 dark:ring-violet-700' : 'text-slate-400 hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-900/30'} ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title={isFlying ? 'Arrêter le survol' : 'Survoler l\'itinéraire en 3D'}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M3.105 2.29a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.155.75.75 0 000-1.114A28.897 28.897 0 003.105 2.289z" />
-                        </svg>
-                    </button>
+                    <FlyoverButton size={isMobile ? 'md' : 'sm'} />
                     {/* Import GPX */}
                     <button
                         type="button"

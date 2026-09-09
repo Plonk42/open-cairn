@@ -215,10 +215,10 @@ waypoints utilisés comme `id` de feature MapLibre et par la garde anti-collisio
 `importRoute()` remet `markers: []` : remplacer l'itinéraire en bloc (itinéraire sauvegardé,
 galerie) doit jeter les marqueurs du chargement précédent, sinon les postes de secours d'une
 course se retrouvent sur un parcours sans rapport. L'import GPX appelle `setMarkers()` juste
-après, donc l'ordre compte. `restoreWaypoints()` ne les touche PAS, sinon la restauration
-localStorage au démarrage ([src/main.tsx](../src/main.tsx)) effacerait des marqueurs qui ont
-été persistés avec l'itinéraire ; c'est la branche « lien partagé » de `main.tsx` qui vide
-explicitement, un lien ne transportant aucun marqueur.
+après, donc l'ordre compte. `restoreRoute()` et `restoreWaypoints()` ne les touchent PAS,
+sinon la restauration localStorage au démarrage ([src/main.tsx](../src/main.tsx)) effacerait
+des marqueurs qui ont été persistés avec l'itinéraire ; c'est la branche « lien partagé » de
+`main.tsx` qui vide explicitement, un lien ne transportant aucun marqueur.
 
 Les couches sont (ré)installées par `ensureRouteLayers()`, appelée à chaque `styledata`,
 donc elles survivent aux reconstructions de style et aux bascules de vue. Le label utilise

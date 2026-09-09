@@ -35,6 +35,10 @@ Le profil s'affiche dans le dock ancré sous la carte dès qu'un itinéraire dé
 2 waypoints. Le dock réduit la carte au lieu de la recouvrir, et se replie en une
 simple barre de résumé (chevron) ou se ferme complètement (croix) :
 
+- **Réduit** : la barre de résumé garde le bouton *Survol 3D* et une ligne de
+  progression sans axe vertical — pentes colorées, pastilles de waypoints numérotées et
+  altitudes quand la largeur le permet.
+
 - **Lecture / Édition** : deux boutons explicites. En *Lecture*, le clic sur la carte
   ne modifie pas l'itinéraire ; en *Édition*, il ajoute un point.
 - **Coloration par pente** : palette qui passe du vert (plat) au jaune, orange, rouge
@@ -132,8 +136,10 @@ flowchart LR
 }
 ```
 
-Persistance : clé localStorage `open-cairn-route` (waypoints + activeStatus uniquement,
-les segments sont recalculés au boot).
+Persistance : clé localStorage `open-cairn-route` (waypoints **et** segments calculés).
+Au boot, `restoreRoute()` rejoue la géométrie stockée telle quelle — seul le profil
+altimétrique est recalculé ; aucun appel au routeur IGN. Si la liste de segments ne
+correspond plus aux waypoints, elle est ignorée et `restoreWaypoints()` recalcule tout.
 
 ### API Navigation
 

@@ -13,6 +13,16 @@ export interface ElevationProfile {
     descent: number;
 }
 
+/** Slope palette shared by the elevation chart and the collapsed dock rail. */
+export function slopeColor(slope: number): string {
+    if (slope <= -12) return '#2563eb';
+    if (slope <= -4) return '#38bdf8';
+    if (slope < 4) return '#34d399';
+    if (slope < 10) return '#facc15';
+    if (slope < 18) return '#fb923c';
+    return '#ef4444';
+}
+
 interface IgnElevationPoint {
     lon: number;
     lat: number;

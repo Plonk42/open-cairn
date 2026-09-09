@@ -33,12 +33,32 @@ aide) et, à droite, le sélecteur de vue.
 - Le **dock Itinéraire** (itinéraire courant + profil altimétrique) est ancré *sous* la
   carte : il réduit la carte au lieu de la recouvrir. Il a trois états :
   - **fermé** — la carte occupe toute la hauteur ;
-  - **réduit** — une barre de résumé d'environ 40 px (distance, D+, D−) ;
+  - **réduit** — une barre de résumé d'environ 40 px (distance, D+, D−), une ligne de
+    progression colorée et le bouton *Survol 3D* ;
   - **déployé** — la barre de résumé + le profil et les outils d'édition.
   Sa barre de titre porte un chevron (réduire / déplier) et une croix (fermer, sans
   perdre l'itinéraire) ; la pilule *Itinéraire* de la barre du bas le rouvre. Il
   s'ouvre automatiquement au premier waypoint, et sa hauteur se règle en glissant le
   bord supérieur.
+
+  La ligne de l'état réduit ([RouteProgressLine.tsx](../src/components/shell/RouteProgressLine.tsx))
+  remplace le profil altimétrique sans coûter un pixel de hauteur. N'ayant pas d'axe
+  vertical, elle porte le relief **par la couleur de pente** (même palette que le
+  graphe) et non par une courbe :
+
+  - la couleur est moyennée sur **90 bandes** ; colorer échantillon par échantillon
+    transforme le rail en confettis illisibles sur un long tracé ;
+  - les waypoints sont des pastilles numérotées, avec leur **altitude au-dessus
+    seulement si elle rentre** (largeur mesurée par `ResizeObserver`, 46 px par
+    étiquette) ;
+  - la progression du survol est un repère orange, et la portion restante est
+    **assombrie par un voile** plutôt que repeinte, pour ne pas masquer les pentes à
+    venir.
+
+  L'élément est un composant à part pour que les mises à jour à chaque image du survol
+  ne re-rendent pas tout le dock. Le `ResizeObserver` est branché par une **ref
+  callback** : le rail n'est monté qu'une fois le profil calculé, bien après qu'un
+  `useEffect` à dépendances vides aurait tourné.
 
 ### Sur ordinateur — Studio LiDAR
 

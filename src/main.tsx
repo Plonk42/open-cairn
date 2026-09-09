@@ -45,7 +45,11 @@ if (shared) {
     // Restore route waypoints from localStorage (map state is restored via store defaults).
     const savedRoute = loadPersistedRoute();
     if (savedRoute.waypoints && savedRoute.waypoints.length > 0) {
-        useRouteStore.getState().restoreWaypoints(savedRoute.waypoints);
+        const route = useRouteStore.getState();
+        // Replaying the stored geometry keeps an imported GPX track intact — recomputing
+        // from the waypoints alone would replace it with routed or straight segments.
+        if (savedRoute.segments) route.restoreRoute(savedRoute.waypoints, savedRoute.segments);
+        else route.restoreWaypoints(savedRoute.waypoints);
         if (savedRoute.selectionRange) {
             useRouteStore.setState({ selectionRange: savedRoute.selectionRange });
         }

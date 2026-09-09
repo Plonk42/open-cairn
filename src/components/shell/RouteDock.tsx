@@ -1,5 +1,7 @@
 import { BottomPanelContent } from '@/components/panels/PanelTabs';
+import { RouteProgressLine } from '@/components/shell/RouteProgressLine';
 import { RouteIcon } from '@/components/shell/routeSections';
+import { FlyoverButton } from '@/components/ui/common/FlyoverButton';
 import { formatDistance, formatElevation } from '@/lib/geo';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
@@ -115,7 +117,7 @@ export function RouteDock() {
                 <button
                     type="button"
                     onClick={() => setCollapsed(!collapsed)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pr-2 text-left transition hover:opacity-80"
+                    className={`flex min-w-0 items-center gap-2 rounded-md py-1 pr-2 text-left transition hover:opacity-80 ${collapsed ? 'shrink-0' : 'flex-1'}`}
                     title={collapsed ? 'Déplier le profil altimétrique' : 'Réduire en barre de résumé'}
                     aria-expanded={!collapsed}
                 >
@@ -129,6 +131,8 @@ export function RouteDock() {
                         </span>
                     )}
                 </button>
+                {collapsed && <RouteProgressLine />}
+                {collapsed && <FlyoverButton size="sm" />}
                 <button
                     type="button"
                     onClick={() => setCollapsed(!collapsed)}

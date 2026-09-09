@@ -82,16 +82,20 @@ sont exclus par construction. L'hydratation est manuelle dans chaque slice
 }
 ```
 
-Persistance : seuls `waypoints` et `routeMode` (essentiels) sont persistés sous la clé
-`open-cairn-route`. Les segments / profil sont **recalculés au boot** depuis les
-waypoints, ce qui garantit qu'ils sont à jour si les API IGN ont évolué.
+Persistance : les `waypoints`, leurs `routeSegments` déjà calculés et `routeMode` sont
+persistés sous la clé `open-cairn-route`. Rejouer la géométrie stockée évite de relancer
+un calcul IGN par segment à chaque chargement, et surtout préserve la trace d'un GPX
+importé — la recalculer depuis les seuls waypoints la remplacerait par des lignes droites.
+Seul le profil altimétrique est recalculé au boot. Une liste de segments dont la longueur
+ne correspond plus aux waypoints est rejetée à l'hydratation (`loadPersistedRoute`) et la
+route est recalculée depuis les waypoints.
 
 ### Clés localStorage
 
 | Clé                              | Contenu                                         |
 |----------------------------------|-------------------------------------------------|
 | `open-cairn-settings`            | mapStore (sauf champs LiDAR runtime + sauf champs explicitement exclus) |
-| `open-cairn-route`               | waypoints + `active`, `mode`, `colorElevationBySlope`, `gpxImportWaypoints`, `selectionRange` |
+| `open-cairn-route`               | waypoints + segments + markers + `active`, `mode`, `colorElevationBySlope`, `gpxImportWaypoints`, `selectionRange` |
 | `open-cairn-saved-routes`        | tableau de `SavedRoute` (cf. [SAVED_ROUTES_AND_GPX.md](SAVED_ROUTES_AND_GPX.md)) |
 
 ### IndexedDB

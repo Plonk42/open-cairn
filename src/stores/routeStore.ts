@@ -10,6 +10,7 @@ const ROUTE_STORAGE_KEY = 'open-cairn-route';
 
 type PersistedRoute = {
     waypoints?: RouteWaypoint[];
+    segments?: RouteSegment[];
     markers?: MapMarker[];
     active?: boolean;
     mode?: RouteMode;
@@ -18,10 +19,23 @@ type PersistedRoute = {
     selectionRange?: [number, number] | null;
 };
 
+// A segment list that no longer matches its waypoints would draw a route the user
+// never traced: drop it and let the store recompute from the waypoints instead.
+function hasConsistentSegments(route: PersistedRoute): boolean {
+    const { waypoints, segments } = route;
+    if (!waypoints || !segments) return false;
+    return segments.length === waypoints.length - 1
+        && segments.every((segment) => Array.isArray(segment.coordinates) && segment.coordinates.length > 0);
+}
+
 function loadPersistedRoute(): PersistedRoute {
     try {
         const raw = localStorage.getItem(ROUTE_STORAGE_KEY);
-        if (raw) return JSON.parse(raw) as PersistedRoute;
+        if (raw) {
+            const route = JSON.parse(raw) as PersistedRoute;
+            if (!hasConsistentSegments(route)) delete route.segments;
+            return route;
+        }
     } catch { /* ignore */ }
     return {};
 }
@@ -96,6 +110,10 @@ interface RouteState {
     selectionRange: [number, number] | null;
     selectionCoordinates: LngLatTuple[];
 
+    /** True while the 3D flyover runs; `hoverDistance` carries its progress. */
+    flyoverActive: boolean;
+    setFlyoverActive: (active: boolean) => void;
+
     /** Id of the SavedRoute currently loaded (null if none / unsaved). */
     loadedRouteId: string | null;
     setLoadedRouteId: (id: string | null) => void;
@@ -107,6 +125,8 @@ interface RouteState {
     renameWaypoint: (id: string, name: string) => void;
     removeWaypoint: (id: string) => void;
     restoreWaypoints: (waypoints: RouteWaypoint[]) => void;
+    /** Restore waypoints together with their already computed geometry (localStorage). */
+    restoreRoute: (waypoints: RouteWaypoint[], segments: RouteSegment[]) => void;
     /** Import a route with pre-computed segments (e.g. from GPX track data). */
     importRoute: (waypoints: RouteWaypoint[], segments: RouteSegment[]) => void;
     reverseRoute: () => void;
@@ -344,6 +364,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     selectionRange: null,
     selectionCoordinates: [],
 
+    flyoverActive: false,
+    setFlyoverActive: (flyoverActive) => set({ flyoverActive }),
+
     loadedRouteId: null,
     setLoadedRouteId: (loadedRouteId) => set({ loadedRouteId }),
 
@@ -471,6 +494,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     },
 
     importRoute: (waypoints, segments) => {
+        // Markers belong to whatever was loaded before; a GPX import re-sets them right after.
+        set({ markers: [] });
+        get().restoreRoute(waypoints, segments);
+    },
+
+    restoreRoute: (waypoints, segments) => {
         currentAbortController?.abort();
         currentRevision += 1;
         const maxId = waypoints.reduce((max, wp) => {
@@ -481,8 +510,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const merged = mergeSegments(segments);
         set({
             waypoints: normalizeWaypoints(waypoints),
-            // Markers belong to whatever was loaded before; a GPX import re-sets them right after.
-            markers: [],
             routeSegments: segments,
             routeCoordinates: merged.coordinates,
             stats: { distance: merged.distance, duration: merged.duration, ascent: 0, descent: 0 },
@@ -567,6 +594,7 @@ useRouteStore.subscribe((state) => {
     _routeSaveTimer = setTimeout(() => {
         savePersistedRoute({
             waypoints: state.waypoints,
+            segments: state.routeSegments,
             markers: state.markers,
             active: state.active,
             mode: state.mode,
