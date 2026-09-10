@@ -9,6 +9,7 @@
  * stubs out the Node `fs` fallback).
  */
 import { Copc, Getter, Key } from 'copc';
+import { copcMaxLevel } from '../lidarResolution';
 import { getLazPerf, runOnLazPerf } from './lazPerf';
 import { acquireGlobal, noteRateLimit, releaseGlobal } from './rateLimiter';
 
@@ -23,6 +24,13 @@ export interface ExtractParams {
     radius: number;
     /** Keep one point in N (after the bbox filter). */
     stride: number;
+    /**
+     * Target ground sampling (m between points), 0 = native density. Caps how
+     * deep the COPC octree is walked: unlike `stride`, which discards points
+     * already downloaded and decoded, a coarser target skips whole levels and
+     * so divides the bytes fetched. See `copcMaxLevel`.
+     */
+    targetSpacingM?: number;
     /** LAS class whitelist (null = keep all). */
     classFilter: Set<number> | null;
     /**
@@ -80,7 +88,7 @@ interface CopcNode {
 }
 
 interface CopcHandle {
-    info: { rootHierarchyPage: unknown; cube: number[] };
+    info: { rootHierarchyPage: unknown; cube: number[]; spacing: number };
 }
 
 /** Minimal structural view of a decoded COPC point-data page. */
@@ -192,12 +200,14 @@ function nodeBounds(
 
 /**
  * Walk the COPC hierarchy from the root page, descending only into branches
- * intersecting the XY query bbox. Sub-pages are loaded lazily.
+ * intersecting the XY query bbox and no deeper than `maxLevel`. Sub-pages are
+ * loaded lazily.
  */
 async function collectIntersectingNodes(
     get: ReturnType<typeof Getter.create>,
     copc: CopcHandle,
     bbox: { minX: number; maxX: number; minY: number; maxY: number },
+    maxLevel: number,
 ): Promise<Array<{ key: string; node: CopcNode }>> {
     const out: Array<{ key: string; node: CopcNode }> = [];
     const pageQueue: string[] = ['0-0-0-0'];
@@ -217,6 +227,7 @@ async function collectIntersectingNodes(
             // Skip empty hierarchy entries — the getter would throw on 0-length range.
             if (!node.pointCount || !node.pointDataLength) continue;
             const k = Key.parse(keyStr);
+            if (k[0] > maxLevel) continue;
             const nb = nodeBounds(k, copc.info.cube);
             if (nb.maxX < bbox.minX || nb.minX > bbox.maxX) continue;
             if (nb.maxY < bbox.minY || nb.minY > bbox.maxY) continue;
@@ -225,6 +236,7 @@ async function collectIntersectingNodes(
         for (const [keyStr, sub] of Object.entries(pages)) {
             if (!sub) continue;
             const k = Key.parse(keyStr);
+            if (k[0] > maxLevel) continue;
             const nb = nodeBounds(k, copc.info.cube);
             if (nb.maxX < bbox.minX || nb.minX > bbox.maxX) continue;
             if (nb.maxY < bbox.minY || nb.minY > bbox.maxY) continue;
@@ -407,10 +419,12 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         maxY: y0 + radius,
     };
     const tHier = performance.now();
-    const nodes = await collectIntersectingNodes(get, copc, bbox);
+    const maxLevel = copcMaxLevel(copc.info.spacing, params.targetSpacingM ?? 0);
+    const nodes = await collectIntersectingNodes(get, copc, bbox, maxLevel);
     const dHier = performance.now() - tHier;
     // eslint-disable-next-line no-console
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
+        'spacing', copc.info.spacing.toFixed(2), 'm → niveau max', maxLevel,
         'intersecting nodes:', nodes.length,
         'sample:', nodes.slice(0, 3).map(({ node }) => ({
             pc: node.pointCount,

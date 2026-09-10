@@ -16,8 +16,8 @@ via PoissonRecon (WASM).
 Dans le panneau **LiDAR** :
 
 1. Centrez la carte sur la zone d'intérêt et ouvrez le panneau.
-2. Choisissez le **rayon** (20 à 1000 m) et le **stride** (1 à 200, décimation
-   1 point sur N).
+2. Réglez la **taille de la zone** (50 m à 5 km de côté, dans la limite de
+   25 km²) et la **résolution** (voir ci-dessous).
 3. Sélectionnez le **mode** :
    - **Points** (`shaded`) — tous les points sont conservés, normales calculées
      par k-NN, coloration par pente + Eye-Dome Lighting. Restitue parfaitement
@@ -41,6 +41,38 @@ Dans le panneau **LiDAR** :
 
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).
+
+### Résolution : le réglage qui décide du coût
+
+Une dalle COPC est un octree : chaque niveau supplémentaire divise par deux
+l'espacement entre points et multiplie par ~quatre le volume à télécharger. Le
+curseur **Résolution** choisit le niveau le plus profond parcouru — les niveaux
+plus fins ne sont **jamais téléchargés**. C'est la différence de fond avec les
+curseurs de densité : ceux-ci jettent des points déjà décodés, la résolution
+empêche les octets d'arriver.
+
+Les crans correspondent aux espacements que la pyramide IGN livre réellement
+(6,8 m, 3,4 m, 1,7 m, 0,85 m, 0,43 m, puis `max` = densité native), mesurés sur
+une dalle de 1 km² :
+
+| niveau ≤ | espacement | points cumulés | Mo cumulés |
+|---|---|---|---|
+| 0 | 6,8 m | 60 639 | 0,7 |
+| 1 | 3,4 m | 609 697 | 5,4 |
+| 2 | 1,7 m | 2 268 567 | 17,6 |
+| 3 | 0,85 m | 8 653 121 | 51,6 |
+| 4 | 0,43 m | 18 232 817 | 97,0 |
+
+D'où le couplage **Auto** (coché par défaut) : agrandir la zone choisit la
+résolution la plus fine qui tienne sous un budget de ~6 M de points
+téléchargés. Une zone de 3 × 3 km retombe ainsi sur 3,4 m et ~5 M de points là
+où la densité native en demanderait 160 M. Bouger le curseur décoche Auto —
+c'est le seul geste qui exprime une intention que la taille de la zone ne peut
+pas deviner. La ligne sous le curseur affiche l'estimation avant de lancer, et
+passe en ambre au-delà du budget.
+
+Un ordre de grandeur mesuré : 3 × 3 km à 3,4 m = 38 dalles, ~5 M de points,
+environ une minute et demie (l'essentiel du temps part en attente des 429).
 
 ### Réglages embarqués avec chaque capture
 
@@ -115,10 +147,10 @@ de « Mes vues », comme l'ambiance : la tuile affiche ses détails et propose
 ### Limitations connues
 
 - **Aucune dalle** : si la zone n'est pas couverte par LiDAR HD, un toast
-  *« Aucune dalle LiDAR HD »* s'affiche. Déplacez-vous ou élargissez le rayon.
-- **Lenteur sur de gros rayons** : un rayon de 1000 m peut télécharger 4 dalles
-  COPC et plusieurs dizaines de millions de points avant décimation. Augmentez
-  le stride pour fluidifier.
+  *« Aucune dalle LiDAR HD »* s'affiche. Déplacez-vous ou agrandissez la zone.
+- **Lenteur sur les grandes zones** : le coût suit le nombre de dalles (jusqu'à
+  64) et la résolution demandée. Une grande zone à résolution fine se paie en
+  minutes ; laissez Auto faire son travail, ou descendez d'un cran.
 - **Mode Poisson coûteux** : la reconstruction WASM est mono-thread et bloque
   le worker pendant plusieurs secondes (voire dizaines de secondes en
   profondeur 11–12). Préférez `mixed` pour de l'exploration rapide.
@@ -187,7 +219,7 @@ nuage. Le filtrage final est délégué au mask GPU de la couche overlay.
 
 ```mermaid
 flowchart TD
-    P([BrowserFetchParams<br/>lng, lat, radius, stride, classes]) --> R[Clamp radius 20-1000m<br/>Clamp stride 1-200]
+    P([BrowserFetchParams<br/>lng, lat, radius, stride,<br/>targetSpacingM, classes]) --> R[Clamp radius 20-4000m<br/>Clamp stride 1-200]
     R --> L93[proj.ts<br/>lng,lat → Lambert-93 x0,y0]
     L93 --> WFS[wfs.ts findTiles<br/>bbox query data.geopf.fr WFS]
     WFS -->|0 tiles| ERR([Throw 'no_lidar_tile'])
@@ -200,6 +232,12 @@ flowchart TD
 Notes :
 
 - `radius` est le **demi-côté** d'un carré L93, pas un rayon de cercle.
+- `wfs.ts` ramène jusqu'à **64 dalles** (`MAX_TILES`) : une zone de 5 km de côté
+  en couvre 36 au pire cadrage. Au-delà, la liste est tronquée sans avertir —
+  c'est la garde de dernier recours, pas un réglage.
+- `targetSpacingM` est convertie par `copcMaxLevel` en profondeur d'octree
+  maximale, **par dalle**, à partir de l'espacement racine lu dans son en-tête
+  (~6,8 m sur LiDAR HD) : la décision ne suppose donc aucune constante IGN.
 - Le bbox WFS utilise l'ordre **lng/lat** malgré `srsname=EPSG:4326` —
   particularité IGN (cf. [wfs.ts](../src/lib/lidarBrowser/wfs.ts)).
 - Les positions sont des **METER\_OFFSETS** (Float32 est/nord/up) relatifs au
@@ -213,9 +251,10 @@ EVLR. On HTTP-Range-fetch uniquement les nœuds qui intersectent notre bbox.
 
 ```mermaid
 flowchart TD
-    T([tileUrl, x0, y0,<br/>radius, stride, classFilter]) --> G[Getter.create url<br/>+ semaphore + retry]
+    T([tileUrl, x0, y0,<br/>radius, stride, targetSpacing,<br/>classFilter]) --> G[Getter.create url<br/>+ semaphore + retry]
     G --> H[Copc.create<br/>reads LAS header + COPC VLR]
-    H --> WALK[collectIntersectingNodes<br/>BFS over hierarchy pages]
+    H --> LVL[copcMaxLevel<br/>root spacing → max depth]
+    LVL --> WALK[collectIntersectingNodes<br/>BFS over hierarchy pages<br/>skips nodes deeper than max]
     WALK --> NODES[List of CopcNode<br/>with key, offset, length]
     NODES --> PAR[Promise.all over nodes]
     PAR --> DEC[runOnLazPerf<br/>Copc.loadPointDataView]

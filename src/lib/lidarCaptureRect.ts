@@ -9,11 +9,13 @@
  */
 import type maplibregl from 'maplibre-gl';
 
-/** Hard cap on the capture rectangle's ground area (m²). A 2000 × 2000 m zone
- *  (= 400 ha) is the largest allowed; Poisson mode uses a tighter cap (see
- *  POISSON_MAX_AREA_M2). The fetch still derives its radius from the enclosing
- *  circle so tile/node selection brackets the whole (possibly rotated) footprint. */
-export const LIDAR_RECT_MAX_AREA_M2 = 4_000_000;
+/** Hard cap on the capture rectangle's ground area (m²). A 5000 × 5000 m zone
+ *  (= 2500 ha) is the largest allowed, in every mode: what a capture can
+ *  actually swallow is a point count, not an area, and the capture resolution
+ *  (see `lidarResolution.ts`) is what bounds it. The fetch still derives its
+ *  radius from the enclosing circle so tile/node selection brackets the whole
+ *  (possibly rotated) footprint. */
+export const LIDAR_RECT_MAX_AREA_M2 = 25_000_000;
 /** Smallest side (m) a capture rectangle is allowed to have. */
 export const LIDAR_RECT_MIN_SIDE_M = 20;
 

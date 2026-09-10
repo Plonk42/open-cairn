@@ -8,7 +8,7 @@
 
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
 const TYPENAME = 'IGNF_LIDAR-HD_METADONNEE:metadata';
-const MAX_TILES = 8;
+const MAX_TILES = 64;
 
 export interface LidarTileRef {
     /** Public download URL of the .copc.laz file (also on data.geopf.fr). */

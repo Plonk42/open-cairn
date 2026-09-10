@@ -7,7 +7,7 @@ import { createViewSlice, selectViewPersisted, type ViewSlice } from './slices/v
 
 // Re-export the public store API (types + label maps + constants) so existing
 // imports from '@/stores/mapStore' keep working after the slice split.
-export { POISSON_MAX_AREA_M2, type LidarMode } from './slices/lidarSlice';
+export { type LidarMode } from './slices/lidarSlice';
 export {
     RENDER_QUALITY_LABELS,
     type RenderQuality,

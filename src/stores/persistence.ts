@@ -27,6 +27,8 @@ export type PersistedSettings = {
     lidarRockType?: RockType;
     lidarCloudStride?: number;
     lidarCaptureRect?: CaptureRectDims;
+    lidarCaptureResolution?: number;
+    lidarCaptureResolutionAuto?: boolean;
     lidarRectNorthFixed?: boolean;
     lidarCloudGroundStride?: number;
     lidarMeshSmooth?: boolean;

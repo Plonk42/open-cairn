@@ -54,6 +54,7 @@ Champs principaux :
   lidarShaded, lidarMesh            // miroirs de lidarClouds[0]
   lidarCloudLoading, lidarCloudError, lidarCloudProgress
   lidarCaptureRect, lidarRectNorthFixed, lidarCloudStride, lidarCloudClasses
+  lidarCaptureResolution, lidarCaptureResolutionAuto
   lidarCloudPoissonDepth
 
   // LiDAR (rendu)
@@ -172,6 +173,12 @@ Deux cas particuliers :
   `uniform1f` correspondants.
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
+- **Réglage dérivé d'un autre** : `lidarCaptureResolution` suit la taille de la zone tant que
+  `lidarCaptureResolutionAuto` est vrai. Sa valeur persistée est alors une *conséquence*, pas une
+  donnée : elle est **recalculée à l'hydratation** depuis le rectangle restauré, sinon un
+  rectangle et une résolution enregistrés à deux instants différents reviennent incohérents.
+  Le setter manuel éteint `auto` — bouger le curseur est la seule façon d'exprimer une intention
+  que la taille de la zone ne peut pas déduire.
 
 Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
 tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir

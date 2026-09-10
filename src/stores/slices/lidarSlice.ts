@@ -14,6 +14,7 @@ import {
     screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
+import { autoResolutionM, RESOLUTION_STOPS_M, resolutionToIndex } from '@/lib/lidarResolution';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
@@ -21,10 +22,6 @@ import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
 import { DEFAULT_VIEW } from './viewSlice';
-
-/** Maximum capture area (m²) allowed in Poisson mode (WASM heap / octree limit).
- *  1 000 000 m² = 1 km² = a 1000 × 1000 m zone. */
-export const POISSON_MAX_AREA_M2 = 1_000_000;
 
 /**
  * Debug-only live snapshot of the WebGL layer's current LOD levels (see
@@ -89,7 +86,7 @@ export type LidarMode = CaptureMode;
  * a capture.
  */
 function captureParamsFromState(state: MapState): CaptureParams {
-    const common = { stride: state.lidarCloudStride };
+    const common = { resolutionM: state.lidarCaptureResolution, stride: state.lidarCloudStride };
     if (state.lidarMode === 'poisson') {
         return {
             ...common,
@@ -125,6 +122,7 @@ function applyCaptureParams(p: CaptureParams, st: MapState): void {
         if (v !== undefined) setter(v);
     };
 
+    apply(num('resolutionM'), st.setLidarCaptureResolution);
     apply(num('stride'), st.setLidarCloudStride);
     apply(num('poissonGroundStride'), st.setLidarCloudGroundStride);
     apply(num('poissonDepth'), st.setLidarCloudPoissonDepth);
@@ -565,6 +563,17 @@ export interface LidarSlice {
      */
     lidarCaptureRect: CaptureRectDims;
     setLidarCaptureRect: (r: CaptureRectDims) => void;
+    /**
+     * Target ground sampling of the capture (m between points), 0 = native
+     * density. Caps the COPC octree depth walked, so it is the one setting that
+     * makes a large zone downloadable at all (see `lidarResolution.ts`).
+     */
+    lidarCaptureResolution: number;
+    setLidarCaptureResolution: (v: number) => void;
+    /** Keep the resolution tied to the zone size, so enlarging the zone stays
+     *  within the download budget instead of silently costing gigabytes. */
+    lidarCaptureResolutionAuto: boolean;
+    setLidarCaptureResolutionAuto: (v: boolean) => void;
     /** Lock the capture rectangle to a north-up orientation (ignore the camera bearing). */
     lidarRectNorthFixed: boolean;
     setLidarRectNorthFixed: (v: boolean) => void;
@@ -746,6 +755,15 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         { lidarShaded: null, lidarMesh: null, view: persisted.view ?? DEFAULT_VIEW },
         initialSunDate,
     );
+
+    // The auto resolution is a function of the zone, so it is recomputed here
+    // rather than trusted: the persisted pair could come from another branch.
+    // A manual value is snapped to a stop for the same reason.
+    const initialRect = persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 };
+    const initialResolutionAuto = persisted.lidarCaptureResolutionAuto ?? true;
+    const initialResolution = initialResolutionAuto
+        ? autoResolutionM(initialRect.widthM, initialRect.lengthM)
+        : RESOLUTION_STOPS_M[resolutionToIndex(persisted.lidarCaptureResolution ?? 0)];
 
     return {
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
@@ -958,8 +976,25 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarForestSpeciesFilterOn: (lidarForestSpeciesFilterOn) => set({ lidarForestSpeciesFilterOn }),
         lidarPreviewVisible: false,
         setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
-        lidarCaptureRect: persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 },
-        setLidarCaptureRect: (lidarCaptureRect) => set({ lidarCaptureRect }),
+        lidarCaptureRect: initialRect,
+        setLidarCaptureRect: (lidarCaptureRect) => set(get().lidarCaptureResolutionAuto
+            ? {
+                lidarCaptureRect,
+                lidarCaptureResolution: autoResolutionM(lidarCaptureRect.widthM, lidarCaptureRect.lengthM),
+            }
+            : { lidarCaptureRect }),
+        lidarCaptureResolution: initialResolution,
+        // Moving the slider is what states an intent the zone size cannot infer.
+        setLidarCaptureResolution: (lidarCaptureResolution) => set({
+            lidarCaptureResolution, lidarCaptureResolutionAuto: false,
+        }),
+        lidarCaptureResolutionAuto: initialResolutionAuto,
+        setLidarCaptureResolutionAuto: (lidarCaptureResolutionAuto) => {
+            const { widthM, lengthM } = get().lidarCaptureRect;
+            set(lidarCaptureResolutionAuto
+                ? { lidarCaptureResolutionAuto, lidarCaptureResolution: autoResolutionM(widthM, lengthM) }
+                : { lidarCaptureResolutionAuto });
+        },
         lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
         setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
         recallCaptureSetup: (capture) => {
@@ -988,7 +1023,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
             } else {
                 center = { lng: state.view.longitude, lat: state.view.latitude };
             }
-            const maxArea = state.lidarMode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
+            const maxArea = LIDAR_RECT_MAX_AREA_M2;
             const capture = captureGeometry(
                 state.lidarCaptureRect, map, maxArea, state.lidarRectNorthFixed,
             );
@@ -1012,6 +1047,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         radius: capture.radius,
                         rect: capture.rect,
                         stride: state.lidarCloudStride,
+                        targetSpacingM: state.lidarCaptureResolution,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         gridMesh: state.lidarMeshSmooth,
@@ -1030,6 +1066,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         radius: capture.radius,
                         rect: capture.rect,
                         stride: state.lidarCloudStride,
+                        targetSpacingM: state.lidarCaptureResolution,
                         poissonGroundStride: state.lidarCloudGroundStride,
                         poissonDepth: state.lidarCloudPoissonDepth,
                         poissonSamplesPerNode: state.lidarCloudPoissonSamplesPerNode,
@@ -1052,6 +1089,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                         radius: capture.radius,
                         rect: capture.rect,
                         stride: state.lidarCloudStride,
+                        targetSpacingM: state.lidarCaptureResolution,
                         groundGapM: state.lidarVegGroundGap,
                         groundRoughM: state.lidarVegGroundRough,
                         onProgress,
@@ -1145,6 +1183,8 @@ export function selectLidarPersisted(
     | 'lidarRockType'
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
+    | 'lidarCaptureResolution'
+    | 'lidarCaptureResolutionAuto'
     | 'lidarRectNorthFixed'
     | 'lidarCloudGroundStride'
     | 'lidarMeshSmooth'
@@ -1221,6 +1261,8 @@ export function selectLidarPersisted(
         lidarRockType: s.lidarRockType,
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
+        lidarCaptureResolution: s.lidarCaptureResolution,
+        lidarCaptureResolutionAuto: s.lidarCaptureResolutionAuto,
         lidarRectNorthFixed: s.lidarRectNorthFixed,
         lidarCloudGroundStride: s.lidarCloudGroundStride,
         lidarMeshSmooth: s.lidarMeshSmooth,

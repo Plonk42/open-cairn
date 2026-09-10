@@ -2,7 +2,11 @@ import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
 import {
     LIDAR_RECT_MAX_AREA_M2, rectAreaHa,
 } from '@/lib/lidarCaptureRect';
-import { POISSON_MAX_AREA_M2, useMapStore } from '@/stores/mapStore';
+import {
+    CAPTURE_POINT_BUDGET, estimateCapture, formatResolution,
+    RESOLUTION_STOPS_M, resolutionToIndex,
+} from '@/lib/lidarResolution';
+import { useMapStore } from '@/stores/mapStore';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
 
@@ -11,8 +15,32 @@ const STRIDE_STOPS = [32, 16, 8, 4, 2, 1] as const;
 
 /** Capture rectangle side-length slider bounds (metres). */
 const CAPTURE_SIDE_MIN_M = 50;
-const CAPTURE_SIDE_MAX_M = 2000;
-const CAPTURE_SIDE_STEP_M = 25;
+const CAPTURE_SIDE_MAX_M = 5000;
+/** Slider track resolution; the scale is logarithmic, not the step. */
+const SIDE_SLIDER_STEPS = 1000;
+const SIDE_SLIDER_RATIO = CAPTURE_SIDE_MAX_M / CAPTURE_SIDE_MIN_M;
+
+/**
+ * Log-scaled side slider: on a linear 50–5000 m track a 300 m zone sits in the
+ * first 5 % and becomes unsettable. Snapped to a step that grows with the
+ * value, so the read-out stays a round number at every scale.
+ */
+function sideFromSlider(t: number): number {
+    const v = CAPTURE_SIDE_MIN_M * SIDE_SLIDER_RATIO ** (t / SIDE_SLIDER_STEPS);
+    let step = 250;
+    if (v < 500) step = 25;
+    else if (v < 2000) step = 50;
+    return Math.min(CAPTURE_SIDE_MAX_M, Math.max(CAPTURE_SIDE_MIN_M, Math.round(v / step) * step));
+}
+
+function sliderFromSide(m: number): number {
+    return (SIDE_SLIDER_STEPS * Math.log(m / CAPTURE_SIDE_MIN_M)) / Math.log(SIDE_SLIDER_RATIO);
+}
+
+function formatPoints(n: number): string {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace('.', ',')} M`;
+    return `${Math.round(n / 1000)} k`;
+}
 
 /** Snap a stride value to the nearest allowed stop's index. */
 function strideToIndex(stride: number): number {
@@ -154,13 +182,11 @@ function PoissonControls() {
  * north-up orientation instead of following the live camera bearing.
  */
 function CaptureZoneControls() {
-    const mode = useMapStore((s) => s.lidarMode);
     const rect = useMapStore((s) => s.lidarCaptureRect);
     const setRect = useMapStore((s) => s.setLidarCaptureRect);
     const northFixed = useMapStore((s) => s.lidarRectNorthFixed);
     const setNorthFixed = useMapStore((s) => s.setLidarRectNorthFixed);
-    const maxArea = mode === 'poisson' ? POISSON_MAX_AREA_M2 : LIDAR_RECT_MAX_AREA_M2;
-    const overCap = rect.widthM * rect.lengthM > maxArea;
+    const overCap = rect.widthM * rect.lengthM > LIDAR_RECT_MAX_AREA_M2;
 
     return (
         <div className="space-y-2">
@@ -178,9 +204,9 @@ function CaptureZoneControls() {
                 </div>
                 <input
                     aria-label="Largeur de la zone de capture LiDAR"
-                    type="range" min={CAPTURE_SIDE_MIN_M} max={CAPTURE_SIDE_MAX_M} step={CAPTURE_SIDE_STEP_M}
-                    value={rect.widthM}
-                    onChange={(e) => setRect({ ...rect, widthM: Number(e.target.value) })}
+                    type="range" min={0} max={SIDE_SLIDER_STEPS} step={1}
+                    value={sliderFromSide(rect.widthM)}
+                    onChange={(e) => setRect({ ...rect, widthM: sideFromSlider(Number(e.target.value)) })}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>
@@ -191,9 +217,9 @@ function CaptureZoneControls() {
                 </div>
                 <input
                     aria-label="Longueur de la zone de capture LiDAR"
-                    type="range" min={CAPTURE_SIDE_MIN_M} max={CAPTURE_SIDE_MAX_M} step={CAPTURE_SIDE_STEP_M}
-                    value={rect.lengthM}
-                    onChange={(e) => setRect({ ...rect, lengthM: Number(e.target.value) })}
+                    type="range" min={0} max={SIDE_SLIDER_STEPS} step={1}
+                    value={sliderFromSide(rect.lengthM)}
+                    onChange={(e) => setRect({ ...rect, lengthM: sideFromSlider(Number(e.target.value)) })}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>
@@ -208,9 +234,65 @@ function CaptureZoneControls() {
             </label>
             {overCap && (
                 <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                    Zone trop grande — sera réduite à {Math.round(maxArea / 10_000)} ha au chargement.
+                    Zone trop grande — sera réduite à {Math.round(LIDAR_RECT_MAX_AREA_M2 / 10_000)} ha au chargement.
                 </p>
             )}
+        </div>
+    );
+}
+
+/**
+ * Capture resolution: the ground sampling asked of the COPC tiles, i.e. how
+ * deep their octree is walked. Unlike the density sliders below, which thin an
+ * already-downloaded cloud, this one divides the bytes fetched — it is what
+ * makes a several-km zone loadable. Coupled to the zone size by default so
+ * enlarging the zone cannot silently cost gigabytes.
+ */
+function CaptureResolutionControl() {
+    const rect = useMapStore((s) => s.lidarCaptureRect);
+    const resolution = useMapStore((s) => s.lidarCaptureResolution);
+    const setResolution = useMapStore((s) => s.setLidarCaptureResolution);
+    const auto = useMapStore((s) => s.lidarCaptureResolutionAuto);
+    const setAuto = useMapStore((s) => s.setLidarCaptureResolutionAuto);
+    const { points, bytes } = estimateCapture(rect.widthM, rect.lengthM, resolution);
+    const overBudget = points > CAPTURE_POINT_BUDGET;
+
+    return (
+        <div className="space-y-2">
+            <label className="block">
+                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                    <span>Résolution</span>
+                    <span className="font-mono text-xs text-slate-400">
+                        {formatResolution(resolution)}{auto ? ' (auto)' : ''}
+                    </span>
+                </div>
+                <input
+                    aria-label="Résolution au sol de la capture LiDAR"
+                    type="range" min={0} max={RESOLUTION_STOPS_M.length - 1} step={1}
+                    list="lidar-resolution-stops"
+                    value={resolutionToIndex(resolution)}
+                    onChange={(e) => setResolution(RESOLUTION_STOPS_M[Number(e.target.value)])}
+                    className="mt-1 w-full accent-green-600"
+                />
+                <datalist id="lidar-resolution-stops">
+                    {RESOLUTION_STOPS_M.map((r, i) => (
+                        <option key={r} value={i} label={formatResolution(r)} />
+                    ))}
+                </datalist>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+                <input
+                    type="checkbox"
+                    checked={auto}
+                    onChange={(e) => setAuto(e.target.checked)}
+                    className="accent-green-600"
+                />
+                <span>Auto (selon la taille de la zone)</span>
+            </label>
+            <p className={`text-[10px] ${overBudget ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+                ≈ {formatPoints(points)} points · ≈ {Math.round(bytes / 1e6)} Mo téléchargés
+                {overBudget && ' — chargement long, mémoire à risque.'}
+            </p>
         </div>
     );
 }
@@ -325,6 +407,9 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
 
                 {/* Zone — square (radius) or drawn rectangle */}
                 <CaptureZoneControls />
+
+                {/* Résolution — profondeur de l'octree COPC parcourue */}
+                <CaptureResolutionControl />
 
                 {/* Densité */}
                 <label className="block">

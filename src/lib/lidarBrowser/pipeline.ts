@@ -34,6 +34,10 @@ export interface BrowserFetchParams {
     lat: number;
     radius: number;
     stride: number;
+    /** Target ground sampling (m between points), 0 = native density. Caps the
+     *  COPC octree depth walked, so it divides the download rather than
+     *  thinning an already-fetched cloud like `stride` does. */
+    targetSpacingM?: number;
     classes?: number[];
     /** Poisson mode only: target decimation stride for the ground/water points
      *  fed to the reconstruction. Lets the ground be sampled more coarsely than
@@ -80,7 +84,7 @@ export interface BrowserFetchParams {
     onProgress?: ProgressCallback;
 }
 
-const MAX_RADIUS_M = 1500;
+const MAX_RADIUS_M = 4000;
 
 function fmtMs(ms: number): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms.toFixed(0)} ms`;
@@ -289,6 +293,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
         const r = await extractPoints({
             tileUrl: tile.url,
             x0, y0, radius, stride,
+            targetSpacingM: params.targetSpacingM,
             classFilter,
             fullDensityClasses: opts?.fullDensityClasses ?? null,
             rect: rectCrop,
@@ -424,6 +429,7 @@ async function buildNonGroundShaded(
     // Height above ground via per-column vertical clustering, blended with the
     // plain vertical-to-ground height over trustworthy (low-relief) ground so
     // spreading broadleaf crowns recover their full height (see computeVegHeights).
+    const tHeights = startTimer();
     const ngVegDiag = new Uint8Array(nonGroundCount * 4);
     const ngHeight = computeVegHeights(
         ngPos, ngCls, nonGroundCount, veg.gapM, veg.grid, veg.roughM, { diag: ngVegDiag },
@@ -431,6 +437,8 @@ async function buildNonGroundShaded(
     // Robust canopy top (drives the "Hauteur max · Auto" foliage scale). Mutates
     // ngHeight in place to clamp cliff-edge artefacts, mirroring the shaded path.
     const ngVegHeightAuto = sanitizeVegHeights(ngHeight, ngCls, nonGroundCount, ngVegDiag) ?? undefined;
+    logStage('hauteurs veg', tHeights(),
+        veg.grid ? `grille ${veg.grid.cols}×${veg.grid.rows} @ ${veg.grid.cell} m` : 'sans grille sol');
     const shadedData: LidarShadedCloudData = {
         kind: 'shaded',
         centerLng: c.centerLng,
@@ -1001,8 +1009,9 @@ export async function fetchLidarPoisson(
     const flatBase = flatBaseRect && groundGrid
         ? buildPoissonBase(groundGrid, { depth, rect: flatBaseRect })
         : new Float32Array(0);
-    // Interleave [x,y,z,nx,ny,nz] for PoissonRecon's PLY input, then append the
-    // pre-oriented base points (their normals are hand-set, not KNN-estimated).
+    // Interleave [x, y, z, nx, ny, nz] for PoissonRecon's PLY input, then append
+    // the pre-oriented base points (their normals are hand-set, not
+    // KNN-estimated).
     const oriented = new Float32Array(psCount * 6 + flatBase.length);
     for (let i = 0; i < psCount; i++) {
         oriented[i * 6] = ps.pos[i * 3];
@@ -1016,13 +1025,14 @@ export async function fetchLidarPoisson(
         oriented.set(flatBase, psCount * 6);
         logStage('socle plat', tFlatBase(), `+${(flatBase.length / 6).toLocaleString()} pts base`);
     }
+    const solverInput = oriented;
     onProgress({
         stage: 'mesh',
         message: STAGE_LABELS.mesh,
         detail: `Poisson depth ${depth}`,
     });
     const tPoisson = startTimer();
-    const mesh = await reconstructPoisson(oriented, {
+    const mesh = await reconstructPoisson(solverInput, {
         depth,
         samplesPerNode: params.poissonSamplesPerNode,
         pointWeight: params.poissonPointWeight,
