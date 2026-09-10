@@ -221,8 +221,9 @@ flowchart TD
     P([BrowserFetchParams<br/>lng, lat, radius, stride,<br/>targetSpacingM, classes]) --> R[Clamp radius 20-4000m<br/>Clamp stride 1-200]
     R --> L93[proj.ts<br/>lng,lat → Lambert-93 x0,y0]
     L93 --> WFS[wfs.ts findTiles<br/>bbox query data.geopf.fr WFS]
-    WFS -->|0 tiles| ERR([Throw 'no_lidar_tile'])
-    WFS -->|N tiles| FAN[Promise.all over tiles]
+    WFS --> FILT[Filtre emprise L93<br/>bboxL93 ∩ carré x0,y0 ± radius]
+    FILT -->|0 tiles| ERR([Throw 'no_lidar_tile'])
+    FILT -->|N tiles| FAN[Promise.all over tiles]
     FAN --> EXT[extract.ts<br/>extractPoints per tile]
     EXT --> MERGE[concat Float32 positions<br/>+ Uint8 classifications]
     MERGE --> OUT([positions, classifications,<br/>pointCount, radius,<br/>centerLng, centerLat])
@@ -239,6 +240,13 @@ Notes :
   (~6,8 m sur LiDAR HD) : la décision ne suppose donc aucune constante IGN.
 - Le bbox WFS utilise l'ordre **lng/lat** malgré `srsname=EPSG:4326` —
   particularité IGN (cf. [wfs.ts](../src/lib/lidarBrowser/wfs.ts)).
+- Ce bbox WFS est l'AABB WGS84 du carré L93 **majorée de 20 %** : il ramène donc
+  des dalles que le carré ne touche pas. `findTiles` expose l'emprise L93 de
+  chaque dalle (`bboxL93`, dérivée de `coordonnees_nw` — carré de 1 km ancré sur
+  son coin nord-ouest) et `pipeline.ts` écarte celles hors emprise **avant**
+  d'ouvrir le COPC : chaque dalle ouverte pour rien coûtait deux requêtes Range
+  IGN (en-tête 64 Ko + page de hiérarchie racine) sur le budget de 8 req/s.
+  Une dalle sans `coordonnees_nw` exploitable est conservée.
 - Les positions sont des **METER\_OFFSETS** (Float32 est/nord/up) relatifs au
   centre de la requête (`centerLng`, `centerLat`). Cela maintient une précision
   Float32 exploitable sur plusieurs centaines de mètres.

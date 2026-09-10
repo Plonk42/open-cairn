@@ -266,12 +266,20 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     const wfsTimer = startTimer();
     const dLat = (radius * 1.2) / 111_320;
     const dLng = (radius * 1.2) / (111_320 * Math.cos((params.lat * Math.PI) / 180));
-    const tiles = await findTiles(
+    const wfsTiles = await findTiles(
         params.lng - dLng, params.lat - dLat,
         params.lng + dLng, params.lat + dLat,
         params.signal,
     );
-    logStage('wfs', wfsTimer(), `${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`);
+    // That padded WGS84 box overlaps tiles the L93 query box doesn't touch;
+    // opening one costs two IGN range requests out of our 8 req/s budget.
+    const tiles = wfsTiles.filter(({ bboxL93: b }) => !b || (
+        b.maxX >= x0 - radius && b.minX <= x0 + radius
+        && b.maxY >= y0 - radius && b.minY <= y0 + radius
+    ));
+    const dropped = wfsTiles.length - tiles.length;
+    const droppedNote = dropped > 0 ? ` (${dropped} hors emprise écartée(s))` : '';
+    logStage('wfs', wfsTimer(), `${tiles.length} dalle${tiles.length > 1 ? 's' : ''}${droppedNote}`);
     if (tiles.length === 0) {
         const err = new Error(
             'Aucune dalle LiDAR HD IGN ne couvre cette zone (acquisition non encore disponible).',

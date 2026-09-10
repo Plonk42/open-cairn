@@ -10,11 +10,28 @@ const WFS_URL = 'https://data.geopf.fr/wfs/ows';
 const TYPENAME = 'IGNF_LIDAR-HD_METADONNEE:metadata';
 const MAX_TILES = 64;
 
+/** Lambert-93 footprint of a tile. */
+export interface TileBboxL93 { minX: number; maxX: number; minY: number; maxY: number }
+
 export interface LidarTileRef {
     /** Public download URL of the .copc.laz file (also on data.geopf.fr). */
     url: string;
     /** Tile name from the WFS (LHD_FXX_xxxx_yyyy_PTS_LAMB93_IGN69). */
     name: string;
+    /** Footprint, or null when the WFS didn't expose a usable NW corner. */
+    bboxL93: TileBboxL93 | null;
+}
+
+/** LiDAR HD tiles are 1 km squares keyed by their NW corner in km (`"0999-6542"`). */
+const TILE_SIZE_M = 1000;
+
+function bboxFromNwCorner(nw: unknown): TileBboxL93 | null {
+    if (typeof nw !== 'string') return null;
+    const m = /^(\d{3,4})-(\d{3,4})$/.exec(nw.trim());
+    if (!m) return null;
+    const minX = Number(m[1]) * 1000;
+    const maxY = Number(m[2]) * 1000;
+    return { minX, maxX: minX + TILE_SIZE_M, minY: maxY - TILE_SIZE_M, maxY };
 }
 
 /**
@@ -56,7 +73,11 @@ export async function findTiles(
         // `url_npl` = nuage de points LAZ; the sibling url_mnt/mns/mnh are raster WMS.
         const lazUrl = props.url_npl;
         if (typeof lazUrl !== 'string' || !/\.(copc\.)?laz$/i.test(lazUrl)) continue;
-        tiles.push({ url: lazUrl, name: lazUrl.substring(lazUrl.lastIndexOf('/') + 1) });
+        tiles.push({
+            url: lazUrl,
+            name: lazUrl.substring(lazUrl.lastIndexOf('/') + 1),
+            bboxL93: bboxFromNwCorner(props.coordonnees_nw),
+        });
         if (tiles.length >= MAX_TILES) break;
     }
     return tiles;

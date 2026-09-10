@@ -431,6 +431,16 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
             off: node.pointDataOffset,
             len: node.pointDataLength,
         })));
+    // The WFS bbox is padded (WGS84 AABB of the rotated L93 box), so it can
+    // return a tile whose data lies entirely outside the query box.
+    if (nodes.length === 0) {
+        return {
+            positions: new Float32Array(0),
+            classifications: new Uint8Array(0),
+            rawPointCount: 0,
+            inBboxPointCount: 0,
+        };
+    }
     const safeStride = Math.max(1, Math.floor(stride));
 
     // Coalesce neighbouring node ranges into bigger HTTP Range requests.
