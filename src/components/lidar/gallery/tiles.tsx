@@ -1,6 +1,6 @@
 import type { GalleryEntry } from '@/components/lidar/gallery/sceneData';
 import { PreviewThumb } from '@/components/ui/SavedRoutesPanel';
-import { captureParamEntries, differingCaptureParamKeys, type CaptureParamEntry, type CaptureRecord } from '@/lib/captureParams';
+import { captureParamEntries, type CaptureParamEntry, type CaptureRecord } from '@/lib/captureParams';
 import { formatDistance, formatElevation } from '@/lib/geo';
 import { ignStaticMapUrl } from '@/lib/ign';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';
@@ -9,7 +9,7 @@ import { deleteSavedRoute, renameSavedRoute, type SavedRoute } from '@/lib/saved
 import { loadSavedSceneThumb, type SavedScene } from '@/lib/savedScenes';
 import { describeAmbiance } from '@/lib/showcaseAmbiance';
 import type { SceneLoadProgress, ShowcaseAmbiance } from '@/lib/showcaseScene';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 /** Overlay rendered on a tile while it is being loaded (download + decode). */
 function SceneProgressOverlay({ progress }: Readonly<{ progress: SceneLoadProgress | null }>) {
@@ -453,7 +453,6 @@ function RecentTile({
     cloud,
     busy,
     loaded,
-    highlightKeys,
     onSelect,
     onRecapture,
     onDelete,
@@ -461,14 +460,12 @@ function RecentTile({
     cloud: SavedCloud;
     busy: boolean;
     loaded: boolean;
-    highlightKeys: readonly string[];
     onSelect: () => void;
     onRecapture: () => void;
     onDelete: () => void;
 }>) {
     const [detailsOpen, setDetailsOpen] = useState(false);
     const allParams = captureParamEntries(cloud.params);
-    const highlighted = captureParamEntries(cloud.params, highlightKeys);
     const paramsTitle = allParams.map((e) => `${e.label} : ${e.text}`).join('\n') || undefined;
     return (
         <div className="group relative overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200 transition hover:ring-emerald-400/60 dark:bg-slate-800 dark:ring-white/10">
@@ -492,18 +489,6 @@ function RecentTile({
                         {cloud.hasMesh && cloud.vertexCount && <span>· {formatCount(cloud.vertexCount)} v</span>}
                         <span className="text-slate-400 dark:text-slate-400">· {captureTimeLabel(cloud.createdAt)}</span>
                     </p>
-                    {highlighted.length > 0 && (
-                        <p className="mt-1 flex flex-wrap items-center gap-1" title={paramsTitle}>
-                            {highlighted.map((e) => (
-                                <span
-                                    key={e.key}
-                                    className="rounded bg-amber-100 px-1 text-[10px] tabular-nums text-amber-800 dark:bg-amber-400/15 dark:text-amber-200"
-                                >
-                                    {e.label} {e.text}
-                                </span>
-                            ))}
-                        </p>
-                    )}
                 </div>
             </button>
             <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-2.5 py-1.5 dark:border-white/10">
@@ -527,34 +512,6 @@ function RecentTile({
     );
 }
 
-/** Groups captures by area: same mode, same center, same rectangle. */
-function zoneGroupKey(c: SavedCloud): string {
-    return `${c.mode}:${c.centerLng.toFixed(4)}:${c.centerLat.toFixed(4)}:${Math.round(c.widthM)}x${Math.round(c.lengthM)}`;
-}
-
-/**
- * For each cloud, the settings that tell it apart from the *other captures of
- * the same area*. Compared against the whole list, nearly everything would
- * differ and the tile would become unreadable; between neighbours of the same
- * area, only the handful of sliders one was actually comparing remains.
- */
-function useHighlightKeys(clouds: SavedCloud[]): ReadonlyMap<string, string[]> {
-    return useMemo(() => {
-        const groups = new Map<string, SavedCloud[]>();
-        for (const c of clouds) {
-            const existing = groups.get(zoneGroupKey(c));
-            if (existing) existing.push(c);
-            else groups.set(zoneGroupKey(c), [c]);
-        }
-        const byId = new Map<string, string[]>();
-        for (const group of groups.values()) {
-            const keys = group.length > 1 ? differingCaptureParamKeys(group.map((c) => c.params)) : [];
-            for (const c of group) byId.set(c.id, keys);
-        }
-        return byId;
-    }, [clouds]);
-}
-
 export function RecentGalleryBody({
     clouds,
     busyId,
@@ -570,7 +527,6 @@ export function RecentGalleryBody({
     onRecapture: (capture: CaptureRecord) => void;
     onDelete: (c: SavedCloud) => void;
 }>) {
-    const highlightKeys = useHighlightKeys(clouds);
     if (clouds.length === 0) {
         return (
             <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -586,7 +542,6 @@ export function RecentGalleryBody({
                     cloud={c}
                     busy={busyId !== null}
                     loaded={loadedKeys.has(c.key)}
-                    highlightKeys={highlightKeys.get(c.id) ?? []}
                     onSelect={() => onSelect(c)}
                     onRecapture={() => onRecapture(c)}
                     onDelete={() => onDelete(c)}

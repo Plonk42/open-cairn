@@ -56,6 +56,7 @@ interface CaptureParamSpec {
  * the whole point of the free-form format.
  */
 const CAPTURE_PARAM_SPECS: Readonly<Record<string, CaptureParamSpec>> = {
+    resolutionM: { label: 'Résolution LiDAR', format: (v) => (typeof v === 'number' && v > 0 ? `${v} m` : 'max') },
     stride: { label: 'Densité', format: strideLabel },
     gridMesh: { label: 'Surface', format: (v) => (v ? 'lissé' : 'brut') },
     gridCell: { label: 'Résolution', format: metersLabel(1) },
@@ -89,13 +90,11 @@ export interface CaptureParamEntry {
 }
 
 /** The formatted settings, known keys first (in the order of the spec table). */
-export function captureParamEntries(params: CaptureParams | undefined, keys?: readonly string[]): CaptureParamEntry[] {
+export function captureParamEntries(params: CaptureParams | undefined): CaptureParamEntry[] {
     if (!params) return [];
     const known = Object.keys(CAPTURE_PARAM_SPECS).filter((k) => k in params);
     const unknown = Object.keys(params).filter((k) => !(k in CAPTURE_PARAM_SPECS)).sort((a, b) => a.localeCompare(b));
-    const wanted = keys ? new Set(keys) : null;
     return [...known, ...unknown]
-        .filter((key) => !wanted || wanted.has(key))
         .map((key) => ({ key, label: captureParamLabel(key), text: formatCaptureParam(key, params[key]) }));
 }
 
@@ -116,23 +115,3 @@ export function captureParamsSignature(params: CaptureParams | undefined): strin
         .join(';');
 }
 
-/**
- * Keys whose value is not the same everywhere — the ones that tell the entries
- * apart. A key missing from an entry counts as a value in its own right,
- * otherwise a setting introduced afterwards would go unnoticed.
- */
-export function differingCaptureParamKeys(list: readonly (CaptureParams | undefined)[]): string[] {
-    const values = new Map<string, Set<string>>();
-    for (const params of list) {
-        for (const key of Object.keys(params ?? {})) {
-            if (!values.has(key)) values.set(key, new Set());
-        }
-    }
-    for (const params of list) {
-        for (const [key, seen] of values) {
-            const v = params?.[key];
-            seen.add(v === undefined ? '\u0000' : formatCaptureParam(key, v));
-        }
-    }
-    return [...values].filter(([, seen]) => seen.size > 1).map(([key]) => key);
-}

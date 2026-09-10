@@ -85,10 +85,9 @@ les réglages seuls diraient *comment* générer, jamais *où*. Trois conséquen
   réglages (`captureParamsSignature`) entre dans la clé de dédoublonnage
   (`makeCloudKey`), donc relancer la même zone avec une profondeur d'octree ou
   une netteté différente crée une seconde entrée au lieu d'écraser la première.
-- **La tuile affiche ce qui distingue.** Parmi les captures d'une même zone, la
-  galerie ne met en avant que les réglages dont la valeur varie d'une entrée à
-  l'autre (`differingCaptureParamKeys`) ; « Détails » déplie la liste complète,
-  emprise et centre compris. Les captures sont aussi datées à la minute.
+- **La tuile reste lisible.** Elle n'affiche que le mode, l'emprise, le nombre
+  de points et la date à la minute ; « Détails » déplie la liste complète des
+  réglages, emprise et centre compris.
 - **« Recapturer » rejoue le décor sans lancer la capture.**
   `recallCaptureSetup` (lidarSlice) restaure le mode, l'emprise, le cadrage et
   les réglages de génération, puis ouvre le panneau de capture — on peut donc

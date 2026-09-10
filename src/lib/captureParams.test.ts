@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { captureParamEntries, captureParamsSignature, differingCaptureParamKeys } from './captureParams';
+import { captureParamEntries, captureParamsSignature } from './captureParams';
 
 describe('captureParamsSignature', () => {
     it("ne dépend pas de l'ordre des clés", () => {
@@ -19,25 +19,6 @@ describe('captureParamsSignature', () => {
 
     it('rend une chaîne vide sans réglages', () => {
         expect(captureParamsSignature(undefined)).toBe('');
-    });
-});
-
-describe('differingCaptureParamKeys', () => {
-    it('ne retient que les clés qui varient', () => {
-        const keys = differingCaptureParamKeys([
-            { poissonDepth: 9, poissonSharpen: 0.5, shader: 'base' },
-            { poissonDepth: 10, poissonSharpen: 0.5, shader: 'base' },
-        ]);
-        expect(keys).toEqual(['poissonDepth']);
-    });
-
-    it("traite une clé absente comme une valeur à part", () => {
-        const keys = differingCaptureParamKeys([{ poissonDepth: 9 }, {}]);
-        expect(keys).toEqual(['poissonDepth']);
-    });
-
-    it('ne retient rien quand tout est identique', () => {
-        expect(differingCaptureParamKeys([{ poissonDepth: 9 }, { poissonDepth: 9 }])).toEqual([]);
     });
 });
 
@@ -61,11 +42,5 @@ describe('captureParamEntries', () => {
         expect(captureParamEntries({ futurReglage: 3 })).toEqual([
             { key: 'futurReglage', label: 'futurReglage', text: '3' },
         ]);
-    });
-
-    it('peut se restreindre à un sous-ensemble de clés', () => {
-        const entries = captureParamEntries({ stride: 4, poissonDepth: 9 }, ['poissonDepth']);
-        expect(entries).toHaveLength(1);
-        expect(entries[0].key).toBe('poissonDepth');
     });
 });
