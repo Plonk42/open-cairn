@@ -74,6 +74,24 @@ describe('classifyForest', () => {
         const out = classifyForest(positions, 1, Uint8Array.from([5]), centerLng, centerLat, []);
         expect(out[0]).toBe(FOREST_NONE);
     });
+
+    it('leaves a hole in the stand unlabelled', () => {
+        const holed: ForestPolygon = {
+            ...square,
+            rings: [square.rings[0], Float32Array.from([
+                x0 - 20, y0 - 20,
+                x0 + 20, y0 - 20,
+                x0 + 20, y0 + 20,
+                x0 - 20, y0 + 20,
+                x0 - 20, y0 - 20,
+            ])],
+        };
+        // point 0: inside the hole, point 1: in the ring between hole and border.
+        const positions = Float32Array.from([0, 0, 12, 35, 35, 12]);
+        const out = classifyForest(positions, 2, Uint8Array.from([5, 5]), centerLng, centerLat, [holed]);
+        expect(out[0]).toBe(FOREST_NONE);
+        expect(out[1]).toBe(1);
+    });
 });
 
 describe('buildForestGpuTables', () => {

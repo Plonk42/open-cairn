@@ -30,7 +30,9 @@ import { lngLatToL93 } from './proj';
 
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
 const TYPENAME = 'LANDCOVER.FORESTINVENTORY.V2:formation_vegetale';
-const MAX_FEATURES = 600;
+/** Stands are silently truncated past this count; ~28/km² observed, so this
+ *  covers the largest allowed capture (25 km²) with margin. */
+const MAX_FEATURES = 3000;
 
 /** LAS classes that carry vegetation returns (basse / moyenne / haute). */
 const VEG_CLASSES = new Set([3, 4, 5]);
@@ -322,45 +324,8 @@ export async function fetchForestPolygons(
 }
 
 // ---------------------------------------------------------------------------
-// Point-in-polygon classification
+// Stand rasterisation
 // ---------------------------------------------------------------------------
-
-/** Even-odd ray cast: is (px,py) inside the flattened ring [x,y,x,y,…]? */
-function pointInRing(px: number, py: number, ring: Float32Array): boolean {
-    let inside = false;
-    const n = ring.length / 2;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-        const xi = ring[i * 2], yi = ring[i * 2 + 1];
-        const xj = ring[j * 2], yj = ring[j * 2 + 1];
-        if (((yi > py) !== (yj > py))
-            && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
-            inside = !inside;
-        }
-    }
-    return inside;
-}
-
-/** Inside the stand = inside its outer ring and outside every hole. */
-function pointInPolygon(px: number, py: number, poly: ForestPolygon): boolean {
-    if (px < poly.minX || px > poly.maxX || py < poly.minY || py > poly.maxY) return false;
-    if (!pointInRing(px, py, poly.rings[0])) return false;
-    for (let h = 1; h < poly.rings.length; h++) {
-        if (pointInRing(px, py, poly.rings[h])) return false;
-    }
-    return true;
-}
-
-const GRID_CELL_M = 20;
-
-/** Uniform-grid spatial index over polygon bboxes to bound the ray casts. */
-interface PolygonGrid {
-    minX: number;
-    minY: number;
-    cols: number;
-    rows: number;
-    cells: number[][];
-    polygons: ForestPolygon[];
-}
 
 function polygonsBbox(polygons: ForestPolygon[]): [number, number, number, number] {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -373,27 +338,6 @@ function polygonsBbox(polygons: ForestPolygon[]): [number, number, number, numbe
     return [minX, minY, maxX, maxY];
 }
 
-function buildPolygonGrid(polygons: ForestPolygon[]): PolygonGrid | null {
-    if (polygons.length === 0) return null;
-    const [minX, minY, maxX, maxY] = polygonsBbox(polygons);
-    const cols = Math.max(1, Math.ceil((maxX - minX) / GRID_CELL_M) + 1);
-    const rows = Math.max(1, Math.ceil((maxY - minY) / GRID_CELL_M) + 1);
-    const cells: number[][] = Array.from({ length: cols * rows }, () => []);
-    for (let pi = 0; pi < polygons.length; pi++) {
-        const p = polygons[pi];
-        const cx0 = Math.max(0, Math.floor((p.minX - minX) / GRID_CELL_M));
-        const cy0 = Math.max(0, Math.floor((p.minY - minY) / GRID_CELL_M));
-        const cx1 = Math.min(cols - 1, Math.floor((p.maxX - minX) / GRID_CELL_M));
-        const cy1 = Math.min(rows - 1, Math.floor((p.maxY - minY) / GRID_CELL_M));
-        for (let cy = cy0; cy <= cy1; cy++) {
-            for (let cx = cx0; cx <= cx1; cx++) {
-                cells[cy * cols + cx].push(pi);
-            }
-        }
-    }
-    return { minX, minY, cols, rows, cells, polygons };
-}
-
 /**
  * Label every vegetation point with the forest category of the stand it falls
  * in. Positions are east/north/up offsets from the capture's Lambert-93 origin;
@@ -402,10 +346,9 @@ function buildPolygonGrid(polygons: ForestPolygon[]): PolygonGrid | null {
  *
  * Rather than ray-casting every one of the (millions of) vegetation points —
  * each against polygon rings that can carry thousands of vertices — we first
- * rasterise the stands into a coarse category grid (one ray-cast per
- * {@link RASTER_CELL_M} cell, amortised over all the points it covers), then
- * label each point with an O(1) grid lookup. This turns an O(points × ring) scan
- * into O(cells × ring + points), cutting a multi-minute pass to a couple seconds.
+ * scanline-fill the stands into a coarse category grid ({@link RASTER_CELL_M}
+ * per cell), then label each point with an O(1) grid lookup. That is
+ * O(ring vertices + cells + points), independent of the capture's size.
  *
  * Output: `Uint8Array` of category ids, `FOREST_NONE` (255) for non-vegetation
  * points and vegetation outside every stand.
@@ -439,16 +382,13 @@ export function buildForestRaster(
     centerLat: number,
     polygons: ForestPolygon[],
 ): ForestRaster | null {
-    const grid = buildPolygonGrid(polygons);
-    if (!grid) return null;
+    if (polygons.length === 0) return null;
     const [x0, y0] = lngLatToL93(centerLng, centerLat);
     // Bound the raster to the vegetation points' own extent: BD Forêt stands are
-    // returned unclipped and can span kilometres, so sizing the grid to the stand
-    // bbox would burn millions of cells. The capture is at most a few hundred
-    // metres wide, so this keeps the raster tiny regardless of stand size.
+    // returned unclipped and can span kilometres well beyond the capture.
     const ext = vegPointsExtent(positions, pointCount, classifications, x0, y0);
     if (!ext) return null;
-    const raster = rasterizeForest(grid, ext);
+    const raster = rasterizeForest(polygons, ext);
     return raster.cols === 0 || raster.rows === 0 ? null : raster;
 }
 
@@ -607,24 +547,65 @@ function vegPointsExtent(
     return minX > maxX ? null : [minX, minY, maxX, maxY];
 }
 
-/** Category of the stand covering (px,py), via the polygon-bbox grid index. */
-function categoryAt(px: number, py: number, grid: PolygonGrid): number {
-    const { minX, minY, cols, rows, cells, polygons } = grid;
-    const cx = Math.floor((px - minX) / GRID_CELL_M);
-    const cy = Math.floor((py - minY) / GRID_CELL_M);
-    if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) return FOREST_NONE;
-    for (const pi of cells[cy * cols + cx]) {
-        if (pointInPolygon(px, py, polygons[pi])) return polygons[pi].cat;
-    }
-    return FOREST_NONE;
+/** First cell index whose centre lies at or after `v` along an axis from `origin`. */
+function cellAtOrAfter(v: number, origin: number): number {
+    return Math.ceil((v - origin) / RASTER_CELL_M - 0.5);
 }
 
-/** Burn the stands into a coarse category raster (one ray-cast per cell centre). */
+/**
+ * Push, for every scanline the ring's edges cross, the x of the crossing. An
+ * edge only visits the rows it actually spans, so a ring costs O(its vertices +
+ * the crossings it produces) — horizontal edges produce none.
+ */
+function collectCrossings(
+    ring: Float32Array, by0: number, cy0: number, cy1: number, out: number[][],
+): void {
+    const n = ring.length / 2;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const yi = ring[i * 2 + 1], yj = ring[j * 2 + 1];
+        const from = Math.max(cy0, cellAtOrAfter(Math.min(yi, yj), by0));
+        const to = Math.min(cy1, cellAtOrAfter(Math.max(yi, yj), by0) - 1);
+        if (to < from) continue;
+        const xi = ring[i * 2];
+        const slope = (ring[j * 2] - xi) / (yj - yi);
+        for (let cy = from; cy <= to; cy++) {
+            out[cy - cy0].push(xi + (by0 + (cy + 0.5) * RASTER_CELL_M - yi) * slope);
+        }
+    }
+}
+
+/**
+ * Even-odd scanline fill of one stand. Holes need no special case: their
+ * crossings flip the parity like any other ring.
+ */
+function fillPolygon(
+    poly: ForestPolygon, cats: Uint8Array,
+    bx0: number, by0: number, cols: number, rows: number,
+): void {
+    const cy0 = Math.max(0, cellAtOrAfter(poly.minY, by0));
+    const cy1 = Math.min(rows - 1, cellAtOrAfter(poly.maxY, by0) - 1);
+    if (cy1 < cy0) return;
+    const crossings: number[][] = Array.from({ length: cy1 - cy0 + 1 }, () => []);
+    for (const ring of poly.rings) collectCrossings(ring, by0, cy0, cy1, crossings);
+    for (let cy = cy0; cy <= cy1; cy++) {
+        const xs = crossings[cy - cy0];
+        if (xs.length < 2) continue;
+        xs.sort((a, b) => a - b);
+        const rowBase = cy * cols;
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+            const cxa = Math.max(0, cellAtOrAfter(xs[k], bx0));
+            const cxb = Math.min(cols - 1, cellAtOrAfter(xs[k + 1], bx0) - 1);
+            for (let cx = cxa; cx <= cxb; cx++) cats[rowBase + cx] = poly.cat;
+        }
+    }
+}
+
+/** Burn the stands into a coarse category raster. */
 function rasterizeForest(
-    grid: PolygonGrid,
+    polygons: ForestPolygon[],
     ext: [number, number, number, number],
 ): ForestRaster {
-    const [px0, py0, px1, py1] = polygonsBbox(grid.polygons);
+    const [px0, py0, px1, py1] = polygonsBbox(polygons);
     // Intersect the stand bbox with the capture extent — only cells that can hold
     // a vegetation point are worth rasterising.
     const bx0 = Math.max(px0, ext[0]);
@@ -637,13 +618,9 @@ function rasterizeForest(
     const cols = Math.max(1, Math.ceil((bx1 - bx0) / RASTER_CELL_M) + 1);
     const rows = Math.max(1, Math.ceil((by1 - by0) / RASTER_CELL_M) + 1);
     const cats = new Uint8Array(cols * rows).fill(FOREST_NONE);
-    for (let cy = 0; cy < rows; cy++) {
-        const py = by0 + (cy + 0.5) * RASTER_CELL_M;
-        for (let cx = 0; cx < cols; cx++) {
-            const px = bx0 + (cx + 0.5) * RASTER_CELL_M;
-            cats[cy * cols + cx] = categoryAt(px, py, grid);
-        }
-    }
+    // BD Forêt is a partition, so overlaps are degenerate; where they happen the
+    // last stand drawn wins.
+    for (const poly of polygons) fillPolygon(poly, cats, bx0, by0, cols, rows);
     return { minX: bx0, minY: by0, cols, rows, cats };
 }
 
