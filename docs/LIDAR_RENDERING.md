@@ -56,8 +56,33 @@ Le panneau **LiDAR** offre trois modes de rendu :
   *Photo* (orthophotos IGN), *SCAN 25* (nécessite une clé IGN), *Plan* (Plan IGN v2)
   ou *OSM*. Deux opacités séparées : *sol* (points classes 2/9 + mesh reconstruit) et
   *non-sol* (végétation, bâti…). La mosaïque est téléchargée une fois par nuage
-  affiché, à la résolution la plus fine que la couche autorise (SCAN 25 s'arrête au
-  z16, les autres au z19).
+  affiché, au zoom le plus fin dont l'assemblage tient dans `MAX_MOSAIC_PX`
+  (4096 px de côté, la plus petite `MAX_TEXTURE_SIZE` sur laquelle on peut
+  compter) et que la couche autorise (SCAN 25 s'arrête au z16, les autres au
+  z19). Le budget est en **pixels** et non en tuiles, sinon une grande emprise
+  reçoit la même image qu'une petite et sa résolution au sol s'effondre.
+- **Affiner la zone visible** (case à cocher, sous le sélecteur de fond) : ajoute un
+  **second niveau** de drapage. La mosaïque ci-dessus est figée à la capture, donc
+  sa finesse est celle du zoom qui tenait dans le budget — sur 3 km c'est le z16
+  (1,7 m/px) là où MapLibre diffuse du z19 (0,21 m/px). Monter le budget est
+  exclu : du z19 sur 3 km demanderait ~15 600 px de côté, soit ~1 Go de VRAM et
+  ~3 700 requêtes. À la place, quand la caméra s'arrête (`moveend`, débounce
+  350 ms), une **deuxième** mosaïque couvrant seulement la zone vue est
+  téléchargée au zoom le plus fin qui tient dans le même budget, et le shader la
+  préfère partout où elle porte (`u_hasPhotoFine` / `u_uvRectFine`, unité de
+  texture 4). En dessous, la mosaïque d'emprise reste affichée : un niveau fin
+  absent, en retard ou hors cadre ne laisse jamais de trou.
+  - La requête est quantifiée par `snapDetailView` (rayon arrondi à la puissance
+    de deux supérieure, centre calé sur un quart de ce rayon) : un petit
+    déplacement de caméra ne retélécharge rien.
+  - Le rayon est mesuré sur le **bas** de l'écran : avec une caméra inclinée, le
+    haut peut atteindre l'horizon et dimensionner la mosaïque là-dessus la
+    rendrait aussi grossière que celle qu'elle doit battre.
+  - Si la vue englobe déjà toute l'emprise, rien n'est téléchargé et le niveau
+    fin est effacé — la mosaïque d'emprise est alors tout aussi fine.
+  - Coût assumé : un lot de tuiles à chaque arrêt de caméra, d'où l'option
+    désactivée par défaut. Utile surtout sur le SCAN 25, dont tout l'intérêt
+    est le détail cartographique.
 - **Date pour le soleil** : modifie la direction d'éclairage (ombrage Lambert)
 - **Masquer le fond** : bascule l'opacité du fond MapLibre à 0 pour voir le LiDAR seul
 

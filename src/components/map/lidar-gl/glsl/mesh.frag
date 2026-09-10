@@ -3,6 +3,7 @@ precision highp float;
 in vec3 v_albedo;
 in vec3 v_normal;
 in vec2 v_uv;
+in vec2 v_uvFine;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_distM;
@@ -33,8 +34,10 @@ uniform float u_rockBreak;
 // Strength of the GGX specular lobe (0 = pure diffuse). §2.C.9.
 uniform float u_specular;
 uniform sampler2D u_ortho;       // IGN orthophoto mosaic (texture unit 3)
+uniform sampler2D u_orthoFine;   // view-sized detail mosaic (texture unit 4)
 uniform float u_photoOpacityGround;    // 0..1, photo draping on the ground (the mesh = ground)
 uniform float u_hasPhoto;        // 0 or 1, photo texture available
+uniform float u_hasPhotoFine;    // 0 or 1, detail mosaic available
 uniform float u_wireframe;       // 1 = debug wireframe (flat colour, no light/texture)
 layout(location = 0) out vec4 fragColor;
 // x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag), stored
@@ -69,13 +72,16 @@ void main() {
     // horizontal (v_up≈0) so the fade above would let them receive the photo —
     // they are excluded explicitly.
     // The SMOOTH normal is used here: draping must not shimmer with faceting.
+    // The detail mosaic covers the current view at a finer zoom and wins
+    // wherever it reaches; the footprint-wide one keeps the rest textured.
     float photoFacing = v_base > 0.5 ? 0.0 : smoothstep(-0.25, 0.05, nSmooth.z);
     float photoK = 0.0;
-    if (u_hasPhoto > 0.5
-        && photoFacing > 0.0
-        && v_uv.x >= 0.0 && v_uv.x <= 1.0
-        && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
-        vec3 photo = texture(u_ortho, v_uv).rgb;
+    bool fine = u_hasPhotoFine > 0.5
+        && v_uvFine.x >= 0.0 && v_uvFine.x <= 1.0
+        && v_uvFine.y >= 0.0 && v_uvFine.y <= 1.0;
+    bool coarse = v_uv.x >= 0.0 && v_uv.x <= 1.0 && v_uv.y >= 0.0 && v_uv.y <= 1.0;
+    if (u_hasPhoto > 0.5 && photoFacing > 0.0 && (fine || coarse)) {
+        vec3 photo = fine ? texture(u_orthoFine, v_uvFine).rgb : texture(u_ortho, v_uv).rgb;
         photoK = u_photoOpacityGround * photoFacing;
         albedo = mix(v_albedo, photo, photoK);
     }

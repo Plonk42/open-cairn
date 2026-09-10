@@ -102,6 +102,8 @@ export function OpacityControls() {
     const setPhotoOpacityNonGround = useMapStore((s) => s.setLidarCloudPhotoOpacityNonGround);
     const photoSource = useMapStore((s) => s.lidarCloudPhotoSource);
     const setPhotoSource = useMapStore((s) => s.setLidarCloudPhotoSource);
+    const photoDetail = useMapStore((s) => s.lidarCloudPhotoDetail);
+    const setPhotoDetail = useMapStore((s) => s.setLidarCloudPhotoDetail);
     const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
     const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
@@ -183,6 +185,22 @@ export function OpacityControls() {
                     onChange={setPhotoSource}
                 />
             </div>
+
+            {/* Second niveau de drapage, rechargé à chaque arrêt de la caméra. */}
+            <label className="flex items-center justify-between">
+                <span
+                    className="text-sm text-slate-700 dark:text-slate-300"
+                    title="Recharge la texture de la zone visible à la résolution native du fond de carte quand la caméra s'arrête. Plus net de près (utile pour le SCAN 25), au prix d'un téléchargement de tuiles à chaque déplacement."
+                >
+                    Affiner la zone visible
+                </span>
+                <input
+                    type="checkbox"
+                    checked={photoDetail}
+                    onChange={(e) => setPhotoDetail(e.target.checked)}
+                    className="h-4 w-4 accent-green-600"
+                />
+            </label>
 
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">

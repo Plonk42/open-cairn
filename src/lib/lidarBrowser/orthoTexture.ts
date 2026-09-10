@@ -26,8 +26,13 @@ export interface DrapeMosaic {
 }
 
 const TILE_SIZE = 256;
-/** Cap the mosaic so we never stitch an unreasonable number of tiles. */
-const MAX_TILES_PER_SIDE = 6;
+/** Cap the mosaic on its PIXEL side, not on a tile count: the canvas becomes a
+ *  single GPU texture, and 4096 is the smallest `MAX_TEXTURE_SIZE` we can count
+ *  on. A tile cap gave every capture the same ~1500 px whatever its footprint,
+ *  so the ground resolution collapsed as the zone grew (2.6 m/px on 3 km
+ *  against 0.5 m/px on 300 m). */
+const MAX_MOSAIC_PX = 4096;
+const MAX_TILES_PER_SIDE = MAX_MOSAIC_PX / TILE_SIZE;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 19;
 
@@ -84,10 +89,38 @@ function loadTileImage(url: string, signal?: AbortSignal): Promise<HTMLImageElem
 }
 
 /**
+ * Quantize a *detail* mosaic request so that a small camera move does not
+ * re-download it: the radius is rounded up to the next power of two and the
+ * centre snaps to a grid of a quarter of that radius. Two camera positions that
+ * quantize to the same triple share the same mosaic, and the caller can skip
+ * the fetch altogether.
+ *
+ * The returned radius is inflated by 25 % to absorb the (up to an eighth of the
+ * radius) shift the centre snapping introduces — otherwise the requested disc
+ * would poke out of the mosaic on one side, and the drape would show a
+ * sharpness seam right in the middle of the screen.
+ */
+export function snapDetailView(lng: number, lat: number, radiusMeters: number): {
+    lng: number;
+    lat: number;
+    radiusMeters: number;
+} {
+    const r = 2 ** Math.ceil(Math.log2(Math.max(1, radiusMeters)));
+    const stepLat = r / 4 / 111_320;
+    // cos(lat) is floored: near the poles the longitude step would blow up.
+    const stepLng = stepLat / Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+    return {
+        lng: Math.round(lng / stepLng) * stepLng,
+        lat: Math.round(lat / stepLat) * stepLat,
+        radiusMeters: r * 1.25,
+    };
+}
+
+/**
  * Build a basemap mosaic centered on (lng, lat) covering ±radius meters.
  *
- * Picks the highest zoom whose tile span stays within `MAX_TILES_PER_SIDE`, so
- * the resolution is as fine as possible without stitching too many tiles.
+ * Picks the highest zoom whose tile span still fits in `MAX_MOSAIC_PX`, so the
+ * ground resolution is as fine as the texture budget allows at any footprint.
  * Returns null if no tile could be loaded (e.g. area outside IGN coverage, or
  * SCAN 25 requested without an API key).
  */

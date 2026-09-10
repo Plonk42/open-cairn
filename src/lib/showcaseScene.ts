@@ -127,6 +127,7 @@ export interface ShowcaseAmbiance {
     lidarCloudPhotoOpacity: number;
     lidarCloudPhotoOpacityNonGround: number;
     lidarCloudPhotoSource: DrapeSource;
+    lidarCloudPhotoDetail: boolean;
     lidarCloudBasemapOpacity: number;
     lidarCloudClasses: number[];
     contourLinesEnabled: boolean;
@@ -229,6 +230,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarCloudPhotoOpacity: 0,
     lidarCloudPhotoOpacityNonGround: 0,
     lidarCloudPhotoSource: 'ortho',
+    lidarCloudPhotoDetail: false,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [],
     contourLinesEnabled: false,

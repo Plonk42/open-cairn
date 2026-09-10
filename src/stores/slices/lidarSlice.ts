@@ -337,6 +337,9 @@ export interface LidarSlice {
     /** Basemap draped over the geometry (orthophoto, SCAN 25, Plan IGN, OSM). */
     lidarCloudPhotoSource: DrapeSource;
     setLidarCloudPhotoSource: (v: DrapeSource) => void;
+    /** Re-fetch a view-sized drape mosaic when the camera settles, so a zoomed-in view gets the basemap's native resolution. */
+    lidarCloudPhotoDetail: boolean;
+    setLidarCloudPhotoDetail: (v: boolean) => void;
     /** Underlying basemap opacity 0..1 when the cloud is visible (1 = full, lower = "estompé"). */
     lidarCloudBasemapOpacity: number;
     setLidarCloudBasemapOpacity: (v: number) => void;
@@ -686,6 +689,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarCloudPhotoOpacity: 0,
     lidarCloudPhotoOpacityNonGround: 0,
     lidarCloudPhotoSource: 'ortho' as DrapeSource,
+    lidarCloudPhotoDetail: false,
     lidarCloudBasemapOpacity: 1,
     lidarCloudClasses: [2, 9] as number[],
     lidarSunAzimuth: DEFAULT_SUN_SETTINGS.azimuthDeg,
@@ -885,6 +889,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCloudPhotoOpacityNonGround: (lidarCloudPhotoOpacityNonGround) => set({ lidarCloudPhotoOpacityNonGround }),
         lidarCloudPhotoSource: persisted.lidarCloudPhotoSource ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoSource,
         setLidarCloudPhotoSource: (lidarCloudPhotoSource) => set({ lidarCloudPhotoSource }),
+        lidarCloudPhotoDetail: persisted.lidarCloudPhotoDetail ?? LIDAR_RENDER_DEFAULTS.lidarCloudPhotoDetail,
+        setLidarCloudPhotoDetail: (lidarCloudPhotoDetail) => set({ lidarCloudPhotoDetail }),
         lidarCloudBasemapOpacity: persisted.lidarCloudBasemapOpacity ?? LIDAR_RENDER_DEFAULTS.lidarCloudBasemapOpacity,
         setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
         lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
@@ -1211,6 +1217,7 @@ export function selectLidarPersisted(
     | 'lidarCloudPhotoOpacity'
     | 'lidarCloudPhotoOpacityNonGround'
     | 'lidarCloudPhotoSource'
+    | 'lidarCloudPhotoDetail'
     | 'lidarCloudBasemapOpacity'
     | 'lidarCloudClasses'
     | 'lidarCloudPoissonDepth'
@@ -1289,6 +1296,7 @@ export function selectLidarPersisted(
         lidarCloudPhotoOpacity: s.lidarCloudPhotoOpacity,
         lidarCloudPhotoOpacityNonGround: s.lidarCloudPhotoOpacityNonGround,
         lidarCloudPhotoSource: s.lidarCloudPhotoSource,
+        lidarCloudPhotoDetail: s.lidarCloudPhotoDetail,
         lidarCloudBasemapOpacity: s.lidarCloudBasemapOpacity,
         lidarCloudClasses: s.lidarCloudClasses,
         lidarCloudPoissonDepth: s.lidarCloudPoissonDepth,

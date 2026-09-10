@@ -5,6 +5,7 @@ in float v_diff;
 in float v_flatDiff;
 in float v_flatDirect;
 in vec2 v_uv;
+in vec2 v_uvFine;
 in vec4 v_lightPos;
 in float v_depth;
 in float v_distM;
@@ -20,9 +21,11 @@ in float v_emissive;
 uniform vec3 u_sunColor;
 uniform float u_flatLight;        // 1 = neutral omnidirectional light, 0 = sun
 uniform sampler2D u_ortho;       // IGN orthophoto mosaic (texture unit 3)
+uniform sampler2D u_orthoFine;   // view-sized detail mosaic (texture unit 4)
 uniform float u_photoOpacityGround;    // 0..1, photo draping on the ground (class 2)
 uniform float u_photoOpacityNonGround; // 0..1, photo draping off-ground (veg./buildings/…)
 uniform float u_hasPhoto;        // 0 or 1, photo texture available
+uniform float u_hasPhotoFine;    // 0 or 1, detail mosaic available
 uniform float u_vegNormalShade;  // 0..1 = strength of normal-driven shading on vegetation
 layout(location = 0) out vec4 fragColor;
 // x = linear EDL depth (v_depth, normalized by u_farPlane in edl.frag);
@@ -50,11 +53,15 @@ void main() {
     }
     float s = sampleShadow();
     vec3 albedo = v_albedo;
-    // Photo draping only inside the mosaic footprint.
-    if (u_hasPhoto > 0.5
-        && v_uv.x >= 0.0 && v_uv.x <= 1.0
-        && v_uv.y >= 0.0 && v_uv.y <= 1.0) {
-        vec3 photo = texture(u_ortho, v_uv).rgb;
+    // Photo draping only inside the mosaic footprint. The detail mosaic covers
+    // the current view at a finer zoom and wins wherever it reaches; the
+    // footprint-wide one keeps everything else textured.
+    bool fine = u_hasPhotoFine > 0.5
+        && v_uvFine.x >= 0.0 && v_uvFine.x <= 1.0
+        && v_uvFine.y >= 0.0 && v_uvFine.y <= 1.0;
+    bool coarse = v_uv.x >= 0.0 && v_uv.x <= 1.0 && v_uv.y >= 0.0 && v_uv.y <= 1.0;
+    if (u_hasPhoto > 0.5 && (fine || coarse)) {
+        vec3 photo = fine ? texture(u_orthoFine, v_uvFine).rgb : texture(u_ortho, v_uv).rgb;
         float op = (v_isGround > 0.5) ? u_photoOpacityGround : u_photoOpacityNonGround;
         albedo = mix(v_albedo, photo, op);
     }

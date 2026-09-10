@@ -601,10 +601,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowTexel: WebGLUniformLocation | null;
         shadowStrength: WebGLUniformLocation | null;
         uvRect: WebGLUniformLocation | null;
+        uvRectFine: WebGLUniformLocation | null;
         ortho: WebGLUniformLocation | null;
+        orthoFine: WebGLUniformLocation | null;
         photoOpacityGround: WebGLUniformLocation | null;
         photoOpacityNonGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
+        hasPhotoFine: WebGLUniformLocation | null;
         vegEnhance: WebGLUniformLocation | null;
         vegSizeBoost: WebGLUniformLocation | null;
         vegNormalShade: WebGLUniformLocation | null;
@@ -625,7 +628,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         rockType: WebGLUniformLocation | null;
         snowLine: WebGLUniformLocation | null;
         snowAmount: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null };
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -689,9 +692,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         shadowTexel: WebGLUniformLocation | null;
         shadowStrength: WebGLUniformLocation | null;
         uvRect: WebGLUniformLocation | null;
+        uvRectFine: WebGLUniformLocation | null;
         ortho: WebGLUniformLocation | null;
+        orthoFine: WebGLUniformLocation | null;
         photoOpacityGround: WebGLUniformLocation | null;
         hasPhoto: WebGLUniformLocation | null;
+        hasPhotoFine: WebGLUniformLocation | null;
         wireframe: WebGLUniformLocation | null;
         facet: WebGLUniformLocation | null;
         microRelief: WebGLUniformLocation | null;
@@ -702,7 +708,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         snowLine: WebGLUniformLocation | null;
         snowAmount: WebGLUniformLocation | null;
         specular: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, specular: null };
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, specular: null };
 
     // Orthophoto draped over the mesh (delaunay/poisson modes). The texture is
     // loaded on demand by the overlay when the user enables draping.
@@ -710,6 +716,14 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _hasPhoto = false;
     /** Extent of the mosaic in offset metres: (eMin, nMin, eMax, nMax). */
     private readonly _uvRect = new Float32Array([0, 0, 1, 1]);
+
+    // Second, finer drape level: a mosaic covering only the current view, so a
+    // zoomed-in camera gets the basemap's native resolution instead of the
+    // frozen texels of the footprint-wide one (see docs/LIDAR_RENDERING.md).
+    // Optional — the coarse level alone is a complete rendering.
+    private _orthoFineTex: WebGLTexture | null = null;
+    private _hasPhotoFine = false;
+    private readonly _uvRectFine = new Float32Array([0, 0, 1, 1]);
 
     // EDL post-processing
     private _progEdl: WebGLProgram | null = null;
@@ -952,6 +966,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locPoints.ortho, 3);
+        // Detail level of the same drape (texture unit 4).
+        gl.uniform4fv(this._locPoints.uvRectFine, this._uvRectFine);
+        gl.uniform1f(this._locPoints.hasPhotoFine, photoOn && this._hasPhotoFine ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoFineTex);
+        gl.uniform1i(this._locPoints.orthoFine, 4);
         this._bindShadowToProgram(gl, this._locPoints);
         this._bindPbrToProgram(gl, this._locPbrPoints);
     }
@@ -1587,9 +1607,51 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         source: TexImageSource,
         lngLatRect: { west: number; south: number; east: number; north: number },
     ): void {
+        if (!this._uploadDrape(this._orthoTex, source, lngLatRect, this._uvRect)) return;
+        this._hasPhoto = true;
+        this._map?.triggerRepaint();
+    }
+
+    clearOrthoTexture(): void {
+        this._hasPhoto = false;
+        this._map?.triggerRepaint();
+    }
+
+    /**
+     * Upload the *detail* level of the drape: same projection, but a mosaic
+     * covering only what the camera currently sees, fetched at the finest zoom
+     * that still fits the texture budget. The shader prefers it wherever it
+     * reaches and falls back to the footprint-wide mosaic elsewhere, so an
+     * absent or stale detail level never leaves a hole.
+     */
+    setOrthoDetailTexture(
+        source: TexImageSource,
+        lngLatRect: { west: number; south: number; east: number; north: number },
+    ): void {
+        if (!this._uploadDrape(this._orthoFineTex, source, lngLatRect, this._uvRectFine)) return;
+        this._hasPhotoFine = true;
+        this._map?.triggerRepaint();
+    }
+
+    clearOrthoDetailTexture(): void {
+        this._hasPhotoFine = false;
+        this._map?.triggerRepaint();
+    }
+
+    /**
+     * Shared upload path of both drape levels: pushes the image and writes the
+     * mosaic's extent, in offset metres, into `outRect`. Returns false when the
+     * GL context is gone.
+     */
+    private _uploadDrape(
+        tex: WebGLTexture | null,
+        source: TexImageSource,
+        lngLatRect: { west: number; south: number; east: number; north: number },
+        outRect: Float32Array,
+    ): boolean {
         const gl = this._gl;
-        if (!gl || !this._orthoTex) return;
-        gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        if (!gl || !tex) return false;
+        gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
         // Upload as a single base level with a LINEAR filter (no mipmaps): the
         // mosaic is a non-power-of-two canvas and `generateMipmap` throws
@@ -1607,17 +1669,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         const e = MercatorCoordinate.fromLngLat({ lng: lngLatRect.east, lat: lngLatRect.north }).x;
         const n = MercatorCoordinate.fromLngLat({ lng: lngLatRect.west, lat: lngLatRect.north }).y;
         const s = MercatorCoordinate.fromLngLat({ lng: lngLatRect.west, lat: lngLatRect.south }).y;
-        this._uvRect[0] = (w - this._ox) / this._mpu;          // eMin (ouest)
-        this._uvRect[1] = (this._oy - s) / this._mpu;          // nMin (sud)
-        this._uvRect[2] = (e - this._ox) / this._mpu;          // eMax (est)
-        this._uvRect[3] = (this._oy - n) / this._mpu;          // nMax (nord)
-        this._hasPhoto = true;
-        this._map?.triggerRepaint();
-    }
-
-    clearOrthoTexture(): void {
-        this._hasPhoto = false;
-        this._map?.triggerRepaint();
+        outRect[0] = (w - this._ox) / this._mpu;          // eMin (ouest)
+        outRect[1] = (this._oy - s) / this._mpu;          // nMin (sud)
+        outRect[2] = (e - this._ox) / this._mpu;          // eMax (est)
+        outRect[3] = (this._oy - n) / this._mpu;          // nMax (nord)
+        return true;
     }
 
     setConfig(config: Partial<LidarWebGLLayerConfig>): void {
@@ -1796,6 +1852,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
         gl.uniform1i(this._locMesh.ortho, 3);
+        // Detail level of the same drape (texture unit 4).
+        gl.uniform4fv(this._locMesh.uvRectFine, this._uvRectFine);
+        gl.uniform1f(this._locMesh.hasPhotoFine, photoOn && this._hasPhotoFine ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoFineTex);
+        gl.uniform1i(this._locMesh.orthoFine, 4);
         this._bindShadowToProgram(gl, this._locMesh);
         this._bindPbrToProgram(gl, this._locPbrMesh);
         gl.bindVertexArray(this._vaoMesh);
@@ -2083,10 +2145,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowTexel: gl.getUniformLocation(this._progPoints, 'u_shadowTexel'),
             shadowStrength: gl.getUniformLocation(this._progPoints, 'u_shadowStrength'),
             uvRect: gl.getUniformLocation(this._progPoints, 'u_uvRect'),
+            uvRectFine: gl.getUniformLocation(this._progPoints, 'u_uvRectFine'),
             ortho: gl.getUniformLocation(this._progPoints, 'u_ortho'),
+            orthoFine: gl.getUniformLocation(this._progPoints, 'u_orthoFine'),
             photoOpacityGround: gl.getUniformLocation(this._progPoints, 'u_photoOpacityGround'),
             photoOpacityNonGround: gl.getUniformLocation(this._progPoints, 'u_photoOpacityNonGround'),
             hasPhoto: gl.getUniformLocation(this._progPoints, 'u_hasPhoto'),
+            hasPhotoFine: gl.getUniformLocation(this._progPoints, 'u_hasPhotoFine'),
             vegEnhance: gl.getUniformLocation(this._progPoints, 'u_vegEnhance'),
             vegSizeBoost: gl.getUniformLocation(this._progPoints, 'u_vegSizeBoost'),
             vegNormalShade: gl.getUniformLocation(this._progPoints, 'u_vegNormalShade'),
@@ -2172,9 +2237,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             shadowTexel: gl.getUniformLocation(this._progMesh, 'u_shadowTexel'),
             shadowStrength: gl.getUniformLocation(this._progMesh, 'u_shadowStrength'),
             uvRect: gl.getUniformLocation(this._progMesh, 'u_uvRect'),
+            uvRectFine: gl.getUniformLocation(this._progMesh, 'u_uvRectFine'),
             ortho: gl.getUniformLocation(this._progMesh, 'u_ortho'),
+            orthoFine: gl.getUniformLocation(this._progMesh, 'u_orthoFine'),
             photoOpacityGround: gl.getUniformLocation(this._progMesh, 'u_photoOpacityGround'),
             hasPhoto: gl.getUniformLocation(this._progMesh, 'u_hasPhoto'),
+            hasPhotoFine: gl.getUniformLocation(this._progMesh, 'u_hasPhotoFine'),
             wireframe: gl.getUniformLocation(this._progMesh, 'u_wireframe'),
             facet: gl.getUniformLocation(this._progMesh, 'u_facet'),
             microRelief: gl.getUniformLocation(this._progMesh, 'u_microRelief'),
@@ -2191,6 +2259,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // Orthophoto texture (1×1 by default, filled in by setOrthoTexture).
         this._orthoTex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, this._orthoTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        // Detail level of the same drape (filled in by setOrthoDetailTexture).
+        this._orthoFineTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this._orthoFineTex);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -2351,6 +2429,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delTex(this._texDepth); this._texDepth = null;
         delTex(this._shadowTex); this._shadowTex = null;
         delTex(this._orthoTex); this._orthoTex = null;
+        delTex(this._orthoFineTex); this._orthoFineTex = null;
         if (this._rbDepth) { gl.deleteRenderbuffer(this._rbDepth); this._rbDepth = null; }
         if (this._fbo) { gl.deleteFramebuffer(this._fbo); this._fbo = null; }
         if (this._shadowFbo) { gl.deleteFramebuffer(this._shadowFbo); this._shadowFbo = null; }

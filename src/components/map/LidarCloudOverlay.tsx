@@ -1,11 +1,14 @@
 import { isLodDebugEnabled } from '@/lib/debugFlags';
+import type { LngLatTuple } from '@/lib/geo';
+import { distanceMeters } from '@/lib/geo';
 import { labelForestPoints } from '@/lib/lidarBrowser/bdforet';
-import { fetchDrapeMosaic } from '@/lib/lidarBrowser/orthoTexture';
+import { fetchDrapeMosaic, snapDetailView } from '@/lib/lidarBrowser/orthoTexture';
 import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { detectTreetops } from '@/lib/lidarBrowser/treetops';
 import { LAS_CLASS_COLORS } from '@/lib/lidarCloud';
 import { sunLight } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
@@ -42,6 +45,43 @@ const PALETTE_PRESET_ID: Record<ShaderPreset, number> = { base: 0, terrain: 1, s
 const ROCK_TYPE_ID: Record<RockType, number> = { limestone: 0, granite: 1, schist: 2 };
 
 /**
+ * Delay before the detail drape is re-fetched after the camera stops. Long
+ * enough that a flick-and-settle gesture only triggers one download, short
+ * enough that the sharpening feels like a consequence of stopping.
+ */
+const DETAIL_DRAPE_DEBOUNCE_MS = 350;
+
+/**
+ * Ground disc the camera currently sees, snapped by `snapDetailView`, or null
+ * when a detail mosaic would bring nothing: the view already spans the whole
+ * cloud (the footprint-wide mosaic is then just as fine) or it no longer
+ * overlaps it.
+ *
+ * The reach is measured on the BOTTOM edge of the canvas: with a tilted camera
+ * the top of the screen can reach the horizon, and sizing the mosaic on that
+ * would make it exactly as coarse as the one it is meant to beat.
+ */
+function detailDrapeTarget(
+    map: MapLibreMap,
+    cloud: { centerLng: number; centerLat: number; radius: number },
+): { lng: number; lat: number; radiusMeters: number } | null {
+    const canvas = map.getCanvas();
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const c = map.getCenter();
+    const center: LngLatTuple = [c.lng, c.lat];
+    const left = map.unproject([0, h]);
+    const right = map.unproject([w, h]);
+    const reach = Math.max(
+        distanceMeters(center, [left.lng, left.lat]),
+        distanceMeters(center, [right.lng, right.lat]),
+    );
+    if (reach >= cloud.radius) return null;
+    if (distanceMeters(center, [cloud.centerLng, cloud.centerLat]) > cloud.radius + reach) return null;
+    return snapDetailView(c.lng, c.lat, reach);
+}
+
+/**
  * Manages one `LidarWebGLLayer` instance for a single loaded cloud/mesh entry
  * (see `lidarClouds` in the store). Several instances can be mounted at once
  * — one per entry, keyed by `cloudId` — so multiple clouds render, cull and
@@ -74,6 +114,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const photoOpacity = useMapStore((s) => s.lidarCloudPhotoOpacity);
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const photoSource = useMapStore((s) => s.lidarCloudPhotoSource);
+    const photoDetail = useMapStore((s) => s.lidarCloudPhotoDetail);
     const scanApiKey = useMapStore((s) => s.ignScanApiKey);
     const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
@@ -136,6 +177,10 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     // Geometry + style-epoch for which the basemap mosaic was last fetched, so
     // we don't re-download it when only the opacity slider moves.
     const orthoRef = useRef<{ source: unknown; epoch: number; basemap: string; key: string } | null>(null);
+    // Snapped view + basemap the DETAIL mosaic was last fetched for (see
+    // `detailDrapeTarget`), so a camera move that quantizes to the same view
+    // re-downloads nothing.
+    const detailRef = useRef<string | null>(null);
     // Incremented every time MapLibre rebuilds its style (base-layer switch,
     // hillshade toggle, …). setStyle({diff:true}) drops custom MapLibre layers,
     // so we re-add ours on 'style.load' and bump this counter to force the
@@ -516,6 +561,72 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             if (!settled && orthoRef.current === attempt) orthoRef.current = null;
         };
     }, [orthoSource, drapeEnabled, photoSource, drapeKey, styleEpoch]);
+
+    // ── Detail level of the drape ("Affiner la zone visible") ────────────────
+    // The mosaic above is baked once for the whole footprint, so its sharpness
+    // is frozen at the finest zoom that fitted the texture budget — on a 3 km
+    // capture that is z16, where MapLibre streams z19 for the same ground. We
+    // cannot simply raise the budget (z19 over 3 km is ~15 600 px per side,
+    // ~1 GB of VRAM), so when the toggle is on we fetch a SECOND mosaic
+    // covering only what the camera sees, at the finest zoom that fits the same
+    // budget, and the shader prefers it wherever it reaches. The price is a
+    // tile download every time the camera settles, hence the opt-in.
+    useEffect(() => {
+        const layer = webglRef.current;
+        const map = mapInstance;
+        if (!layer) return undefined;
+        if (!photoDetail || !drapeEnabled || !orthoSource || !map) {
+            layer.clearOrthoDetailTexture();
+            detailRef.current = null;
+            return undefined;
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let controller: AbortController | null = null;
+        const refresh = () => {
+            const target = detailDrapeTarget(map, orthoSource);
+            if (!target) {
+                // Zoomed out past the footprint: the coarse mosaic is already
+                // as fine as a detail one would be, drop the stale texture
+                // rather than leave a sharper patch stuck where it last was.
+                webglRef.current?.clearOrthoDetailTexture();
+                detailRef.current = null;
+                return;
+            }
+            const key = `${photoSource}|${drapeKey}|${styleEpoch}|${target.lng}|${target.lat}|${target.radiusMeters}`;
+            if (detailRef.current === key) return;
+            detailRef.current = key;
+            controller?.abort();
+            controller = new AbortController();
+            const signal = controller.signal;
+            fetchDrapeMosaic({
+                source: photoSource,
+                lng: target.lng,
+                lat: target.lat,
+                radiusMeters: target.radiusMeters,
+                scanApiKey: drapeKey,
+                signal,
+            })
+                .then((mosaic) => {
+                    if (signal.aborted || !mosaic) return;
+                    webglRef.current?.setOrthoDetailTexture(mosaic.image, mosaic.lngLatRect);
+                })
+                // Coverage unavailable or request aborted: forget the attempt so
+                // the next camera settle retries instead of considering this
+                // view already served.
+                .catch(() => { if (detailRef.current === key) detailRef.current = null; });
+        };
+        const schedule = () => {
+            clearTimeout(timer);
+            timer = setTimeout(refresh, DETAIL_DRAPE_DEBOUNCE_MS);
+        };
+        schedule();
+        map.on('moveend', schedule);
+        return () => {
+            map.off('moveend', schedule);
+            clearTimeout(timer);
+            controller?.abort();
+        };
+    }, [mapInstance, photoDetail, orthoSource, drapeEnabled, photoSource, drapeKey, styleEpoch]);
 
     // ── Sun-driven Lambert lighting ───────────────────────────────────────────
     // The four store settings ARE the light: the date/time drives them, but the

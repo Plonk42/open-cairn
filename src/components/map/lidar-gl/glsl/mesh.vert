@@ -28,6 +28,7 @@ uniform mat4 u_matrix;
 uniform float u_mpu;
 uniform mat4 u_lightMatrix;
 uniform vec4 u_uvRect;   // (eMin, nMin, eMax, nMax) in offset metres
+uniform vec4 u_uvRectFine; // idem for the view-sized detail mosaic
 // Delaunay/Mixed meshes have no macro-normal field: the lighting normal is then
 // used as a fallback, as on the CPU side.
 uniform float u_hasMacro;
@@ -43,6 +44,7 @@ uniform vec3 u_camPos;
 out vec3 v_albedo;
 out vec3 v_normal; // interpolated normal (east/north/up frame), per-fragment lighting
 out vec2 v_uv;
+out vec2 v_uvFine;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_distM;      // camera→fragment distance in metres (aerial perspective)
@@ -51,6 +53,13 @@ out float v_base;
 out vec3 v_wpos;   // world position (metres east/north/z) for mesh-anchored hatching
 out vec3 v_view;   // fragment → eye, metres, same frame as v_wpos (specular lobe)
 out float v_snow;  // snow ratio painted by the palette, in [0,1]
+
+// Nadir planar projection of a world position into a mosaic's UV space: u
+// follows east, v follows north. The first row of the texture corresponds to
+// north (top), hence the vertical flip.
+vec2 nadirUv(vec2 p, vec4 rect) {
+    return vec2((p.x - rect.x) / (rect.z - rect.x), (rect.w - p.y) / (rect.w - rect.y));
+}
 
 void main() {
     vec3 pos = vec3(a_pos.x * u_mpu, -a_pos.y * u_mpu, a_pos.z * u_mpu);
@@ -76,9 +85,7 @@ void main() {
     v_alpha = 1.0;
     // Nadir planar projection: u follows east, v follows north. The first row of
     // the texture corresponds to north (top), hence the vertical flip.
-    v_uv = vec2(
-        (a_pos.x - u_uvRect.x) / (u_uvRect.z - u_uvRect.x),
-        (u_uvRect.w - a_pos.y) / (u_uvRect.w - u_uvRect.y)
-    );
+    v_uv = nadirUv(a_pos.xy, u_uvRect);
+    v_uvFine = nadirUv(a_pos.xy, u_uvRectFine);
     v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
 }

@@ -187,10 +187,11 @@ Repris ici pour ne pas avoir à refaire l'enquête.
 | Maillage trop grossier | ❌ Poisson profondeur 11 sur 250 m ⇒ triangles ~0,17 m, sous-pixel à cette échelle. |
 | Shadow map | ❌ 4096² sur 250 m ⇒ ~6 cm/texel. |
 
-À noter tout de même pour plus tard : `fetchDrapeMosaic` plafonne à
-`MAX_TILES_PER_SIDE = 6`, ce qui force z18 (~0,42 m/texel) sur une capture de 250 m
-alors que l'ortho IGN monte à z19. Sans effet ici puisque le drapage est éteint,
-mais ce sera le facteur limitant dès qu'on le rallumera.
+À noter tout de même pour plus tard : `fetchDrapeMosaic` plafonnait alors à
+`MAX_TILES_PER_SIDE = 6`, ce qui forçait z18 (~0,42 m/texel) sur une capture de
+250 m alors que l'ortho IGN monte à z19. Sans effet ici puisque le drapage est
+éteint. Le plafond est depuis exprimé en pixels (`MAX_MOSAIC_PX = 4096`), ce qui
+libère le z19 sur les petites emprises.
 
 ### 4.2 Cause réelle : l'ombrage du rocher est quantifié par blocs de 2×2 pixels
 

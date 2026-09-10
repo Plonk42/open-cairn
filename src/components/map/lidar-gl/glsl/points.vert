@@ -25,6 +25,7 @@ uniform vec3 u_sunDir;
 uniform float u_sunIntensity;
 uniform mat4 u_lightMatrix;   // world-meters → light-clip space
 uniform vec4 u_uvRect;        // (eMin, nMin, eMax, nMax) in offset metres
+uniform vec4 u_uvRectFine;    // idem for the view-sized detail mosaic
 uniform float u_vegSizeBoost; // point-size multiplier for vegetation
 uniform float u_vegEnhance;   // 1 = vegetation enhancements on
 uniform float u_vegIntensity;   // 0 = flat class colour, 1 = full palette
@@ -60,6 +61,7 @@ out float v_diff;
 out float v_flatDiff;
 out float v_flatDirect; // N·L not folded, for the fixed light (PBR path)
 out vec2 v_uv;
+out vec2 v_uvFine;
 out vec4 v_lightPos;
 out float v_depth;
 out float v_distM;      // camera→point distance in metres (aerial perspective)
@@ -204,6 +206,12 @@ float gridSeed(vec2 xy, float cell) {
     return fract(sin(dot(id, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+// Nadir planar projection of a world position into a mosaic's UV space. The
+// first texture row is north, hence the vertical flip.
+vec2 nadirUv(vec2 p, vec4 rect) {
+    return vec2((p.x - rect.x) / (rect.z - rect.x), (rect.w - p.y) / (rect.w - rect.y));
+}
+
 // Resolves the legend id (group or species) of a vegetation point, or -1 if the
 // point has no BD Forêt data (→ generic height gradient).
 // In « essence » mode, a mixed stand picks a candidate species from the tree
@@ -238,6 +246,7 @@ void main() {
         v_flatDiff = 0.0;
         v_flatDirect = 0.0;
         v_uv = vec2(-1.0);
+        v_uvFine = vec2(-1.0);
         v_lightPos = vec4(0.0);
         v_depth = 0.0;
         v_distM = 0.0;
@@ -329,10 +338,8 @@ void main() {
     v_alpha = a_color.a;
     // Nadir planar projection (top-down view) identical to the mesh: allows the
     // orthophoto to be draped over the points (vegetation, buildings, …).
-    v_uv = vec2(
-        (a_pos.x - u_uvRect.x) / (u_uvRect.z - u_uvRect.x),
-        (u_uvRect.w - a_pos.y) / (u_uvRect.w - u_uvRect.y)
-    );
+    v_uv = nadirUv(a_pos.xy, u_uvRect);
+    v_uvFine = nadirUv(a_pos.xy, u_uvRectFine);
 
     // a_pos is east/north/up in meters — same frame as the light matrix.
     v_lightPos = u_lightMatrix * vec4(a_pos, 1.0);
