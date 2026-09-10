@@ -13,12 +13,12 @@ function decode(arr: Float32Array): BasePoint[] {
 }
 
 /** Grid whose `groundZ` is supplied cell-by-cell (row-major, NaN for holes). */
-function makeGrid(cols: number, rows: number, z: (cx: number, cy: number) => number): VegGroundGrid {
+function makeGrid(cols: number, rows: number, z: (cx: number, cy: number) => number, cell = 1): VegGroundGrid {
     const groundZ = new Float32Array(cols * rows);
     for (let cy = 0; cy < rows; cy++) {
         for (let cx = 0; cx < cols; cx++) groundZ[cy * cols + cx] = z(cx, cy);
     }
-    return { minX: 0, minY: 0, cell: 1, cols, rows, groundZ, roughness: new Float32Array(cols * rows) };
+    return { minX: 0, minY: 0, cell, cols, rows, groundZ, roughness: new Float32Array(cols * rows) };
 }
 
 const floors = (pts: BasePoint[]) => pts.filter((p) => p.nz === -1);
@@ -93,6 +93,48 @@ describe('buildPoissonBase', () => {
         expect(floors(pts).some((p) => p.x >= 2 && p.x <= 3 && p.y >= 2 && p.y <= 3)).toBe(true);
         // Every wall sits on the outer boundary — the interior hole is never walled.
         for (const p of walls(pts)) expect(onBoundary(p, 0, 5)).toBe(true);
+    });
+
+    it('spends the same floor budget on a 300 m and on a 3 km footprint', () => {
+        // The sample steps are multiples of the octree cell, so widening the
+        // capture coarsens them in step. An absolute metre ceiling here used to
+        // pin the spacing and let the socle grow with the area instead.
+        const small = floors(decode(buildPoissonBase(makeGrid(100, 100, () => 10, 3))));
+        const large = floors(decode(buildPoissonBase(makeGrid(100, 100, () => 10, 30))));
+        expect(large).toHaveLength(small.length);
+    });
+
+    it('keeps the plinth resolvable by the solver whatever the footprint', () => {
+        // A plinth thinner than the octree cell, or a wall column carrying one
+        // or two samples, is invisible to the solver: it closes the underside
+        // back into a cushion. Both have to hold in *cell* units, so the
+        // 300 m and the 3 km capture must come out identical here.
+        for (const cell of [3, 30]) {
+            const grid = makeGrid(100, 100, () => 10, cell);
+            const pts = decode(buildPoissonBase(grid));
+            const octreeCell = (100 * cell) / 2 ** 9;
+            const baseZ = Math.min(...floors(pts).map((p) => p.z));
+            expect((10 - baseZ) / octreeCell).toBeCloseTo(6, 5);
+
+            const perColumn = new Map<string, number>();
+            for (const p of walls(pts)) {
+                const key = `${p.x}|${p.y}`;
+                perColumn.set(key, (perColumn.get(key) ?? 0) + 1);
+            }
+            expect(Math.min(...perColumn.values())).toBe(6);
+        }
+    });
+
+    it('samples the floor plane on the safe side of the solver cliff', () => {
+        // Measured on the production solver over a 3 km capture: a floor step of
+        // 2 octree cells overshoots by 0.9 cell, 2.75 by 6.9 and 3 by 50 — the
+        // plane stops existing for the solver and the underside sags through it.
+        for (const cell of [3, 30]) {
+            const pts = floors(decode(buildPoissonBase(makeGrid(100, 100, () => 10, cell))));
+            const xs = [...new Set(pts.map((p) => p.x))].sort((a, b) => a - b);
+            const octreeCell = (100 * cell) / 2 ** 9;
+            expect((xs[1] - xs[0]) / octreeCell).toBeLessThanOrEqual(2);
+        }
     });
 });
 

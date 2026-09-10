@@ -30,8 +30,22 @@ import type { VegGroundGrid } from './groundHeight';
 
 /** Depth (m) of the flat base below the lowest ground point. A few metres of
  *  solid brick under the terrain so the socle reads as a deliberate plinth
- *  rather than skimming the relief. */
+ *  rather than skimming the relief. Only a floor: the effective depth also has
+ *  to clear {@link POISSON_BASE_MARGIN_CELLS} octree cells. */
 export const POISSON_BASE_MARGIN_M = 3;
+
+/**
+ * Minimum plinth depth expressed in octree cells. A plinth thinner than the
+ * solver's own resolution simply does not exist for it: the wall columns get
+ * one or two samples, nothing constrains the underside, and Poisson closes it
+ * back into the bulging cushion the socle exists to prevent. The absolute 3 m
+ * above is 5 cells on a 300 m capture but half a cell on a 3 km one — hence a
+ * second, scale-relative floor.
+ */
+export const POISSON_BASE_MARGIN_CELLS = 6;
+
+/** Floor sampling step, in octree cells. See the cliff measured in {@link buildPoissonBase}. */
+export const FLOOR_STEP_CELLS = 1.5;
 
 /** Octree depth assumed when none is supplied (matches the pipeline default). */
 const DEFAULT_POISSON_DEPTH = 9;
@@ -87,10 +101,6 @@ export interface PoissonBaseOptions {
     floorStepM?: number;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-    return Math.min(hi, Math.max(lo, v));
-}
-
 /** Min/max finite ground elevation, or `null` when the grid is all empty. */
 function groundRange(groundZ: Float32Array): { min: number; max: number } | null {
     let min = Infinity, max = -Infinity;
@@ -105,6 +115,19 @@ function groundRange(groundZ: Float32Array): { min: number; max: number } | null
 /** Clamp a world offset to a valid cell index. */
 function cellIndex(worldOffset: number, cell: number, n: number): number {
     return Math.min(n - 1, Math.max(0, Math.floor(worldOffset / cell)));
+}
+
+/**
+ * Side (m) of the solver's finest octree cell: PoissonRecon cubes the sample
+ * bounding box and subdivides it `depth` times, so the cell is the largest bbox
+ * side over 2^depth. Everything the socle emits is sized in these units — a
+ * feature smaller than one cell does not exist for the solver. Measured on the
+ * un-margined Z range: the margin derives from the cell, so feeding it back in
+ * would be circular.
+ */
+function octreeCellM(grid: VegGroundGrid, range: { min: number; max: number }, depth: number): number {
+    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
+    return Math.max(extentXY, range.max - range.min) / 2 ** depth;
 }
 
 /** {@link PoissonBaseRect} with its centre resolved to concrete coordinates. */
@@ -205,10 +228,7 @@ export const POISSON_WALL_PERIM_M = 0.6;
 export function poissonBaseWallPerimM(grid: VegGroundGrid, depth = DEFAULT_POISSON_DEPTH): number {
     const range = groundRange(grid.groundZ);
     if (!range) return POISSON_WALL_PERIM_M;
-    const baseZ = range.min - POISSON_BASE_MARGIN_M;
-    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
-    const octreeCell = Math.max(extentXY, range.max - baseZ) / 2 ** depth;
-    return Math.max(POISSON_WALL_PERIM_M, octreeCell * 1.5);
+    return Math.max(POISSON_WALL_PERIM_M, octreeCellM(grid, range, depth) * 1.5);
 }
 
 /** A near-vertical vertex is a wall when its normal's up-component is below this
@@ -240,6 +260,16 @@ export function buildPoissonBaseMask(
     return mask;
 }
 
+/** Elevation of the socle's flat underside; `null` when the grid has no finite cell. */
+function poissonBaseZ(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): number | null {
+    const range = groundRange(grid.groundZ);
+    if (!range) return null;
+    const sampleDepth = Math.min(opts.depth ?? DEFAULT_POISSON_DEPTH, POISSON_BASE_MAX_SAMPLE_DEPTH);
+    const marginM = opts.marginM
+        ?? Math.max(POISSON_BASE_MARGIN_M, octreeCellM(grid, range, sampleDepth) * POISSON_BASE_MARGIN_CELLS);
+    return range.min - marginM;
+}
+
 /**
  * Build the oriented floor + wall points that close the terrain into a
  * flat-bottomed brick.
@@ -249,10 +279,8 @@ export function buildPoissonBaseMask(
  */
 export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): Float32Array {
     const range = groundRange(grid.groundZ);
-    if (!range) return new Float32Array(0);
-
-    const marginM = opts.marginM ?? POISSON_BASE_MARGIN_M;
-    const baseZ = range.min - marginM;
+    const baseZ = poissonBaseZ(grid, opts);
+    if (!range || baseZ === null) return new Float32Array(0);
 
     // Octree cell ≈ largest bbox side / 2^depth. Coplanar walls no longer alias,
     // so the spacing only needs to stay near the solver resolution — capped at
@@ -260,13 +288,23 @@ export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions =
     // force a needlessly dense (and, on tall walls, hugely inflated) socle.
     const depth = opts.depth ?? DEFAULT_POISSON_DEPTH;
     const sampleDepth = Math.min(depth, POISSON_BASE_MAX_SAMPLE_DEPTH);
-    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
-    const extentZ = range.max - baseZ;
-    const octreeCell = Math.max(extentXY, extentZ) / 2 ** sampleDepth;
+    const octreeCell = octreeCellM(grid, range, sampleDepth);
 
-    const hStep = opts.wallHStepM ?? clamp(octreeCell, 0.25, 2);
-    const vStep = opts.wallVStepM ?? clamp(octreeCell * 2, 0.5, 4);
-    const floorStep = opts.floorStepM ?? clamp(octreeCell * 3, 1.5, 4);
+    // The steps are multiples of the octree cell and must stay so: the solver
+    // works in cell units, so an absolute metre ceiling here freezes the socle's
+    // density in metres while the capture grows — a 3 km footprint emitted 1.6 M
+    // base points for 383 k ground points.
+    // The wall is sampled every cell, not every other one: combined with the
+    // margin above it guarantees POISSON_BASE_MARGIN_CELLS samples on even the
+    // shortest column, which is what actually holds the underside flat.
+    const hStep = opts.wallHStepM ?? Math.max(0.25, octreeCell);
+    const vStep = opts.wallVStepM ?? Math.max(0.5, octreeCell);
+    // The floor step has a cliff, measured on the production solver over a 3 km
+    // capture: 2 cells overshoots the floor by 0.9 cell, 2.75 by 6.9 and 3 by
+    // 50 — past ~2.5 cells the plane carries too few samples per finest node to
+    // exist for the solver, and the underside sags hundreds of metres through
+    // it. No absolute floor here: a metre clamp is 2.6 cells on a 300 m capture.
+    const floorStep = opts.floorStepM ?? octreeCell * FLOOR_STEP_CELLS;
 
     const rect = resolvePoissonBaseRect(grid, opts.rect);
     const ctx: OrientedContext = { grid, baseZ, hStep, vStep, floorStep, out: [], rect };

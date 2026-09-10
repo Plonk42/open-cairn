@@ -172,6 +172,7 @@ uniformément.
 | [src/lib/lidarBrowser/normals.ts](../src/lib/lidarBrowser/normals.ts) | Normales par k-NN (k=12, 2 itérations) |
 | [src/lib/lidarBrowser/mesh.ts](../src/lib/lidarBrowser/mesh.ts) | Triangulation Delaunay 2.5D du sol, filtrage des longues arêtes |
 | [src/lib/lidarBrowser/poissonRecon.ts](../src/lib/lidarBrowser/poissonRecon.ts) | Wrapper WASM PoissonRecon v18.76 (chargement paresseux, parsing PLY binaire) |
+| [src/lib/lidarBrowser/poissonBase.ts](../src/lib/lidarBrowser/poissonBase.ts) | Socle synthétique (plancher + 4 murs orientés) qui referme le terrain en brique à fond plat |
 | [src/lib/lidarBrowser/slope.ts](../src/lib/lidarBrowser/slope.ts) | Palette de référence CPU (`vertexColor`) — le rendu passe par `glsl/lib/palette.glsl` |
 | [src/lib/lidarBrowser/bdforet.ts](../src/lib/lidarBrowser/bdforet.ts) | Typage des essences par BD Forêt® v2 : WFS, remplissage scanline des peuplements en raster 2 m, étiquetage des points |
 | [src/lib/lidarBrowser/proj.ts](../src/lib/lidarBrowser/proj.ts) | WGS84 ↔ Lambert-93 |
@@ -284,6 +285,62 @@ flowchart TD
   module produit un PLY binaire qu'on reparse en `Float32Array` positions +
   `Uint32Array` indices. Les normales sont ensuite recalculées par
   pondération d'aires (`normalsFromMesh` dans `pipeline.ts`).
+
+  Avant la reconstruction, `poissonBase.ts` ajoute un **socle** : un plancher
+  quelques mètres sous le point le plus bas, normales vers le bas, et quatre murs
+  verticaux coplanaires sur les bords du rectangle de capture. Sans lui le
+  solveur referme le dessous en coussin bombé.
+
+  Tout y est dimensionné en **cellules d'octree** (`octreeCellM` : plus grand côté
+  de la bbox / 2^profondeur), jamais en distances absolues — une valeur en mètres
+  se comporte correctement à une seule échelle de capture :
+
+  - les **pas d'échantillonnage** sont des multiples de la cellule, sinon un
+    plafond en mètres fige la densité du socle pendant que la capture s'agrandit
+    (une emprise de 3 km émettait 1,6 M de points de socle pour 383 k points de
+    sol) ;
+  - la **profondeur de la plinthe** vaut au moins `POISSON_BASE_MARGIN_CELLS`
+    (6) cellules, en plus du plancher absolu `POISSON_BASE_MARGIN_M` (3 m). Les
+    3 m seuls font 5,1 cellules sur une capture de 300 m mais **0,5 cellule** sur
+    une capture de 3 km : la plinthe passe alors sous la résolution du solveur,
+    les colonnes de mur ne reçoivent plus qu'un ou deux échantillons, plus rien
+    ne contraint le dessous et le coussin revient — exactement ce que le socle
+    est censé empêcher ;
+  - le pas vertical des murs vaut **une** cellule (et non deux), pour que ces
+    6 cellules de plinthe donnent bien 6 échantillons sur la colonne la plus
+    courte ;
+  - le **pas du plancher** vaut `FLOOR_STEP_CELLS` = **1,5 cellule**, et c'est
+    une falaise, pas un réglage de confort. Mesuré sur le solveur de production
+    (capture 3 km, `depth 9`), le débord du maillage sous le plancher vaut :
+
+    | Pas du plancher | Débord sous le plancher |
+    |---|---|
+    | 1 cellule | 0,4 cellule |
+    | 1,5 cellule | 0,7 cellule |
+    | 2 cellules | 0,9 cellule |
+    | 2,75 cellules | **6,9 cellules** |
+    | 3 cellules | **50 cellules** (≈ 260 m) |
+
+    Au-delà de ~2,5 cellules le plan porte trop peu d'échantillons par nœud
+    terminal (`--samplesPerNode 1.5`) : il cesse d'exister pour le solveur, et
+    le dessous s'affaisse au travers sur des centaines de mètres — un gros
+    **coussin localisé**, typiquement sur la partie plate et basse du modèle où
+    la plinthe est la plus mince.
+
+  Le coût du socle reste stable à iso-emprise entre 300 m et 3 km : les trois
+  pas suivent la cellule d'octree, donc le nombre de points ne dépend que de la
+  profondeur, pas de la taille de la capture — 117 k points de plancher
+  (341 × 341) aux deux échelles. C'est ~3× le budget du pas à 3 cellules, et
+  c'est le prix d'un socle qui tient.
+
+  Mesuré sur le solveur de production, le maillage déborde toujours d'environ
+  **0,7 cellule d'octree** sous le plancher : ce débord résiduel est une
+  propriété du solveur, pas un défaut de profondeur, et il ne sert à rien
+  d'épaissir le socle pour le réduire.
+
+  La profondeur d'échantillonnage reste plafonnée à
+  `POISSON_BASE_MAX_SAMPLE_DEPTH` : plancher et murs sont plans, ils ne gagnent
+  rien à être échantillonnés à la finesse du terrain.
 
 Aucun de ces chemins ne produit de couleurs : la palette est évaluée par sommet
 dans les vertex shaders (voir `docs/LIDAR_RENDERING.md`), le pipeline ne sort que
