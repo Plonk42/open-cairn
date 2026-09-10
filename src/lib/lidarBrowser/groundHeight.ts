@@ -450,37 +450,54 @@ function smoothstep(e0: number, e1: number, x: number): number {
     return t * t * (3 - 2 * t);
 }
 
-/** Max finite value over the square window of `radius` cells around (cx, cy),
- *  or −Infinity when the window holds no finite value. */
-function windowMax(
-    field: Float32Array, cols: number, rows: number, cx: number, cy: number, radius: number,
+/** Push index `j` onto a deque of candidate indices kept in decreasing value
+ *  order, evicting the tail entries it dominates. Non-finite values never
+ *  enter, so an all-NaN window leaves the deque empty. Returns the new tail. */
+function pushCandidate(
+    line: Float32Array, j: number, deque: Int32Array, head: number, tail: number,
 ): number {
-    let max = -Infinity;
-    for (let dy = -radius; dy <= radius; dy++) {
-        const ny = cy + dy;
-        if (ny < 0 || ny >= rows) continue;
-        for (let dx = -radius; dx <= radius; dx++) {
-            const nx = cx + dx;
-            if (nx < 0 || nx >= cols) continue;
-            const v = field[ny * cols + nx];
-            if (v > max && Number.isFinite(v)) max = v;
-        }
+    const v = line[j];
+    if (!Number.isFinite(v)) return tail;
+    while (tail > head && line[deque[tail - 1]] <= v) tail--;
+    deque[tail] = j;
+    return tail + 1;
+}
+
+/** Sliding-window max over one line, O(n) whatever the radius — scanning the
+ *  window per cell would be O(n · radius). Window clipped at both ends. */
+function lineMax(
+    line: Float32Array, out: Float32Array, n: number, radius: number, deque: Int32Array,
+): void {
+    let head = 0, tail = 0;
+    for (let j = 0; j < radius && j < n; j++) tail = pushCandidate(line, j, deque, head, tail);
+    for (let i = 0; i < n; i++) {
+        const j = i + radius;
+        if (j < n) tail = pushCandidate(line, j, deque, head, tail);
+        while (tail > head && deque[head] < i - radius) head++;
+        out[i] = tail > head ? line[deque[head]] : Number.NaN;
     }
-    return max;
 }
 
 /** Per-cell max ground over a `reachCells`-radius window (m), NaN where the
  *  window holds no finite ground. An overhanging canopy reads its height against
- *  this nearby cliff-top ground rather than the void straight below it. */
+ *  this nearby cliff-top ground rather than the void straight below it.
+ *  A square-window max is separable, hence the two 1D passes. */
 function dilateGroundMax(
     groundZ: Float32Array, cols: number, rows: number, reachCells: number,
 ): Float32Array {
-    const out = new Float32Array(cols * rows).fill(Number.NaN);
+    const tmp = new Float32Array(cols * rows);
+    const out = new Float32Array(cols * rows);
+    const deque = new Int32Array(Math.max(cols, rows));
     for (let cy = 0; cy < rows; cy++) {
-        for (let cx = 0; cx < cols; cx++) {
-            const m = windowMax(groundZ, cols, rows, cx, cy, reachCells);
-            if (m > -Infinity) out[cy * cols + cx] = m;
-        }
+        const from = cy * cols;
+        lineMax(groundZ.subarray(from, from + cols), tmp.subarray(from, from + cols), cols, reachCells, deque);
+    }
+    const col = new Float32Array(rows);
+    const colOut = new Float32Array(rows);
+    for (let cx = 0; cx < cols; cx++) {
+        for (let cy = 0; cy < rows; cy++) col[cy] = tmp[cy * cols + cx];
+        lineMax(col, colOut, rows, reachCells, deque);
+        for (let cy = 0; cy < rows; cy++) out[cy * cols + cx] = colOut[cy];
     }
     return out;
 }
