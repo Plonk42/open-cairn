@@ -2,10 +2,13 @@
  * Capture resolution: the ground sampling (metres between two points) asked of
  * the IGN COPC tiles, and the cost model derived from it.
  *
- * A COPC file is a level-of-detail pyramid: each level halves the point spacing
- * and carries ~4× the points of the previous one. Stopping the octree walk at a
- * level therefore divides the *download*, unlike the stride decimations which
- * thin a cloud already fetched and decoded in full.
+ * A COPC file is a level-of-detail pyramid. The spec only guarantees that each
+ * level halves the point spacing; how many points a level holds is decided by
+ * the tiler, not by the format, and IGN documents neither. Measured, the first
+ * level multiplies the points by ~10, the next ones by ~4, then less and less
+ * as the pyramid saturates towards the native density. Stopping the octree walk
+ * at a level divides the *download*, unlike the stride decimations which thin a
+ * cloud already fetched and decoded in full.
  *
  * Measured on LHD_FXX_1007_6545 (1 km², 18.2 M pts, root spacing 6.8 m):
  *
@@ -28,9 +31,33 @@ export const RESOLUTION_STOPS_M = [6.8, 3.4, 1.7, 0.85, 0.43, 0] as const;
 /** Nominal LiDAR HD density (pt/m²) once every octree level is kept. */
 const NATIVE_DENSITY_PT_M2 = 18;
 
-/** points/m² × spacing², measured across the pyramid above (levels 1–3). A dense
- *  area reaches ~8.8 (3 km Belledonne capture), so the estimate is indicative. */
-const LEVEL_DENSITY_COEF = 7;
+/**
+ * Density (pt/m²) delivered by each stop, read off the pyramid above.
+ *
+ * A 1/spacing² law cannot describe this pyramid: it assumes a level quadruples
+ * the points, where the measured levels *decuple* them near the root (61 k →
+ * 610 k) before saturating towards the native density. Fitted on the fine
+ * levels, such a law overestimates the root level by 2.5× — and a large zone is
+ * forced onto exactly that level, so the quality dial was promising a spacing
+ * the data does not carry.
+ *
+ * Densities vary a lot by tile — the same probe run on six tiles (cumulative
+ * pt/m² for levels 0..4, then native):
+ *
+ *   Vercors  0903_6438 | 0.054 0.64 2.57  8.22 24.4 | 27.5
+ *   Chartreuse 0921_6471 | 0.085 1.26 5.20 14.7  29.8 | 33.6
+ *   Chamonix 0999_6543 | 0.057 0.76 3.25 10.7  26.6 | 46.5
+ *   Camargue 0817_6268 | 0.017 0.15 0.56  2.20  8.89 |  9.6
+ *   La Meije 0960_6439 | 0.037 0.37 1.46  5.40 22.4 | 25.0
+ *   Paris    0652_6862 | 0.062 0.63 2.24  6.15 15.3 | 15.5
+ *
+ * Level 3 alone spans 2.2 → 14.7 pt/m², and two adjacent Vercors tiles differ
+ * by 1.8×. IGN only specifies a floor (≥10 pulses/m², ≥5 above 3200 m), and a
+ * pulse yields several points, so no constant can be right everywhere. This
+ * table is a median, not a guarantee — the exact counts are readable per tile
+ * in the COPC hierarchy (`pointCount` per node), which extract.ts already walks.
+ */
+const DENSITY_AT_STOP_PT_M2 = [0.061, 0.61, 2.3, 8.7, 18.2, NATIVE_DENSITY_PT_M2] as const;
 
 /** Compressed LAZ bytes per point, measured on the same pyramid. */
 const BYTES_PER_POINT = 6;
@@ -38,10 +65,16 @@ const BYTES_PER_POINT = 6;
 /** Downloaded-point budget a capture aims to stay under (auto resolution). */
 export const CAPTURE_POINT_BUDGET = 6_000_000;
 
+/**
+ * Hard ceiling the quality dial will not offer past, even though the user is
+ * shown the cost and could accept it: beyond this the decode + normals + solve
+ * chain stops being interactive.
+ */
+export const CAPTURE_POINT_CEILING = 20_000_000;
+
 /** Point density (pt/m²) delivered by a given ground sampling. */
 export function densityAt(resolutionM: number): number {
-    if (resolutionM <= 0) return NATIVE_DENSITY_PT_M2;
-    return Math.min(NATIVE_DENSITY_PT_M2, LEVEL_DENSITY_COEF / (resolutionM * resolutionM));
+    return DENSITY_AT_STOP_PT_M2[resolutionToIndex(resolutionM)];
 }
 
 /** Points and compressed bytes a capture downloads, before any stride. */
@@ -54,9 +87,18 @@ export function estimateCapture(
 
 /** Finest stop whose download stays within {@link CAPTURE_POINT_BUDGET}. */
 export function autoResolutionM(widthM: number, lengthM: number): number {
+    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_BUDGET);
+}
+
+/** Finest stop the quality dial may offer; see {@link CAPTURE_POINT_CEILING}. */
+export function maxResolutionM(widthM: number, lengthM: number): number {
+    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_CEILING);
+}
+
+function finestStopUnder(widthM: number, lengthM: number, budget: number): number {
     for (let i = RESOLUTION_STOPS_M.length - 1; i >= 0; i--) {
         const r = RESOLUTION_STOPS_M[i];
-        if (estimateCapture(widthM, lengthM, r).points <= CAPTURE_POINT_BUDGET) return r;
+        if (estimateCapture(widthM, lengthM, r).points <= budget) return r;
     }
     return RESOLUTION_STOPS_M[0];
 }
