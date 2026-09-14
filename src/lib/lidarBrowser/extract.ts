@@ -8,10 +8,11 @@
  * cross-fetch → native fetch in browsers; the package.json `browser` field
  * stubs out the Node `fs` fallback).
  */
-import { Copc, Getter, Key } from 'copc';
+import { Copc } from 'copc';
 import { copcMaxLevel } from '../lidarResolution';
+import { collectIntersectingNodes, type CopcHandle, type CopcNode } from './hierarchy';
 import { getLazPerf, runOnLazPerf } from './lazPerf';
-import { acquireGlobal, noteRateLimit, releaseGlobal } from './rateLimiter';
+import { createRangeGetter } from './rangeGetter';
 
 export interface ExtractParams {
     /** Full URL of the .copc.laz tile (HTTP/HTTPS, CORS must be enabled). */
@@ -79,16 +80,6 @@ export interface ExtractResult {
     rawPointCount: number;
     /** Points falling inside the query bbox + class filter, before stride decimation. */
     inBboxPointCount: number;
-}
-
-interface CopcNode {
-    pointCount: number;
-    pointDataOffset: number;
-    pointDataLength: number;
-}
-
-interface CopcHandle {
-    info: { rootHierarchyPage: unknown; cube: number[]; spacing: number };
 }
 
 /** Minimal structural view of a decoded COPC point-data page. */
@@ -178,73 +169,6 @@ function mergeNodeResults(
         sourceId: outSourceId,
         gpsTime: outGpsTime,
     };
-}
-
-/**
- * 3D bounds of a COPC node from its octree key + the root cube.
- */
-function nodeBounds(
-    key: readonly [number, number, number, number],
-    cube: number[],
-): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } {
-    const [d, kx, ky, kz] = key;
-    const span = 1 << d;
-    const sx = (cube[3] - cube[0]) / span;
-    const sy = (cube[4] - cube[1]) / span;
-    const sz = (cube[5] - cube[2]) / span;
-    const minX = cube[0] + kx * sx;
-    const minY = cube[1] + ky * sy;
-    const minZ = cube[2] + kz * sz;
-    return { minX, minY, minZ, maxX: minX + sx, maxY: minY + sy, maxZ: minZ + sz };
-}
-
-/**
- * Walk the COPC hierarchy from the root page, descending only into branches
- * intersecting the XY query bbox and no deeper than `maxLevel`. Sub-pages are
- * loaded lazily.
- */
-async function collectIntersectingNodes(
-    get: ReturnType<typeof Getter.create>,
-    copc: CopcHandle,
-    bbox: { minX: number; maxX: number; minY: number; maxY: number },
-    maxLevel: number,
-): Promise<Array<{ key: string; node: CopcNode }>> {
-    const out: Array<{ key: string; node: CopcNode }> = [];
-    const pageQueue: string[] = ['0-0-0-0'];
-    const knownPages: Record<string, unknown> = {
-        '0-0-0-0': copc.info.rootHierarchyPage,
-    };
-    while (pageQueue.length > 0) {
-        const pageKey = pageQueue.shift();
-        if (pageKey === undefined) break;
-        const pageRef = knownPages[pageKey];
-        if (!pageRef) continue;
-        // `Copc.loadHierarchyPage` returns `{ nodes, pages }`.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { nodes, pages } = await Copc.loadHierarchyPage(get, pageRef as any);
-        for (const [keyStr, node] of Object.entries(nodes)) {
-            if (!node) continue;
-            // Skip empty hierarchy entries — the getter would throw on 0-length range.
-            if (!node.pointCount || !node.pointDataLength) continue;
-            const k = Key.parse(keyStr);
-            if (k[0] > maxLevel) continue;
-            const nb = nodeBounds(k, copc.info.cube);
-            if (nb.maxX < bbox.minX || nb.minX > bbox.maxX) continue;
-            if (nb.maxY < bbox.minY || nb.minY > bbox.maxY) continue;
-            out.push({ key: keyStr, node });
-        }
-        for (const [keyStr, sub] of Object.entries(pages)) {
-            if (!sub) continue;
-            const k = Key.parse(keyStr);
-            if (k[0] > maxLevel) continue;
-            const nb = nodeBounds(k, copc.info.cube);
-            if (nb.maxX < bbox.minX || nb.minX > bbox.maxX) continue;
-            if (nb.maxY < bbox.minY || nb.minY > bbox.maxY) continue;
-            knownPages[keyStr] = sub;
-            pageQueue.push(keyStr);
-        }
-    }
-    return out;
 }
 
 /**
@@ -351,61 +275,7 @@ function collectNodePoints(ctx: CollectCtx): { kept: number; keptExempt: number;
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
     const rect = params.rect ?? null;
-    const rawGet = Getter.create(tileUrl);
-    // Diagnostic wrapper: every byte-range fetch is logged with the size
-    // returned. If the IGN server ever responds with 200 (no Range support)
-    // instead of 206, `compressed.byteLength` would jump to ~200 MB and the
-    // wasm heap would OOM after a few nodes.
-    let totalBytesFetched = 0;
-    let fetchCount = 0;
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const get: typeof rawGet = async (begin: number, end: number) => {
-        const expected = end - begin;
-        const tileName = tileUrl.split('/').pop() ?? tileUrl;
-        const MAX_ATTEMPTS = 5;
-        let lastSnippet = '';
-        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            await acquireGlobal();
-            let buf: Uint8Array;
-            try {
-                buf = await rawGet(begin, end);
-            } finally {
-                releaseGlobal();
-            }
-            if (buf.byteLength === expected) {
-                totalBytesFetched += buf.byteLength;
-                fetchCount++;
-                return buf;
-            }
-            // Short body — decode for diagnostics. 429s look like '<html>...429 Too Many Requests...'.
-            let snippet = '';
-            try {
-                snippet = new TextDecoder('utf-8', { fatal: false })
-                    .decode(buf.slice(0, Math.min(buf.byteLength, 400)))
-                    .replace(/\s+/g, ' ')
-                    .trim();
-            } catch { /* ignore decode errors */ }
-            lastSnippet = snippet;
-            const looksRetriable = /429|503|too many|throttl|unavailable/i.test(snippet)
-                || buf.byteLength < expected / 8;
-            if (!looksRetriable || attempt === MAX_ATTEMPTS - 1) break;
-            // Exponential backoff: 1s, 2s, 4s, 8s.
-            const delay = 1000 * (2 ** attempt);
-            // Park every other inflight/queued request for the same window
-            noteRateLimit(delay);
-            // eslint-disable-next-line no-console
-            console.warn('[lidarBrowser] retry', tileName, 'attempt', attempt + 1,
-                'after', Math.round(delay), 'ms (server said:', snippet.slice(0, 80), ')');
-            await sleep(delay);
-        }
-        // eslint-disable-next-line no-console
-        console.warn('[lidarBrowser] range mismatch', tileName,
-            'asked', expected, 'body:', lastSnippet);
-        throw new Error(
-            `Range request failed on ${tileName} (asked ${expected} B). `
-            + `Server response: ${lastSnippet || '<binary>'}`,
-        );
-    };
+    const { get, stats } = createRangeGetter(tileUrl);
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();
     const tCreate = performance.now();
@@ -558,7 +428,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     const dDecode = performance.now() - tDecode;
     // eslint-disable-next-line no-console
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
-        'fetched', fetchCount, 'ranges', '(', (totalBytesFetched / 1024 / 1024).toFixed(1), 'MB total)',
+        'fetched', stats.ranges, 'ranges', '(', (stats.bytes / 1024 / 1024).toFixed(1), 'MB total)',
         '— phases:',
         `create ${dCreate.toFixed(0)} ms,`,
         `hierarchy ${dHier.toFixed(0)} ms,`,
