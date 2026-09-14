@@ -18,7 +18,7 @@ import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/li
 import {
     defaultQualityIndex, qualityTiers, tierIndexOf, type QualityTier,
 } from '@/lib/lidarQuality';
-import { RESOLUTION_STOPS_M, resolutionToIndex } from '@/lib/lidarResolution';
+import { RESOLUTION_STOPS_M, resolutionToIndex, type PyramidProfile } from '@/lib/lidarResolution';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
@@ -87,16 +87,37 @@ function tierValues(tier: QualityTier) {
     };
 }
 
+let probeTimer = 0;
+let probeToken = 0;
+
+/**
+ * Read the zone's real pyramid, debounced: a drag calls `setLidarCaptureRect`
+ * on every frame and each probe opens up to four tiles. The import is dynamic
+ * so `copc` stays out of the main chunk.
+ */
+function scheduleZonePyramidProbe(
+    rect: CaptureRect, apply: (pyramid: PyramidProfile) => void,
+): void {
+    window.clearTimeout(probeTimer);
+    const token = ++probeToken;
+    probeTimer = window.setTimeout(() => {
+        void import('@/lib/lidarBrowser/pyramid')
+            .then(({ measureCapturePyramid }) => measureCapturePyramid(rect))
+            .then((pyramid) => { if (pyramid && token === probeToken) apply(pyramid); })
+            .catch(() => { /* no tile there, offline… — the table stands in */ });
+    }, 500);
+}
+
 /** Those same settings, `stepsFromFinest` steps below the finest one. */
-function tierSettings(rect: CaptureRect, stepsFromFinest: number) {
-    const tiers = qualityTiers(rect.widthM, rect.lengthM);
+function tierSettings(rect: CaptureRect, stepsFromFinest: number, pyramid: PyramidProfile | null) {
+    const tiers = qualityTiers(rect.widthM, rect.lengthM, pyramid ?? undefined);
     return tierValues(tiers[clampIndex(tiers.length - 1 - stepsFromFinest, tiers.length)]);
 }
 
 /** Steps between the current settings and the finest one, `null` if hand-tuned. */
 function currentQualityStep(state: MapState): number | null {
     const { widthM, lengthM } = state.lidarCaptureRect;
-    const tiers = qualityTiers(widthM, lengthM);
+    const tiers = qualityTiers(widthM, lengthM, state.lidarZonePyramid ?? undefined);
     const index = tierIndexOf(
         tiers, state.lidarCaptureResolution, state.lidarCloudPoissonDepth, state.lidarCloudGroundStride,
     );
@@ -598,6 +619,14 @@ export interface LidarSlice {
      */
     lidarCaptureRect: CaptureRect;
     setLidarCaptureRect: (r: CaptureRect) => void;
+    /**
+     * Real COPC pyramid of the tiles under the zone, read from their hierarchy;
+     * null until the probe lands, and then the cost model stops relying on the
+     * national table (see `lidarBrowser/pyramid.ts`).
+     */
+    lidarZonePyramid: PyramidProfile | null;
+    /** Probe the zone's pyramid if it has not been read yet. */
+    ensureZonePyramid: () => void;
     /** Move the zone under the camera when it has drifted out of the view. */
     ensureCaptureRectVisible: () => void;
     /** Map drag is redefining the capture rectangle. */
@@ -1029,15 +1058,37 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarPreviewVisible: false,
         setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
         lidarCaptureRect: initialRect,
+        lidarZonePyramid: null,
         // Resizing keeps the quality step the user picked rather than its index:
         // the dial loses steps on a small zone, so the distance to the finest
         // step is what carries the intent.
         setLidarCaptureRect: (lidarCaptureRect) => {
             const s = get();
             const step = currentQualityStep(s);
+            // The pyramid belongs to the old zone; the table stands in until the
+            // probe below answers for the new one.
             set(step === null
-                ? { lidarCaptureRect }
-                : { lidarCaptureRect, ...tierSettings(lidarCaptureRect, step) });
+                ? { lidarCaptureRect, lidarZonePyramid: null }
+                : {
+                    lidarCaptureRect,
+                    lidarZonePyramid: null,
+                    ...tierSettings(lidarCaptureRect, step, null),
+                });
+            scheduleZonePyramidProbe(lidarCaptureRect, (lidarZonePyramid) => {
+                const st = get();
+                const keptStep = currentQualityStep(st);
+                set(keptStep === null
+                    ? { lidarZonePyramid }
+                    : {
+                        lidarZonePyramid,
+                        ...tierSettings(st.lidarCaptureRect, keptStep, lidarZonePyramid),
+                    });
+            });
+        },
+        ensureZonePyramid: () => {
+            const s = get();
+            if (s.lidarZonePyramid) return;
+            s.setLidarCaptureRect(s.lidarCaptureRect);
         },
         lidarRectDrawActive: false,
         ensureCaptureRectVisible: () => {
@@ -1056,7 +1107,10 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarCaptureResolution: initialResolution,
         setLidarCaptureResolution: (lidarCaptureResolution) => set({ lidarCaptureResolution }),
         setLidarCaptureQuality: (index) => {
-            const tiers = qualityTiers(get().lidarCaptureRect.widthM, get().lidarCaptureRect.lengthM);
+            const s = get();
+            const tiers = qualityTiers(
+                s.lidarCaptureRect.widthM, s.lidarCaptureRect.lengthM, s.lidarZonePyramid ?? undefined,
+            );
             set(tierValues(tiers[clampIndex(index, tiers.length)]));
         },
         recallCaptureSetup: (capture) => {

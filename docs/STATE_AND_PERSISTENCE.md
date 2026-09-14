@@ -183,6 +183,15 @@ Deux cas particuliers :
   un par un reste possible dans « Réglages avancés » ; le curseur affiche alors « personnalisée »
   et `captureAdvice` signale les incohérences avec leur correction.
 
+`lidarZonePyramid` accompagne ces trois-là sans jamais être **persisté ni exposé à l'utilisateur** :
+c'est la densité par niveau mesurée dans la hiérarchie COPC des dalles sous la zone (cf.
+[LIDAR_PIPELINE.md](LIDAR_PIPELINE.md)). `setLidarCaptureRect` le remet à `null`, applique les
+paliers de la table nationale, puis programme la mesure 500 ms plus tard ; elle recalcule les
+paliers en conservant le cran choisi. Le persister n'aurait aucun sens — il dépend de la zone,
+pas des goûts de l'utilisateur, et le relire coûte une seconde. `ensureZonePyramid()`, appelé au
+montage du panneau de capture, relance la mesure quand le profil est nul (scène restaurée,
+échec réseau précédent).
+
 Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
 tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir
 des uniformes `u_palettePreset`, `u_rockType`, `u_snowLine` et `u_snowAmount`. Changer la ligne

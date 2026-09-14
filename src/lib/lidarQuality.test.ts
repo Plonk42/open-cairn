@@ -124,6 +124,37 @@ describe('qualityTiers', () => {
     });
 });
 
+describe('qualityTiers on a measured pyramid', () => {
+    // Read from the COPC hierarchy of the tiles under the Vercors test zone.
+    const VERCORS_PYRAMID = [0.053, 0.637, 2.535, 8.085, 24.617, 29.816];
+
+    it('keeps every invariant the table-based tiers hold', () => {
+        for (const side of [250, 1000, 3000, 5000]) {
+            const tiers = qualityTiers(side, side, VERCORS_PYRAMID);
+            for (const tier of tiers) {
+                expect(tier.points).toBeLessThanOrEqual(CAPTURE_POINT_CEILING);
+                expect(captureAdvice({
+                    widthM: side,
+                    lengthM: side,
+                    resolutionM: tier.resolutionM,
+                    depth: tier.depth,
+                    groundStride: tier.groundStride,
+                }, VERCORS_PYRAMID)).toEqual([]);
+            }
+        }
+    });
+
+    it('reaches the same detail at a coarser stop where the zone is denser', () => {
+        // Vercors carries 24.6 pt/m² at the 0.43 m level where the table
+        // assumes 18.2, so the finest step gets its vertices one level earlier
+        // — the dial is derived from the profile, not from the table.
+        const table = qualityTiers(1000, 1000);
+        const measured = qualityTiers(1000, 1000, VERCORS_PYRAMID);
+        expect(measured.map((t) => t.resolutionM))
+            .not.toEqual(table.map((t) => t.resolutionM));
+    });
+});
+
 describe('defaultQualityIndex', () => {
     it('picks the finest step that stays reasonably quick', () => {
         for (const side of [250, 500, 1000, 2000, 3000, 5000]) {

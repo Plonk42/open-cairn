@@ -4,6 +4,13 @@ import { autoResolutionM, copcMaxLevel, densityAt, estimateCapture, RESOLUTION_S
 /** Root spacing measured on LHD_FXX_1007_6545 (1 km² IGN LiDAR HD tile). */
 const IGN_ROOT_SPACING_M = 6.8;
 
+/**
+ * Cumulative densities read from the COPC hierarchy of the four tiles under the
+ * Vercors test zone. Note the native stop is 1.7× what the national table says:
+ * that spread is the whole reason the profile is measured per zone.
+ */
+const VERCORS_PYRAMID = [0.053, 0.637, 2.535, 8.085, 24.617, 29.816];
+
 describe('copcMaxLevel', () => {
     it('maps each slider stop to one level of the measured IGN pyramid', () => {
         expect(copcMaxLevel(IGN_ROOT_SPACING_M, 6.8)).toBe(0);
@@ -53,5 +60,27 @@ describe('autoResolutionM', () => {
 describe('densityAt', () => {
     it('caps at the native density however fine the request', () => {
         expect(densityAt(0.1)).toBe(densityAt(0));
+    });
+});
+
+describe('measured pyramid profiles', () => {
+    it('reads the supplied profile instead of the national table', () => {
+        for (let i = 0; i < RESOLUTION_STOPS_M.length; i++) {
+            expect(densityAt(RESOLUTION_STOPS_M[i], VERCORS_PYRAMID)).toBe(VERCORS_PYRAMID[i]);
+        }
+    });
+
+    it('scales the point count with the measured density', () => {
+        const table = estimateCapture(1000, 1000, 1.7).points;
+        const measured = estimateCapture(1000, 1000, 1.7, VERCORS_PYRAMID).points;
+        expect(measured / table).toBeCloseTo(VERCORS_PYRAMID[2] / densityAt(1.7), 5);
+    });
+
+    it('still holds the budget on a zone denser than the table says', () => {
+        for (const side of [100, 500, 1000, 2500, 5000]) {
+            const r = autoResolutionM(side, side, VERCORS_PYRAMID);
+            expect(estimateCapture(side, side, r, VERCORS_PYRAMID).points)
+                .toBeLessThanOrEqual(6_000_000);
+        }
     });
 });

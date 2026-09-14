@@ -59,6 +59,17 @@ const NATIVE_DENSITY_PT_M2 = 18;
  */
 const DENSITY_AT_STOP_PT_M2 = [0.061, 0.61, 2.3, 8.7, 18.2, NATIVE_DENSITY_PT_M2] as const;
 
+/**
+ * Cumulative density (pt/m²) at each {@link RESOLUTION_STOPS_M} entry — what a
+ * capture at that stop actually downloads per m². `measureCapturePyramid`
+ * returns the real one for a given zone; the table above stands in until it
+ * lands.
+ */
+export type PyramidProfile = readonly number[];
+
+/** The table above: used for a zone whose tiles have not been probed yet. */
+export const ESTIMATED_PYRAMID: PyramidProfile = DENSITY_AT_STOP_PT_M2;
+
 /** Compressed LAZ bytes per point, measured on the same pyramid. */
 const BYTES_PER_POINT = 6;
 
@@ -73,32 +84,39 @@ export const CAPTURE_POINT_BUDGET = 6_000_000;
 export const CAPTURE_POINT_CEILING = 20_000_000;
 
 /** Point density (pt/m²) delivered by a given ground sampling. */
-export function densityAt(resolutionM: number): number {
-    return DENSITY_AT_STOP_PT_M2[resolutionToIndex(resolutionM)];
+export function densityAt(resolutionM: number, pyramid: PyramidProfile = ESTIMATED_PYRAMID): number {
+    return pyramid[resolutionToIndex(resolutionM)];
 }
 
 /** Points and compressed bytes a capture downloads, before any stride. */
 export function estimateCapture(
     widthM: number, lengthM: number, resolutionM: number,
+    pyramid: PyramidProfile = ESTIMATED_PYRAMID,
 ): { points: number; bytes: number } {
-    const points = widthM * lengthM * densityAt(resolutionM);
+    const points = widthM * lengthM * densityAt(resolutionM, pyramid);
     return { points, bytes: points * BYTES_PER_POINT };
 }
 
 /** Finest stop whose download stays within {@link CAPTURE_POINT_BUDGET}. */
-export function autoResolutionM(widthM: number, lengthM: number): number {
-    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_BUDGET);
+export function autoResolutionM(
+    widthM: number, lengthM: number, pyramid: PyramidProfile = ESTIMATED_PYRAMID,
+): number {
+    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_BUDGET, pyramid);
 }
 
 /** Finest stop the quality dial may offer; see {@link CAPTURE_POINT_CEILING}. */
-export function maxResolutionM(widthM: number, lengthM: number): number {
-    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_CEILING);
+export function maxResolutionM(
+    widthM: number, lengthM: number, pyramid: PyramidProfile = ESTIMATED_PYRAMID,
+): number {
+    return finestStopUnder(widthM, lengthM, CAPTURE_POINT_CEILING, pyramid);
 }
 
-function finestStopUnder(widthM: number, lengthM: number, budget: number): number {
+function finestStopUnder(
+    widthM: number, lengthM: number, budget: number, pyramid: PyramidProfile,
+): number {
     for (let i = RESOLUTION_STOPS_M.length - 1; i >= 0; i--) {
         const r = RESOLUTION_STOPS_M[i];
-        if (estimateCapture(widthM, lengthM, r).points <= budget) return r;
+        if (estimateCapture(widthM, lengthM, r, pyramid).points <= budget) return r;
     }
     return RESOLUTION_STOPS_M[0];
 }

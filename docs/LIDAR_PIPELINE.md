@@ -74,6 +74,11 @@ niveau de pyramide suivant, seul moyen d'y gagner du détail.
 Redimensionner la zone conserve le cran choisi (compté depuis le plus fin), pas
 son index : le curseur perd des crans sur une petite zone.
 
+Les quatre paliers sont calculés sur la **pyramide réelle de la zone**, lue dans
+la hiérarchie des dalles COPC (voir « La table n'est qu'un repli » plus bas).
+Elle arrive en ~1 s ; d'ici là le panneau affiche les paliers issus de la table
+nationale, puis ils se recalculent, le cran choisi conservé.
+
 « Réglages avancés », dans la même carte, redonne accès aux trois réglages
 séparément — le curseur affiche alors « personnalisée ». Les incohérences y
 sont signalées avec leur correction (« Profondeur inutilement élevée… »,
@@ -106,9 +111,37 @@ utilise (`DENSITY_AT_STOP_PT_M2`), et non une loi en 1/espacement². La loi
 supposerait ×4 par niveau et surestimait le niveau racine d'un facteur 2,5 :
 une grande zone, forcée précisément sur ce niveau, se voyait promettre un détail
 de 2 m que la donnée ne portait pas — d'où un maillage plat à fond de curseur.
-Les densités varient d'une dalle à l'autre (0,034 / 0,339 pt/m² relevés sur
-`LHD_FXX_0902_6438`, Vercors, soit 1,8× plus clairsemé) : la table est une
-estimation haute, pas une garantie.
+
+#### La table n'est qu'un repli : la vraie pyramide est lue sur la zone
+
+Ces densités varient beaucoup d'une dalle à l'autre. Relevé sur six dalles, le
+niveau 3 s'étale de 2,2 à 14,7 pt/m², la densité native de 9,6 à 46,5 pt/m², et
+deux dalles voisines du Vercors diffèrent d'un facteur 1,8. L'IGN ne publie
+qu'un **plancher** (« au moins 10 impulsions au m², 5 au-dessus de 3200 m ») et
+la spécification COPC ne dit rien du nombre de points par niveau — c'est une
+propriété du logiciel qui a découpé la dalle, pas du format. Aucune constante ne
+peut donc être juste partout.
+
+Elle n'a pas non plus à être devinée : la hiérarchie COPC porte le `pointCount`
+de chaque nœud, et la lire coûte quelques requêtes `Range` de quelques kilo-octets.
+[src/lib/lidarBrowser/pyramid.ts](../src/lib/lidarBrowser/pyramid.ts) ouvre les
+**4 dalles les plus proches du centre** de la zone, somme leurs points par
+niveau sans filtre d'emprise (on veut la pyramide de la dalle, pas la tranche
+que la capture téléchargerait — un nœud de niveau 0 couvre le km² entier), et
+moyenne les profils. Le résultat remplace la table pour cette zone.
+
+Le déclenchement est dans [src/stores/slices/lidarSlice.ts](../src/stores/slices/lidarSlice.ts) :
+`setLidarCaptureRect` remet `lidarZonePyramid` à `null` et affiche aussitôt les
+paliers issus de la table, puis programme la mesure **500 ms** plus tard (un
+jeton annule la sonde d'une zone abandonnée entre-temps). Quand elle arrive, les
+paliers sont recalculés en conservant le cran choisi par l'utilisateur. Si
+aucune dalle ne couvre la zone, ou si toutes les sondes échouent, la table
+reste — un affichage approximatif vaut mieux qu'un panneau vide. Le module est
+en `import()` dynamique pour que `copc` ne parte pas dans le chunk principal.
+
+Sur la zone de test du Vercors, la mesure donne 0,053 / 0,637 / 2,535 / 8,085 /
+24,617 / 29,816 pt/m² : la densité native réelle vaut 1,7× ce que la table
+annonce, et le palier « 4 m » passe de 6,8 m / sol 1 à 3,4 m / sol 8.
 
 C'est ce qui rend une zone de plusieurs kilomètres chargeable : les paliers de
 qualité choisissent pour une zone de 3 × 3 km une résolution de 3,4 m et ~5 M
@@ -247,7 +280,10 @@ uniformément.
 | [src/lib/lidarBrowser/worker.ts](../src/lib/lidarBrowser/worker.ts) | Boucle de réception, appel `pipeline.ts`, collecte des transferables |
 | [src/lib/lidarBrowser/pipeline.ts](../src/lib/lidarBrowser/pipeline.ts) | `fetchCommon` + finalizers `fetchLidarShaded` / `fetchLidarDelaunay` / `fetchLidarPoisson` |
 | [src/lib/lidarBrowser/wfs.ts](../src/lib/lidarBrowser/wfs.ts) | Recherche de dalles via WFS IGN (bbox lng,lat) |
-| [src/lib/lidarBrowser/extract.ts](../src/lib/lidarBrowser/extract.ts) | Décodage COPC range-fetch, sémaphore + retry 429 |
+| [src/lib/lidarBrowser/extract.ts](../src/lib/lidarBrowser/extract.ts) | Décodage COPC range-fetch |
+| [src/lib/lidarBrowser/rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts) | Lecteur `Range` partagé : sémaphore global, retry 429, contrôle de la taille des réponses |
+| [src/lib/lidarBrowser/hierarchy.ts](../src/lib/lidarBrowser/hierarchy.ts) | Parcours de la hiérarchie COPC, sélection des nœuds intersectant l'emprise |
+| [src/lib/lidarBrowser/pyramid.ts](../src/lib/lidarBrowser/pyramid.ts) | Mesure la pyramide réelle de la zone (pt/m² par niveau) à partir des `pointCount` de la hiérarchie |
 | [src/lib/lidarBrowser/normals.ts](../src/lib/lidarBrowser/normals.ts) | Normales par k-NN (k=12, 2 itérations) |
 | [src/lib/lidarBrowser/mesh.ts](../src/lib/lidarBrowser/mesh.ts) | Triangulation Delaunay 2.5D du sol, filtrage des longues arêtes |
 | [src/lib/lidarBrowser/poissonRecon.ts](../src/lib/lidarBrowser/poissonRecon.ts) | Wrapper WASM PoissonRecon v18.76 (chargement paresseux, parsing PLY binaire) |
@@ -515,7 +551,8 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 
 | Symptôme                                        | Piste                                                                    |
 |-------------------------------------------------|--------------------------------------------------------------------------|
-| Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT` dans [extract.ts](../src/lib/lidarBrowser/extract.ts) |
+| Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT_GLOBAL` dans [rateLimiter.ts](../src/lib/lidarBrowser/rateLimiter.ts) |
+| Paliers de qualité qui ne bougent jamais        | La sonde a échoué : chercher `pyramid probe failed` en console, la table nationale sert alors de repli |
 | Toast *« Aucune dalle LiDAR HD »*               | Bbox WFS ; vérifier l'ordre lng,lat dans `wfs.ts`                        |
 | Points qui dérivent au pitch / pan              | Matrice du shader `LidarWebGLLayer` ; vérifier l'usage de `mainMatrix`   |
 | Worker silencieux / pas de progression          | Vérifier que `workerClient.cleanParams` conserve les params requis       |

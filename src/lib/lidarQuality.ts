@@ -19,7 +19,8 @@
  */
 
 import {
-    densityAt, estimateCapture, maxResolutionM, RESOLUTION_STOPS_M, resolutionToIndex,
+    densityAt, estimateCapture, ESTIMATED_PYRAMID, maxResolutionM, type PyramidProfile,
+    RESOLUTION_STOPS_M, resolutionToIndex,
 } from './lidarResolution';
 
 /** Allowed density stops, coarse → max. Shared by both density sliders. */
@@ -46,8 +47,8 @@ const FETCH_POINTS_PER_S = 30_400;
 const SOLVE_VERTICES_PER_S = 23_600;
 
 /** Mean distance (m) between two points at a given ground sampling. */
-export function spacingM(resolutionM: number): number {
-    return 1 / Math.sqrt(densityAt(resolutionM));
+export function spacingM(resolutionM: number, pyramid: PyramidProfile = ESTIMATED_PYRAMID): number {
+    return 1 / Math.sqrt(densityAt(resolutionM, pyramid));
 }
 
 /**
@@ -73,16 +74,20 @@ function snapStride(ratio: number): number {
 /** Unrounded depth at which the octree cell matches the effective spacing. */
 function coherentDepthExact(
     widthM: number, lengthM: number, resolutionM: number, groundStride: number,
+    pyramid: PyramidProfile,
 ): number {
-    const effective = spacingM(resolutionM) * Math.sqrt(Math.max(1, groundStride));
+    const effective = spacingM(resolutionM, pyramid) * Math.sqrt(Math.max(1, groundStride));
     return Math.log2(Math.max(widthM, lengthM) / effective);
 }
 
 /** Octree depth whose cell matches the cloud's effective ground spacing. */
 export function coherentDepth(
     widthM: number, lengthM: number, resolutionM: number, groundStride = 1,
+    pyramid: PyramidProfile = ESTIMATED_PYRAMID,
 ): number {
-    return clampDepth(Math.round(coherentDepthExact(widthM, lengthM, resolutionM, groundStride)));
+    return clampDepth(Math.round(
+        coherentDepthExact(widthM, lengthM, resolutionM, groundStride, pyramid),
+    ));
 }
 
 /**
@@ -91,9 +96,10 @@ export function coherentDepth(
  */
 export function coherentGroundStride(
     widthM: number, lengthM: number, resolutionM: number, depth: number,
+    pyramid: PyramidProfile = ESTIMATED_PYRAMID,
 ): number {
     const cell = octreeCellM(widthM, lengthM, depth);
-    return snapStride((cell / spacingM(resolutionM)) ** 2);
+    return snapStride((cell / spacingM(resolutionM, pyramid)) ** 2);
 }
 
 /** One step of the quality dial, with the settings and the cost it implies. */
@@ -109,16 +115,18 @@ export interface QualityTier {
     seconds: number;
 }
 
-function tierAt(widthM: number, lengthM: number, depth: number, ceilingIdx: number): QualityTier {
+function tierAt(
+    widthM: number, lengthM: number, depth: number, ceilingIdx: number, pyramid: PyramidProfile,
+): QualityTier {
     const detailM = octreeCellM(widthM, lengthM, depth);
     // Coarsest stop still sampling at least as finely as the cell: fetching
     // finer than the octree can carry is bandwidth spent on nothing.
     let idx = ceilingIdx;
-    while (idx > 0 && spacingM(RESOLUTION_STOPS_M[idx - 1]) <= detailM) idx--;
+    while (idx > 0 && spacingM(RESOLUTION_STOPS_M[idx - 1], pyramid) <= detailM) idx--;
     const resolutionM = RESOLUTION_STOPS_M[idx];
     // On a large zone even the coarsest stop oversamples: thin the ground instead.
-    const groundStride = coherentGroundStride(widthM, lengthM, resolutionM, depth);
-    const { points, bytes } = estimateCapture(widthM, lengthM, resolutionM);
+    const groundStride = coherentGroundStride(widthM, lengthM, resolutionM, depth, pyramid);
+    const { points, bytes } = estimateCapture(widthM, lengthM, resolutionM, pyramid);
     const vertices = (points * VERTICES_PER_POINT) / groundStride;
     return {
         detailM,
@@ -139,16 +147,21 @@ function tierAt(widthM: number, lengthM: number, depth: number, ceilingIdx: numb
  * {@link maxResolutionM}, not at the auto resolution: the auto one sizes a
  * comfortable *default*, and capping the dial there left a large zone unable to
  * ask for the detail its data actually holds. The cost of each step is shown.
+ *
+ * `pyramid` is the zone's measured pyramid once `measureCapturePyramid` has
+ * returned one, the national table until then.
  */
-export function qualityTiers(widthM: number, lengthM: number): QualityTier[] {
-    const ceilingIdx = resolutionToIndex(maxResolutionM(widthM, lengthM));
+export function qualityTiers(
+    widthM: number, lengthM: number, pyramid: PyramidProfile = ESTIMATED_PYRAMID,
+): QualityTier[] {
+    const ceilingIdx = resolutionToIndex(maxResolutionM(widthM, lengthM, pyramid));
     const finest = clampDepth(Math.round(
-        coherentDepthExact(widthM, lengthM, RESOLUTION_STOPS_M[ceilingIdx], 1),
+        coherentDepthExact(widthM, lengthM, RESOLUTION_STOPS_M[ceilingIdx], 1, pyramid),
     ));
     const coarsest = Math.max(POISSON_DEPTH_MIN, finest - (QUALITY_TIER_COUNT - 1));
     const tiers: QualityTier[] = [];
     for (let depth = coarsest; depth <= finest; depth++) {
-        tiers.push(tierAt(widthM, lengthM, depth, ceilingIdx));
+        tiers.push(tierAt(widthM, lengthM, depth, ceilingIdx, pyramid));
     }
     return tiers;
 }
@@ -185,8 +198,8 @@ export interface CaptureSettings {
     groundStride: number;
 }
 
-function depthAdvice(s: CaptureSettings): CaptureAdvice | null {
-    const exact = coherentDepthExact(s.widthM, s.lengthM, s.resolutionM, s.groundStride);
+function depthAdvice(s: CaptureSettings, pyramid: PyramidProfile): CaptureAdvice | null {
+    const exact = coherentDepthExact(s.widthM, s.lengthM, s.resolutionM, s.groundStride, pyramid);
     const suggested = clampDepth(Math.round(exact));
     if (s.depth > exact + 0.5) return { kind: 'depthTooHigh', suggested };
     // One step below still reads every point; two is where half the download
@@ -195,8 +208,8 @@ function depthAdvice(s: CaptureSettings): CaptureAdvice | null {
     return null;
 }
 
-function groundAdvice(s: CaptureSettings): CaptureAdvice | null {
-    const suggested = coherentGroundStride(s.widthM, s.lengthM, s.resolutionM, s.depth);
+function groundAdvice(s: CaptureSettings, pyramid: PyramidProfile): CaptureAdvice | null {
+    const suggested = coherentGroundStride(s.widthM, s.lengthM, s.resolutionM, s.depth, pyramid);
     // The decimation is curvature-adaptive, so it keeps relief at full density
     // one stop past the theoretical limit — only flag beyond that.
     if (s.groundStride > suggested * 2) return { kind: 'groundTooSparse', suggested };
@@ -205,8 +218,11 @@ function groundAdvice(s: CaptureSettings): CaptureAdvice | null {
 }
 
 /** Every incoherence worth telling the user about, in reading order. */
-export function captureAdvice(s: CaptureSettings): CaptureAdvice[] {
-    return [depthAdvice(s), groundAdvice(s)].filter((a): a is CaptureAdvice => a !== null);
+export function captureAdvice(
+    s: CaptureSettings, pyramid: PyramidProfile = ESTIMATED_PYRAMID,
+): CaptureAdvice[] {
+    return [depthAdvice(s, pyramid), groundAdvice(s, pyramid)]
+        .filter((a): a is CaptureAdvice => a !== null);
 }
 
 /** Read-out for a detail size: `24 cm`, `2,9 m`. */

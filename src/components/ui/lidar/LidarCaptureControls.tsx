@@ -11,7 +11,7 @@ import {
     RESOLUTION_STOPS_M, resolutionToIndex,
 } from '@/lib/lidarResolution';
 import { useMapStore } from '@/stores/mapStore';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
 
@@ -228,14 +228,19 @@ function QualityControl() {
     const depth = useMapStore((s) => s.lidarCloudPoissonDepth);
     const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
     const setQuality = useMapStore((s) => s.setLidarCaptureQuality);
+    const zonePyramid = useMapStore((s) => s.lidarZonePyramid);
+    const ensureZonePyramid = useMapStore((s) => s.ensureZonePyramid);
+
+    // The costs shown are a national median until the zone's own tiles answer.
+    useEffect(() => { ensureZonePyramid(); }, [ensureZonePyramid]);
 
     const tiers = useMemo(
-        () => qualityTiers(rect.widthM, rect.lengthM),
-        [rect.widthM, rect.lengthM],
+        () => qualityTiers(rect.widthM, rect.lengthM, zonePyramid ?? undefined),
+        [rect.widthM, rect.lengthM, zonePyramid],
     );
     const index = tierIndexOf(tiers, resolution, depth, groundStride);
     const tier = index < 0 ? null : tiers[index];
-    const custom = estimateCapture(rect.widthM, rect.lengthM, resolution);
+    const custom = estimateCapture(rect.widthM, rect.lengthM, resolution, zonePyramid ?? undefined);
 
     return (
         <div className="space-y-1">
@@ -298,10 +303,11 @@ function CaptureAdviceList() {
     const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
     const setDepth = useMapStore((s) => s.setLidarCloudPoissonDepth);
     const setGroundStride = useMapStore((s) => s.setLidarCloudGroundStride);
+    const zonePyramid = useMapStore((s) => s.lidarZonePyramid);
 
     const advices = captureAdvice({
         widthM: rect.widthM, lengthM: rect.lengthM, resolutionM, depth, groundStride,
-    });
+    }, zonePyramid ?? undefined);
     if (advices.length === 0) return null;
 
     const applyFix = (advice: CaptureAdvice) => {
