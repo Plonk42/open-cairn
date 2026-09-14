@@ -53,9 +53,9 @@ Champs principaux :
   lidarClouds: LoadedLidarCloud[]   // tous les nuages affichés, le plus ancien d'abord
   lidarShaded, lidarMesh            // miroirs de lidarClouds[0]
   lidarCloudLoading, lidarCloudError, lidarCloudProgress
-  lidarCaptureRect, lidarRectNorthFixed, lidarCloudStride, lidarCloudClasses
-  lidarCaptureResolution, lidarCaptureResolutionAuto
-  lidarCloudPoissonDepth
+  lidarCaptureRect, lidarRectDrawActive, lidarCloudStride, lidarCloudClasses
+  lidarCaptureResolution
+  lidarCloudPoissonDepth, lidarCloudGroundStride
 
   // LiDAR (rendu)
   lidarCloudPointSize, lidarCloudSizeCompensation, lidarCloudOpacity
@@ -173,12 +173,15 @@ Deux cas particuliers :
   `uniform1f` correspondants.
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
-- **Réglage dérivé d'un autre** : `lidarCaptureResolution` suit la taille de la zone tant que
-  `lidarCaptureResolutionAuto` est vrai. Sa valeur persistée est alors une *conséquence*, pas une
-  donnée : elle est **recalculée à l'hydratation** depuis le rectangle restauré, sinon un
-  rectangle et une résolution enregistrés à deux instants différents reviennent incohérents.
-  Le setter manuel éteint `auto` — bouger le curseur est la seule façon d'exprimer une intention
-  que la taille de la zone ne peut pas déduire.
+- **Réglages couplés entre eux** : `lidarCaptureResolution`, `lidarCloudPoissonDepth` et
+  `lidarCloudGroundStride` ne sont cohérents qu'**ensemble** (un cran de résolution = deux
+  niveaux d'octree = quatre crans de densité sol, la pyramide IGN décuplant les points d'un
+  niveau au suivant, cf. [src/lib/lidarQuality.ts](../src/lib/lidarQuality.ts)).
+  Ils sont donc pilotés par un curseur unique, « Qualité », et **hydratés ensemble** : si l'un
+  manque, les trois retombent sur le palier que `defaultQualityIndex` choisit pour le rectangle
+  restauré, plutôt que sur trois défauts indépendants qui reviendraient incohérents. Les régler
+  un par un reste possible dans « Réglages avancés » ; le curseur affiche alors « personnalisée »
+  et `captureAdvice` signale les incohérences avec leur correction.
 
 Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
 tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir

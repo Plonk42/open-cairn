@@ -10,11 +10,15 @@ import type { ForestEdgeBlend, ForestGrouping } from '@/lib/lidarBrowser/bdforet
 import { buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_COLUMN_CELL_M, DEFAULT_VEG_GROUND_CELL_M, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH, DEFAULT_VEG_OVERHANG_REACH_M, DEFAULT_VEG_ROUGH_LOW_FRAC, DEFAULT_VEG_SLOPE_SAMPLE_M, sanitizeVegHeights, type VegCliffDistMode, type VegGroundGrid } from '@/lib/lidarBrowser/groundHeight';
 import { DEFAULT_ROCK, DEFAULT_SNOW_AMOUNT, DEFAULT_SNOW_LINE, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import {
-    clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM,
-    screenCenterLngLat, screenUpAzimuthDeg, type CaptureRectDims,
+    clampRectToArea, LIDAR_RECT_MAX_AREA_M2, rectEnclosingRadiusM, rectOnScreen,
+    screenCenterLngLat, screenUpAzimuthDeg,
+    type CaptureRect,
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
-import { autoResolutionM, RESOLUTION_STOPS_M, resolutionToIndex } from '@/lib/lidarResolution';
+import {
+    defaultQualityIndex, qualityTiers, tierIndexOf, type QualityTier,
+} from '@/lib/lidarQuality';
+import { RESOLUTION_STOPS_M, resolutionToIndex } from '@/lib/lidarResolution';
 import type { DrapeSource } from '@/lib/mapStyle';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
@@ -44,31 +48,59 @@ export interface LidarLodDebugInfo {
 }
 
 /**
- * Resolve the area to fetch for the next capture: the centred capture rectangle
- * (clamped to `maxArea`), oriented north when `northFixed` is set, otherwise
- * along the live camera bearing. `radius` is the enclosing-circle radius so
+ * Resolve the area to fetch for the next capture from the ground-anchored
+ * rectangle (clamped to `maxArea`). `radius` is the enclosing-circle radius so
  * tile/node selection covers the whole footprint.
  */
-function captureGeometry(
-    rect: CaptureRectDims,
-    map: MapState['mapInstance'],
-    maxArea: number,
-    northFixed: boolean,
-): {
+function captureGeometry(rect: CaptureRect, maxArea: number): {
     radius: number; widthM: number; lengthM: number;
     rect: { halfWidthM: number; halfLengthM: number; bearingDeg: number };
 } {
-    const { widthM, lengthM } = clampRectToArea(rect.widthM, rect.lengthM, maxArea);
+    const { widthM, lengthM, bearingDeg } = clampRectToArea(rect, maxArea);
     return {
         radius: rectEnclosingRadiusM(widthM, lengthM),
         widthM,
         lengthM,
-        rect: {
-            halfWidthM: widthM / 2,
-            halfLengthM: lengthM / 2,
-            bearingDeg: northFixed || !map ? 0 : screenUpAzimuthDeg(map),
-        },
+        rect: { halfWidthM: widthM / 2, halfLengthM: lengthM / 2, bearingDeg },
     };
+}
+
+/** A persisted rectangle, or `null` when it is not a usable ground anchor. */
+function validRect(rect: CaptureRect | undefined): CaptureRect | null {
+    if (!rect) return null;
+    const finite = [rect.centerLng, rect.centerLat, rect.bearingDeg, rect.widthM, rect.lengthM]
+        .every((n) => typeof n === 'number' && Number.isFinite(n));
+    if (!finite || rect.widthM <= 0 || rect.lengthM <= 0) return null;
+    return clampRectToArea(rect, LIDAR_RECT_MAX_AREA_M2);
+}
+
+function clampIndex(index: number, length: number): number {
+    return Math.min(length - 1, Math.max(0, index));
+}
+
+/** The three settings a quality step stands for. */
+function tierValues(tier: QualityTier) {
+    return {
+        lidarCaptureResolution: tier.resolutionM,
+        lidarCloudPoissonDepth: tier.depth,
+        lidarCloudGroundStride: tier.groundStride,
+    };
+}
+
+/** Those same settings, `stepsFromFinest` steps below the finest one. */
+function tierSettings(rect: CaptureRect, stepsFromFinest: number) {
+    const tiers = qualityTiers(rect.widthM, rect.lengthM);
+    return tierValues(tiers[clampIndex(tiers.length - 1 - stepsFromFinest, tiers.length)]);
+}
+
+/** Steps between the current settings and the finest one, `null` if hand-tuned. */
+function currentQualityStep(state: MapState): number | null {
+    const { widthM, lengthM } = state.lidarCaptureRect;
+    const tiers = qualityTiers(widthM, lengthM);
+    const index = tierIndexOf(
+        tiers, state.lidarCaptureResolution, state.lidarCloudPoissonDepth, state.lidarCloudGroundStride,
+    );
+    return index < 0 ? null : tiers.length - 1 - index;
 }
 
 /** Rendering mode: shaded point cloud, delaunay (2.5D ground mesh + points), or poisson (WASM ground mesh + points). */
@@ -560,12 +592,17 @@ export interface LidarSlice {
     lidarPreviewVisible: boolean;
     setLidarPreviewVisible: (v: boolean) => void;
     /**
-     * Centred capture rectangle (width × length in metres). A square is just the
-     * special case width === length. Orientation follows the live camera bearing
-     * unless `lidarRectNorthFixed` is set.
+     * Capture rectangle, anchored to the ground: drawing it freezes its centre
+     * and its orientation, so the camera can then be framed without moving what
+     * will be captured.
      */
-    lidarCaptureRect: CaptureRectDims;
-    setLidarCaptureRect: (r: CaptureRectDims) => void;
+    lidarCaptureRect: CaptureRect;
+    setLidarCaptureRect: (r: CaptureRect) => void;
+    /** Move the zone under the camera when it has drifted out of the view. */
+    ensureCaptureRectVisible: () => void;
+    /** Map drag is redefining the capture rectangle. */
+    lidarRectDrawActive: boolean;
+    setLidarRectDrawActive: (v: boolean) => void;
     /**
      * Target ground sampling of the capture (m between points), 0 = native
      * density. Caps the COPC octree depth walked, so it is the one setting that
@@ -573,14 +610,14 @@ export interface LidarSlice {
      */
     lidarCaptureResolution: number;
     setLidarCaptureResolution: (v: number) => void;
-    /** Keep the resolution tied to the zone size, so enlarging the zone stays
-     *  within the download budget instead of silently costing gigabytes. */
-    lidarCaptureResolutionAuto: boolean;
-    setLidarCaptureResolutionAuto: (v: boolean) => void;
-    /** Lock the capture rectangle to a north-up orientation (ignore the camera bearing). */
-    lidarRectNorthFixed: boolean;
-    setLidarRectNorthFixed: (v: boolean) => void;
-    /** Load the point cloud centered on the current map view. */
+    /**
+     * Move to a quality step, which derives resolution, octree depth and ground
+     * density at once — they are one axis, not three (see `lidarQuality.ts`).
+     * The current step is read back with `tierIndexOf`, so hand-tuning any of
+     * the three simply lands between steps instead of desyncing a flag.
+     */
+    setLidarCaptureQuality: (index: number) => void;
+    /** Load the point cloud for the capture rectangle. */
     loadLidarCloud: () => Promise<void>;
     /**
      * Replay the setup of a past capture — mode, extent, framing and all of its
@@ -760,14 +797,23 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         initialSunDate,
     );
 
-    // The auto resolution is a function of the zone, so it is recomputed here
-    // rather than trusted: the persisted pair could come from another branch.
-    // A manual value is snapped to a stop for the same reason.
-    const initialRect = persisted.lidarCaptureRect ?? { widthM: 500, lengthM: 500 };
-    const initialResolutionAuto = persisted.lidarCaptureResolutionAuto ?? true;
-    const initialResolution = initialResolutionAuto
-        ? autoResolutionM(initialRect.widthM, initialRect.lengthM)
-        : RESOLUTION_STOPS_M[resolutionToIndex(persisted.lidarCaptureResolution ?? 0)];
+    // A persisted rectangle from another branch would be missing its anchor, so
+    // the whole shape is validated rather than trusted field by field.
+    const initialView = persisted.view ?? DEFAULT_VIEW;
+    const initialRect = validRect(persisted.lidarCaptureRect) ?? {
+        centerLng: initialView.longitude,
+        centerLat: initialView.latitude,
+        bearingDeg: 0,
+        widthM: 500,
+        lengthM: 500,
+    };
+    // The three settings the quality dial drives are only coherent together, so
+    // they default together: the tier `defaultQualityIndex` picks for this zone.
+    const initialTiers = qualityTiers(initialRect.widthM, initialRect.lengthM);
+    const defaultTier = initialTiers[defaultQualityIndex(initialTiers)];
+    const initialResolution = RESOLUTION_STOPS_M[resolutionToIndex(
+        persisted.lidarCaptureResolution ?? defaultTier.resolutionM,
+    )];
 
     return {
         lidarMode: (persisted.lidarMode === 'shaded' || persisted.lidarMode === 'delaunay' || persisted.lidarMode === 'poisson') ? persisted.lidarMode : LIDAR_RENDER_DEFAULTS.lidarMode,
@@ -798,7 +844,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarCloudProgress: null,
         lidarCloudStride: persisted.lidarCloudStride ?? 10,
         setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
-        lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? 16,
+        lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? defaultTier.groundStride,
         setLidarCloudGroundStride: (lidarCloudGroundStride) => set({ lidarCloudGroundStride }),
         lidarMeshSmooth: persisted.lidarMeshSmooth ?? true,
         setLidarMeshSmooth: (lidarMeshSmooth) => set({ lidarMeshSmooth }),
@@ -895,7 +941,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCloudBasemapOpacity: (lidarCloudBasemapOpacity) => set({ lidarCloudBasemapOpacity }),
         lidarCloudClasses: persisted.lidarCloudClasses ?? LIDAR_RENDER_DEFAULTS.lidarCloudClasses,
         setLidarCloudClasses: (lidarCloudClasses) => set({ lidarCloudClasses }),
-        lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? 9,
+        lidarCloudPoissonDepth: persisted.lidarCloudPoissonDepth ?? defaultTier.depth,
         setLidarCloudPoissonDepth: (lidarCloudPoissonDepth) => set({ lidarCloudPoissonDepth }),
         lidarCloudPoissonSamplesPerNode: persisted.lidarCloudPoissonSamplesPerNode ?? 1.5,
         setLidarCloudPoissonSamplesPerNode: (lidarCloudPoissonSamplesPerNode) => set({ lidarCloudPoissonSamplesPerNode }),
@@ -983,30 +1029,46 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarPreviewVisible: false,
         setLidarPreviewVisible: (lidarPreviewVisible) => set({ lidarPreviewVisible }),
         lidarCaptureRect: initialRect,
-        setLidarCaptureRect: (lidarCaptureRect) => set(get().lidarCaptureResolutionAuto
-            ? {
-                lidarCaptureRect,
-                lidarCaptureResolution: autoResolutionM(lidarCaptureRect.widthM, lidarCaptureRect.lengthM),
-            }
-            : { lidarCaptureRect }),
-        lidarCaptureResolution: initialResolution,
-        // Moving the slider is what states an intent the zone size cannot infer.
-        setLidarCaptureResolution: (lidarCaptureResolution) => set({
-            lidarCaptureResolution, lidarCaptureResolutionAuto: false,
-        }),
-        lidarCaptureResolutionAuto: initialResolutionAuto,
-        setLidarCaptureResolutionAuto: (lidarCaptureResolutionAuto) => {
-            const { widthM, lengthM } = get().lidarCaptureRect;
-            set(lidarCaptureResolutionAuto
-                ? { lidarCaptureResolutionAuto, lidarCaptureResolution: autoResolutionM(widthM, lengthM) }
-                : { lidarCaptureResolutionAuto });
+        // Resizing keeps the quality step the user picked rather than its index:
+        // the dial loses steps on a small zone, so the distance to the finest
+        // step is what carries the intent.
+        setLidarCaptureRect: (lidarCaptureRect) => {
+            const s = get();
+            const step = currentQualityStep(s);
+            set(step === null
+                ? { lidarCaptureRect }
+                : { lidarCaptureRect, ...tierSettings(lidarCaptureRect, step) });
         },
-        lidarRectNorthFixed: persisted.lidarRectNorthFixed ?? false,
-        setLidarRectNorthFixed: (lidarRectNorthFixed) => set({ lidarRectNorthFixed }),
+        lidarRectDrawActive: false,
+        ensureCaptureRectVisible: () => {
+            const s = get();
+            const map = s.mapInstance;
+            if (!map || rectOnScreen(map, s.lidarCaptureRect)) return;
+            const c = screenCenterLngLat(map);
+            s.setLidarCaptureRect({
+                ...s.lidarCaptureRect,
+                centerLng: c.lng,
+                centerLat: c.lat,
+                bearingDeg: screenUpAzimuthDeg(map),
+            });
+        },
+        setLidarRectDrawActive: (lidarRectDrawActive) => set({ lidarRectDrawActive }),
+        lidarCaptureResolution: initialResolution,
+        setLidarCaptureResolution: (lidarCaptureResolution) => set({ lidarCaptureResolution }),
+        setLidarCaptureQuality: (index) => {
+            const tiers = qualityTiers(get().lidarCaptureRect.widthM, get().lidarCaptureRect.lengthM);
+            set(tierValues(tiers[clampIndex(index, tiers.length)]));
+        },
         recallCaptureSetup: (capture) => {
             const st = get();
             st.setLidarMode(capture.mode);
-            st.setLidarCaptureRect({ widthM: capture.widthM, lengthM: capture.lengthM });
+            st.setLidarCaptureRect({
+                centerLng: capture.centerLng,
+                centerLat: capture.centerLat,
+                bearingDeg: capture.bearingDeg,
+                widthM: capture.widthM,
+                lengthM: capture.lengthM,
+            });
             applyCaptureParams(capture.params ?? {}, st);
             const radius = rectEnclosingRadiusM(capture.widthM, capture.lengthM);
             const dLat = radius / 111320;
@@ -1018,21 +1080,12 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         },
         loadLidarCloud: async () => {
             const state = get();
-            const map = state.mapInstance;
-            // Use screen center (not map.getCenter) so the loaded area matches the
-            // preview rectangle when the camera is pitched, and honours any map
-            // padding (the mobile capture sheet pads the bottom so the footprint
-            // stays in the uncovered map area).
-            let center: { lng: number; lat: number };
-            if (map) {
-                center = screenCenterLngLat(map);
-            } else {
-                center = { lng: state.view.longitude, lat: state.view.latitude };
-            }
+            const center = {
+                lng: state.lidarCaptureRect.centerLng,
+                lat: state.lidarCaptureRect.centerLat,
+            };
             const maxArea = LIDAR_RECT_MAX_AREA_M2;
-            const capture = captureGeometry(
-                state.lidarCaptureRect, map, maxArea, state.lidarRectNorthFixed,
-            );
+            const capture = captureGeometry(state.lidarCaptureRect, maxArea);
             set({ lidarCloudLoading: true, lidarCloudError: null, lidarCloudProgress: null });
             try {
                 const onProgress = (progress: LidarProgress) => set({ lidarCloudProgress: progress });
@@ -1040,6 +1093,7 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                     mode: state.lidarMode,
                     centerLng: center.lng,
                     centerLat: center.lat,
+                    bearingDeg: capture.rect.bearingDeg,
                     widthM: capture.widthM,
                     lengthM: capture.lengthM,
                     params: captureParamsFromState(state),
@@ -1190,8 +1244,6 @@ export function selectLidarPersisted(
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
     | 'lidarCaptureResolution'
-    | 'lidarCaptureResolutionAuto'
-    | 'lidarRectNorthFixed'
     | 'lidarCloudGroundStride'
     | 'lidarMeshSmooth'
     | 'lidarGridCell'
@@ -1269,8 +1321,6 @@ export function selectLidarPersisted(
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
         lidarCaptureResolution: s.lidarCaptureResolution,
-        lidarCaptureResolutionAuto: s.lidarCaptureResolutionAuto,
-        lidarRectNorthFixed: s.lidarRectNorthFixed,
         lidarCloudGroundStride: s.lidarCloudGroundStride,
         lidarMeshSmooth: s.lidarMeshSmooth,
         lidarGridCell: s.lidarGridCell,

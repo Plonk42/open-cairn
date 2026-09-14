@@ -17,8 +17,8 @@ Coller cette URL dans une autre fenêtre / l'envoyer à quelqu'un :
 
 - Vos clés API IGN (à ressaisir manuellement par le destinataire si nécessaire)
 - Vos itinéraires sauvegardés (uniquement le courant)
-- Les nuages LiDAR chargés (non sérialisables ; le destinataire doit cliquer
-  *Charger ici* à son tour s'il veut le recharger)
+- Les nuages LiDAR chargés (non sérialisables ; le destinataire doit dessiner
+  sa zone et cliquer *Capturer* à son tour s'il veut le recharger)
 
 ### Limitations
 

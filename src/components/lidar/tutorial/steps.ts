@@ -78,8 +78,8 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
     {
         id: 'capture',
         selector: '[data-tutorial="capture"]',
-        title: '1 · Charger une zone',
-        body: 'Centrez la carte sur une zone de montagne, puis ouvrez ce bouton et cliquez « Charger ici » pour télécharger le nuage de points LiDAR.',
+        title: '1 · Dessiner une zone',
+        body: 'Ouvrez ce bouton, cliquez « Dessiner la zone » et glissez sur la carte pour tracer le rectangle à capturer. Le curseur « Qualité » règle le compromis détail / temps de calcul.',
         placement: 'left',
     },
     {

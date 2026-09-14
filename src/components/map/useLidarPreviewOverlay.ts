@@ -1,9 +1,8 @@
-import {
-    rectPreviewGeoJson, screenCenterLngLat, screenUpAzimuthDeg,
-} from '@/lib/lidarCaptureRect';
+import { rectPreviewGeoJson } from '@/lib/lidarCaptureRect';
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, type RefObject } from 'react';
+import { applyWhenStyleReady } from './styleReady';
 
 const LIDAR_PREVIEW_SOURCE = 'open-cairn-lidar-preview';
 
@@ -40,54 +39,28 @@ function ensureLidarPreviewLayer(map: maplibregl.Map): void {
 }
 
 /**
- * Shows the footprint of the next LiDAR fetch on the map: the centred capture
- * rectangle sized by `lidarCaptureRect`. Its orientation is north when
- * `lidarRectNorthFixed` is set, otherwise the live camera bearing (kept
- * camera-fixed — constant on screen, its ground footprint rotating with the
- * map — by re-deriving the centre and bearing from the live projection on
- * every move).
+ * Shows the footprint of the next LiDAR fetch on the map. The rectangle is
+ * anchored to the ground, so unlike the camera-fixed preview it replaces it
+ * needs no per-frame update — only a redraw when the rectangle itself changes.
  */
 export function useLidarPreviewOverlay(mapRef: RefObject<maplibregl.Map | null>): void {
     const lidarPreviewVisible = useMapStore((s) => s.lidarPreviewVisible);
     const lidarCaptureRect = useMapStore((s) => s.lidarCaptureRect);
-    const lidarRectNorthFixed = useMapStore((s) => s.lidarRectNorthFixed);
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
 
         const updatePreview = () => {
-            if (!map.isStyleLoaded()) return;
             ensureLidarPreviewLayer(map);
             const source = map.getSource(LIDAR_PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined;
             if (!source) return;
-            if (!lidarPreviewVisible) {
-                source.setData({ type: 'FeatureCollection', features: [] });
-                return;
-            }
-            // Screen center (not map.getCenter) so the preview stays centered
-            // even when the camera is pitched.
-            const center = screenCenterLngLat(map);
-            const azimuth = lidarRectNorthFixed ? 0 : screenUpAzimuthDeg(map);
-            source.setData(rectPreviewGeoJson(
-                center.lng, center.lat, azimuth,
-                lidarCaptureRect.widthM, lidarCaptureRect.lengthM,
-            ));
+            source.setData(lidarPreviewVisible
+                ? rectPreviewGeoJson(lidarCaptureRect)
+                : { type: 'FeatureCollection', features: [] });
         };
 
-        // Initial update — use 'idle' rather than 'load' so we recover from
-        // any later style transition (LiDAR layers being added, basemap
-        // switches…), not just the first style load.
-        if (map.isStyleLoaded()) {
-            updatePreview();
-        } else {
-            map.once('idle', updatePreview);
-        }
-
-        // Update on map move when preview is visible
-        if (lidarPreviewVisible) {
-            map.on('move', updatePreview);
-            return () => { map.off('move', updatePreview); };
-        }
-        return undefined;
-    }, [mapRef, lidarPreviewVisible, lidarCaptureRect, lidarRectNorthFixed]);
+        // Reinstall on every `styledata`: a style rebuild (basemap switch, the
+        // LiDAR layers being added) drops the source along with the old style.
+        return applyWhenStyleReady(map, updatePreview);
+    }, [mapRef, lidarPreviewVisible, lidarCaptureRect]);
 }

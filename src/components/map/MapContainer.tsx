@@ -14,7 +14,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
+import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
+import { useRectDrawInteraction } from './useRectDrawInteraction';
 
 /**
  * Assembles the `buildMapStyle` options from a store snapshot. Shared by all
@@ -82,10 +84,7 @@ function BasemapDimmer({ studio }: { studio: boolean }) {
                 } catch { /* layer might not accept the property */ }
             }
         };
-        if (map.isStyleLoaded()) apply();
-        else map.once('idle', apply);
-        map.on('styledata', apply);
-        return () => { map.off('styledata', apply); };
+        return applyWhenStyleReady(map, apply);
     }, [mapInstance, basemapOpacity, studio]);
     return null;
 }
@@ -170,22 +169,11 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
             paintRelight(map, basemapRelight(params, exposure));
         };
         // `setSky` throws outright while the style is still loading, and
-        // `styledata` fires *during* the load, so the guard has to be on every
-        // call. Waiting on `idle` is not enough either: with the LiDAR tiles
-        // still streaming it can be minutes away, and the style may finish
-        // loading without another `styledata` to trigger us — hence the poll.
-        let retry = 0;
-        const applyWhenReady = () => {
-            window.clearTimeout(retry);  // keeps a single poll chain alive
-            if (map.isStyleLoaded()) apply();
-            else retry = window.setTimeout(applyWhenReady, 200);
-        };
-        applyWhenReady();
-        map.on('styledata', applyWhenReady);
-        return () => {
-            window.clearTimeout(retry);
-            map.off('styledata', applyWhenReady);
-        };
+        // `styledata` fires *during* the load, so every call has to be able to
+        // fail and be retried — which is exactly what the helper does. Waiting
+        // on `idle` would not work either: with the LiDAR tiles still streaming
+        // it can be minutes away.
+        return applyWhenStyleReady(map, apply);
     }, [mapInstance, studio, photoreal, sunEnabled, sunAzimuth, sunElevation, sunWarmth, sunIntensity, exposure, ambient, sunStrength]);
     return null;
 }
@@ -347,8 +335,8 @@ function ensureMarkerLayers(map: maplibregl.Map): void {
     }
 }
 
+// Throws while the style is still loading; callers retry (see `styleReady`).
 function ensureRouteLayers(map: maplibregl.Map): void {
-    if (!map.isStyleLoaded()) return;
     if (!map.getSource(ROUTE_LINE_SOURCE)) {
         map.addSource(ROUTE_LINE_SOURCE, {
             type: 'geojson',
@@ -765,7 +753,12 @@ export function MapContainer() {
 
         map.once('idle', () => syncCenterElevationToTerrain(map));
 
-        const refreshRouteLayers = () => { syncRouteToMap(map); };
+        // Route layers are dropped by a style rebuild. `syncRouteToMap` throws
+        // while the style refuses them; the poll in the route effect is what
+        // retries, so swallowing here only skips one style event.
+        const refreshRouteLayers = () => {
+            try { syncRouteToMap(map); } catch { /* style not ready yet */ }
+        };
         map.once('load', refreshRouteLayers);
         map.on('styledata', refreshRouteLayers);
 
@@ -1036,24 +1029,30 @@ export function MapContainer() {
 
     // Terrain on/off + exaggeration (no style rebuild needed).
     // In the LiDAR Studio 3D terrain is forced on (no user toggle).
+    // Retried rather than re-applied on `styledata`: `setTerrain` mutates the
+    // style, so re-applying on every style event would loop.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map?.isStyleLoaded()) return;
-        if (terrainEnabled || studio) {
-            map.setTerrain({ source: 'terrain', exaggeration: studio ? 1 : terrainExaggeration });
-            map.once('idle', () => syncCenterElevationToTerrain(map));
-        } else {
-            map.setTerrain(null);
-        }
+        if (!map) return;
+        return retryUntilStyleAccepts(map, () => {
+            if (terrainEnabled || studio) {
+                map.setTerrain({ source: 'terrain', exaggeration: studio ? 1 : terrainExaggeration });
+                map.once('idle', () => syncCenterElevationToTerrain(map));
+            } else {
+                map.setTerrain(null);
+            }
+        });
     }, [terrainEnabled, terrainExaggeration, studio]);
 
     useEffect(() => {
         const map = mapRef.current;
-        if (map?.isStyleLoaded()) syncRouteToMap(map);
-        return useRouteStore.subscribe((route, prev) => {
+        const cancelSync = map ? retryUntilStyleAccepts(map, syncRouteToMap) : undefined;
+        const unsubscribe = useRouteStore.subscribe((route, prev) => {
             const m = mapRef.current;
-            if (!m?.getStyle()?.layers) return;
-            ensureRouteLayers(m);
+            if (!m) return;
+            // The layers are gone until the style accepts them again (a rebuild
+            // drops them); the effect above is what puts them back.
+            try { ensureRouteLayers(m); } catch { return; }
             // setData re-tiles a source's whole geometry in the worker. During a
             // flyover only `hoverCoordinate` changes, on every single frame.
             if (route.routeSegments !== prev.routeSegments) {
@@ -1074,10 +1073,15 @@ export function MapContainer() {
             }
             m.getCanvas().style.cursor = routeCursor(route);
         });
+        return () => {
+            cancelSync?.();
+            unsubscribe();
+        };
     }, []);
 
     // LiDAR preview zone — shows the footprint on the map of what will be loaded.
     useLidarPreviewOverlay(mapRef);
+    useRectDrawInteraction(mapRef);
 
     return (
         <>

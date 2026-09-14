@@ -58,8 +58,11 @@ export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Re
     const isMobile = useIsMobile();
 
     // The load-zone preview footprint is shown only while this menu is open.
+    // The zone is ground-anchored, so bring it back under the camera when
+    // opening the panel would otherwise show dimensions for an off-screen zone.
     useEffect(() => {
         useMapStore.getState().setLidarPreviewVisible(open);
+        if (open) useMapStore.getState().ensureCaptureRectVisible();
     }, [open]);
     useEffect(() => () => {
         useMapStore.getState().setLidarPreviewVisible(false);
@@ -87,8 +90,8 @@ export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Re
     }, [loading, loadingError]);
 
     // On mobile the capture menu floats over the map, so pad the map bottom
-    // while it's open — the centred capture footprint + "Charger ici" load point
-    // follow the padded screen centre, keeping them in the uncovered area.
+    // while it's open — drawing and reviewing the capture rectangle then happen
+    // in the uncovered area.
     useEffect(() => {
         if (!isMobile) return;
         const map = useMapStore.getState().mapInstance;

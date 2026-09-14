@@ -1,5 +1,5 @@
 import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
-import type { CaptureRectDims } from '@/lib/lidarCaptureRect';
+import type { CaptureRect } from '@/lib/lidarCaptureRect';
 import type { DrapeSource } from '@/lib/mapStyle';
 import type { AppView } from '@/lib/useView';
 import type { MapStyleSettings } from './mapStyleView';
@@ -26,10 +26,8 @@ export type PersistedSettings = {
     lidarSnowAmount?: number;
     lidarRockType?: RockType;
     lidarCloudStride?: number;
-    lidarCaptureRect?: CaptureRectDims;
+    lidarCaptureRect?: CaptureRect;
     lidarCaptureResolution?: number;
-    lidarCaptureResolutionAuto?: boolean;
-    lidarRectNorthFixed?: boolean;
     lidarCloudGroundStride?: number;
     lidarMeshSmooth?: boolean;
     lidarGridCell?: number;

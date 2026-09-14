@@ -15,9 +15,20 @@ via PoissonRecon (WASM).
 
 Dans le panneau **LiDAR** :
 
-1. Centrez la carte sur la zone d'intérêt et ouvrez le panneau.
-2. Réglez la **taille de la zone** (50 m à 5 km de côté, dans la limite de
-   25 km²) et la **résolution** (voir ci-dessous).
+1. Ouvrez le panneau **Capture** et cliquez sur **Dessiner la zone**, puis
+   glissez sur la carte. Le rectangle est **ancré au sol** : une fois tracé, la
+   caméra bouge librement sans changer ce qui sera capturé. La caméra est mise
+   à plat le temps du tracé (sous une vue inclinée, l'emprise au sol d'un
+   glissement à l'écran est un trapèze), puis remise comme elle était ; `Échap`
+   annule. L'orientation du rectangle est celle de la caméra au moment du tracé.
+   Corollaire de l'ancrage : si vous naviguez ailleurs entre-temps, la zone
+   sort du champ. Rouvrir le panneau **Capture** la ramène alors sous la caméra
+   (mêmes dimensions, orientation reprise de l'écran) plutôt que d'afficher des
+   dimensions pour une zone invisible.
+2. Choisissez le niveau de **Qualité**. Ce curseur unique règle d'un coup la
+   résolution, la profondeur d'octree et la densité sol — voir
+   « Le curseur Qualité » plus bas. La ligne sous le curseur donne le volume
+   téléchargé, la durée et le nombre de sommets attendus.
 3. Sélectionnez le **mode** :
    - **Points** (`shaded`) — tous les points sont conservés, normales calculées
      par k-NN, coloration par pente + Eye-Dome Lighting. Restitue parfaitement
@@ -29,23 +40,50 @@ Dans le panneau **LiDAR** :
    - **Poisson** (`poisson`) — le sol est reconstruit par PoissonRecon (WASM,
      octree adaptatif), le reste reste en nuage de points ombrés. Sortie la
      plus propre (mesh continu, sans triangles tendus en bordure), mais la plus
-     coûteuse à calculer. La **profondeur d'octree** (6 à 12, défaut 9) règle
-     le compromis vitesse / finesse.
+     coûteuse à calculer.
 4. Filtrez les **classes LAS** à conserver (sol, végétation basse / moyenne /
    haute, bâtiments, etc.). Note : en modes `delaunay` et `poisson`, le filtre
    est appliqué côté GPU au runtime — un changement de classes ne déclenche
    pas un nouveau fetch.
-5. Lancez le chargement : une barre de progression suit les étapes
+5. **Capturer** : une barre de progression suit les étapes
    (recherche de dalles → téléchargement → décodage → normales / mesh /
    reconstruction Poisson).
 
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).
 
+### Le curseur Qualité
+
+Résolution de capture, profondeur d'octree Poisson et densité sol ne veulent
+rien dire séparément : un cran de résolution vaut **deux** niveaux d'octree et
+quatre crans de densité sol (la pyramide IGN décuple les points d'un niveau au
+suivant, cf. la table plus bas). Régler l'un sans les autres achète des octets
+qu'on jette, ou demande au solveur un détail que les points ne portent pas.
+
+[src/lib/lidarQuality.ts](../src/lib/lidarQuality.ts) encode ce couplage et en
+dérive quatre paliers pour le rectangle courant, du plus grossier au plus fin ;
+chaque palier est nommé par la **taille de détail** qu'il restitue (`2 m`,
+`98 cm`, `49 cm`, `24 cm`…) plutôt que par ses trois nombres. Le palier
+proposé par défaut est le plus fin qui tienne sous ~3 minutes de calcul estimé.
+Le curseur, lui, va **plus loin que ce défaut** : il s'arrête au plafond de
+20 M de points (`CAPTURE_POINT_CEILING`), pas au budget de 6 M qui dimensionne
+le défaut. Sur une zone de 4 km le dernier cran coûte donc une dizaine de
+minutes annoncées — la carte affiche les Mo et la durée, c'est un choix éclairé.
+Plafonner le curseur au budget interdisait à une grande zone d'accéder au
+niveau de pyramide suivant, seul moyen d'y gagner du détail.
+Redimensionner la zone conserve le cran choisi (compté depuis le plus fin), pas
+son index : le curseur perd des crans sur une petite zone.
+
+« Réglages avancés », dans la même carte, redonne accès aux trois réglages
+séparément — le curseur affiche alors « personnalisée ». Les incohérences y
+sont signalées avec leur correction (« Profondeur inutilement élevée… »,
+« Densité sol trop faible… »), chaque message portant son bouton *Corriger*.
+
 ### Résolution : le réglage qui décide du coût
 
-Une dalle COPC est un octree : chaque niveau supplémentaire divise par deux
-l'espacement entre points et multiplie par ~quatre le volume à télécharger. Le
+Une dalle COPC est un octree, mais **pas un octree plein** : les niveaux de la
+pyramide IGN ne quadruplent pas les points, ils les **décuplent** près de la
+racine avant de saturer vers la densité native. Le
 curseur **Résolution** choisit le niveau le plus profond parcouru — les niveaux
 plus fins ne sont **jamais téléchargés**. C'est la différence de fond avec les
 curseurs de densité : ceux-ci jettent des points déjà décodés, la résolution
@@ -55,21 +93,28 @@ Les crans correspondent aux espacements que la pyramide IGN livre réellement
 (6,8 m, 3,4 m, 1,7 m, 0,85 m, 0,43 m, puis `max` = densité native), mesurés sur
 une dalle de 1 km² :
 
-| niveau ≤ | espacement | points cumulés | Mo cumulés |
-|---|---|---|---|
-| 0 | 6,8 m | 60 639 | 0,7 |
-| 1 | 3,4 m | 609 697 | 5,4 |
-| 2 | 1,7 m | 2 268 567 | 17,6 |
-| 3 | 0,85 m | 8 653 121 | 51,6 |
-| 4 | 0,43 m | 18 232 817 | 97,0 |
+| niveau ≤ | espacement annoncé | points cumulés | pt/m² | Mo cumulés |
+|---|---|---|---|---|
+| 0 | 6,8 m | 60 639 | 0,061 | 0,7 |
+| 1 | 3,4 m | 609 697 | 0,61 | 5,4 |
+| 2 | 1,7 m | 2 268 567 | 2,3 | 17,6 |
+| 3 | 0,85 m | 8 653 121 | 8,7 | 51,6 |
+| 4 | 0,43 m | 18 232 817 | 18,2 | 97,0 |
 
-D'où le couplage **Auto** (coché par défaut) : agrandir la zone choisit la
-résolution la plus fine qui tienne sous un budget de ~6 M de points
-téléchargés. Une zone de 3 × 3 km retombe ainsi sur 3,4 m et ~5 M de points là
-où la densité native en demanderait 160 M. Bouger le curseur décoche Auto —
-c'est le seul geste qui exprime une intention que la taille de la zone ne peut
-pas deviner. La ligne sous le curseur affiche l'estimation avant de lancer, et
-passe en ambre au-delà du budget.
+C'est cette colonne pt/m² que [src/lib/lidarResolution.ts](../src/lib/lidarResolution.ts)
+utilise (`DENSITY_AT_STOP_PT_M2`), et non une loi en 1/espacement². La loi
+supposerait ×4 par niveau et surestimait le niveau racine d'un facteur 2,5 :
+une grande zone, forcée précisément sur ce niveau, se voyait promettre un détail
+de 2 m que la donnée ne portait pas — d'où un maillage plat à fond de curseur.
+Les densités varient d'une dalle à l'autre (0,034 / 0,339 pt/m² relevés sur
+`LHD_FXX_0902_6438`, Vercors, soit 1,8× plus clairsemé) : la table est une
+estimation haute, pas une garantie.
+
+C'est ce qui rend une zone de plusieurs kilomètres chargeable : les paliers de
+qualité choisissent pour une zone de 3 × 3 km une résolution de 3,4 m et ~5 M
+de points là où la densité native en demanderait 160 M. La ligne sous le
+curseur affiche l'estimation avant de lancer, et passe en ambre au-delà du
+budget.
 
 Un ordre de grandeur mesuré : 3 × 3 km à 3,4 m = 38 dalles, ~5 M de points,
 environ une minute et demie (l'essentiel du temps part en attente des 429).
@@ -192,7 +237,10 @@ uniformément.
 
 | Fichier | Rôle |
 |---------|------|
-| [src/components/ui/lidar/LidarCaptureControls.tsx](../src/components/ui/lidar/LidarCaptureControls.tsx) | UI : emprise, densité, mode, réglages Poisson, déclenchement du chargement |
+| [src/components/ui/lidar/LidarCaptureControls.tsx](../src/components/ui/lidar/LidarCaptureControls.tsx) | UI : zone dessinée, curseur Qualité, réglages avancés, déclenchement du chargement |
+| [src/lib/lidarQuality.ts](../src/lib/lidarQuality.ts) | Paliers de qualité, cohérence résolution / profondeur / densité sol, conseils et estimations |
+| [src/lib/lidarCaptureRect.ts](../src/lib/lidarCaptureRect.ts) | Rectangle de capture ancré au sol : tracé, aperçu GeoJSON, écrêtage à 2500 ha |
+| [src/components/map/useRectDrawInteraction.ts](../src/components/map/useRectDrawInteraction.ts) | Mode dessin : glissement sur la carte, caméra mise à plat puis restaurée |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Action `loadLidarCloud`, gestion des courses (latest-wins) |
 | [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper qui dispatche vers le worker |
 | [src/lib/lidarBrowser/workerClient.ts](../src/lib/lidarBrowser/workerClient.ts) | Côté main : `postMessage`, dé-multiplexage par id, transferables |

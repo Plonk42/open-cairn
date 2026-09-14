@@ -103,6 +103,7 @@ export async function saveLoadedCloud(params: SavedCloudParams, data: SavedCloud
         mode: params.mode,
         centerLng: params.centerLng,
         centerLat: params.centerLat,
+        bearingDeg: params.bearingDeg,
         widthM: params.widthM,
         lengthM: params.lengthM,
         pointCount: data.shaded?.pointCount ?? 0,

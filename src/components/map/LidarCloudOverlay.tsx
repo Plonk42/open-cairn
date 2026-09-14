@@ -12,6 +12,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { LidarWebGLLayer } from './LidarWebGLLayer';
+import { applyWhenStyleReady } from './styleReady';
 
 /**
  * Extinction per metre reached when the "brume" slider is at 1. At 5.9e-4 the
@@ -205,21 +206,13 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
 
         // The style may still be (re)building when this overlay mounts — e.g.
         // right after a base-layer/hillshade switch, or when re-displaying a
-        // saved cloud during a style rebuild. addLayer() throws "Style is not
-        // done loading" in that window, so defer to 'idle' when not ready.
-        if (mapInstance.isStyleLoaded()) {
-            ensureLayer();
-        } else {
-            mapInstance.once('idle', ensureLayer);
-        }
-
-        // MapLibre setStyle (called on base-layer / hillshade / quality changes)
-        // wipes custom layers. Re-add ours on every style.load.
-        mapInstance.on('style.load', ensureLayer);
+        // saved cloud during a style rebuild — and addLayer() throws "Style is
+        // not done loading" in that window. A setStyle also wipes custom
+        // layers, so the same helper re-adds ours after every rebuild.
+        const cancel = applyWhenStyleReady(mapInstance, ensureLayer);
 
         return () => {
-            mapInstance.off('style.load', ensureLayer);
-            mapInstance.off('idle', ensureLayer);
+            cancel();
             try { mapInstance.removeLayer(layerId); } catch { /* map may be gone */ }
             webglRef.current = null;
         };

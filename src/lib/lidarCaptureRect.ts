@@ -1,11 +1,11 @@
 /**
- * Geometry helpers for the oriented (camera-fixed) LiDAR capture rectangle.
+ * Geometry helpers for the oriented LiDAR capture rectangle.
  *
- * The capture rectangle is stored as plain width × length metres with no angle:
- * its orientation is always the *live* camera bearing, so the on-screen box
- * stays put while rotating the map spins the ground footprint. These helpers
- * turn that "screen-aligned, sized in metres" intent into ground geometry —
- * both for drawing the preview polygon and for measuring a drag.
+ * The rectangle is anchored to the ground: drawing it stores its centre, its
+ * orientation (the camera bearing at draw time) and its two sides in metres, so
+ * the camera can then be framed freely without moving what will be captured.
+ * These helpers turn that into ground geometry — both for drawing the preview
+ * polygon and for measuring a drag.
  */
 import type maplibregl from 'maplibre-gl';
 
@@ -22,8 +22,12 @@ export const LIDAR_RECT_MIN_SIDE_M = 20;
 /** Metres per degree of latitude (WGS84 mean) — good enough at France scales. */
 const M_PER_DEG_LAT = 111_320;
 
-/** Persisted rectangle dimensions (orientation is the live bearing). */
-export interface CaptureRectDims {
+/** Ground-anchored capture rectangle. */
+export interface CaptureRect {
+    centerLng: number;
+    centerLat: number;
+    /** Azimuth (deg from north, clockwise) of the `lengthM` axis. */
+    bearingDeg: number;
     widthM: number;
     lengthM: number;
 }
@@ -65,9 +69,7 @@ export function rectCornersLngLat(
 }
 
 /** A single GeoJSON polygon FeatureCollection for the rectangle preview. */
-export function rectPreviewGeoJson(
-    lng: number, lat: number, azimuthDeg: number, widthM: number, lengthM: number,
-): GeoJSON.FeatureCollection {
+export function rectPreviewGeoJson(rect: CaptureRect): GeoJSON.FeatureCollection {
     return {
         type: 'FeatureCollection',
         features: [{
@@ -75,7 +77,9 @@ export function rectPreviewGeoJson(
             properties: {},
             geometry: {
                 type: 'Polygon',
-                coordinates: [rectCornersLngLat(lng, lat, azimuthDeg, widthM, lengthM)],
+                coordinates: [rectCornersLngLat(
+                    rect.centerLng, rect.centerLat, rect.bearingDeg, rect.widthM, rect.lengthM,
+                )],
             },
         }],
     };
@@ -129,14 +133,58 @@ export function screenUpAzimuthDeg(map: maplibregl.Map): number {
 }
 
 /**
- * Clamp a rectangle's dimensions so its ground area stays within `maxAreaM2`,
- * scaling both sides by the same factor to preserve the aspect ratio.
+ * True when any corner or the centre of the rectangle projects inside the
+ * canvas. The zone is ground-anchored, so panning away leaves it off-screen
+ * with nothing to show.
  */
-export function clampRectToArea(
-    widthM: number, lengthM: number, maxAreaM2: number,
-): CaptureRectDims {
+export function rectOnScreen(map: maplibregl.Map, rect: CaptureRect): boolean {
+    const canvas = map.getCanvas();
+    const points: GeoJSON.Position[] = [
+        ...rectCornersLngLat(rect.centerLng, rect.centerLat, rect.bearingDeg, rect.widthM, rect.lengthM),
+        [rect.centerLng, rect.centerLat],
+    ];
+    return points.some(([lng, lat]) => {
+        const p = map.project([lng, lat]);
+        return p.x >= 0 && p.x <= canvas.clientWidth && p.y >= 0 && p.y <= canvas.clientHeight;
+    });
+}
+
+/**
+ * Clamp a rectangle's sides so its ground area stays within `maxAreaM2`,
+ * scaling both by the same factor to preserve the aspect ratio.
+ */
+export function clampRectToArea(rect: CaptureRect, maxAreaM2: number): CaptureRect {
+    const widthM = Math.max(LIDAR_RECT_MIN_SIDE_M, rect.widthM);
+    const lengthM = Math.max(LIDAR_RECT_MIN_SIDE_M, rect.lengthM);
     const area = widthM * lengthM;
-    if (area <= maxAreaM2) return { widthM, lengthM };
+    if (area <= maxAreaM2) return { ...rect, widthM, lengthM };
     const scale = Math.sqrt(maxAreaM2 / area);
-    return { widthM: widthM * scale, lengthM: lengthM * scale };
+    return { ...rect, widthM: widthM * scale, lengthM: lengthM * scale };
+}
+
+/**
+ * Rectangle spanned by a drag between two ground points, with its axes along
+ * `bearingDeg`. The drag box is axis-aligned in that rotated frame, so the
+ * midpoint of the dragged diagonal is the rectangle's centre.
+ */
+export function rectFromDrag(
+    a: { lng: number; lat: number },
+    b: { lng: number; lat: number },
+    bearingDeg: number,
+): CaptureRect {
+    const centerLat = (a.lat + b.lat) / 2;
+    const centerLng = (a.lng + b.lng) / 2;
+    const mPerDegLng = M_PER_DEG_LAT * Math.cos((centerLat * Math.PI) / 180);
+    const dE = (b.lng - a.lng) * mPerDegLng;
+    const dN = (b.lat - a.lat) * M_PER_DEG_LAT;
+    const rad = (bearingDeg * Math.PI) / 180;
+    const alongLength = dE * Math.sin(rad) + dN * Math.cos(rad);
+    const alongWidth = dE * Math.cos(rad) - dN * Math.sin(rad);
+    return clampRectToArea({
+        centerLng,
+        centerLat,
+        bearingDeg,
+        widthM: Math.abs(alongWidth),
+        lengthM: Math.abs(alongLength),
+    }, LIDAR_RECT_MAX_AREA_M2);
 }

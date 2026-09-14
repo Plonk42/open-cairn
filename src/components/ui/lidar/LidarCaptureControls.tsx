@@ -3,15 +3,17 @@ import {
     LIDAR_RECT_MAX_AREA_M2, rectAreaHa,
 } from '@/lib/lidarCaptureRect';
 import {
+    captureAdvice, formatDetail, formatSeconds, POISSON_DEPTH_MAX, POISSON_DEPTH_MIN,
+    qualityTiers, STRIDE_STOPS, tierIndexOf, type CaptureAdvice,
+} from '@/lib/lidarQuality';
+import {
     CAPTURE_POINT_BUDGET, estimateCapture, formatResolution,
     RESOLUTION_STOPS_M, resolutionToIndex,
 } from '@/lib/lidarResolution';
 import { useMapStore } from '@/stores/mapStore';
+import { useMemo } from 'react';
 import { LidarProgressBar } from './LidarProgressBar';
 import { LidarStatusLine } from './LidarStatusLine';
-
-/** Allowed density stops, ordered left→right on the slider (coarse → max). */
-const STRIDE_STOPS = [32, 16, 8, 4, 2, 1] as const;
 
 /** Capture rectangle side-length slider bounds (metres). */
 const CAPTURE_SIDE_MIN_M = 50;
@@ -83,7 +85,7 @@ function PoissonControls() {
                 </div>
                 <input
                     aria-label="Profondeur de l'octree PoissonRecon"
-                    type="range" min={6} max={12} step={1}
+                    type="range" min={POISSON_DEPTH_MIN} max={POISSON_DEPTH_MAX} step={1}
                     value={poissonDepth}
                     onChange={(e) => setPoissonDepth(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
@@ -177,15 +179,14 @@ function PoissonControls() {
 }
 
 /**
- * Capture-zone control: the centred capture rectangle. Two sliders set its width
- * and length (a square is just width === length), and a checkbox locks it to a
- * north-up orientation instead of following the live camera bearing.
+ * Zone read-out + the draw affordance. The rectangle is anchored to the ground,
+ * so its position and orientation come from the drag on the map — there is
+ * nothing to set here beyond starting a new one.
  */
-function CaptureZoneControls() {
+function ZoneControl() {
     const rect = useMapStore((s) => s.lidarCaptureRect);
-    const setRect = useMapStore((s) => s.setLidarCaptureRect);
-    const northFixed = useMapStore((s) => s.lidarRectNorthFixed);
-    const setNorthFixed = useMapStore((s) => s.setLidarRectNorthFixed);
+    const drawActive = useMapStore((s) => s.lidarRectDrawActive);
+    const setDrawActive = useMapStore((s) => s.setLidarRectDrawActive);
     const overCap = rect.widthM * rect.lengthM > LIDAR_RECT_MAX_AREA_M2;
 
     return (
@@ -197,6 +198,146 @@ function CaptureZoneControls() {
                     {' · '}{rectAreaHa(rect.widthM, rect.lengthM).toFixed(1)} ha
                 </span>
             </div>
+            <button
+                type="button"
+                onClick={() => setDrawActive(!drawActive)}
+                className={`w-full rounded-md px-3 py-2 text-sm ring-1 transition ${drawActive
+                    ? 'bg-green-50 text-green-800 ring-green-300 dark:bg-green-900/30 dark:text-green-200 dark:ring-green-700'
+                    : 'bg-gray-100 text-slate-700 ring-gray-200 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600'}`}
+            >
+                {drawActive ? 'Glissez sur la carte — Échap pour annuler' : 'Dessiner la zone'}
+            </button>
+            {overCap && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                    Zone trop grande — sera réduite à {Math.round(LIDAR_RECT_MAX_AREA_M2 / 10_000)} ha au chargement.
+                </p>
+            )}
+        </div>
+    );
+}
+
+/**
+ * The single quality dial: one step is one octree level, one resolution stop
+ * and two ground-density stops at once, because those three settings are only
+ * coherent together (see `lidarQuality.ts`). Hand-tuning them in the advanced
+ * section puts the dial off its stops, which the read-out says plainly.
+ */
+function QualityControl() {
+    const rect = useMapStore((s) => s.lidarCaptureRect);
+    const resolution = useMapStore((s) => s.lidarCaptureResolution);
+    const depth = useMapStore((s) => s.lidarCloudPoissonDepth);
+    const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
+    const setQuality = useMapStore((s) => s.setLidarCaptureQuality);
+
+    const tiers = useMemo(
+        () => qualityTiers(rect.widthM, rect.lengthM),
+        [rect.widthM, rect.lengthM],
+    );
+    const index = tierIndexOf(tiers, resolution, depth, groundStride);
+    const tier = index < 0 ? null : tiers[index];
+    const custom = estimateCapture(rect.widthM, rect.lengthM, resolution);
+
+    return (
+        <div className="space-y-1">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                <span>Qualité</span>
+                <span className="font-mono text-xs text-slate-400">
+                    {tier ? `détail ${formatDetail(tier.detailM)}` : 'personnalisée'}
+                </span>
+            </div>
+            <input
+                aria-label="Niveau de qualité de la capture"
+                type="range" min={0} max={tiers.length - 1} step={1}
+                list="lidar-quality-stops"
+                value={index < 0 ? tiers.length - 1 : index}
+                onChange={(e) => setQuality(Number(e.target.value))}
+                className="mt-1 w-full accent-green-600"
+            />
+            <datalist id="lidar-quality-stops">
+                {tiers.map((t, i) => (
+                    <option key={t.depth} value={i} label={formatDetail(t.detailM)} />
+                ))}
+            </datalist>
+            <p className="text-[10px] text-slate-400">
+                ≈ {Math.round((tier?.bytes ?? custom.bytes) / 1e6)} Mo téléchargés
+                {tier && ` · ≈ ${formatSeconds(tier.seconds)} · ${formatPoints(tier.vertices)} sommets`}
+                {!tier && ` · ≈ ${formatPoints(custom.points)} points`}
+            </p>
+        </div>
+    );
+}
+
+/** Same wording as the density sliders: full density reads "max", not "1/1". */
+function strideLabel(stride: number): string {
+    return stride === 1 ? 'max' : `1/${stride}`;
+}
+
+/** French wording of one incoherence between the capture settings. */
+function adviceText(advice: CaptureAdvice): string {
+    switch (advice.kind) {
+        case 'depthTooHigh':
+            return `Profondeur inutilement élevée pour cette résolution — ${advice.suggested} donnerait le même relief.`;
+        case 'depthTooLow':
+            return `Profondeur faible pour cette résolution — ${advice.suggested} exploiterait mieux les points téléchargés.`;
+        case 'groundTooSparse':
+            return `Densité sol trop faible pour cette profondeur — ${strideLabel(advice.suggested)} recommandé.`;
+        default:
+            return `Densité sol inutilement élevée — ${strideLabel(advice.suggested)} suffirait au même maillage.`;
+    }
+}
+
+/**
+ * Warns about the incoherences the advanced section makes reachable: a depth
+ * the downloaded points cannot feed, a ground decimation that starves or
+ * over-feeds the solver. Each line applies its own fix.
+ */
+function CaptureAdviceList() {
+    const rect = useMapStore((s) => s.lidarCaptureRect);
+    const resolutionM = useMapStore((s) => s.lidarCaptureResolution);
+    const depth = useMapStore((s) => s.lidarCloudPoissonDepth);
+    const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
+    const setDepth = useMapStore((s) => s.setLidarCloudPoissonDepth);
+    const setGroundStride = useMapStore((s) => s.setLidarCloudGroundStride);
+
+    const advices = captureAdvice({
+        widthM: rect.widthM, lengthM: rect.lengthM, resolutionM, depth, groundStride,
+    });
+    if (advices.length === 0) return null;
+
+    const applyFix = (advice: CaptureAdvice) => {
+        if (advice.kind === 'depthTooHigh' || advice.kind === 'depthTooLow') setDepth(advice.suggested);
+        else setGroundStride(advice.suggested);
+    };
+
+    return (
+        <ul className="space-y-1">
+            {advices.map((advice) => (
+                <li key={advice.kind} className="rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800">
+                    {adviceText(advice)}
+                    {' '}
+                    <button
+                        type="button"
+                        onClick={() => applyFix(advice)}
+                        className="font-medium underline underline-offset-2"
+                    >
+                        Corriger
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+/**
+ * Capture-zone sizing, in the advanced section: two sliders set the rectangle's
+ * width and length without redrawing it, keeping its centre and orientation.
+ */
+function CaptureZoneControls() {
+    const rect = useMapStore((s) => s.lidarCaptureRect);
+    const setRect = useMapStore((s) => s.setLidarCaptureRect);
+
+    return (
+        <div className="space-y-2">
             <label className="block">
                 <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                     <span>Largeur</span>
@@ -223,20 +364,6 @@ function CaptureZoneControls() {
                     className="mt-1 w-full accent-green-600"
                 />
             </label>
-            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-                <input
-                    type="checkbox"
-                    checked={northFixed}
-                    onChange={(e) => setNorthFixed(e.target.checked)}
-                    className="accent-green-600"
-                />
-                <span>Orientation nord fixe</span>
-            </label>
-            {overCap && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                    Zone trop grande — sera réduite à {Math.round(LIDAR_RECT_MAX_AREA_M2 / 10_000)} ha au chargement.
-                </p>
-            )}
         </div>
     );
 }
@@ -245,15 +372,12 @@ function CaptureZoneControls() {
  * Capture resolution: the ground sampling asked of the COPC tiles, i.e. how
  * deep their octree is walked. Unlike the density sliders below, which thin an
  * already-downloaded cloud, this one divides the bytes fetched — it is what
- * makes a several-km zone loadable. Coupled to the zone size by default so
- * enlarging the zone cannot silently cost gigabytes.
+ * makes a several-km zone loadable.
  */
 function CaptureResolutionControl() {
     const rect = useMapStore((s) => s.lidarCaptureRect);
     const resolution = useMapStore((s) => s.lidarCaptureResolution);
     const setResolution = useMapStore((s) => s.setLidarCaptureResolution);
-    const auto = useMapStore((s) => s.lidarCaptureResolutionAuto);
-    const setAuto = useMapStore((s) => s.setLidarCaptureResolutionAuto);
     const { points, bytes } = estimateCapture(rect.widthM, rect.lengthM, resolution);
     const overBudget = points > CAPTURE_POINT_BUDGET;
 
@@ -263,7 +387,7 @@ function CaptureResolutionControl() {
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
                     <span>Résolution</span>
                     <span className="font-mono text-xs text-slate-400">
-                        {formatResolution(resolution)}{auto ? ' (auto)' : ''}
+                        {formatResolution(resolution)}
                     </span>
                 </div>
                 <input
@@ -279,15 +403,6 @@ function CaptureResolutionControl() {
                         <option key={r} value={i} label={formatResolution(r)} />
                     ))}
                 </datalist>
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-                <input
-                    type="checkbox"
-                    checked={auto}
-                    onChange={(e) => setAuto(e.target.checked)}
-                    className="accent-green-600"
-                />
-                <span>Auto (selon la taille de la zone)</span>
             </label>
             <p className={`text-[10px] ${overBudget ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
                 ≈ {formatPoints(points)} points · ≈ {Math.round(bytes / 1e6)} Mo téléchargés
@@ -307,23 +422,12 @@ function GroundDensityControl() {
     const groundStride = useMapStore((s) => s.lidarCloudGroundStride);
     const setGroundStride = useMapStore((s) => s.setLidarCloudGroundStride);
     return (
-        <label className="block">
-            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                <span>Densité sol</span>
-                <span className="font-mono text-xs text-slate-400">{groundStride === 1 ? 'max' : `1/${groundStride}`}</span>
-            </div>
-            <input
-                aria-label="Décimation adaptative du sol et de l'eau (reconstruction Poisson)"
-                type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
-                list="lidar-density-stops"
-                value={strideToIndex(groundStride)}
-                onChange={(e) => setGroundStride(STRIDE_STOPS[Number(e.target.value)])}
-                className="mt-1 w-full accent-green-600"
-            />
-            <p className="mt-1 text-[10px] text-slate-400">
-                Densité adaptive préservant le relief et détails du sol
-            </p>
-        </label>
+        <DensityControl
+            label="Densité sol"
+            hint="Densité adaptative préservant le relief et les détails du sol."
+            value={groundStride}
+            onChange={setGroundStride}
+        />
     );
 }
 
@@ -370,11 +474,72 @@ function DelaunayControls() {
     );
 }
 
+/** Point-cloud decimation, shared by the ground and non-ground sliders. */
+function DensityControl({ label, hint, value, onChange }: Readonly<{
+    label: string; hint?: string; value: number; onChange: (v: number) => void;
+}>) {
+    return (
+        <label className="block">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+                <span>{label}</span>
+                <span className="font-mono text-xs text-slate-400">{strideLabel(value)}</span>
+            </div>
+            <input
+                aria-label={`${label} du nuage de points`}
+                type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
+                list="lidar-density-stops"
+                value={strideToIndex(value)}
+                onChange={(e) => onChange(STRIDE_STOPS[Number(e.target.value)])}
+                className="mt-1 w-full accent-green-600"
+            />
+            <datalist id="lidar-density-stops">
+                {STRIDE_STOPS.map((s, i) => (
+                    <option key={s} value={i} label={strideLabel(s)} />
+                ))}
+            </datalist>
+            {hint && <p className="mt-1 text-[10px] text-slate-400">{hint}</p>}
+        </label>
+    );
+}
+
 /**
- * Capture controls brick: mode selection, Delaunay surface + Poisson params,
- * capture zone, density, the load/clear actions, the status line and the
- * loading progress bar. Reads and writes the shared mapStore so the studio
- * dock and the classic launcher stay in sync with zero duplication.
+ * Everything the quality dial normally decides, plus the mode-specific solver
+ * knobs. Folded away by default but kept in the same card, so opening it does
+ * not lose the zone and the estimate from sight.
+ */
+function AdvancedSection({ mode }: Readonly<{ mode: LidarMode }>) {
+    const stride = useMapStore((s) => s.lidarCloudStride);
+    const setStride = useMapStore((s) => s.setLidarCloudStride);
+
+    return (
+        <details className="rounded-md ring-1 ring-gray-200 dark:ring-slate-600">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs text-slate-600 dark:text-slate-400">
+                Réglages avancés
+            </summary>
+            <div className="space-y-3 border-t border-gray-200 px-3 py-3 dark:border-slate-600">
+                <CaptureAdviceList />
+                <CaptureZoneControls />
+                <CaptureResolutionControl />
+                <DensityControl
+                    label={mode === 'poisson' ? 'Densité non-sol' : 'Densité'}
+                    hint={mode === 'poisson' ? 'Densité non-sol : végétation, bâti…' : undefined}
+                    value={stride}
+                    onChange={setStride}
+                />
+                {mode === 'poisson' && <GroundDensityControl />}
+                {mode === 'delaunay' && <DelaunayControls />}
+                {mode === 'poisson' && <PoissonControls />}
+            </div>
+        </details>
+    );
+}
+
+/**
+ * Capture controls brick: render mode, the drawn zone, the single quality dial,
+ * an advanced disclosure holding the individual settings, the load/clear
+ * actions, the status line and the loading progress bar. Reads and writes the
+ * shared mapStore so the studio dock and the classic launcher stay in sync with
+ * zero duplication.
  */
 export function LidarCaptureControls({ showProgress = true }: Readonly<{ showProgress?: boolean }>) {
     const mode = useMapStore((s) => s.lidarMode);
@@ -384,8 +549,6 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const error = useMapStore((s) => s.lidarCloudError);
     const progress = useMapStore((s) => s.lidarCloudProgress);
-    const stride = useMapStore((s) => s.lidarCloudStride);
-    const setStride = useMapStore((s) => s.setLidarCloudStride);
     const load = useMapStore((s) => s.loadLidarCloud);
     const cancelLoad = useMapStore((s) => s.cancelLidarCloudLoad);
     const clear = useMapStore((s) => s.clearAllLidarClouds);
@@ -396,48 +559,15 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
         <div className="flex min-h-0 flex-col gap-3">
             {/* Scrollable parameters — keeps the action footer always visible */}
             <div className="scrollbar-slim min-h-0 flex-1 space-y-3 overflow-y-auto">
-                {/* Mode */}
+                {/* Mode — kept up front: it decides what every other setting means */}
                 <div data-tutorial="capture-modes" className="flex items-center justify-between">
                     <span className="text-sm text-slate-700 dark:text-slate-300">Mode</span>
                     <SegmentedControl value={mode} options={MODE_OPTIONS} onChange={setMode} />
                 </div>
 
-                {mode === 'delaunay' && <DelaunayControls />}
-                {mode === 'poisson' && <PoissonControls />}
-
-                {/* Zone — square (radius) or drawn rectangle */}
-                <CaptureZoneControls />
-
-                {/* Résolution — profondeur de l'octree COPC parcourue */}
-                <CaptureResolutionControl />
-
-                {/* Densité */}
-                <label className="block">
-                    <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                        <span>{mode === 'poisson' ? 'Densité non-sol' : 'Densité'}</span>
-                        <span className="font-mono text-xs text-slate-400">{stride === 1 ? 'max' : `1/${stride}`}</span>
-                    </div>
-                    <input
-                        aria-label="Décimation du nuage de points"
-                        type="range" min={0} max={STRIDE_STOPS.length - 1} step={1}
-                        list="lidar-density-stops"
-                        value={strideToIndex(stride)}
-                        onChange={(e) => setStride(STRIDE_STOPS[Number(e.target.value)])}
-                        className="mt-1 w-full accent-green-600"
-                    />
-                    <datalist id="lidar-density-stops">
-                        {STRIDE_STOPS.map((s, i) => (
-                            <option key={s} value={i} label={s === 1 ? 'max' : `1/${s}`} />
-                        ))}
-                    </datalist>
-                    {mode === 'poisson' && (
-                        <p className="mt-1 text-[10px] text-slate-400">
-                            Densité non-sol : végétation, bâti...
-                        </p>
-                    )}
-                </label>
-
-                {mode === 'poisson' && <GroundDensityControl />}
+                <ZoneControl />
+                <QualityControl />
+                <AdvancedSection mode={mode} />
             </div>
 
             {/* Pinned action footer — stays visible even when the params scroll */}
@@ -449,7 +579,7 @@ export function LidarCaptureControls({ showProgress = true }: Readonly<{ showPro
                         disabled={loading}
                         className="flex-1 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {loading ? 'Chargement…' : 'Charger ici'}
+                        {loading ? 'Chargement…' : 'Capturer'}
                     </button>
                     {loading && (
                         <button

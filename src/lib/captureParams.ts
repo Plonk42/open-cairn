@@ -26,6 +26,8 @@ export interface CaptureRecord {
     mode: CaptureMode;
     centerLng: number;
     centerLat: number;
+    /** Azimuth (deg from north, clockwise) of the `lengthM` axis. */
+    bearingDeg: number;
     /** Dimensions of the capture rectangle (m). */
     widthM: number;
     lengthM: number;

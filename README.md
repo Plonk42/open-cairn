@@ -27,11 +27,13 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Itinéraires sauvegardés** — localStorage avec aperçu polyline + thumbnail
 - **Import / export GPX** — preserves la géométrie originale des traces, affiche les `<wpt>` comme marqueurs nommés
 - **Vue partageable** — URL hash encodant tout l'état de l'application
-- **Nuages LiDAR HD** — décompression COPC/LAZ dans un Web Worker, rendu WebGL 2 custom avec
-  Eye-Dome Lighting, normales k-NN PCA, coloration par pente. Trois modes de reconstruction :
-  `shaded` (points bruts), `delaunay` (mesh 2.5D, avec variante sol lissé), `poisson`
-  (reconstruction de surface WASM). Niveau de détail (LOD) adaptatif à la distance pour les
-  gros nuages.
+- **Nuages LiDAR HD** — zone de capture **dessinée à la souris** sur la carte et ancrée au sol,
+  avec un curseur **Qualité** unique qui accorde résolution, profondeur d'octree et densité sol,
+  estime le coût avant de lancer, et signale les réglages incohérents. Décompression COPC/LAZ dans
+  un Web Worker, rendu WebGL 2 custom avec Eye-Dome Lighting, normales k-NN PCA, coloration par
+  pente. Trois modes de reconstruction : `shaded` (points bruts), `delaunay` (mesh 2.5D, avec
+  variante sol lissé), `poisson` (reconstruction de surface WASM). Niveau de détail (LOD) adaptatif
+  à la distance pour les gros nuages.
 - **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
   nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
   automatique, galerie de « vues » (scènes caméra + réglages) sauvegardables localement ou
