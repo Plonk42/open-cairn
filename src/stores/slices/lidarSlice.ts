@@ -1065,14 +1065,20 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarCaptureRect: (lidarCaptureRect) => {
             const s = get();
             const step = currentQualityStep(s);
-            // The pyramid belongs to the old zone; the table stands in until the
-            // probe below answers for the new one.
+            // `measureCapturePyramid` reads the four tiles nearest the centre, so
+            // a resize measures essentially the same ones: only a move makes the
+            // profile wrong enough to fall back on the table. Dropping it on
+            // every resize flipped the three settings once onto the national
+            // median, then again a second later when the probe answered.
+            const moved = lidarCaptureRect.centerLng !== s.lidarCaptureRect.centerLng
+                || lidarCaptureRect.centerLat !== s.lidarCaptureRect.centerLat;
+            const pyramid = moved ? null : s.lidarZonePyramid;
             set(step === null
-                ? { lidarCaptureRect, lidarZonePyramid: null }
+                ? { lidarCaptureRect, lidarZonePyramid: pyramid }
                 : {
                     lidarCaptureRect,
-                    lidarZonePyramid: null,
-                    ...tierSettings(lidarCaptureRect, step, null),
+                    lidarZonePyramid: pyramid,
+                    ...tierSettings(lidarCaptureRect, step, pyramid),
                 });
             scheduleZonePyramidProbe(lidarCaptureRect, (lidarZonePyramid) => {
                 const st = get();

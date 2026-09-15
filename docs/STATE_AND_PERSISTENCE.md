@@ -190,12 +190,14 @@ Deux cas particuliers :
 
 `lidarZonePyramid` accompagne ces trois-là sans jamais être **persisté ni exposé à l'utilisateur** :
 c'est la densité par niveau mesurée dans la hiérarchie COPC des dalles sous la zone (cf.
-[LIDAR_PIPELINE.md](LIDAR_PIPELINE.md)). `setLidarCaptureRect` le remet à `null`, applique les
-paliers de la table nationale, puis programme la mesure 500 ms plus tard ; elle recalcule les
-paliers en conservant le cran choisi. Le persister n'aurait aucun sens — il dépend de la zone,
-pas des goûts de l'utilisateur, et le relire coûte une seconde. `ensureZonePyramid()`, appelé au
-montage du panneau de capture, relance la mesure quand le profil est nul (scène restaurée,
-échec réseau précédent).
+[LIDAR_PIPELINE.md](LIDAR_PIPELINE.md)). `setLidarCaptureRect` programme la mesure 500 ms plus
+tard ; elle recalcule les paliers en conservant le cran choisi. Il n'est remis à `null` que si le
+**centre** de la zone a bougé : la sonde lit les dalles les plus proches de ce centre, donc un
+redimensionnement mesure les mêmes — l'invalider à chaque redimensionnement faisait sauter les
+trois réglages deux fois de suite, vers la table nationale puis vers la mesure. Le persister
+n'aurait aucun sens — il dépend de la zone, pas des goûts de l'utilisateur, et le relire coûte une
+seconde. `ensureZonePyramid()`, appelé au montage du panneau de capture, relance la mesure quand le
+profil est nul (scène restaurée, échec réseau précédent).
 
 Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
 tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir

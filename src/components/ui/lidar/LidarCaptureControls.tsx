@@ -380,7 +380,10 @@ function CaptureResolutionControl() {
     const rect = useMapStore((s) => s.lidarCaptureRect);
     const resolution = useMapStore((s) => s.lidarCaptureResolution);
     const setResolution = useMapStore((s) => s.setLidarCaptureResolution);
-    const { points, bytes } = estimateCapture(rect.widthM, rect.lengthM, resolution);
+    const zonePyramid = useMapStore((s) => s.lidarZonePyramid);
+    const { points, bytes } = estimateCapture(
+        rect.widthM, rect.lengthM, resolution, zonePyramid ?? undefined,
+    );
     const overBudget = points > CAPTURE_POINT_BUDGET;
 
     return (

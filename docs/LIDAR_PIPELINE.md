@@ -80,6 +80,15 @@ niveau de pyramide suivant, seul moyen d'y gagner du détail.
 Redimensionner la zone conserve le cran choisi (compté depuis le plus fin), pas
 son index : le curseur perd des crans sur une petite zone.
 
+Le palier le plus fin est **épinglé** sur ce plafond : résolution maximale et
+densité sol pleine, quelle que soit la taille de la zone. Les paliers plus
+grossiers, eux, déduisent leurs réglages de la maille d'octree (inutile de
+télécharger plus fin que ce que la maille porte). Sans cet épinglage, la maille
+du dernier palier — `Math.round` d'une profondeur continue, donc à un demi-niveau
+près de l'espacement des points — faisait perdre un cran de résolution et la
+moitié de la densité sol entre 50 et 80 m, rendus à 90 m, sur une zone qui n'avait
+pourtant fait que gagner de la donnée.
+
 Les quatre paliers sont calculés sur la **pyramide réelle de la zone**, lue dans
 la hiérarchie des dalles COPC (voir « La table n'est qu'un repli » plus bas).
 Elle arrive en ~1 s ; d'ici là le panneau affiche les paliers issus de la table
@@ -118,6 +127,12 @@ supposerait ×4 par niveau et surestimait le niveau racine d'un facteur 2,5 :
 une grande zone, forcée précisément sur ce niveau, se voyait promettre un détail
 de 2 m que la donnée ne portait pas — d'où un maillage plat à fond de curseur.
 
+Le cran `max` vaut **20,4 pt/m²** : le niveau 4 multiplié par le rapport médian
+natif/niveau-4 des six sondes ci-dessous. Ce sont des points **cumulés**, donc
+le profil ne peut pas redescendre — il le faisait (18 contre 18,2 au cran
+0,43 m), si bien que rétrograder de `max` à `0,43 m` téléchargeait *plus* de
+points qu'il n'en économisait.
+
 #### La table n'est qu'un repli : la vraie pyramide est lue sur la zone
 
 Ces densités varient beaucoup d'une dalle à l'autre. Relevé sur six dalles, le
@@ -137,16 +152,23 @@ que la capture téléchargerait — un nœud de niveau 0 couvre le km² entier),
 moyenne les profils. Le résultat remplace la table pour cette zone.
 
 Le déclenchement est dans [src/stores/slices/lidarSlice.ts](../src/stores/slices/lidarSlice.ts) :
-`setLidarCaptureRect` remet `lidarZonePyramid` à `null` et affiche aussitôt les
-paliers issus de la table, puis programme la mesure **500 ms** plus tard (un
-jeton annule la sonde d'une zone abandonnée entre-temps). Quand elle arrive, les
-paliers sont recalculés en conservant le cran choisi par l'utilisateur. Si
-aucune dalle ne couvre la zone, ou si toutes les sondes échouent, la table
-reste — un affichage approximatif vaut mieux qu'un panneau vide. Le module est
-en `import()` dynamique pour que `copc` ne parte pas dans le chunk principal.
+`setLidarCaptureRect` programme la mesure **500 ms** plus tard (un jeton annule
+la sonde d'une zone abandonnée entre-temps). Quand elle arrive, les paliers sont
+recalculés en conservant le cran choisi par l'utilisateur. Si aucune dalle ne
+couvre la zone, ou si toutes les sondes échouent, la table reste — un affichage
+approximatif vaut mieux qu'un panneau vide. Le module est en `import()`
+dynamique pour que `copc` ne parte pas dans le chunk principal.
+
+`lidarZonePyramid` n'est remis à `null` que si le **centre** de la zone a bougé :
+la sonde lit les 4 dalles les plus proches de ce centre, donc un simple
+redimensionnement mesure les mêmes. Le remettre à `null` à chaque
+redimensionnement faisait basculer la résolution, la profondeur et la densité
+sol une première fois vers la table nationale, puis une seconde fois une seconde
+plus tard quand la sonde répondait — deux sauts visibles sans aucune action de
+l'utilisateur.
 
 Sur la zone de test du Vercors, la mesure donne 0,053 / 0,637 / 2,535 / 8,085 /
-24,617 / 29,816 pt/m² : la densité native réelle vaut 1,7× ce que la table
+24,617 / 29,816 pt/m² : la densité native réelle vaut 1,5× ce que la table
 annonce, et le palier « 4 m » passe de 6,8 m / sol 1 à 3,4 m / sol 8.
 
 C'est ce qui rend une zone de plusieurs kilomètres chargeable : les paliers de

@@ -1,15 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { autoResolutionM, copcMaxLevel, densityAt, estimateCapture, RESOLUTION_STOPS_M } from './lidarResolution';
+import {
+    autoResolutionM, copcMaxLevel, densityAt, ESTIMATED_PYRAMID, estimateCapture, RESOLUTION_STOPS_M,
+} from './lidarResolution';
 
 /** Root spacing measured on LHD_FXX_1007_6545 (1 km² IGN LiDAR HD tile). */
 const IGN_ROOT_SPACING_M = 6.8;
 
 /**
  * Cumulative densities read from the COPC hierarchy of the four tiles under the
- * Vercors test zone. Note the native stop is 1.7× what the national table says:
+ * Vercors test zone. Note the native stop is 1.5× what the national table says:
  * that spread is the whole reason the profile is measured per zone.
  */
 const VERCORS_PYRAMID = [0.053, 0.637, 2.535, 8.085, 24.617, 29.816];
+
+describe('ESTIMATED_PYRAMID', () => {
+    it('never makes a coarser stop denser than a finer one', () => {
+        // The stops are cumulative point counts, so the profile cannot dip. It
+        // did: the native stop read 18 against 18.2 at the 0.43 m stop, so
+        // stepping down from `max` fetched more points than it saved.
+        for (let i = 1; i < ESTIMATED_PYRAMID.length; i++) {
+            expect(ESTIMATED_PYRAMID[i]).toBeGreaterThan(ESTIMATED_PYRAMID[i - 1]);
+        }
+    });
+});
 
 describe('copcMaxLevel', () => {
     it('maps each slider stop to one level of the measured IGN pyramid', () => {

@@ -28,8 +28,14 @@
  */
 export const RESOLUTION_STOPS_M = [6.8, 3.4, 1.7, 0.85, 0.43, 0] as const;
 
-/** Nominal LiDAR HD density (pt/m²) once every octree level is kept. */
-const NATIVE_DENSITY_PT_M2 = 18;
+/**
+ * Nominal LiDAR HD density (pt/m²) once every octree level is kept: the level 4
+ * of the table below times the median native/level-4 ratio of the six probes
+ * documented there. A cumulative count cannot decrease, so this stop has to be
+ * the densest one — it used to read 18 against 18.2 at the 0.43 m stop, making
+ * `max` cost *more* than the stop under it.
+ */
+const NATIVE_DENSITY_PT_M2 = 20.4;
 
 /**
  * Density (pt/m²) delivered by each stop, read off the pyramid above.

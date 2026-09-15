@@ -112,6 +112,23 @@ describe('qualityTiers', () => {
         expect(tiny[0].depth).toBe(POISSON_DEPTH_MIN);
     });
 
+    it('never degrades the finest step as the zone grows', () => {
+        // The finest step's octree cell is a rounded depth, so it wanders within
+        // half a level of the point spacing. Deriving its resolution and its
+        // ground density from that cell made them drop a stop between 50 and
+        // 80 m and come back at 90 m, for a zone that only ever gained data.
+        // `resolutionM` grows with the stop, 0 being the native one.
+        let previous = 0;
+        for (let side = 50; side <= 3000; side += 5) {
+            const finest = qualityTiers(side, side).at(-1)!;
+            expect(finest.groundStride).toBe(1);
+            // Only the download budget may coarsen the stop, and it never
+            // tightens again on a larger zone.
+            expect(finest.resolutionM).toBeGreaterThanOrEqual(previous);
+            previous = finest.resolutionM;
+        }
+    });
+
     it('only pays for a finer IGN level once the octree can carry it', () => {
         // At 5 km the two coarsest steps share the 6.8 m level: their octree
         // cell is wider than that level's spacing, so fetching finer would

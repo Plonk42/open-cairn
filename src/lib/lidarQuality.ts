@@ -117,15 +117,23 @@ export interface QualityTier {
 
 function tierAt(
     widthM: number, lengthM: number, depth: number, ceilingIdx: number, pyramid: PyramidProfile,
+    pinned = false,
 ): QualityTier {
     const detailM = octreeCellM(widthM, lengthM, depth);
     // Coarsest stop still sampling at least as finely as the cell: fetching
-    // finer than the octree can carry is bandwidth spent on nothing.
+    // finer than the octree can carry is bandwidth spent on nothing. The finest
+    // step is exempt: its cell is `Math.round` of a continuous depth, so it sits
+    // anywhere within half a level of the spacing, and demoting on that rounding
+    // sliver made a zone grown from 50 to 75 m lose a resolution stop and half
+    // its ground density, both handed back at 90 m.
     let idx = ceilingIdx;
-    while (idx > 0 && spacingM(RESOLUTION_STOPS_M[idx - 1], pyramid) <= detailM) idx--;
+    while (!pinned && idx > 0
+        && spacingM(RESOLUTION_STOPS_M[idx - 1], pyramid) <= detailM) idx--;
     const resolutionM = RESOLUTION_STOPS_M[idx];
     // On a large zone even the coarsest stop oversamples: thin the ground instead.
-    const groundStride = coherentGroundStride(widthM, lengthM, resolutionM, depth, pyramid);
+    const groundStride = pinned
+        ? 1
+        : coherentGroundStride(widthM, lengthM, resolutionM, depth, pyramid);
     const { points, bytes } = estimateCapture(widthM, lengthM, resolutionM, pyramid);
     const vertices = (points * VERTICES_PER_POINT) / groundStride;
     return {
@@ -161,7 +169,7 @@ export function qualityTiers(
     const coarsest = Math.max(POISSON_DEPTH_MIN, finest - (QUALITY_TIER_COUNT - 1));
     const tiers: QualityTier[] = [];
     for (let depth = coarsest; depth <= finest; depth++) {
-        tiers.push(tierAt(widthM, lengthM, depth, ceilingIdx, pyramid));
+        tiers.push(tierAt(widthM, lengthM, depth, ceilingIdx, pyramid, depth === finest));
     }
     return tiers;
 }
