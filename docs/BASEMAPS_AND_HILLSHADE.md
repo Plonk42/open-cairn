@@ -18,6 +18,11 @@ cinq fonds sont disponibles :
 | **OSM**         | OpenStreetMap                    | Détail des sentiers / refuges       |
 | **LiDAR brut**  | IGN LiDAR HD ombrage             | Lecture pure du relief              |
 
+**SCAN 25 demande une clé IGN** (champ *Clé API SCAN 25* dans les réglages) : c'est une
+couche WMTS privée. Sans clé, le fond est proposé grisé, et s'il était déjà sélectionné
+(défaut d'usine, réglage d'une autre machine, lien partagé) l'application ouvre la carte
+sur **Plan IGN** plutôt que sur une carte vide.
+
 ### Activer l'ombrage LiDAR HD
 
 L'ombrage est l'élément distinctif de open-cairn : par-dessus n'importe quel fond, vous
@@ -54,6 +59,8 @@ Disponible jusqu'au zoom 18.
 ### Limitations connues
 
 - **Pas d'usage hors ligne** : toutes les tuiles sont chargées en direct.
+- **SCAN 25 sans clé** : repli sur Plan IGN (voir ci-dessus) ; la préférence SCAN 25 est
+  alors perdue, il faut la resélectionner après avoir saisi la clé.
 - **SCAN 25 plafonné z18** : les zooms 17/18 retournent parfois 404 en zone montagneuse
   isolée ; au-delà, on étire la tuile parente.
 - **Mode `lidar-neutral` plus lourd** que `multiply` : peut faire chuter le framerate

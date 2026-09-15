@@ -52,13 +52,27 @@ export const LIDAR_STYLE_DEFAULTS: MapStyleSettings = {
 };
 
 /**
+ * SCAN 25 is IGN's private WMTS layer, gated by an API key each user configures
+ * locally. Without a key every tile answers 401 (and the composite protocol,
+ * which needs that tile, throws) so the map renders empty: degrade to the free
+ * Plan IGN basemap instead.
+ */
+export function gateScanBaseLayer(id: BaseLayerId, scanApiKey: string | undefined): BaseLayerId {
+    return id === 'scan25' && !scanApiKey ? 'plan' : id;
+}
+
+/**
  * Seed the per-view bundle from persisted state, falling back to the per-view
  * defaults (the LiDAR copy uses the photo/ortho basemap).
  */
 function seedByView(p: PersistedSettings): Record<AppView, MapStyleSettings> {
-    return p.mapStyleByView ?? {
+    const byView = p.mapStyleByView ?? {
         map: { ...MAP_STYLE_DEFAULTS },
         lidar: { ...LIDAR_STYLE_DEFAULTS },
+    };
+    return {
+        map: { ...byView.map, baseLayer: gateScanBaseLayer(byView.map.baseLayer, p.ignScanApiKey) },
+        lidar: { ...byView.lidar, baseLayer: gateScanBaseLayer(byView.lidar.baseLayer, p.ignScanApiKey) },
     };
 }
 

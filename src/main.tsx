@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Root } from './Root';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
+import { gateScanBaseLayer } from './stores/mapStyleView';
 import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
 import './styles/index.css';
 
@@ -12,12 +13,8 @@ const shared = parseShareFromUrl();
 if (shared) {
     const map = useMapStore.getState();
     map.setView(shared.view);
-    // SCAN 25 is a private IGN layer gated by an API key configured locally
-    // by each user (never shared in the link). If the recipient hasn't
-    // configured one, requesting it renders nothing (black map) — fall back
-    // to the free Plan IGN basemap instead.
-    const needsScanKey = shared.baseLayer === 'scan25' && !map.ignScanApiKey;
-    map.setBaseLayer(needsScanKey ? 'plan' : shared.baseLayer);
+    // The API key is never part of a share link, so the recipient may not have one.
+    map.setBaseLayer(gateScanBaseLayer(shared.baseLayer, map.ignScanApiKey));
     map.setHillshadeEnabled(shared.hillshadeEnabled);
     map.setHillshadeSource(shared.hillshadeSource);
     map.setHillshadeBlend(shared.hillshadeBlend);

@@ -139,6 +139,11 @@ l'état persisté localement.
 - **Valider les valeurs à type union à l'hydratation** (`baseLayer`, `lidarShader`, `lidarRockType`,
   `lidarMode`…) : une clé `localStorage` peut porter une valeur produite par une autre branche, et
   un identifiant inconnu propagé jusqu'au rendu vide la page (aucun `ErrorBoundary`).
+- **Valider aussi une valeur dont la validité dépend d'un AUTRE réglage** : `seedByView`
+  (`mapStyleView.ts`) fait passer le `baseLayer` de chaque vue par `gateScanBaseLayer`, parce que
+  SCAN 25 exige `ignScanApiKey` — sans clé, les tuiles répondent 401 (et le protocole
+  `composite://` lève « base tile unavailable ») et la carte s'ouvre vide. Le repli est `plan`.
+  Même garde côté lien partagé dans `main.tsx` : la clé n'est jamais dans l'URL.
 - **Synchronisation entre onglets** : si un jour besoin, écouter l'événement `storage`
   du navigateur sur les clés sus-mentionnées.
 
