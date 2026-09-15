@@ -179,12 +179,18 @@ shadow pour 1 tuile base, ce qui double le détail microtopographique sans alour
 
 ### Relief 3D
 
+Trois sources au choix dans les réglages : `auto`, `ign`, `mapterhorn`. **`auto` prend IGN
+quand une clé DEM est renseignée, Mapterhorn sinon** — mais les deux ne se valent pas
+selon le terrain, voir plus bas « Mapterhorn est meilleur que l'IGN en montagne ».
+
 ```ts
-// mapStyle.ts (extrait simplifié)
+// mapStyle.ts (extrait simplifié, branche IGN)
 sources: {
   'terrain-dem': {
     type: 'raster-dem',
-    tiles: [ignWmsRTerrainUrl(apiKey)],
+    tiles: [ignTerrainRgbUrl(apiKey, 512)],
+    tileSize: 512,
+    maxzoom: 14,
     encoding: 'custom',
     redFactor: 6553.6,
     greenFactor: 25.6,
@@ -199,6 +205,81 @@ L'encodage **TerrainRGB** custom IGN décode l'altitude depuis trois canaux 8 bi
 multipliant par les coefficients ci-dessus. Avec une clé IGN, on bascule sur la couche
 `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR` (interpolation bilinéaire serveur)
 au lieu du nearest-neighbor.
+
+#### Résolution du DEM : `tileSize` est le seul levier
+
+Le DEM IGN passe par un **WMS GetMap** avec `{bbox-epsg-3857}` : le serveur ne sert pas
+une pyramide de tuiles figée, il rend l'emprise demandée à la taille demandée. Le pas au
+sol du DEM vaut donc `emprise_tuile / tileSize`, et `tileSize` est le seul paramètre qui
+le pilote. À `tileSize: 256` et `maxzoom: 14`, on ne demandait que **6,7 m/px** — d'où
+des lignes de crête en dents de scie très visibles sur les falaises.
+
+À la latitude des Alpes, une tuile z14 fait 1 720 m : `tileSize: 512` donne 3,36 m/px.
+Une tuile 512 px pèse ~226 Ko, soit le même volume au km² que quatre tuiles 256 px — le
+passage de 256 à 512 est donc gratuit en bande passante.
+
+Au-delà, **la limite n'est plus la taille de tuile mais la donnée source**. Monter
+`maxzoom` à 15 demanderait 1,68 m/px pour ~4× le trafic, sans garantie que la donnée
+sous-jacente le justifie : voir la section suivante.
+
+> ⚠️ Ne pas mesurer la finesse réelle par la longueur des paliers de valeurs identiques :
+> le WMS interpole, donc les valeurs restent toutes distinctes même quand elles
+> n'apportent plus d'information.
+
+`RGEALTI-MNT_PYR-ZIP_FXX_LAMB93_WMS` (publique, style `terrainrgb` disponible) est
+annoncée à **1 m**, mais sur un même profil de falaise elle donne le même relief que
+HIGHRES pour ~4× le poids : c'est le même RGE ALTI.
+
+#### La vraie limite : RGE ALTI n'est pas du LiDAR partout
+
+`ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` sert **RGE ALTI**, dont la source varie par
+zone. L'IGN publie le graphe de source, interrogeable :
+
+```
+GET data.geopf.fr/wms-r?request=GetFeatureInfo
+    &layers=ELEVATIONGRIDCOVERAGE.HIGHRES.QUALITY
+    &query_layers=ELEVATIONGRIDCOVERAGE.HIGHRES.QUALITY
+    &styles=Graphe%20de%20source%20du%20RGE%20Alti      ← obligatoire, sinon 400
+    &info_format=application/json&crs=EPSG:3857&bbox=…&width=101&height=101&i=50&j=50
+```
+
+Sur les falaises du Vercors (45,2876 / 5,7885) il répond :
+`code 7 · résolution 5 m · origine Radar · précision 1 m < Emq < 7 m`.
+
+Du **radar 5 m**. C'est pourquoi une falaise verticale y sort en rampe de 17 m : le MNT
+ne contient pas l'information, et aucun réglage côté client ne la fera apparaître.
+
+#### Mapterhorn est meilleur que l'IGN en montagne
+
+Contre-intuitif mais vérifié : le catalogue Mapterhorn pour la France est **MNT LiDAR HD**
+(7 jeux IGN, ~2 To), RGE ALTI 1 m / 5 m ne servant que de complément. Là où LiDAR HD
+existe, Mapterhorn restitue les ruptures de pente que RGE ALTI radar a lissées — un
+rendu LiDAR 3D de la même falaise le confirme.
+
+Sur la tuile `14/8455/5875`, les deux MNT s'accordent globalement (RMSE 7,4 m, décalage
+optimal 0–1 px, biais vertical 0,2 m) et divergent de ±60 m **uniquement sur les
+ruptures de pente** — là où l'un a du LiDAR et l'autre du radar.
+
+> ⚠️ Ne pas prendre RGE ALTI comme vérité terrain pour arbitrer entre deux MNT : dans les
+> zones radar il est lui-même à Emq 1–7 m. Comparer Mapterhorn au service d'altimétrie
+> ponctuelle ne fait que mesurer l'écart au RGE ALTI, pas au relief réel.
+
+L'IGN expose bien `IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.*` sur `wms-r`,
+mais **sans style `terrainrgb`** (`InvalidParameterValue: Style terrainrgb is not
+available for the layer`) : seuls `normal` et `hypso` existent, donc inutilisable
+directement comme `raster-dem`. Il faudrait un protocole client qui ré-encode une source
+altimétrique brute.
+
+À noter pour arbitrer : une clé DEM IGN ne change rien à ce constat, elle ne donne accès
+qu'à `…HIGHRES.LINEAR`, c'est-à-dire au même RGE ALTI simplement mieux interpolé.
+
+#### Tuiles DEM manquantes (400 `LayerNotDefined`)
+
+`data.geopf.fr/wms-r` renvoie par intermittence `400 LayerNotDefined: Layer … unknown`
+sur des requêtes pourtant valides — la même URL rejouée aussitôt répond `200`. Le taux
+observé varie de 5 % à 40 % selon les moments, sur les deux couches d'altimétrie testées.
+MapLibre ne réessaie pas une tuile raster en échec : les zones concernées gardent le DEM
+du parent, donc un relief localement plus grossier. Ce n'est pas un défaut de l'appli.
 
 ### Schéma de l'état (mapStore)
 

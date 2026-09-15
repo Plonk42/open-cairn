@@ -44,7 +44,12 @@ function getContourDemSource(): InstanceType<typeof mlcontour.DemSource> {
     return contourDemSource;
 }
 
-const TERRAIN_TILE_SIZE = 256;
+/**
+ * WMS is bbox-based, so the tile size alone sets how finely the DEM is sampled:
+ * 512 px per tile at z14 ≈ 3.4 m/px. At 256 px the mesh was built from a
+ * 6.7 m/px DEM — hence the sawtooth ridgelines.
+ */
+const TERRAIN_TILE_SIZE = 512;
 
 /**
  * Build the `terrain` raster-dem source for the chosen DEM provider.
@@ -72,7 +77,7 @@ function resolveTerrainSource(
     }
     return {
         type: 'raster-dem',
-        tiles: [ignTerrainRgbUrl(ignDemApiKey)],
+        tiles: [ignTerrainRgbUrl(ignDemApiKey, TERRAIN_TILE_SIZE)],
         tileSize: TERRAIN_TILE_SIZE,
         minzoom: 6,
         maxzoom: 14,

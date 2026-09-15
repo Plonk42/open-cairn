@@ -1,15 +1,15 @@
-import { describe, expect, it } from 'vitest';
 import {
-    ignLayerUrl,
-    ignStaticMapUrl,
-    ignTerrainRgbUrl,
-    ignWmtsUrl,
     IGN_LAYERS,
     IGN_WMS_R_PRIVATE,
     IGN_WMS_R_PUBLIC,
     IGN_WMTS_PRIVATE,
     IGN_WMTS_PUBLIC,
+    ignLayerUrl,
+    ignStaticMapUrl,
+    ignTerrainRgbUrl,
+    ignWmtsUrl,
 } from '@/lib/ign';
+import { describe, expect, it } from 'vitest';
 
 describe('ignWmtsUrl', () => {
     it('builds a public WMTS template with default style and tilematrixset', () => {
@@ -56,15 +56,17 @@ describe('ignLayerUrl', () => {
 
 describe('ignTerrainRgbUrl', () => {
     it('uses the public WMS-r endpoint with the nearest-neighbor layer when keyless', () => {
-        const url = ignTerrainRgbUrl();
+        const url = ignTerrainRgbUrl(undefined, 512);
         expect(url.startsWith(`${IGN_WMS_R_PUBLIC}?`)).toBe(true);
         expect(url).toContain('layers=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES');
         expect(url).not.toContain('apikey=');
         expect(url).toContain('bbox={bbox-epsg-3857}');
+        expect(url).toContain('width=512');
+        expect(url).toContain('height=512');
     });
 
     it('uses the private endpoint and linear layer when a key is given', () => {
-        const url = ignTerrainRgbUrl('k');
+        const url = ignTerrainRgbUrl('k', 512);
         expect(url.startsWith(`${IGN_WMS_R_PRIVATE}?apikey=k`)).toBe(true);
         expect(url).toContain(encodeURIComponent('ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.LINEAR'));
     });

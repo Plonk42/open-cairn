@@ -19,7 +19,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Cartographie multi-fonds** — SCAN 25, Plan IGN, Plan IGN HD, Orthophotos, OpenStreetMap, ombrage LiDAR brut
 - **Ombrage LiDAR HD** — composition temps réel (mode *multiply* ou *neutre*) des couches MNS / MNT / MNH
   IGN sur le fond choisi, via un protocole MapLibre custom `composite://`
-- **Relief 3D** — terrain MapLibre alimenté par le MNT haute résolution IGN (TerrainRGB), exagération réglable
+- **Relief 3D** — terrain MapLibre alimenté par le MNT IGN (TerrainRGB) ou Mapterhorn (MNT LiDAR HD), exagération réglable
 - **Recherche & géocodage** — autocomplétion adresse / lieu-dit / POI via les services IGN sans clé
 - **Itinéraires** — pose de waypoints à la carte, segments en mode *guidé* (API Navigation IGN piéton) ou *libre* (ligne droite)
 - **Profil altimétrique interactif** — Chart.js avec coloration par pente, survol synchronisé, sélection drag

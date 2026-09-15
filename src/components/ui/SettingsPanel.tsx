@@ -11,8 +11,8 @@ const TERRAIN_DEM_SOURCES: TerrainDemSource[] = ['auto', 'ign', 'mapterhorn'];
 
 /** Human-readable description of the active terrain DEM source. */
 function terrainDemHint(source: TerrainDemSource, hasIgnKey: boolean): string {
-    if (source === 'ign') return 'IGN RGE ALTI — France uniquement.';
-    if (source === 'mapterhorn') return 'Mapterhorn — couverture mondiale, identique aux courbes de niveau.';
+    if (source === 'ign') return 'IGN RGE ALTI — France uniquement ; en montagne la source est parfois du radar 5 m, qui arrondit les falaises.';
+    if (source === 'mapterhorn') return 'Mapterhorn — couverture mondiale, MNT LiDAR HD en France : plus fidèle sur les falaises.';
     return hasIgnKey
         ? 'Auto : IGN RGE ALTI (clé fournie).'
         : 'Auto : Mapterhorn (aucune clé IGN fournie).';

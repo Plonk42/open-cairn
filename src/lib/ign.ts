@@ -160,7 +160,7 @@ export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const OSM_ATTRIBUTION =
     '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
-export function ignTerrainRgbUrl(apikey?: string): string {
+export function ignTerrainRgbUrl(apikey: string | undefined, tileSize: number): string {
     const usePrivate = !!apikey;
     const layer = usePrivate ? IGN_TERRAIN_RGB_LAYER_LINEAR : IGN_TERRAIN_RGB_LAYER;
     const base = usePrivate ? IGN_WMS_R_PRIVATE : IGN_WMS_R_PUBLIC;
@@ -172,8 +172,8 @@ export function ignTerrainRgbUrl(apikey?: string): string {
         'version=1.3.0',
         'request=GetMap',
         'crs=EPSG:3857',
-        'width=256',
-        'height=256',
+        `width=${tileSize}`,
+        `height=${tileSize}`,
         'styles=terrainrgb',
         `layers=${encodeURIComponent(layer)}`,
     ].filter(Boolean).join('&');
