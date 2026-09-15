@@ -108,11 +108,11 @@ export function RenderSection() {
                         aria-label="Taille du cache de tuiles composites"
                         type="number"
                         min={0}
-                        max={1024}
+                        max={4096}
                         step={32}
                         value={tileCacheSize}
                         onChange={(e) => {
-                            const v = Math.max(0, Math.min(1024, Number(e.target.value) || 0));
+                            const v = Math.max(0, Math.min(4096, Number(e.target.value) || 0));
                             setTileCacheSize(v);
                         }}
                         className="w-16 rounded-md bg-gray-50 px-2 py-1 text-center text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
