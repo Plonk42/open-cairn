@@ -45,16 +45,20 @@ Le panneau **LiDAR** offre trois modes de rendu :
   pas à la pelouse
 - **Occupation du sol (CoSIA)** (préset `terrain`, activée par défaut) : arbitre
   *sol nu / pelouse / forêt* sur la couverture réelle mesurée par l'IA de l'IGN
-  plutôt que sur l'altitude. Un alpage à 2 400 m reste vert au lieu de virer à la
+  plutôt que sur la pente et l'altitude. Un alpage à 2 400 m reste vert au lieu de virer à la
   caillasse, un pierrier à 1 400 m reste minéral au lieu d'être gazonné, et le
   sous-bois prend la teinte dense de la forêt. La classe est **cuite à la
   capture** : une capture antérieure à l'option n'a pas l'attribut et la case est
-  alors sans effet (il faut recapturer). Ce que la classe **ne** touche **pas** :
-  la falaise reste arbitrée par la pente (au-delà de ~45° la roche l'emporte, quelle
-  que soit la classe mesurée) et les névés restent pilotés par la ligne de neige —
-  CoSIA voit la neige du jour du vol, pas un glacier.
+  alors sans effet (il faut recapturer). Là où une classe a été mesurée elle est
+  **sans appel** — une pelouse lue sur un versant à 50° est peinte en pelouse.
+  Pente et altitude ne décident plus que des sommets non mesurés (hors mosaïque,
+  eau, bâti, couleur de frontière entre deux classes).
+  Ce que la classe **ne** touche **pas** : les névés, toujours pilotés par la
+  ligne de neige — CoSIA voit la neige du jour du vol, pas un glacier. Sa classe
+  *Neige* est d'ailleurs traitée comme « non mesuré » : sous la neige il y a
+  peut-être un alpage, alors le repli pente + altitude reprend la main.
   Limite assumée : CoSIA est une vue **nadir**, donc une paroi verticale y occupe
-  quelques pixels ; c'est précisément pourquoi la pente garde le dernier mot.
+  quelques pixels et hérite souvent de la végétation de son rebord.
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief
@@ -216,14 +220,20 @@ bruit. Et une classe cuite est testable hors GPU, contrairement au GLSL qu'aucun
 porte de validation ne compile.
 
 L'arbitrage lui-même vit dans `palTurfFraction` (`glsl/lib/palette.glsl`) et son
-jumeau testable `turfFraction` (`src/lib/lidarBrowser/slope.ts`) : **la mesure
-gagne sur le QUOI, la pente garde le veto sur le OÙ**. Concrètement, la fraction
-d'herbe vaut `smoothstep((45 - pente) / 9)` dès que la classe est connue — donc
-l'altitude cesse de décider — mais retombe à zéro sur les fortes pentes quelle que
-soit la classe ; `COVER_BARE` force zéro ; `COVER_WOOD` bascule la teinte sur le
-vert dense `TURF_LUSH` au lieu de la ceinture d'alpage dépendante de l'altitude.
+jumeau testable `turfFraction` (`src/lib/lidarBrowser/slope.ts`) : **une classe
+mesurée est sans appel**. `COVER_GRASS` et `COVER_WOOD` donnent une fraction
+d'herbe de 1, `COVER_BARE` de 0 ; pente et altitude ne servent plus qu'à
+`COVER_NONE`, où la fraction reste `smoothstep((45 - pente) / 9) × smoothstep((ligne
+de neige - 100 - z) / 700)`. `COVER_WOOD` bascule en plus la teinte sur le vert
+dense `TURF_LUSH` au lieu de la ceinture d'alpage dépendante de l'altitude.
 Mesuré sur GPU contre la référence CPU : identique à l'octet près sur les 20 cas
 de `slope.test.ts`.
+
+Un veto de pente sur les classes mesurées a été essayé puis retiré : le terme
+d'altitude du repli sature déjà à 1 sous `ligne de neige - 800 m`, donc la pente
+y était le seul facteur restant, **identique dans les deux modes**. L'option ne
+pouvait alors que retirer de l'herbe, jamais en rendre — elle était soustractive
+par construction.
 
 > ⚠️ Toute retouche de `palette.glsl` doit être portée dans `slope.ts` **dans la
 > même passe** : `npm run test:run` ne compile pas le GLSL, seul `slope.ts` est

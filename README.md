@@ -43,7 +43,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   falaise / pente / surplomb
 - **Occupation du sol mesurée** — la palette `terrain` du rendu LiDAR arbitre sol nu / pelouse /
   forêt sur la couche CoSIA de l'IGN (classe cuite par sommet à la capture) au lieu de la deviner
-  à partir de l'altitude ; la pente garde le dernier mot sur les falaises
+  à partir de la pente et de l'altitude ; celles-ci ne tranchent plus que là où rien n'a été mesuré
 - **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs) pour la vue carte
   classique ; le Studio LiDAR est desktop uniquement
 

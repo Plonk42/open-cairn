@@ -13,10 +13,14 @@
  *   • cliffs — the source is a nadir orthophoto, a vertical wall occupies
  *     almost no pixel (a tile over the Presles walls reads 54 % broadleaf) and
  *     there is no rock class at all ("Sol nu" lumps sand, scree, lapiaz and
- *     quarries together). Slope stays the cliff detector.
+ *     quarries together). Slope stays the cliff detector wherever nothing was
+ *     measured — but it does not overrule a class that was: a measurement beats
+ *     an inference, and a nadir wall usually reads as its own rim anyway.
  *   • season — the "Neige" class is the snow of the survey flight, not a
  *     climatology: the Mer de Glace reads 80 % "Sol nu" and the Argentière
- *     glacier 99 %. The « Ligne de neige » slider stays in charge.
+ *     glacier 99 %. It maps to COVER_NONE, so a slope photographed under snow
+ *     falls back to the inference instead of being frozen into bare rock, and
+ *     the « Ligne de neige » slider stays in charge of the firn.
  *
  * The WMTS renders each class as one flat RGB colour, so the class is recovered
  * by an EXACT colour lookup, not a nearest-colour match: an unknown colour (a
@@ -36,7 +40,7 @@ import { fetchTileMosaic } from './orthoTexture';
 export const COVER_BARE = 0;
 export const COVER_GRASS = 1;
 export const COVER_WOOD = 2;
-/** Outside the mosaic, water, built-up, or an unrecognised colour. */
+/** Outside the mosaic, water, built-up, snow-covered, or an unrecognised colour. */
 export const COVER_NONE = 255;
 
 export type CoverClass = typeof COVER_BARE | typeof COVER_GRASS | typeof COVER_WOOD | typeof COVER_NONE;
@@ -61,7 +65,9 @@ interface CosiaClass {
  */
 export const COSIA_CLASSES: readonly CosiaClass[] = [
     { rgb: [187, 176, 150], label: 'Sol nu', cover: COVER_BARE },          // Dune du Pilat 64 %
-    { rgb: [233, 239, 254], label: 'Neige', cover: COVER_BARE },           // sommet du Mont Blanc 84 %
+    // Not a property of the ground but of the weather on the survey day: under
+    // that snow there may well be an alpage, so nothing was measured here.
+    { rgb: [233, 239, 254], label: 'Neige', cover: COVER_NONE },           // sommet du Mont Blanc 84 %
     { rgb: [140, 215, 106], label: 'Pelouse', cover: COVER_GRASS },        // La Meije 45 %
     { rgb: [222, 207, 85], label: 'Culture', cover: COVER_GRASS },         // Beauce 47 %
     { rgb: [208, 163, 73], label: 'Terre labourée', cover: COVER_GRASS },  // plaine de Bièvre 17 %

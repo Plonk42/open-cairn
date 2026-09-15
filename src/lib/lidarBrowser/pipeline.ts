@@ -12,7 +12,7 @@ import {
     DEFAULT_ADAPTIVE_RESIDUAL_M, DEFAULT_ADAPTIVE_SIGMA_TOL,
 } from './adaptiveDecimate';
 import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
-import { fetchCoverGrid, labelCover } from './cosia';
+import { COVER_NONE, fetchCoverGrid, labelCover } from './cosia';
 import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
 import {
@@ -431,6 +431,7 @@ async function bakeCoverClasses(
     count: number,
     c: { centerLng: number; centerLat: number; radius: number },
     signal?: AbortSignal,
+    baseMask?: Uint8Array,
 ): Promise<Uint8Array | undefined> {
     const t = startTimer();
     try {
@@ -442,6 +443,10 @@ async function bakeCoverClasses(
             return undefined;
         }
         const cover = labelCover(positions, count, c.centerLng, c.centerLat, grid);
+        // The plinth walls are synthetic and plumb under the terrain edge, so
+        // they sample the cover of the ground above and would be carpeted with
+        // it. Nothing was measured on them: back to the vertical-rock fallback.
+        if (baseMask) for (let i = 0; i < count; i++) if (baseMask[i]) cover[i] = COVER_NONE;
         logStage('cover (CoSIA)', t(), `${grid.cols}×${grid.rows} px → ${count.toLocaleString()} sommets`);
         return cover;
     } catch (err) {
@@ -1126,7 +1131,7 @@ export async function fetchLidarPoisson(
         triangleCount,
         radius: c.radius,
     };
-    meshData.coverClass = await bakeCoverClasses(mesh.positions, vertexCount, c, params.signal);
+    meshData.coverClass = await bakeCoverClasses(mesh.positions, vertexCount, c, params.signal, baseMask);
 
     // 2. Non-ground shaded cloud overlay. Height above ground uses per-column
     //    stacked clustering blended with the vertical height over the flat-ground

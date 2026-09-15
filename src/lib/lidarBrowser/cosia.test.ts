@@ -24,7 +24,8 @@ describe('COSIA_CLASSES', () => {
 describe('coverFromRgb', () => {
     it('recognises the witness colours of each arbitration', () => {
         expect(coverFromRgb(187, 176, 150, 255)).toBe(COVER_BARE);   // Sol nu
-        expect(coverFromRgb(233, 239, 254, 255)).toBe(COVER_BARE);   // Neige
+        // Snow hides the ground rather than being one: back to the inference.
+        expect(coverFromRgb(233, 239, 254, 255)).toBe(COVER_NONE);   // Neige
         expect(coverFromRgb(140, 215, 106, 255)).toBe(COVER_GRASS);  // Pelouse
         expect(coverFromRgb(76, 145, 41, 255)).toBe(COVER_WOOD);     // Feuillu
         expect(coverFromRgb(18, 100, 33, 255)).toBe(COVER_WOOD);     // Conifère

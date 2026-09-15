@@ -106,11 +106,11 @@ const int PAL_COVER_BARE = 0;
 const int PAL_COVER_GRASS = 1;
 const int PAL_COVER_WOOD = 2;
 
-/** See `turfFraction` in slope.ts: measured cover decides, slope keeps a veto. */
+/** See `turfFraction` in slope.ts: a measured cover class is final. */
 float palTurfFraction(int cover, float z, float slopeDeg, float snowLine) {
-    float holds = smoothstep(0.0, 1.0, (45.0 - slopeDeg) / 9.0);
     if (cover == PAL_COVER_BARE) return 0.0;
-    if (cover == PAL_COVER_GRASS || cover == PAL_COVER_WOOD) return holds;
+    if (cover == PAL_COVER_GRASS || cover == PAL_COVER_WOOD) return 1.0;
+    float holds = smoothstep(0.0, 1.0, (45.0 - slopeDeg) / 9.0);
     return holds * smoothstep(0.0, 1.0, (snowLine - PAL_TURF_TOP_GAP_M - z) / PAL_TURF_TOP_FADE_M);
 }
 

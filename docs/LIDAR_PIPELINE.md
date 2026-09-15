@@ -529,6 +529,10 @@ avec la classe CoSIA correspondante, sur le même principe que la BD Forêt :
    qu'inventer une classe. Mesuré sur la Dent de Crolles : ~6 % des pixels.
 3. `labelCover` projette chaque sommet (offset est/nord en mètres) en Mercator et
    lit la grille.
+4. Les sommets marqués par `baseMask` — les murs du socle synthétique — sont
+   remis à `COVER_NONE`. Ils sont à l'aplomb du bord de l'emprise, donc ils
+   échantillonnent la couverture du terrain qui les surplombe et se retrouveraient
+   gazonnés ; le repli par la pente les rend à leur roche verticale.
 
 Le tout est **best-effort** : hors couverture, panne réseau ou décodage raté
 renvoient `undefined`, une ligne `[lidar] cover (CoSIA)` dans la console, et la

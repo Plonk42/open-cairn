@@ -275,18 +275,18 @@ function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, num
 /**
  * Fraction of turf over bare rock, in [0,1].
  *
- * Without CoSIA this is pure inference: flat enough to hold soil, low enough to
- * be below the vegetation limit. With a cover class it becomes an arbitration —
- * measured ground wins on the WHAT, slope keeps the veto on the WHERE:
- * CoSIA is derived from a nadir orthophoto and routinely paints a vertical wall
- * with the vegetation growing on its rim, so a class alone would carpet the
- * cliffs. Elevation, on the other hand, no longer has a say: a pasture measured
- * at 2600 m is a pasture, whatever the snow line says.
+ * A measured cover class is final — it is a measurement, and neither slope nor
+ * elevation gets to overrule it. Keeping a slope veto made the option purely
+ * subtractive: the inference below already saturates its elevation term under
+ * `snowLine - 800 m`, so the veto was the only term left, identical in both
+ * modes, and CoSIA could take grass away but never give it back.
+ *
+ * Slope and elevation only rule where nothing was measured.
  */
 function turfFraction(cover: number, z: number, slopeDeg: number, snowLine: number): number {
-    const holds = smoothstep01((45 - slopeDeg) / 9);
     if (cover === COVER_BARE) return 0;
-    if (cover === COVER_GRASS || cover === COVER_WOOD) return holds;
+    if (cover === COVER_GRASS || cover === COVER_WOOD) return 1;
+    const holds = smoothstep01((45 - slopeDeg) / 9);
     return holds * smoothstep01((snowLine - TURF_TOP_GAP_M - z) / TURF_TOP_FADE_M);
 }
 

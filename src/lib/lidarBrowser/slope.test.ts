@@ -229,10 +229,22 @@ describe('CoSIA cover arbitration', () => {
             .toBeLessThan(green(coverSlope(10, 1200, COVER_NONE)));
     });
 
-    it('keeps the slope veto over a measured class', () => {
-        // CoSIA is a nadir product: it paints a vertical wall with the trees on
-        // its rim. Past 45° nothing holds, whatever the class says.
-        expect(coverSlope(70, 2000, COVER_WOOD)).toEqual(coverSlope(70, 2000, COVER_BARE));
+    it('greens a slope too steep for the guess to carpet', () => {
+        // The measurement is final: a 50° shoulder the inference had written
+        // off as cliff comes back as turf when CoSIA read Pelouse there.
+        expect(green(coverSlope(50, 1400, COVER_GRASS)))
+            .toBeGreaterThan(green(coverSlope(50, 1400, COVER_NONE)));
+    });
+
+    it('never darkens the ground where a class says vegetation', () => {
+        // The symmetry that was missing: measured cover must be able to add
+        // turf, not only take it away.
+        for (const [d, z] of [[10, 1200], [40, 1400], [50, 2000], [70, 2900]]) {
+            for (const cover of [COVER_GRASS, COVER_WOOD]) {
+                expect(green(coverSlope(d, z, cover)))
+                    .toBeGreaterThanOrEqual(green(coverSlope(d, z, COVER_NONE)));
+            }
+        }
     });
 
     it('leaves the render untouched where nothing was measured', () => {

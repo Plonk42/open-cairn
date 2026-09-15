@@ -279,7 +279,7 @@ export function ShaderControls() {
                 <label className="flex items-center justify-between">
                     <span
                         className="text-sm text-slate-700 dark:text-slate-300"
-                        title="Utilise la couche CoSIA de l’IGN, échantillonnée au moment de la capture, pour trancher sol nu / pelouse / forêt au lieu de le déduire de la pente et de l’altitude. Un alpage mesuré à 2600 m reste vert, un pierrier de fond de vallon reste gris. La pente garde son veto : CoSIA est vu du zénith et peint les parois avec la végétation de leur rebord. Sans effet sur les captures faites avant l’activation de l’option."
+                        title="Utilise la couche CoSIA de l’IGN, échantillonnée au moment de la capture, pour trancher sol nu / pelouse / forêt au lieu de le déduire de la pente et de l’altitude. Un alpage mesuré à 2600 m reste vert, un versant herbeux à 50° aussi, un pierrier de fond de vallon reste gris. Là où rien n’a pu être mesuré (eau, bâti, hors mosaïque), pente et altitude décident comme avant. Sans effet sur les captures faites avant l’activation de l’option."
                     >
                         Occupation du sol (CoSIA)
                     </span>
