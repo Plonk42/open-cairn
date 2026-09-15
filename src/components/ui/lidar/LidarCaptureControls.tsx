@@ -10,6 +10,7 @@ import {
     CAPTURE_POINT_BUDGET, estimateCapture, formatResolution,
     RESOLUTION_STOPS_M, resolutionToIndex,
 } from '@/lib/lidarResolution';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useMemo } from 'react';
 import { LidarProgressBar } from './LidarProgressBar';
@@ -179,14 +180,13 @@ function PoissonControls() {
 }
 
 /**
- * Zone read-out + the draw affordance. The rectangle is anchored to the ground,
- * so its position and orientation come from the drag on the map — there is
- * nothing to set here beyond starting a new one.
+ * Zone read-out. The rectangle is anchored to the ground and drawn straight on
+ * the map: the draw mode is armed the whole time this panel is open, so there
+ * is nothing to start here — only a reminder of the gesture.
  */
 function ZoneControl() {
     const rect = useMapStore((s) => s.lidarCaptureRect);
-    const drawActive = useMapStore((s) => s.lidarRectDrawActive);
-    const setDrawActive = useMapStore((s) => s.setLidarRectDrawActive);
+    const isMobile = useIsMobile();
     const overCap = rect.widthM * rect.lengthM > LIDAR_RECT_MAX_AREA_M2;
 
     return (
@@ -198,15 +198,11 @@ function ZoneControl() {
                     {' · '}{rectAreaHa(rect.widthM, rect.lengthM).toFixed(1)} ha
                 </span>
             </div>
-            <button
-                type="button"
-                onClick={() => setDrawActive(!drawActive)}
-                className={`w-full rounded-md px-3 py-2 text-sm ring-1 transition ${drawActive
-                    ? 'bg-green-50 text-green-800 ring-green-300 dark:bg-green-900/30 dark:text-green-200 dark:ring-green-700'
-                    : 'bg-gray-100 text-slate-700 ring-gray-200 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-600'}`}
-            >
-                {drawActive ? 'Glissez sur la carte — Échap pour annuler' : 'Dessiner la zone'}
-            </button>
+            <p className="rounded-md bg-green-50 px-2 py-1.5 text-[10px] text-green-800 ring-1 ring-green-200 dark:bg-green-900/30 dark:text-green-200 dark:ring-green-800">
+                {isMobile
+                    ? 'Dessinez la zone en glissant un doigt sur la carte ; un nouveau tracé remplace le précédent. Le pincement à deux doigts zoome et pivote.'
+                    : 'Dessinez la zone en glissant sur la carte ; un nouveau tracé remplace le précédent. Échap annule le tracé en cours.'}
+            </p>
             {overCap && (
                 <p className="text-[10px] text-amber-600 dark:text-amber-400">
                     Zone trop grande — sera réduite à {Math.round(LIDAR_RECT_MAX_AREA_M2 / 10_000)} ha au chargement.

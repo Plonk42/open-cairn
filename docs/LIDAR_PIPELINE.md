@@ -15,12 +15,18 @@ via PoissonRecon (WASM).
 
 Dans le panneau **LiDAR** :
 
-1. Ouvrez le panneau **Capture** et cliquez sur **Dessiner la zone**, puis
-   glissez sur la carte. Le rectangle est **ancré au sol** : une fois tracé, la
-   caméra bouge librement sans changer ce qui sera capturé. La caméra est mise
-   à plat le temps du tracé (sous une vue inclinée, l'emprise au sol d'un
-   glissement à l'écran est un trapèze), puis remise comme elle était ; `Échap`
-   annule. L'orientation du rectangle est celle de la caméra au moment du tracé.
+1. Ouvrez le panneau **Capture** : le mode dessin est armé d'emblée, glissez
+   directement sur la carte. Le rectangle est **ancré au sol** : une fois tracé,
+   la caméra bouge librement sans changer ce qui sera capturé. Le mode reste
+   actif tant que le panneau est ouvert, un nouveau glissement remplace donc le
+   rectangle précédent sans rien réarmer, et `Échap` annule le tracé en cours.
+   La caméra est mise à plat le temps du dessin (sous une vue inclinée,
+   l'emprise au sol d'un glissement à l'écran est un trapèze), puis remise comme
+   elle était quand **Capturer** quitte le mode dessin. L'orientation du
+   rectangle est celle de la caméra au moment du tracé.
+   Tant que le mode est armé, le glissement à la souris (ou à un doigt) est
+   confisqué par le dessin : la vue se déplace à la molette / au clic droit sur
+   ordinateur, au pincement à deux doigts sur mobile.
    Corollaire de l'ancrage : si vous naviguez ailleurs entre-temps, la zone
    sort du champ. Rouvrir le panneau **Capture** la ramène alors sous la caméra
    (mêmes dimensions, orientation reprise de l'écran) plutôt que d'afficher des
@@ -273,7 +279,7 @@ uniformément.
 | [src/components/ui/lidar/LidarCaptureControls.tsx](../src/components/ui/lidar/LidarCaptureControls.tsx) | UI : zone dessinée, curseur Qualité, réglages avancés, déclenchement du chargement |
 | [src/lib/lidarQuality.ts](../src/lib/lidarQuality.ts) | Paliers de qualité, cohérence résolution / profondeur / densité sol, conseils et estimations |
 | [src/lib/lidarCaptureRect.ts](../src/lib/lidarCaptureRect.ts) | Rectangle de capture ancré au sol : tracé, aperçu GeoJSON, écrêtage à 2500 ha |
-| [src/components/map/useRectDrawInteraction.ts](../src/components/map/useRectDrawInteraction.ts) | Mode dessin : glissement sur la carte, caméra mise à plat puis restaurée |
+| [src/components/map/useRectDrawInteraction.ts](../src/components/map/useRectDrawInteraction.ts) | Mode dessin : armé tant que le panneau Capture est ouvert, glissement sur la carte, caméra mise à plat puis restaurée |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Action `loadLidarCloud`, gestion des courses (latest-wins) |
 | [src/lib/lidarBrowser/index.ts](../src/lib/lidarBrowser/index.ts) | Wrapper qui dispatche vers le worker |
 | [src/lib/lidarBrowser/workerClient.ts](../src/lib/lidarBrowser/workerClient.ts) | Côté main : `postMessage`, dé-multiplexage par id, transferables |

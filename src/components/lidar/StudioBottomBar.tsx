@@ -48,10 +48,11 @@ export function StudioBottomBar() {
 /**
  * Capture entry point: a large round floating action button pinned to the
  * bottom-right. Pressing it opens the full capture controls (mode, zone
- * dimensions, density, load/clear, progress, stats) AND activates the on-map
- * preview footprint of the zone to load — the preview is hidden until it's
- * pressed. The menu stays open while panning so the zone can be positioned, and
- * only closes via the button or its close control.
+ * dimensions, density, load/clear, progress, stats), activates the on-map
+ * preview footprint of the zone to load — hidden until it's pressed — AND arms
+ * the draw mode, so the zone is drawn and redrawn straight on the map without
+ * any other affordance. « Capturer » ends the drawing; the menu otherwise
+ * closes via the button or its close control.
  */
 export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Readonly<{ anchorClassName?: string }>) {
     const [open, setOpen] = useState(false);
@@ -66,6 +67,7 @@ export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Re
     }, [open]);
     useEffect(() => () => {
         useMapStore.getState().setLidarPreviewVisible(false);
+        useMapStore.getState().setLidarRectDrawActive(false);
     }, []);
 
     // The onboarding tutorial opens this menu (to present the capture modes)
@@ -88,6 +90,13 @@ export function StudioCaptureButton({ anchorClassName = 'bottom-4 right-4' }: Re
         }
         prevLoadingRef.current = loading;
     }, [loading, loadingError]);
+
+    // Drawing stays armed for the whole time the panel is open, so a drag
+    // replaces the previous rectangle without re-arming anything; pressing
+    // « Capturer » is what ends it and gives the camera its pitch back.
+    useEffect(() => {
+        useMapStore.getState().setLidarRectDrawActive(open && !loading);
+    }, [open, loading]);
 
     // On mobile the capture menu floats over the map, so pad the map bottom
     // while it's open — drawing and reviewing the capture rectangle then happen

@@ -79,7 +79,7 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         id: 'capture',
         selector: '[data-tutorial="capture"]',
         title: '1 · Dessiner une zone',
-        body: 'Ouvrez ce bouton, cliquez « Dessiner la zone » et glissez sur la carte pour tracer le rectangle à capturer. Le curseur « Qualité » règle le compromis détail / temps de calcul.',
+        body: 'Ouvrez ce bouton : le mode dessin est actif aussitôt, glissez sur la carte pour tracer le rectangle à capturer. Un nouveau glissement remplace le précédent. Le curseur « Qualité » règle le compromis détail / temps de calcul.',
         placement: 'left',
     },
     {

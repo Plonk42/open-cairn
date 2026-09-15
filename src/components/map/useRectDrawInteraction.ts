@@ -2,13 +2,16 @@
  * Draw-the-capture-zone interaction: while `lidarRectDrawActive` is set, a drag
  * on the map spans the LiDAR capture rectangle instead of panning.
  *
+ * The mode stays armed for as long as the capture panel is open, so a second
+ * drag simply replaces the rectangle the first one produced.
+ *
  * The camera is flattened to pitch 0 for the duration — under pitch the ground
  * footprint of a screen-aligned drag is a trapezoid, so the corner under the
- * cursor would wander away from the preview — and restored when the draw ends.
- * The rectangle's axes follow the bearing the camera had when the draw started,
- * which is what makes a north-up drag give a north-up rectangle.
+ * cursor would wander away from the preview — and restored when the mode ends.
+ * The rectangle's axes follow the bearing the camera has at the start of each
+ * drag, which is what makes a north-up drag give a north-up rectangle.
  */
-import { rectFromDrag } from '@/lib/lidarCaptureRect';
+import { rectFromDrag, type CaptureRect } from '@/lib/lidarCaptureRect';
 import { useMapStore } from '@/stores/mapStore';
 import type maplibregl from 'maplibre-gl';
 import { useEffect, type RefObject } from 'react';
@@ -26,7 +29,6 @@ export function useRectDrawInteraction(mapRef: RefObject<maplibregl.Map | null>)
         if (!map || !active) return;
 
         const restorePitch = map.getPitch();
-        const bearingDeg = map.getBearing();
         map.easeTo({ pitch: 0, duration: 200 });
         map.dragPan.disable();
         const canvas = map.getCanvas();
@@ -34,18 +36,36 @@ export function useRectDrawInteraction(mapRef: RefObject<maplibregl.Map | null>)
 
         let anchor: { lng: number; lat: number } | null = null;
         let anchorPx: maplibregl.Point | null = null;
+        let rectBeforeDrag: CaptureRect | null = null;
+        let dragBearingDeg = 0;
 
         const apply = (event: MapPointerEvent) => {
             if (!anchor) return;
             useMapStore.getState().setLidarCaptureRect(
-                rectFromDrag(anchor, event.lngLat, bearingDeg),
+                rectFromDrag(anchor, event.lngLat, dragBearingDeg),
             );
         };
 
+        /** Drops the drag in progress and puts the rectangle it replaced back. */
+        const cancelDrag = () => {
+            if (rectBeforeDrag) useMapStore.getState().setLidarCaptureRect(rectBeforeDrag);
+            anchor = null;
+            anchorPx = null;
+            rectBeforeDrag = null;
+        };
+
         const onStart = (event: MapPointerEvent) => {
+            // Two fingers are a pinch, not a rectangle: bail out before
+            // `preventDefault`, which would also disable zoom and rotate.
+            if ('points' in event && event.points.length > 1) {
+                cancelDrag();
+                return;
+            }
             event.preventDefault();
             anchor = { lng: event.lngLat.lng, lat: event.lngLat.lat };
             anchorPx = event.point;
+            dragBearingDeg = map.getBearing();
+            rectBeforeDrag = useMapStore.getState().lidarCaptureRect;
         };
 
         const onMove = (event: MapPointerEvent) => {
@@ -59,11 +79,13 @@ export function useRectDrawInteraction(mapRef: RefObject<maplibregl.Map | null>)
             if (anchorPx && event.point.dist(anchorPx) >= MIN_DRAG_PX) apply(event);
             anchor = null;
             anchorPx = null;
-            useMapStore.getState().setLidarRectDrawActive(false);
+            rectBeforeDrag = null;
         };
 
+        // Escape aborts the rectangle being dragged; leaving the mode is the
+        // capture panel's job, not a key's.
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') useMapStore.getState().setLidarRectDrawActive(false);
+            if (event.key === 'Escape' && rectBeforeDrag) cancelDrag();
         };
 
         map.on('mousedown', onStart);
