@@ -234,6 +234,10 @@ export interface LidarSlice {
     /** Lithology of the rendered massif: changes the bare-rock ramp. */
     lidarRockType: RockType;
     setLidarRockType: (v: RockType) => void;
+    /** Let the CoSIA class baked at capture time arbitrate bare ground vs turf,
+     *  instead of inferring it from slope and elevation. Off = historical render. */
+    lidarCoverEnabled: boolean;
+    setLidarCoverEnabled: (v: boolean) => void;
     /** Loaded shaded point cloud (positions + normals + slope colors) — mirrors `lidarClouds[0]`. */
     lidarShaded: LidarShadedCloudData | null;
     /** Loaded ground mesh for delaunay / poisson modes — mirrors `lidarClouds[0]`. */
@@ -745,6 +749,7 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSnowLine: DEFAULT_SNOW_LINE,
     lidarSnowAmount: DEFAULT_SNOW_AMOUNT,
     lidarRockType: DEFAULT_ROCK,
+    lidarCoverEnabled: true,
     lidarCloudPointSize: 2,
     lidarCloudSizeCompensation: true,
     lidarCloudEdl: true,
@@ -853,6 +858,8 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarSnowLine: (lidarSnowLine) => set({ lidarSnowLine }),
         lidarSnowAmount: persisted.lidarSnowAmount ?? LIDAR_RENDER_DEFAULTS.lidarSnowAmount,
         setLidarSnowAmount: (lidarSnowAmount) => set({ lidarSnowAmount }),
+        lidarCoverEnabled: persisted.lidarCoverEnabled ?? LIDAR_RENDER_DEFAULTS.lidarCoverEnabled,
+        setLidarCoverEnabled: (lidarCoverEnabled) => set({ lidarCoverEnabled }),
         lidarRockType: ROCK_TYPES.has(persisted.lidarRockType as RockType) ? persisted.lidarRockType as RockType : LIDAR_RENDER_DEFAULTS.lidarRockType,
         setLidarRockType: (lidarRockType) => set({ lidarRockType }),
         lidarShaded: null,
@@ -1301,6 +1308,7 @@ export function selectLidarPersisted(
     | 'lidarSnowLine'
     | 'lidarSnowAmount'
     | 'lidarRockType'
+    | 'lidarCoverEnabled'
     | 'lidarCloudStride'
     | 'lidarCaptureRect'
     | 'lidarCaptureResolution'
@@ -1378,6 +1386,7 @@ export function selectLidarPersisted(
         lidarSnowLine: s.lidarSnowLine,
         lidarSnowAmount: s.lidarSnowAmount,
         lidarRockType: s.lidarRockType,
+        lidarCoverEnabled: s.lidarCoverEnabled,
         lidarCloudStride: s.lidarCloudStride,
         lidarCaptureRect: s.lidarCaptureRect,
         lidarCaptureResolution: s.lidarCaptureResolution,

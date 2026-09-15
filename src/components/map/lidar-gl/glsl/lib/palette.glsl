@@ -101,14 +101,27 @@ vec3 palAlpineTurf(float z, float slopeDeg, float snowLine) {
     return mix(PAL_TURF_LUSH, PAL_TURF_DRY, clamp(altitude + thin, 0.0, 1.0));
 }
 
+// CoSIA cover classes, mirroring COVER_* in src/lib/lidarBrowser/cosia.ts.
+const int PAL_COVER_BARE = 0;
+const int PAL_COVER_GRASS = 1;
+const int PAL_COVER_WOOD = 2;
+
+/** See `turfFraction` in slope.ts: measured cover decides, slope keeps a veto. */
+float palTurfFraction(int cover, float z, float slopeDeg, float snowLine) {
+    float holds = smoothstep(0.0, 1.0, (45.0 - slopeDeg) / 9.0);
+    if (cover == PAL_COVER_BARE) return 0.0;
+    if (cover == PAL_COVER_GRASS || cover == PAL_COVER_WOOD) return holds;
+    return holds * smoothstep(0.0, 1.0, (snowLine - PAL_TURF_TOP_GAP_M - z) / PAL_TURF_TOP_FADE_M);
+}
+
 /** @return rgb = albedo, w = snow ratio in [0,1]. */
-vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmount, int rock) {
+vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmount, int rock, int cover) {
     int lo = rock == 1 ? 28 : (rock == 2 ? 32 : 23);
     int hi = rock == 1 ? 31 : (rock == 2 ? 35 : 27);
     vec3 bare = palInterp(lo, hi, slopeDeg);
-    float turf = smoothstep(0.0, 1.0, (45.0 - slopeDeg) / 9.0)
-        * smoothstep(0.0, 1.0, (snowLine - PAL_TURF_TOP_GAP_M - z) / PAL_TURF_TOP_FADE_M);
-    vec3 ground = mix(bare, palAlpineTurf(z, slopeDeg, snowLine), turf);
+    float turf = palTurfFraction(cover, z, slopeDeg, snowLine);
+    vec3 turfColor = cover == PAL_COVER_WOOD ? PAL_TURF_LUSH : palAlpineTurf(z, slopeDeg, snowLine);
+    vec3 ground = mix(bare, turfColor, turf);
 
     float amount = clamp(snowAmount, 0.0, 1.0);
     float slopeLimit = mix(PAL_SNOW_SLOPE_LIMIT_MIN, PAL_SNOW_SLOPE_LIMIT_MAX, amount);
@@ -135,13 +148,14 @@ vec4 palTerrain(vec3 nrm, float z, float slopeDeg, float snowLine, float snowAmo
  *
  * @param preset 0 = Mono, 1 = Terrain, 2 = Pente
  * @param rock   0 = limestone, 1 = granite, 2 = schist
+ * @param cover  CoSIA class, 255 = unknown (the palette then guesses)
  * @return rgb = albedo, w = snow ratio (0 outside the Terrain preset)
  */
-vec4 paletteAlbedo(vec3 nrm, float z, int preset, float snowLine, float snowAmount, int rock) {
+vec4 paletteAlbedo(vec3 nrm, float z, int preset, float snowLine, float snowAmount, int rock, int cover) {
     float len = length(nrm);
     float nzn = len > 0.0 ? nrm.z / len : 1.0;
     float slopeDeg = degrees(acos(clamp(abs(nzn), -1.0, 1.0)));
     if (preset == 0) return vec4(palInterp(0, 4, slopeDeg), 0.0);
     if (preset == 2) return vec4(palInterp(5, 22, slopeDeg), 0.0);
-    return palTerrain(nrm, z, slopeDeg, snowLine, snowAmount, rock);
+    return palTerrain(nrm, z, slopeDeg, snowLine, snowAmount, rock, cover);
 }

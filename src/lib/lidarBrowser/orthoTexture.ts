@@ -13,6 +13,12 @@
  * single canvas, and return that canvas together with the exact lng/lat extent
  * the mosaic covers (tile-aligned), which the WebGL layer converts to its
  * meter-offset frame for the planar UV mapping.
+ *
+ * Everything here goes through `OffscreenCanvas` and `createImageBitmap` rather
+ * than `document.createElement('canvas')` and `new Image()`, because the same
+ * code also runs inside the LiDAR worker (CoSIA cover baking), where there is
+ * no `document`. `OffscreenCanvas` is a valid `TexImageSource`, so the drape
+ * upload path is unchanged.
  */
 
 import { BASE_LAYERS, type DrapeSource } from '@/lib/baseLayers';
@@ -20,7 +26,7 @@ import { IGN_LAYERS, ignLayerUrl, OSM_TILE_URL } from '@/lib/ign';
 
 export interface DrapeMosaic {
     /** Canvas holding the stitched basemap, ready for `texImage2D`. */
-    image: HTMLCanvasElement;
+    image: OffscreenCanvas;
     /** Exact geographic extent covered by the mosaic (tile-aligned). */
     lngLatRect: { west: number; south: number; east: number; north: number };
 }
@@ -32,7 +38,6 @@ const TILE_SIZE = 256;
  *  so the ground resolution collapsed as the zone grew (2.6 m/px on 3 km
  *  against 0.5 m/px on 300 m). */
 const MAX_MOSAIC_PX = 4096;
-const MAX_TILES_PER_SIDE = MAX_MOSAIC_PX / TILE_SIZE;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 19;
 
@@ -67,17 +72,16 @@ function tileToLngLat(x: number, y: number, z: number): { lng: number; lat: numb
     return { lng, lat: (latR * 180) / Math.PI };
 }
 
-function loadTileImage(url: string, signal?: AbortSignal): Promise<HTMLImageElement | null> {
-    return new Promise((resolve) => {
-        if (signal?.aborted) return resolve(null);
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        const onAbort = () => { img.src = ''; resolve(null); };
-        signal?.addEventListener('abort', onAbort, { once: true });
-        img.onload = () => { signal?.removeEventListener('abort', onAbort); resolve(img); };
-        img.onerror = () => { signal?.removeEventListener('abort', onAbort); resolve(null); };
-        img.src = url;
-    });
+/** Fetch one tile as an `ImageBitmap`. Resolves null on abort, http error or
+ *  decode failure: a missing tile just leaves a blank patch in the mosaic. */
+async function loadTileImage(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> {
+    try {
+        const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
+        if (!res.ok) return null;
+        return await createImageBitmap(await res.blob());
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -111,22 +115,24 @@ export function snapDetailView(lng: number, lat: number, radiusMeters: number): 
 /**
  * Build a basemap mosaic centered on (lng, lat) covering ±radius meters.
  *
- * Picks the highest zoom whose tile span still fits in `MAX_MOSAIC_PX`, so the
- * ground resolution is as fine as the texture budget allows at any footprint.
- * Returns null if no tile could be loaded (e.g. area outside IGN coverage, or
- * SCAN 25 requested without an API key).
+ * Picks the highest zoom whose tile span still fits in `maxPx`, so the ground
+ * resolution is as fine as the pixel budget allows at any footprint. Returns
+ * null if no tile could be loaded (e.g. area outside IGN coverage, or SCAN 25
+ * requested without an API key).
  */
-export async function fetchDrapeMosaic(opts: {
-    source: DrapeSource;
+export async function fetchTileMosaic(opts: {
+    /** XYZ template with `{z}/{x}/{y}` placeholders. */
+    template: string;
+    maxZoom: number;
     lng: number;
     lat: number;
     radiusMeters: number;
-    /** IGN key for the private layers; ignored by the public ones. */
-    ignApiKey?: string;
+    /** Pixel cap on the mosaic's longest side. */
+    maxPx?: number;
     signal?: AbortSignal;
 }): Promise<DrapeMosaic | null> {
-    const { source, lng, lat, radiusMeters, ignApiKey, signal } = opts;
-    const { template, maxZoom } = drapeTileTemplate(source, ignApiKey);
+    const { template, maxZoom, lng, lat, radiusMeters, signal } = opts;
+    const maxTilesPerSide = (opts.maxPx ?? MAX_MOSAIC_PX) / TILE_SIZE;
     // Expand a little so the mesh (which can spill slightly past the request
     // radius) is fully covered; UVs outside [0,1] are ignored by the shader.
     const r = radiusMeters * 1.1;
@@ -144,7 +150,7 @@ export async function fetchDrapeMosaic(opts: {
         const se = lngLatToTile(east, south, cand);
         const tx = se.x - nw.x + 1;
         const ty = se.y - nw.y + 1;
-        if (tx <= MAX_TILES_PER_SIDE && ty <= MAX_TILES_PER_SIDE) { z = cand; break; }
+        if (tx <= maxTilesPerSide && ty <= maxTilesPerSide) { z = cand; break; }
     }
 
     const nw = lngLatToTile(west, north, z);
@@ -156,10 +162,11 @@ export async function fetchDrapeMosaic(opts: {
     const cols = x1 - x0 + 1;
     const rows = y1 - y0 + 1;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = cols * TILE_SIZE;
-    canvas.height = rows * TILE_SIZE;
-    const ctx = canvas.getContext('2d');
+    const canvas = new OffscreenCanvas(cols * TILE_SIZE, rows * TILE_SIZE);
+    // `willReadFrequently` for the CoSIA path, which reads the whole mosaic
+    // back with `getImageData`; the drape path only uploads it as a texture and
+    // does not care either way.
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
 
     const jobs: Promise<boolean>[] = [];
@@ -195,4 +202,25 @@ export async function fetchDrapeMosaic(opts: {
             south: seCorner.lat,
         },
     };
+}
+
+/** {@link fetchTileMosaic} for one of the app's drapable basemaps. */
+export async function fetchDrapeMosaic(opts: {
+    source: DrapeSource;
+    lng: number;
+    lat: number;
+    radiusMeters: number;
+    /** IGN key for the private layers; ignored by the public ones. */
+    ignApiKey?: string;
+    signal?: AbortSignal;
+}): Promise<DrapeMosaic | null> {
+    const { template, maxZoom } = drapeTileTemplate(opts.source, opts.ignApiKey);
+    return fetchTileMosaic({
+        template,
+        maxZoom,
+        lng: opts.lng,
+        lat: opts.lat,
+        radiusMeters: opts.radiusMeters,
+        signal: opts.signal,
+    });
 }

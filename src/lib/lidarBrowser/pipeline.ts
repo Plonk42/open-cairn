@@ -12,6 +12,7 @@ import {
     DEFAULT_ADAPTIVE_RESIDUAL_M, DEFAULT_ADAPTIVE_SIGMA_TOL,
 } from './adaptiveDecimate';
 import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdforet';
+import { fetchCoverGrid, labelCover } from './cosia';
 import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
 import {
@@ -415,6 +416,42 @@ async function enrichForest(
 }
 
 /**
+ * Bake the IGN CoSIA land-cover class under every vertex/point.
+ *
+ * Done here, once per capture, rather than draped as a second texture at render
+ * time: the palette is evaluated in the vertex shader, and a class cannot be
+ * interpolated (halfway between "bare" and "forest" is not a colour). Baked, it
+ * also becomes testable off the GPU — no gate compiles the GLSL.
+ *
+ * Best-effort, like the BD Forêt query: a missing grid leaves `undefined` and
+ * the palette goes back to guessing from slope and elevation.
+ */
+async function bakeCoverClasses(
+    positions: Float32Array,
+    count: number,
+    c: { centerLng: number; centerLat: number; radius: number },
+    signal?: AbortSignal,
+): Promise<Uint8Array | undefined> {
+    const t = startTimer();
+    try {
+        const grid = await fetchCoverGrid({
+            lng: c.centerLng, lat: c.centerLat, radiusMeters: c.radius, signal,
+        });
+        if (!grid) {
+            logStage('cover (CoSIA)', t(), 'hors couverture');
+            return undefined;
+        }
+        const cover = labelCover(positions, count, c.centerLng, c.centerLat, grid);
+        logStage('cover (CoSIA)', t(), `${grid.cols}×${grid.rows} px → ${count.toLocaleString()} sommets`);
+        return cover;
+    } catch (err) {
+        if ((err as Error)?.name === 'AbortError') throw err;
+        console.warn('[lidar] CoSIA cover skipped:', (err as Error)?.message ?? err);
+        return undefined;
+    }
+}
+
+/**
  * Build the non-ground shaded point-cloud overlay shared by the Delaunay and
  * Poisson mesh modes: vegetation-aware normals, slope colours, height above
  * ground (stacked-ground per-column clustering, so a tree leaning on a cliff
@@ -505,6 +542,9 @@ export async function fetchLidarShaded(
         radius: c.radius,
     };
     await enrichForest(shaded, onProgress, params.signal);
+    // Pure-shaded mode has no ground mesh: the palette runs on the ground POINTS,
+    // so this is the one path where the cloud itself carries the cover class.
+    shaded.coverClass = await bakeCoverClasses(c.positions, c.pointCount, c, params.signal);
     logStage('TOTAL (shaded)', total());
     onProgress({ stage: 'done', message: STAGE_LABELS.done, detail: `${c.pointCount.toLocaleString()} points` });
     return shaded;
@@ -552,6 +592,7 @@ export async function fetchLidarDelaunay(
         triangleCount: groundMesh.indices.length / 3,
         radius: c.radius,
     };
+    meshData.coverClass = await bakeCoverClasses(groundMesh.positions, meshVertexCount, c, params.signal);
 
     // 2. Non-ground shaded cloud — per-point normals. Even though
     //    vegetation normals are noisy, they're what the WebGL layer wants.
@@ -1085,6 +1126,7 @@ export async function fetchLidarPoisson(
         triangleCount,
         radius: c.radius,
     };
+    meshData.coverClass = await bakeCoverClasses(mesh.positions, vertexCount, c, params.signal);
 
     // 2. Non-ground shaded cloud overlay. Height above ground uses per-column
     //    stacked clustering blended with the vertical height over the flat-ground

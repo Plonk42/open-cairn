@@ -243,6 +243,8 @@ export function ShaderControls() {
     const setSnowAmount = useMapStore((s) => s.setLidarSnowAmount);
     const rockType = useMapStore((s) => s.lidarRockType);
     const setRockType = useMapStore((s) => s.setLidarRockType);
+    const coverEnabled = useMapStore((s) => s.lidarCoverEnabled);
+    const setCoverEnabled = useMapStore((s) => s.setLidarCoverEnabled);
     const rockFacet = useMapStore((s) => s.lidarRockFacet);
     const setRockFacet = useMapStore((s) => s.setLidarRockFacet);
     const rockMicro = useMapStore((s) => s.lidarRockMicro);
@@ -270,6 +272,24 @@ export function ShaderControls() {
                     </span>
                     <SegmentedControl value={rockType} options={ROCK_OPTIONS} onChange={setRockType} />
                 </div>
+            )}
+
+            {/* Occupation du sol mesurée, cuite dans la capture (voir cosia.ts) */}
+            {shader === 'terrain' && (
+                <label className="flex items-center justify-between">
+                    <span
+                        className="text-sm text-slate-700 dark:text-slate-300"
+                        title="Utilise la couche CoSIA de l’IGN, échantillonnée au moment de la capture, pour trancher sol nu / pelouse / forêt au lieu de le déduire de la pente et de l’altitude. Un alpage mesuré à 2600 m reste vert, un pierrier de fond de vallon reste gris. La pente garde son veto : CoSIA est vu du zénith et peint les parois avec la végétation de leur rebord. Sans effet sur les captures faites avant l’activation de l’option."
+                    >
+                        Occupation du sol (CoSIA)
+                    </span>
+                    <input
+                        type="checkbox"
+                        checked={coverEnabled}
+                        onChange={(e) => setCoverEnabled(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
             )}
 
             {shader === 'terrain' && (

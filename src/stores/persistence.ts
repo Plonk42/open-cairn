@@ -25,6 +25,7 @@ export type PersistedSettings = {
     lidarSnowLine?: number;
     lidarSnowAmount?: number;
     lidarRockType?: RockType;
+    lidarCoverEnabled?: boolean;
     lidarCloudStride?: number;
     lidarCaptureRect?: CaptureRect;
     lidarCaptureResolution?: number;

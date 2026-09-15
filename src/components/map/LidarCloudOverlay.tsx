@@ -144,6 +144,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const rockType = useMapStore((s) => s.lidarRockType);
     const snowLine = useMapStore((s) => s.lidarSnowLine);
     const snowAmount = useMapStore((s) => s.lidarSnowAmount);
+    const coverEnabled = useMapStore((s) => s.lidarCoverEnabled);
     const specular = useMapStore((s) => s.lidarRockSpecular);
     const ao = useMapStore((s) => s.lidarAo);
     const vegEnhance = useMapStore((s) => s.lidarVegEnhance);
@@ -326,6 +327,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
                 forestTfv: lidarShaded.forestTfv,
                 treeSeed: lidarShaded.treeSeed,
                 vegDiag: lidarShaded.vegDiag,
+                coverClass: lidarShaded.coverClass,
             });
         } else {
             layer.clear();
@@ -337,15 +339,16 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
         const layer = webglRef.current;
         if (!layer) return;
         if (lidarMesh) {
-            layer.setMesh(
-                lidarMesh.positions,
-                lidarMesh.normals,
-                lidarMesh.macroNormals,
-                lidarMesh.indices,
-                lidarMesh.centerLng,
-                lidarMesh.centerLat,
-                lidarMesh.baseMask,
-            );
+            layer.setMesh({
+                positions: lidarMesh.positions,
+                normals: lidarMesh.normals,
+                macroNormals: lidarMesh.macroNormals,
+                indices: lidarMesh.indices,
+                originLng: lidarMesh.centerLng,
+                originLat: lidarMesh.centerLat,
+                baseMask: lidarMesh.baseMask,
+                coverClass: lidarMesh.coverClass,
+            });
         } else {
             layer.clearMesh();
         }
@@ -419,9 +422,10 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             rockType: ROCK_TYPE_ID[rockType],
             snowLine,
             snowAmount,
+            coverEnabled,
             specular,
         });
-    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, rockType, snowLine, snowAmount, specular, styleEpoch]);
+    }, [photoreal, exposure, ambient, sunStrength, haze, rockFacet, rockMicro, rockBreak, shaderPreset, rockType, snowLine, snowAmount, coverEnabled, specular, styleEpoch]);
 
     useEffect(() => {
         let vegColorModeId = 0;

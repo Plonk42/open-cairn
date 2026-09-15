@@ -23,6 +23,8 @@ layout(location = 1) in vec3 a_normal;
 // may look at. See `macroVertexNormals` in pipeline.ts.
 layout(location = 2) in vec3 a_macro;
 layout(location = 3) in float a_base; // 1 = synthetic base wall (to be hatched)
+// IGN CoSIA cover class baked at capture time, 255 = unmeasured. Un-normalized.
+layout(location = 4) in float a_cover;
 
 uniform mat4 u_matrix;
 uniform float u_mpu;
@@ -36,6 +38,9 @@ uniform int u_palettePreset;  // 0 = Mono, 1 = Terrain, 2 = Pente
 uniform int u_rockType;       // 0 = limestone, 1 = granite, 2 = schist
 uniform float u_snowLine;
 uniform float u_snowAmount;
+// 0 ignores a_cover entirely, so the render falls back to the slope/elevation
+// guess — the A/B that shows what the measurement changed.
+uniform float u_coverEnabled;
 // Eye position in the SAME space as `pos` (Mercator units relative to the cloud
 // origin, Y flipped) — reconstructed from the matrix by `cameraFromMatrix()`.
 // Divided by u_mpu, the distance becomes metric.
@@ -79,7 +84,8 @@ void main() {
     v_view = camW - a_pos;
     // a_pos.z is already the elevation in metres: the palette reads it directly.
     vec3 macro = mix(a_normal, a_macro * 2.0 - 1.0, u_hasMacro);
-    vec4 pal = paletteAlbedo(macro, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType);
+    int cover = u_coverEnabled > 0.5 ? int(a_cover) : 255;
+    vec4 pal = paletteAlbedo(macro, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType, cover);
     v_albedo = pal.rgb;
     v_snow = pal.a;
     v_alpha = 1.0;

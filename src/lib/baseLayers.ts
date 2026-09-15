@@ -46,6 +46,12 @@ export const BASE_LAYERS = {
         shortLabel: 'Photo',
         description: 'Orthophotos IGN (BD ORTHO) — imagerie aérienne',
     },
+    cosia: {
+        source: 'cosia',
+        label: IGN_LAYERS.cosia.label,
+        shortLabel: 'CoSIA',
+        description: 'Couverture du sol prédite par IA depuis la BD ORTHO — 15 classes (sol nu, neige, pelouse, conifère…)',
+    },
     osm: {
         source: 'osm',
         label: 'OpenStreetMap',

@@ -1,3 +1,4 @@
+import { COVER_BARE, COVER_GRASS, COVER_NONE, COVER_WOOD } from '@/lib/lidarBrowser/cosia';
 import { DEFAULT_PALETTE, vertexColor, type PaletteSettings } from '@/lib/lidarBrowser/slope';
 import { describe, expect, it } from 'vitest';
 
@@ -200,5 +201,50 @@ describe('lithology', () => {
 
     it('does not tint the snow', () => {
         expect(color(0, 0, 1, 3400, { rock: 'limestone' })).toEqual(color(0, 0, 1, 3400, { rock: 'schist' }));
+    });
+});
+
+// The GLSL twin of this arbitration (`palTurfFraction` in palette.glsl) is
+// compiled by no gate: these are the only assertions on the rules it encodes.
+describe('CoSIA cover arbitration', () => {
+    /** Green fraction, a proxy for "is this turf or is it rock". */
+    const green = (c: readonly [number, number, number]): number => c[1] - (c[0] + c[2]) / 2;
+
+    const coverSlope = (d: number, z: number, cover: number): [number, number, number] => {
+        const r = (d * Math.PI) / 180;
+        return vertexColor(Math.sin(r), 0, Math.cos(r), z, DEFAULT_PALETTE, cover);
+    };
+
+    it('greens a pasture measured above the vegetation limit', () => {
+        // The whole point of the measurement: at 2600 m the guess has already
+        // faded the turf out, and an alpage that CoSIA saw stays an alpage.
+        expect(green(coverSlope(20, 2600, COVER_GRASS)))
+            .toBeGreaterThan(green(coverSlope(20, 2600, COVER_NONE)));
+    });
+
+    it('strips the turf off ground measured bare', () => {
+        // A scree at the bottom of a valley: flat and low, so the guess carpets
+        // it; CoSIA reads Sol nu and it stays mineral.
+        expect(green(coverSlope(10, 1200, COVER_BARE)))
+            .toBeLessThan(green(coverSlope(10, 1200, COVER_NONE)));
+    });
+
+    it('keeps the slope veto over a measured class', () => {
+        // CoSIA is a nadir product: it paints a vertical wall with the trees on
+        // its rim. Past 45° nothing holds, whatever the class says.
+        expect(coverSlope(70, 2000, COVER_WOOD)).toEqual(coverSlope(70, 2000, COVER_BARE));
+    });
+
+    it('leaves the render untouched where nothing was measured', () => {
+        for (const [d, z] of [[10, 1200], [35, 2200], [70, 2900]]) {
+            expect(coverSlope(d, z, COVER_NONE)).toEqual(slope(d, z));
+        }
+    });
+
+    it('gives forest floor a wetter green than an alpage at the same altitude', () => {
+        // Duff and shade under the canopy, where an open pasture at that height
+        // is already drying toward straw.
+        expect(green(coverSlope(20, 2400, COVER_WOOD)))
+            .toBeGreaterThan(green(coverSlope(20, 2400, COVER_GRASS)));
     });
 });

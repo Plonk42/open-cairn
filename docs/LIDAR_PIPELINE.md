@@ -259,9 +259,10 @@ de « Mes vues », comme l'ambiance : la tuile affiche ses détails et propose
 - **Mode Poisson coûteux** : la reconstruction WASM est mono-thread et bloque
   le worker pendant plusieurs secondes (voire dizaines de secondes en
   profondeur 11–12). Préférez `mixed` pour de l'exploration rapide.
-- **Erreurs 429 transitoires** : `data.geopf.fr` limite les requêtes par plage
-  d'octets agressives. Le pipeline retente automatiquement (jusqu'à 5 fois) ;
-  si l'erreur persiste, relancez plus tard.
+- **Erreurs réseau transitoires** : `data.geopf.fr` limite les requêtes par
+  plage d'octets agressives, et coupe la connexion quand il sature. Le pipeline
+  retente automatiquement (jusqu'à 5 fois) dans les deux cas ; si l'erreur
+  persiste, relancez plus tard.
 - **Pas d'annulation** : un chargement en cours ne peut pas être interrompu
   proprement ; lancer un nouveau chargement remplace simplement le résultat
   (logique « le dernier gagne »).
@@ -309,7 +310,7 @@ uniformément.
 | [src/lib/lidarBrowser/pipeline.ts](../src/lib/lidarBrowser/pipeline.ts) | `fetchCommon` + finalizers `fetchLidarShaded` / `fetchLidarDelaunay` / `fetchLidarPoisson` |
 | [src/lib/lidarBrowser/wfs.ts](../src/lib/lidarBrowser/wfs.ts) | Recherche de dalles via WFS IGN (bbox lng,lat) |
 | [src/lib/lidarBrowser/extract.ts](../src/lib/lidarBrowser/extract.ts) | Décodage COPC range-fetch |
-| [src/lib/lidarBrowser/rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts) | Lecteur `Range` partagé : sémaphore global, retry 429, contrôle de la taille des réponses |
+| [src/lib/lidarBrowser/rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts) | Lecteur `Range` partagé : sémaphore global, reprise sur 429 et sur connexion coupée, contrôle de la taille des réponses |
 | [src/lib/lidarBrowser/hierarchy.ts](../src/lib/lidarBrowser/hierarchy.ts) | Parcours de la hiérarchie COPC, sélection des nœuds intersectant l'emprise |
 | [src/lib/lidarBrowser/pyramid.ts](../src/lib/lidarBrowser/pyramid.ts) | Mesure la pyramide réelle de la zone (pt/m² par niveau) à partir des `pointCount` de la hiérarchie |
 | [src/lib/lidarBrowser/normals.ts](../src/lib/lidarBrowser/normals.ts) | Normales par k-NN (k=12, 2 itérations) |
@@ -318,6 +319,8 @@ uniformément.
 | [src/lib/lidarBrowser/poissonBase.ts](../src/lib/lidarBrowser/poissonBase.ts) | Socle synthétique (plancher + 4 murs orientés) qui referme le terrain en brique à fond plat |
 | [src/lib/lidarBrowser/slope.ts](../src/lib/lidarBrowser/slope.ts) | Palette de référence CPU (`vertexColor`) — le rendu passe par `glsl/lib/palette.glsl` |
 | [src/lib/lidarBrowser/bdforet.ts](../src/lib/lidarBrowser/bdforet.ts) | Typage des essences par BD Forêt® v2 : WFS, remplissage scanline des peuplements en raster 2 m, étiquetage des points |
+| [src/lib/lidarBrowser/cosia.ts](../src/lib/lidarBrowser/cosia.ts) | Occupation du sol CoSIA : mosaïque WMTS → grille de classes, étiquetage des sommets (`a_cover`) |
+| [src/lib/lidarBrowser/orthoTexture.ts](../src/lib/lidarBrowser/orthoTexture.ts) | Assemblage d'une mosaïque de tuiles WMTS/XYZ (drapage côté main, CoSIA côté worker) |
 | [src/lib/lidarBrowser/proj.ts](../src/lib/lidarBrowser/proj.ts) | WGS84 ↔ Lambert-93 |
 | [public/wasm/poissonrecon.mjs](../public/wasm/poissonrecon.mjs) | Bundle WASM PoissonRecon (chargé via `import()` dynamique) |
 
@@ -383,31 +386,36 @@ flowchart TD
     AGG --> OUT([positions Float32 + classifications Uint8<br/>in METER_OFFSETS])
 ```
 
-#### Throttle et retry sur les 429 de `data.geopf.fr`
+#### Throttle et reprise sur les défaillances de `data.geopf.fr`
 
-IGN limite les rafales de range-requests. Le wrapper `get` gère ça de façon
-transparente :
+IGN limite les rafales de range-requests, et sous charge il coupe simplement la
+connexion. Le wrapper `get` gère les deux de façon transparente :
 
 ```mermaid
 flowchart LR
-    REQ([get begin, end]) --> SEM{inflight &lt; MAX_INFLIGHT?<br/>currently 2}
+    REQ([get begin, end]) --> SEM{inflight &lt; MAX_INFLIGHT_GLOBAL ?<br/>4 aujourd'hui}
     SEM -->|no| WAIT[await queue slot]
     SEM -->|yes| FETCH[rawGet via copc.js]
     WAIT --> FETCH
-    FETCH --> CHK{byteLength == expected?}
+    FETCH -->|fetch rejette| DROP[Connexion coupée :<br/>got = 0, message conservé]
+    FETCH -->|réponse| CHK{byteLength == expected ?}
     CHK -->|yes| OK([return buffer])
-    CHK -->|no| DEC[Decode body as UTF-8<br/>look for 429/503/'too many']
-    DEC -->|retriable| BACK[Exponential backoff<br/>500/1000/2000/4000ms + jitter]
+    CHK -->|no| DEC[Décodage du corps en UTF-8<br/>429 / 503 / 'too many' ?]
+    DROP --> BACK
+    DEC -->|retriable| BACK[Backoff exponentiel<br/>1 / 2 / 4 / 8 s]
     BACK -->|attempt &lt; 5| FETCH
-    DEC -->|not retriable| THROW([Throw with body snippet])
+    DEC -->|not retriable| THROW([Throw avec extrait du corps])
     BACK -->|attempt 5| THROW
 ```
 
-- Jusqu'à **5 tentatives**, soit ≤ 7.5 s de backoff cumulé.
-- Le sémaphore est par-dalle (chaque appel `extractPoints`). Avec 1–4 dalles,
-  la concurrence globale effective est `tiles × MAX_INFLIGHT`. Si les 429
-  persistent, baisser encore `MAX_INFLIGHT` ou hisser le sémaphore au scope
-  module.
+- Jusqu'à **5 tentatives**, soit ≤ 15 s de backoff cumulé.
+- Une connexion coupée fait rejeter `fetch` avec `Failed to fetch`. Elle compte
+  comme un corps vide, donc retriable : une capture émet des centaines de
+  plages, et abandonner à la première coupure rendait le téléchargement
+  impraticable dès que l'IGN faiblissait.
+- Chaque reprise appelle `noteRateLimit`, ce qui gare aussi les requêtes des
+  autres dalles pendant la fenêtre — le sémaphore et la fenêtre glissante sont
+  au scope module, donc réellement globaux à la capture.
 
 ### Finalisation par mode
 
@@ -504,6 +512,35 @@ Aucun de ces chemins ne produit de couleurs : la palette est évaluée par somme
 dans les vertex shaders (voir `docs/LIDAR_RENDERING.md`), le pipeline ne sort que
 de la géométrie et des classifications.
 
+### Cuisson de l'occupation du sol (`bakeCoverClasses`)
+
+Juste avant de rendre la main, chaque finalizer étiquette ses sommets **sol**
+avec la classe CoSIA correspondante, sur le même principe que la BD Forêt :
+
+1. `fetchCoverGrid` assemble une mosaïque WMTS `IGNF_COSIA_2021-2023` centrée sur
+   la capture (via `fetchTileMosaic`, plafond `MAX_COVER_PX` = **2048 px** de
+   côté — moitié du budget du drapage, parce que celle-ci est relue intégralement
+   par `getImageData`), puis convertit chaque pixel en classe.
+2. `coverFromRgb` fait une correspondance **exacte** sur la table des 13 couleurs
+   du service (relevée par histogramme : `GetLegendGraphic` répond
+   `OperationNotSupported`). L'exactitude est voulue : le WMTS rend des aplats,
+   donc toute couleur hors table est un bord antialiasé du serveur, c'est-à-dire
+   une couverture ambiguë — mieux vaut `COVER_NONE` et laisser la palette deviner
+   qu'inventer une classe. Mesuré sur la Dent de Crolles : ~6 % des pixels.
+3. `labelCover` projette chaque sommet (offset est/nord en mètres) en Mercator et
+   lit la grille.
+
+Le tout est **best-effort** : hors couverture, panne réseau ou décodage raté
+renvoient `undefined`, une ligne `[lidar] cover (CoSIA)` dans la console, et la
+capture aboutit quand même avec la palette historique. Une capture ne doit jamais
+échouer à cause d'un habillage.
+
+> ⚠️ `cosia.ts` tourne **dans le worker** : `orthoTexture.ts` passe donc par
+> `OffscreenCanvas` + `createImageBitmap` + `fetch`, jamais par
+> `document.createElement('canvas')` ni `new Image()` (`document is not defined`).
+> `OffscreenCanvas` étant un `TexImageSource` valide, le drapage côté main partage
+> le même code sans conversion.
+
 Dans les deux cas (`delaunay` et `poisson`), la sortie est un `LidarMixedData`
 (mesh sol + nuage ombré non-sol), donc la couche overlay les traite de la
 même manière.
@@ -568,9 +605,9 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 
 - **Pas de propagation d'annulation** vers le worker : un nouveau chargement
   ne stoppe pas l'ancien, on s'appuie sur la logique « latest-wins » du store.
-- **Sémaphore par-dalle** : avec N dalles en parallèle, la concurrence
-  globale est `N × MAX_INFLIGHT` ; sous 429 persistant, hisser le sémaphore
-  au scope module est plus robuste que baisser `MAX_INFLIGHT`.
+- **Aucun plafond de durée** : sous un IGN lent (≈ 150 ko/s observés en
+  saturation), une capture de 35 Mo prend plusieurs minutes sans qu'aucune
+  étape n'échoue. Seul « Annuler » en sort.
 - **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
   kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
   exploitable.
@@ -580,6 +617,7 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 | Symptôme                                        | Piste                                                                    |
 |-------------------------------------------------|--------------------------------------------------------------------------|
 | Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT_GLOBAL` dans [rateLimiter.ts](../src/lib/lidarBrowser/rateLimiter.ts) |
+| Capture qui s'arrête sur `Failed to fetch`      | L'IGN a coupé la connexion 5 fois de suite sur la même plage ; chercher `[lidarBrowser] retry` en console pour confirmer que la reprise a bien joué |
 | Paliers de qualité qui ne bougent jamais        | La sonde a échoué : chercher `pyramid probe failed` en console, la table nationale sert alors de repli |
 | Toast *« Aucune dalle LiDAR HD »*               | Bbox WFS ; vérifier l'ordre lng,lat dans `wfs.ts`                        |
 | Points qui dérivent au pitch / pan              | Matrice du shader `LidarWebGLLayer` ; vérifier l'usage de `mainMatrix`   |

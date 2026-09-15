@@ -16,6 +16,8 @@ layout(location = 4) in float a_height;  // height above local ground (m), pre-s
 layout(location = 5) in float a_tfv;     // BD Forêt category (0..n, 255 = none), unnormalized
 layout(location = 6) in float a_treeSeed;// per-tree seed (0..254, 255 = none), unnormalized
 layout(location = 7) in vec4 a_vegDiag;  // height-decision diagnostics [blendW, cluster, flags, rough·10], 0..255
+// IGN CoSIA cover class baked at capture time, 255 = unmeasured. Un-normalized.
+layout(location = 8) in float a_cover;
 
 uniform mat4 u_matrix;     // Pre-translated matrix (includes origin translation)
 uniform float u_mpu;       // meters per Mercator unit
@@ -55,6 +57,8 @@ uniform int u_palettePreset;
 uniform int u_rockType;
 uniform float u_snowLine;
 uniform float u_snowAmount;
+// 0 ignores a_cover entirely (see mesh.vert).
+uniform float u_coverEnabled;
 
 out vec3 v_albedo;
 out float v_diff;
@@ -293,7 +297,8 @@ void main() {
     // The ground gets the albedo palette, evaluated here for the same reason;
     // a_color now only carries the classification colour.
     vec3 baseCol = (c == 2u)
-        ? paletteAlbedo(nrm, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType).rgb
+        ? paletteAlbedo(nrm, a_pos.z, u_palettePreset, u_snowLine, u_snowAmount, u_rockType,
+                        u_coverEnabled > 0.5 ? int(a_cover) : 255).rgb
         : a_color.rgb;
     v_emissive = 0.0;
     if (u_vegColorMode > 2.5 && isVeg) {

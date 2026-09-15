@@ -43,6 +43,18 @@ Le panneau **LiDAR** offre trois modes de rendu :
   manteau, indépendante de son altitude : la pente limite que la neige plâtre passe de
   30° à 86°, et le dénivelé sur lequel elle devient continue de 900 m à 100 m. Ne touche
   pas à la pelouse
+- **Occupation du sol (CoSIA)** (préset `terrain`, activée par défaut) : arbitre
+  *sol nu / pelouse / forêt* sur la couverture réelle mesurée par l'IA de l'IGN
+  plutôt que sur l'altitude. Un alpage à 2 400 m reste vert au lieu de virer à la
+  caillasse, un pierrier à 1 400 m reste minéral au lieu d'être gazonné, et le
+  sous-bois prend la teinte dense de la forêt. La classe est **cuite à la
+  capture** : une capture antérieure à l'option n'a pas l'attribut et la case est
+  alors sans effet (il faut recapturer). Ce que la classe **ne** touche **pas** :
+  la falaise reste arbitrée par la pente (au-delà de ~45° la roche l'emporte, quelle
+  que soit la classe mesurée) et les névés restent pilotés par la ligne de neige —
+  CoSIA voit la neige du jour du vol, pas un glacier.
+  Limite assumée : CoSIA est une vue **nadir**, donc une paroi verticale y occupe
+  quelques pixels ; c'est précisément pourquoi la pente garde le dernier mot.
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief
@@ -182,6 +194,40 @@ Dans le shader réel, `a_color` n'est utilisée telle quelle que pour les points
 `u_palettePreset`, `u_rockType`, `u_snowLine` et `u_snowAmount`, exactement comme
 `mesh.vert`. Aucune couleur dérivée de la géométrie n'est donc pré-calculée ni
 téléversée : changer un réglage de palette ne coûte que l'écriture des uniformes.
+
+### Attribut `a_cover` : la classe CoSIA
+
+La seule donnée d'apparence qui échappe à la règle ci-dessus est la classe
+d'occupation du sol. Elle est **cuite à la capture**, pas échantillonnée au rendu :
+
+- un octet par sommet (`a_cover`, `UNSIGNED_BYTE`, attribut **8** dans le VAO des
+  points et **4** dans celui du mesh), valeurs `0` sol nu, `1` pelouse, `2` forêt,
+  `255` inconnu ;
+- l'uniforme `u_coverEnabled` (0/1) neutralise l'attribut sans recapture : à 0 le
+  shader force `255` et la palette retombe exactement sur son comportement
+  historique, ce qui rend la case à cocher A/B gratuite ;
+- une capture sans l'attribut est téléversée remplie de `255`, donc identique à
+  l'ancien rendu.
+
+Pourquoi un attribut et pas une seconde texture drapée : la palette est évaluée
+dans le **vertex** shader, et une classe ne s'interpole pas — un texel à mi-chemin
+entre « pelouse » et « forêt » n'est pas une couverture intermédiaire, c'est du
+bruit. Et une classe cuite est testable hors GPU, contrairement au GLSL qu'aucune
+porte de validation ne compile.
+
+L'arbitrage lui-même vit dans `palTurfFraction` (`glsl/lib/palette.glsl`) et son
+jumeau testable `turfFraction` (`src/lib/lidarBrowser/slope.ts`) : **la mesure
+gagne sur le QUOI, la pente garde le veto sur le OÙ**. Concrètement, la fraction
+d'herbe vaut `smoothstep((45 - pente) / 9)` dès que la classe est connue — donc
+l'altitude cesse de décider — mais retombe à zéro sur les fortes pentes quelle que
+soit la classe ; `COVER_BARE` force zéro ; `COVER_WOOD` bascule la teinte sur le
+vert dense `TURF_LUSH` au lieu de la ceinture d'alpage dépendante de l'altitude.
+Mesuré sur GPU contre la référence CPU : identique à l'octet près sur les 20 cas
+de `slope.test.ts`.
+
+> ⚠️ Toute retouche de `palette.glsl` doit être portée dans `slope.ts` **dans la
+> même passe** : `npm run test:run` ne compile pas le GLSL, seul `slope.ts` est
+> couvert.
 
 ### Conversion mètres → Mercator
 

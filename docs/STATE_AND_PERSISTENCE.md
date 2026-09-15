@@ -178,6 +178,12 @@ Deux cas particuliers :
   `uniform1f` correspondants.
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
+- **Bascule d'un attribut cuit à la capture** : `lidarCoverEnabled` est une ambiance (donc
+  rejouable à chaud) alors que la donnée qu'elle pilote, `a_cover`, est produite par le worker.
+  L'astuce est que l'uniforme `u_coverEnabled` à 0 fait lire `255` (= inconnu) au shader, ce qui
+  ramène exactement la palette historique : l'A/B est gratuit, et une capture antérieure à
+  l'attribut est téléversée remplie de `255`, donc identique dans les deux positions. Le `title`
+  de la case doit le dire, sinon l'utilisateur croit à un bug.
 - **Réglages couplés entre eux** : `lidarCaptureResolution`, `lidarCloudPoissonDepth` et
   `lidarCloudGroundStride` ne sont cohérents qu'**ensemble** (un cran de résolution = deux
   niveaux d'octree = quatre crans de densité sol, la pyramide IGN décuplant les points d'un
@@ -201,7 +207,8 @@ profil est nul (scène restaurée, échec réseau précédent).
 
 Un réglage de **palette** ne coûte plus rien nulle part : maillage et nuage de points évaluent
 tous deux `paletteAlbedo` par sommet dans leur vertex shader (`glsl/lib/palette.glsl`) à partir
-des uniformes `u_palettePreset`, `u_rockType`, `u_snowLine` et `u_snowAmount`. Changer la ligne
+des uniformes `u_palettePreset`, `u_rockType`, `u_snowLine`, `u_snowAmount` et `u_coverEnabled`.
+Changer la ligne
 de neige d'un nuage de 2,1 M sommets et 377 k points est mesuré à **0,2 ms dans le store et zéro
 octet renvoyé au GPU** — le `setTimeout(150)` qui débounçait les curseurs « Ligne de neige » et
 « Enneigement » a donc été supprimé, ils écrivent directement dans le store. La couleur qui reste

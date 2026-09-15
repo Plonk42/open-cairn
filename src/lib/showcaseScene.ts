@@ -82,6 +82,7 @@ export interface ShowcaseAmbiance {
     lidarSnowLine: number;
     lidarSnowAmount: number;
     lidarRockType: RockType;
+    lidarCoverEnabled: boolean;
     lidarSunDate: string;
     lidarSunAzimuth: number;
     lidarSunElevation: number;
@@ -186,6 +187,7 @@ export const DEFAULT_AMBIANCE: ShowcaseAmbiance = {
     lidarSnowLine: 2700,
     lidarSnowAmount: 0.5,
     lidarRockType: 'limestone',
+    lidarCoverEnabled: true,
     lidarSunDate: '',
     lidarSunAzimuth: DEFAULT_SUN_SETTINGS.azimuthDeg,
     lidarSunElevation: DEFAULT_SUN_SETTINGS.elevationDeg,

@@ -8,7 +8,7 @@ réel, terrain 3D, et courbes de niveau.
 ### Choisir un fond de carte
 
 Dans le panneau **Couches** (sidebar à droite sur desktop, onglet *Couches* sur mobile),
-six fonds sont disponibles :
+sept fonds sont disponibles :
 
 | Fond            | Source                          | Pertinence                          |
 |-----------------|----------------------------------|-------------------------------------|
@@ -16,6 +16,7 @@ six fonds sont disponibles :
 | **Plan IGN**    | IGN Plan IGN                     | Cartographie générale, lisible      |
 | **Plan IGN HD** | IGN `IGNF_PLAN-IGN-HD`           | Plan redessiné depuis le LiDAR HD  |
 | **Orthophotos** | IGN BD ORTHO                     | Imagerie aérienne                   |
+| **CoSIA**       | IGN `IGNF_COSIA_2021-2023`       | Couverture du sol prédite par IA    |
 | **OSM**         | OpenStreetMap                    | Détail des sentiers / refuges       |
 | **LiDAR brut**  | IGN LiDAR HD ombrage             | Lecture pure du relief              |
 
@@ -31,6 +32,16 @@ réglages) : ce sont des couches WMTS privées, servies par `https://data.geopf.
 Une seule clé couvre les deux. Sans clé, ces fonds sont proposés grisés, et si l'un d'eux
 était déjà sélectionné (défaut d'usine, réglage d'une autre machine, lien partagé)
 l'application ouvre la carte sur **Plan IGN** plutôt que sur une carte vide.
+
+**CoSIA** (Couverture du Sol par Intelligence Artificielle) est une carte d'occupation du
+sol prédite par un modèle IA à partir de la BD ORTHO, en 15 classes à 20 cm de résolution :
+bâtiment, zone perméable / imperméable, surface d'eau, conifère, feuillu, broussaille, vigne,
+cultures, terre labourée, pelouse, coupe, sol nu, neige, autre. C'est un fond thématique, pas
+une carte de navigation. Deux points mesurés et à connaître : le millésime servi est
+**2021-2023** parce que le 2024-2026, encore en cours de déploiement département par
+département, renvoie des tuiles vides dans le Vercors et le Mercantour ; et la classe *Neige*
+est la neige du jour de la prise de vue, pas un masque de glacier (la Mer de Glace et le
+glacier d'Argentière sont classés *Sol nu*). Zooms 6 à 18, vérifiés tuile par tuile.
 
 ### Activer l'ombrage LiDAR HD
 
@@ -139,7 +150,7 @@ Format d'URL :
 composite://<base>/<shadow>/<blend>/<intensity>/<detail>/{z}/{x}/{y}
 ```
 
-- `base` ∈ `scan25 | plan | ortho | osm | lidar`
+- `base` ∈ `scan25 | plan | planhd | ortho | cosia | osm | lidar`
 - `shadow` ∈ `mns | mnt | mnh`
 - `blend` ∈ `multiply | lidar-neutral`
 - `intensity` : 0–100 (pourcentage, encodé entier)
@@ -288,7 +299,7 @@ du parent, donc un relief localement plus grossier. Ce n'est pas un défaut de l
   // Vue
   view: { longitude, latitude, zoom, pitch, bearing }
   // Fonds
-  baseLayer: 'scan25' | 'plan' | 'planhd' | 'ortho' | 'osm' | 'lidar'
+  baseLayer: 'scan25' | 'plan' | 'planhd' | 'ortho' | 'cosia' | 'osm' | 'lidar'
   // Ombrage
   hillshadeEnabled: boolean
   hillshadeSource: 'mns' | 'mnt' | 'mnh'

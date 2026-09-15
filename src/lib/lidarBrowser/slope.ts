@@ -22,6 +22,8 @@
  * ratio back out of the colour's lightness.
  */
 
+import { COVER_BARE, COVER_GRASS, COVER_NONE, COVER_WOOD } from './cosia';
+
 export type ShaderPreset = 'base' | 'terrain' | 'slope';
 
 export const SHADER_LABELS: Record<ShaderPreset, string> = {
@@ -271,6 +273,24 @@ function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, num
 }
 
 /**
+ * Fraction of turf over bare rock, in [0,1].
+ *
+ * Without CoSIA this is pure inference: flat enough to hold soil, low enough to
+ * be below the vegetation limit. With a cover class it becomes an arbitration —
+ * measured ground wins on the WHAT, slope keeps the veto on the WHERE:
+ * CoSIA is derived from a nadir orthophoto and routinely paints a vertical wall
+ * with the vegetation growing on its rim, so a class alone would carpet the
+ * cliffs. Elevation, on the other hand, no longer has a say: a pasture measured
+ * at 2600 m is a pasture, whatever the snow line says.
+ */
+function turfFraction(cover: number, z: number, slopeDeg: number, snowLine: number): number {
+    const holds = smoothstep01((45 - slopeDeg) / 9);
+    if (cover === COVER_BARE) return 0;
+    if (cover === COVER_GRASS || cover === COVER_WOOD) return holds;
+    return holds * smoothstep01((snowLine - TURF_TOP_GAP_M - z) / TURF_TOP_FADE_M);
+}
+
+/**
  * Mountain side: bare rock, alpine turf wherever slope and elevation let it
  * hold, firn above the snow line. No texture and no shading — the same three
  * inputs as the reference renders: slope, elevation, aspect.
@@ -290,12 +310,15 @@ function alpineTurf(z: number, slopeDeg: number, snowLine: number): [number, num
 function terrainAlbedo(
     nx: number, ny: number,
     z: number, slopeDeg: number,
-    snowLine: number, snowAmount: number, rock: RockType,
+    palette: PaletteSettings,
+    cover: number,
 ): [number, number, number] {
-    const bare = interpolatePalette(ROCK_RAMPS[rock], slopeDeg);
-    const turf = smoothstep01((45 - slopeDeg) / 9)
-        * smoothstep01((snowLine - TURF_TOP_GAP_M - z) / TURF_TOP_FADE_M);
-    const ground = turf <= 0 ? bare : lerp3(bare, alpineTurf(z, slopeDeg, snowLine), turf);
+    const { snowLine, snowAmount } = palette;
+    const bare = interpolatePalette(ROCK_RAMPS[palette.rock], slopeDeg);
+    const turf = turfFraction(cover, z, slopeDeg, snowLine);
+    // Forest floor: duff and shade, none of the drying an open pasture suffers.
+    const turfColor = cover === COVER_WOOD ? TURF_LUSH : alpineTurf(z, slopeDeg, snowLine);
+    const ground = turf <= 0 ? bare : lerp3(bare, turfColor, turf);
 
     const amount = Math.min(1, Math.max(0, snowAmount));
     const slopeLimit = SNOW_SLOPE_LIMIT_MIN + (SNOW_SLOPE_LIMIT_MAX - SNOW_SLOPE_LIMIT_MIN) * amount;
@@ -336,6 +359,7 @@ export function vertexColor(
     nx: number, ny: number, nz: number,
     z: number,
     palette: PaletteSettings,
+    cover: number = COVER_NONE,
 ): [number, number, number] {
     const len = Math.hypot(nx, ny, nz);
     const nzn = len > 0 ? nz / len : 1;
@@ -343,5 +367,5 @@ export function vertexColor(
 
     if (palette.preset === 'base') return interpolatePalette(BASE_PALETTE, slopeDeg);
     if (palette.preset === 'slope') return interpolatePalette(SLOPE_PALETTE, slopeDeg);
-    return terrainAlbedo(nx, ny, z, slopeDeg, palette.snowLine, palette.snowAmount, palette.rock);
+    return terrainAlbedo(nx, ny, z, slopeDeg, palette, cover);
 }

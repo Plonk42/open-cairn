@@ -97,6 +97,18 @@ export const IGN_LAYERS = {
         label: 'Orthophotos',
         private: false,
     },
+    cosia: {
+        // Couverture du Sol par IA. The 2024-2026 vintage is still being rolled
+        // out département by département and returns empty tiles in the Vercors
+        // and the Mercantour, so we serve 2021-2023, which covered every
+        // mountain area probed. Zooms verified tile by tile: z6-z18.
+        id: 'IGNF_COSIA_2021-2023',
+        format: 'image/png' as const,
+        minZoom: 6,
+        maxZoom: 18,
+        label: 'CoSIA',
+        private: false,
+    },
     lidarMnsShadow: {
         id: 'IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW',
         format: 'image/png' as const,

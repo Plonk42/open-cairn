@@ -47,6 +47,14 @@ export interface LidarMeshData {
      * flat base; undefined for Delaunay (Mixed mode) and legacy scenes.
      */
     baseMask?: Uint8Array;
+    /**
+     * IGN CoSIA cover class per vertex (see COVER_* in lidarBrowser/cosia.ts),
+     * 255 where the land cover is unmeasured. Lets the palette arbitrate bare
+     * ground vs turf on measured data instead of inferring it from the slope.
+     * Undefined when the CoSIA query failed or the capture sits outside its
+     * footprint.
+     */
+    coverClass?: Uint8Array;
     vertexCount: number;
     triangleCount: number;
     radius: number;
@@ -84,6 +92,12 @@ export interface LidarShadedCloudData {
      * scenes captured before the diagnostics existed (the GPU uploads zeros).
      */
     vegDiag?: Uint8Array;
+    /**
+     * IGN CoSIA cover class per point (see COVER_* in lidarBrowser/cosia.ts),
+     * 255 where unmeasured. Only read for ground points, whose albedo comes
+     * from the palette. Undefined when the CoSIA query failed.
+     */
+    coverClass?: Uint8Array;
     /**
      * IGN BD Forêt® v2 category per point (index into FOREST_CATEGORIES), or
      * 255 for non-vegetation / outside any forest stand. Drives species-accurate

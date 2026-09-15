@@ -429,6 +429,12 @@ export interface LidarWebGLLayerConfig {
     snowLine: number;
     snowAmount: number;
     /**
+     * Let the baked IGN CoSIA class (`a_cover`) arbitrate bare ground vs turf
+     * instead of the slope/elevation guess. Off restores the historical render,
+     * which is the only way to see what the measurement actually changed.
+     */
+    coverEnabled: boolean;
+    /**
      * Ground mesh only — strength of the GGX specular lobe (0 = purely
      * diffuse). Lambertian-only shading is what makes stone read as dry clay;
      * roughness is derived per fragment from the albedo (snow smoother than
@@ -585,6 +591,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _tfvBuf: WebGLBuffer | null = null;
     private _seedBuf: WebGLBuffer | null = null;
     private _diagBuf: WebGLBuffer | null = null;
+    private _coverBuf: WebGLBuffer | null = null;
     private _locPoints: {
         matrix: WebGLUniformLocation | null;
         mpu: WebGLUniformLocation | null;
@@ -628,7 +635,8 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         rockType: WebGLUniformLocation | null;
         snowLine: WebGLUniformLocation | null;
         snowAmount: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null };
+        coverEnabled: WebGLUniformLocation | null;
+    } = { matrix: null, mpu: null, ps: null, classMask: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, photoOpacityNonGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, vegEnhance: null, vegSizeBoost: null, vegNormalShade: null, vegIntensity: null, vegHeightScale: null, vegColorMode: null, forestGrouping: null, forestMixCellSize: null, forestSpeciesFilterOn: null, forestPalette: null, catGroup: null, catSpecies: null, catMixBase: null, catMixCount: null, mixSpecies: null, speciesMask: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, coverEnabled: null };
 
     /** 256-bit visibility mask (8 × uint32), index i = bit set ⇒ class i visible. */
     private readonly _classMask = new Uint32Array(8).fill(0xffffffff);
@@ -655,6 +663,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
     private _meshNorBuf: WebGLBuffer | null = null;
     private _meshMacroBuf: WebGLBuffer | null = null;
     private _meshBaseBuf: WebGLBuffer | null = null;
+    private _meshCoverBuf: WebGLBuffer | null = null;
     private _meshIdxBuf: WebGLBuffer | null = null;
     private _meshIndexCount = 0;
     // Does the current mesh carry a macro normal field? If not, the vertex
@@ -707,8 +716,9 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         rockType: WebGLUniformLocation | null;
         snowLine: WebGLUniformLocation | null;
         snowAmount: WebGLUniformLocation | null;
+        coverEnabled: WebGLUniformLocation | null;
         specular: WebGLUniformLocation | null;
-    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, specular: null };
+    } = { matrix: null, mpu: null, sunDir: null, sunIntensity: null, sunColor: null, flatLight: null, lightMatrix: null, shadowMap: null, shadowEnabled: null, shadowBias: null, shadowTexel: null, shadowStrength: null, uvRect: null, ortho: null, photoOpacityGround: null, hasPhoto: null, uvRectFine: null, orthoFine: null, hasPhotoFine: null, wireframe: null, facet: null, microRelief: null, rockBreak: null, hasMacro: null, palettePreset: null, rockType: null, snowLine: null, snowAmount: null, coverEnabled: null, specular: null };
 
     // Orthophoto draped over the mesh (delaunay/poisson modes). The texture is
     // loaded on demand by the overlay when the user enables draping.
@@ -812,10 +822,11 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         positions: Float32Array; normals: Float32Array; colors: Uint8Array;
         classifications: Uint8Array; heights: Float32Array;
         forestTfv?: Uint8Array; treeSeed?: Uint8Array; vegDiag?: Uint8Array;
+        coverClass?: Uint8Array;
     } | null = null;
     private _uploadedMesh: {
         positions: Float32Array; normals: Float32Array; macroNormals?: Uint8Array;
-        indices: Uint32Array; baseMask?: Uint8Array;
+        indices: Uint32Array; baseMask?: Uint8Array; coverClass?: Uint8Array;
     } | null = null;
 
     config: LidarWebGLLayerConfig = {
@@ -866,6 +877,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         rockType: 0,
         snowLine: 2700,
         snowAmount: 0.5,
+        coverEnabled: true,
         specular: 0.5,
     };
 
@@ -943,6 +955,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1i(this._locPoints.rockType, this.config.rockType);
         gl.uniform1f(this._locPoints.snowLine, this.config.snowLine);
         gl.uniform1f(this._locPoints.snowAmount, this.config.snowAmount);
+        gl.uniform1f(this._locPoints.coverEnabled, this.config.coverEnabled ? 1 : 0);
         // IGN BD Forêt species rendering: static category LUTs + the active
         // grouping palette + the legend filter mask. All small uniforms, so the
         // grouping/filter controls are instantaneous (no re-upload of the cloud).
@@ -1333,6 +1346,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         forestTfv?: Uint8Array;
         treeSeed?: Uint8Array;
         vegDiag?: Uint8Array;
+        coverClass?: Uint8Array;
     }): void {
         const { positions, normals, colors, classifications, heights, originLng, originLat } = data;
         const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
@@ -1370,11 +1384,16 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // enters a diagnostic mode for it.
         const diag = data.vegDiag ?? new Uint8Array(this._count * 4);
         uploadIfChanged(gl, this._diagBuf, diag, geometryChanged || prev?.vegDiag !== data.vegDiag);
+        // CoSIA cover class. 255 = unmeasured (fetch failed, or a scene captured
+        // out of CoSIA's footprint) — the palette then falls back to its guess.
+        const cover = data.coverClass ?? new Uint8Array(this._count).fill(255);
+        uploadIfChanged(gl, this._coverBuf, cover, geometryChanged || prev?.coverClass !== data.coverClass);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
         this._uploadedPoints = {
             positions, normals, colors, classifications, heights,
             forestTfv: data.forestTfv, treeSeed: data.treeSeed, vegDiag: data.vegDiag,
+            coverClass: data.coverClass,
         };
         gl.bindVertexArray(prevVAO);
         this._map?.triggerRepaint();
@@ -1428,16 +1447,21 @@ export class LidarWebGLLayer implements CustomLayerInterface {
      * on (Uint8, 3 per vertex, `v * 127.5 + 127.5`); meshes built before it
      * existed (Delaunay/Mixed) pass `undefined` and the shader falls back to
      * the lighting normal.
+     *
+     * Takes a single object: the argument list had reached the point where two
+     * adjacent Float32Arrays could be swapped silently.
      */
-    setMesh(
-        positions: Float32Array,
-        normals: Float32Array,
-        macroNormals: Uint8Array | undefined,
-        indices: Uint32Array,
-        originLng: number,
-        originLat: number,
-        baseMask?: Uint8Array,
-    ): void {
+    setMesh(data: {
+        positions: Float32Array;
+        normals: Float32Array;
+        macroNormals?: Uint8Array;
+        indices: Uint32Array;
+        originLng: number;
+        originLat: number;
+        baseMask?: Uint8Array;
+        coverClass?: Uint8Array;
+    }): void {
+        const { positions, normals, macroNormals, indices, originLng, originLat, baseMask } = data;
         const gl = this._gl;
         if (!gl) return;
         const mc = MercatorCoordinate.fromLngLat({ lng: originLng, lat: originLat });
@@ -1476,6 +1500,13 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             baseMask ?? new Uint8Array(positions.length / 3),
             geometryChanged || prev?.baseMask !== baseMask,
         );
+        // CoSIA cover class, 255 = unmeasured (see the point path above).
+        uploadIfChanged(
+            gl,
+            this._meshCoverBuf,
+            data.coverClass ?? new Uint8Array(positions.length / 3).fill(255),
+            geometryChanged || prev?.coverClass !== data.coverClass,
+        );
         if (geometryChanged) {
             gl.bindVertexArray(this._vaoMesh);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
@@ -1484,7 +1515,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        this._uploadedMesh = { positions, normals, macroNormals, indices, baseMask };
+        this._uploadedMesh = { positions, normals, macroNormals, indices, baseMask, coverClass: data.coverClass };
         if (geometryChanged && isMeshWireframeDebugEnabled()) {
             this._meshCpuIndices[0] = indices;
             if (this.config.meshWireframe) this._buildWireLevel(gl, indices, 0);
@@ -1843,6 +1874,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.uniform1i(this._locMesh.rockType, this.config.rockType);
         gl.uniform1f(this._locMesh.snowLine, this.config.snowLine);
         gl.uniform1f(this._locMesh.snowAmount, this.config.snowAmount);
+        gl.uniform1f(this._locMesh.coverEnabled, this.config.coverEnabled ? 1 : 0);
         gl.uniform1f(this._locMesh.specular, this.config.specular);
         // Draped orthophoto (texture unit 3; 2 is reserved for the shadow map).
         const photoOn = this._hasPhoto && this.config.photoOpacityGround > 0;
@@ -2172,6 +2204,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             rockType: gl.getUniformLocation(this._progPoints, 'u_rockType'),
             snowLine: gl.getUniformLocation(this._progPoints, 'u_snowLine'),
             snowAmount: gl.getUniformLocation(this._progPoints, 'u_snowAmount'),
+            coverEnabled: gl.getUniformLocation(this._progPoints, 'u_coverEnabled'),
         };
         this._locPbrPoints = pbrLocations(gl, this._progPoints);
         this._initForestTables();
@@ -2185,6 +2218,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._tfvBuf = gl.createBuffer();
         this._seedBuf = gl.createBuffer();
         this._diagBuf = gl.createBuffer();
+        this._coverBuf = gl.createBuffer();
 
         const prevVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
         this._vao = gl.createVertexArray();
@@ -2219,6 +2253,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._diagBuf);
         gl.enableVertexAttribArray(7);
         gl.vertexAttribPointer(7, 4, gl.UNSIGNED_BYTE, false, 0, 0);
+        // a_cover: CoSIA cover class (uint8, un-normalized 0..255 float in shader).
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._coverBuf);
+        gl.enableVertexAttribArray(8);
+        gl.vertexAttribPointer(8, 1, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindVertexArray(prevVAO);
 
         // ─── Mesh shader (mixed mode) ───
@@ -2252,6 +2290,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
             rockType: gl.getUniformLocation(this._progMesh, 'u_rockType'),
             snowLine: gl.getUniformLocation(this._progMesh, 'u_snowLine'),
             snowAmount: gl.getUniformLocation(this._progMesh, 'u_snowAmount'),
+            coverEnabled: gl.getUniformLocation(this._progMesh, 'u_coverEnabled'),
             specular: gl.getUniformLocation(this._progMesh, 'u_specular'),
         };
         this._locPbrMesh = pbrLocations(gl, this._progMesh);
@@ -2281,6 +2320,7 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         this._meshNorBuf = gl.createBuffer();
         this._meshMacroBuf = gl.createBuffer();
         this._meshBaseBuf = gl.createBuffer();
+        this._meshCoverBuf = gl.createBuffer();
         this._meshIdxBuf = gl.createBuffer();
         this._vaoMesh = gl.createVertexArray();
         gl.bindVertexArray(this._vaoMesh);
@@ -2299,6 +2339,10 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         // shader as 0.0/1.0. Normalizing would map 1 → 1/255 ≈ 0.004 and the
         // `v_base > 0.5` test would never fire.
         gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, false, 0, 0);
+        // a_cover: CoSIA cover class (uint8, un-normalized 0..255 float in shader).
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._meshCoverBuf);
+        gl.enableVertexAttribArray(4);
+        gl.vertexAttribPointer(4, 1, gl.UNSIGNED_BYTE, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._meshIdxBuf);
         gl.bindVertexArray(prevVAO);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -2412,10 +2456,12 @@ export class LidarWebGLLayer implements CustomLayerInterface {
         delBuf(this._colBuf); this._colBuf = null;
         delBuf(this._clsBuf); this._clsBuf = null;
         delBuf(this._hgtBuf); this._hgtBuf = null;
+        delBuf(this._coverBuf); this._coverBuf = null;
         delBuf(this._meshPosBuf); this._meshPosBuf = null;
         delBuf(this._meshNorBuf); this._meshNorBuf = null;
         delBuf(this._meshMacroBuf); this._meshMacroBuf = null;
         delBuf(this._meshBaseBuf); this._meshBaseBuf = null;
+        delBuf(this._meshCoverBuf); this._meshCoverBuf = null;
         delBuf(this._meshIdxBuf); this._meshIdxBuf = null;
         for (let i = 0; i < this._meshWireIdxBuf.length; i++) { delBuf(this._meshWireIdxBuf[i]); this._meshWireIdxBuf[i] = null; }
         delBuf(this._quadBuf); this._quadBuf = null;

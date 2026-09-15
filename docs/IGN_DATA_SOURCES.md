@@ -20,7 +20,7 @@ Toutes les données restent la **propriété de l'IGN** ; leur usage est régi p
 
 | Service                    | Endpoint                                        | Méthode      | Usage open-cairn                       |
 |---------------------------|-------------------------------------------------|--------------|----------------------------------------|
-| WMTS public                | `https://data.geopf.fr/wmts`                   | GET tuile    | Plan IGN, Ortho, OSM, LiDAR HD ombrage |
+| WMTS public                | `https://data.geopf.fr/wmts`                   | GET tuile    | Plan IGN, Ortho, CoSIA, OSM, LiDAR HD ombrage |
 | WMTS privé (clé)           | `https://data.geopf.fr/private/wmts`           | GET tuile    | SCAN 25, Plan IGN HD               |
 | WMS-r privé (clé)          | `https://data.geopf.fr/private/wms-r`          | GetMap       | DEM TerrainRGB haute résolution         |
 | Navigation                 | `https://data.geopf.fr/navigation/itineraire`  | GET          | Calcul itinéraire piéton (bdtopo-osrm)  |
@@ -39,6 +39,23 @@ URL builder : `ignWmtsUrl(layerId, format, isPrivate, apiKey?)` dans
 
 Le format est `image/png` pour la plupart des couches sauf `image/jpeg` pour les ortho-photos.
 Les plages de zoom (`minZoom`, `maxZoom`) sont définies par couche dans le même fichier.
+
+La couche `cosia` pointe sur `IGNF_COSIA_2021-2023` et non sur le millésime 2024-2026 :
+ce dernier est déployé département par département et renvoie des tuiles entièrement
+transparentes sur une partie des Alpes. Zooms servis : 6 à 18 (z19 renvoie 404).
+
+CoSIA a **deux** usages dans l'app :
+
+1. fond de carte à part entière (sélecteur *Fond*) ;
+2. source d'un attribut du rendu LiDAR — la classe d'occupation du sol est cuite
+   par sommet à la capture (`src/lib/lidarBrowser/cosia.ts`, voir
+   `docs/LIDAR_PIPELINE.md`) pour arbitrer sol nu / pelouse / forêt dans la palette
+   `terrain`.
+
+La table des couleurs → classes a dû être relevée **empiriquement** (histogrammes
+sur douze sites témoins) : `GetLegendGraphic` répond `OperationNotSupported` sur
+`data.geopf.fr/wms-r` pour cette couche. Les treize entrées et leur site témoin
+sont documentés dans `COSIA_CLASSES`.
 
 #### Navigation
 
@@ -109,12 +126,15 @@ en WebAssembly.
 
 ### Limites de débit
 
-L'IGN rate-limite les requêtes byte-range agressives par tuile :
+L'IGN rate-limite les requêtes byte-range agressives :
 
-- HTTP **429 Too Many Requests** au-delà de quelques requêtes parallèles
-- Open-cairn limite à **2 requêtes byte-range concurrentes par tuile** (sémaphore dans
-  [extract.ts](../src/lib/lidarBrowser/extract.ts))
-- Retry exponentiel : 500 ms / 1 s / 2 s / 4 s + jitter, jusqu'à 5 tentatives
+- HTTP **429 Too Many Requests** au-delà de quelques requêtes parallèles, et
+  connexion coupée (`Failed to fetch` côté navigateur) quand le service sature
+- Open-cairn limite à **4 requêtes byte-range concurrentes** et à **8 par
+  seconde**, globalement et non par dalle (sémaphore et fenêtre glissante dans
+  [rateLimiter.ts](../src/lib/lidarBrowser/rateLimiter.ts))
+- Reprise exponentielle sur les deux cas : 1 s / 2 s / 4 s / 8 s, jusqu'à
+  5 tentatives ([rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts))
 
 ### Conditions d'utilisation et attribution
 
