@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Root } from './Root';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
-import { gateScanBaseLayer } from './stores/mapStyleView';
+import { gateKeyedBaseLayer } from './stores/mapStyleView';
 import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
 import './styles/index.css';
 
@@ -14,7 +14,7 @@ if (shared) {
     const map = useMapStore.getState();
     map.setView(shared.view);
     // The API key is never part of a share link, so the recipient may not have one.
-    map.setBaseLayer(gateScanBaseLayer(shared.baseLayer, map.ignScanApiKey));
+    map.setBaseLayer(gateKeyedBaseLayer(shared.baseLayer, map.ignApiKey));
     map.setHillshadeEnabled(shared.hillshadeEnabled);
     map.setHillshadeSource(shared.hillshadeSource);
     map.setHillshadeBlend(shared.hillshadeBlend);

@@ -1,5 +1,5 @@
+import { requiresIgnKey, type BaseLayerId } from '@/lib/baseLayers';
 import type { BlendMode } from '@/lib/compositeProtocol';
-import type { BaseLayerId } from '@/lib/mapStyle';
 import { readView, type AppView } from '@/lib/useView';
 import type { MapState } from './mapStore';
 import { persisted, type PersistedSettings } from './persistence';
@@ -52,13 +52,13 @@ export const LIDAR_STYLE_DEFAULTS: MapStyleSettings = {
 };
 
 /**
- * SCAN 25 is IGN's private WMTS layer, gated by an API key each user configures
- * locally. Without a key every tile answers 401 (and the composite protocol,
- * which needs that tile, throws) so the map renders empty: degrade to the free
- * Plan IGN basemap instead.
+ * SCAN 25 and Plan IGN HD are IGN private WMTS layers, gated by an API key each
+ * user configures locally. Without a key every tile answers 401 (and the
+ * composite protocol, which needs that tile, throws) so the map renders empty:
+ * degrade to the free Plan IGN basemap instead.
  */
-export function gateScanBaseLayer(id: BaseLayerId, scanApiKey: string | undefined): BaseLayerId {
-    return id === 'scan25' && !scanApiKey ? 'plan' : id;
+export function gateKeyedBaseLayer(id: BaseLayerId, ignApiKey: string | undefined): BaseLayerId {
+    return requiresIgnKey(id) && !ignApiKey ? 'plan' : id;
 }
 
 /**
@@ -71,8 +71,8 @@ function seedByView(p: PersistedSettings): Record<AppView, MapStyleSettings> {
         lidar: { ...LIDAR_STYLE_DEFAULTS },
     };
     return {
-        map: { ...byView.map, baseLayer: gateScanBaseLayer(byView.map.baseLayer, p.ignScanApiKey) },
-        lidar: { ...byView.lidar, baseLayer: gateScanBaseLayer(byView.lidar.baseLayer, p.ignScanApiKey) },
+        map: { ...byView.map, baseLayer: gateKeyedBaseLayer(byView.map.baseLayer, p.ignApiKey) },
+        lidar: { ...byView.lidar, baseLayer: gateKeyedBaseLayer(byView.lidar.baseLayer, p.ignApiKey) },
     };
 }
 

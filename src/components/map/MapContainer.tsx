@@ -1,5 +1,6 @@
+import { BASE_LAYERS } from '@/lib/baseLayers';
 import { basemapRelight, NEUTRAL_RELIGHT, type RasterRelight } from '@/lib/basemapRelight';
-import { compositeTileUrl, registerCompositeProtocol, setScanApiKey } from '@/lib/compositeProtocol';
+import { compositeTileUrl, registerCompositeProtocol, setIgnApiKey, SHADOW_LAYER_KEY } from '@/lib/compositeProtocol';
 import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
 import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
@@ -36,7 +37,7 @@ function mapStyleOptionsFrom(s: MapState, studio: boolean): MapStyleOptions {
         renderQuality: s.renderQuality,
         contourLines: s.contourLinesEnabled,
         contourLinesOpacity: s.contourLinesOpacity,
-        ignScanApiKey: s.ignScanApiKey,
+        ignApiKey: s.ignApiKey,
         ignDemApiKey: s.ignDemApiKey,
         terrainDemSource: s.terrainDemSource,
     };
@@ -651,12 +652,12 @@ export function MapContainer() {
     const renderQuality = useMapStore((s) => s.renderQuality);
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
-    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
+    const ignApiKey = useMapStore((s) => s.ignApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const freeCamera = useMapStore((s) => s.freeCamera);
 
-    // Keep composite protocol in sync with the current SCAN API key.
-    useEffect(() => { setScanApiKey(ignScanApiKey); }, [ignScanApiKey]);
+    // Keep composite protocol in sync with the current IGN API key.
+    useEffect(() => { setIgnApiKey(ignApiKey); }, [ignApiKey]);
 
     // Initial map creation (runs once)
     useEffect(() => {
@@ -667,7 +668,7 @@ export function MapContainer() {
         const initialSlot = getActiveMapSlot();
         if (initialSlot && holder.parentElement !== initialSlot) initialSlot.appendChild(holder);
         const initial = useMapStore.getState();
-        setScanApiKey(initial.ignScanApiKey);
+        setIgnApiKey(initial.ignApiKey);
         const map = new maplibregl.Map({
             container: holder,
             style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
@@ -956,7 +957,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignScanApiKey, ignDemApiKey, terrainDemSource]);
+    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignApiKey, ignDemApiKey, terrainDemSource]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.
@@ -977,17 +978,12 @@ export function MapContainer() {
 
             if (baseLayer === 'lidar') {
                 // In LiDAR mode the base is a direct shadow layer URL
-                const shadowKeyMap = { mns: 'lidarMnsShadow', mnt: 'lidarMntShadow', mnh: 'lidarMnhShadow' } as const;
-                const newUrl = ignLayerUrl(shadowKeyMap[hillshadeSource]);
-                baseSource.setTiles([newUrl]);
+                baseSource.setTiles([ignLayerUrl(SHADOW_LAYER_KEY[hillshadeSource])]);
             } else if (hillshadeEnabled) {
                 // Composite mode: rebuild the composite URL
                 const detailScale = current.renderQuality === 'sharp' ? 2 : 1;
-                const keyMap: Record<string, 'scan25Tour' | 'planIgn' | 'ortho' | 'osm'> = { scan25: 'scan25Tour', plan: 'planIgn', ortho: 'ortho', osm: 'osm' };
-                const compositeBase = keyMap[baseLayer];
-                if (!compositeBase) return;
                 const newUrl = compositeTileUrl(
-                    compositeBase,
+                    BASE_LAYERS[baseLayer].source,
                     hillshadeSource,
                     hillshadeBlend,
                     hillshadeIntensity,
@@ -996,10 +992,7 @@ export function MapContainer() {
                 baseSource.setTiles([newUrl]);
             } else {
                 // Hillshade disabled: restore the direct tile URL
-                const keyMap: Record<string, 'scan25Tour' | 'planIgn' | 'ortho' | 'osm'> = { scan25: 'scan25Tour', plan: 'planIgn', ortho: 'ortho', osm: 'osm' };
-                const compositeBase = keyMap[baseLayer];
-                if (!compositeBase) return;
-                baseSource.setTiles([directBaseUrl(compositeBase, current.ignScanApiKey)]);
+                baseSource.setTiles([directBaseUrl(BASE_LAYERS[baseLayer].source, current.ignApiKey)]);
             }
         }, 120);
         return () => globalThis.clearTimeout(handle);

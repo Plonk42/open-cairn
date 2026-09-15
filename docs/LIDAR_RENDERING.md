@@ -53,7 +53,8 @@ Le panneau **LiDAR** offre trois modes de rendu :
 - **Filtre par classe** : cocher / décocher chaque classe LAS (sol, végétation basse,
   moyenne, haute, bâtiments, etc.)
 - **Texture drapée** : projette un fond de carte en nadir sur la géométrie 3D —
-  *Photo* (orthophotos IGN), *SCAN 25* (nécessite une clé IGN), *Plan* (Plan IGN v2)
+  *Photo* (orthophotos IGN), *SCAN 25* (nécessite une clé IGN), *Plan* (Plan IGN v2),
+  *Plan HD* (Plan IGN HD dérivé du LiDAR HD, nécessite la même clé IGN)
   ou *OSM*. Deux opacités séparées : *sol* (points classes 2/9 + mesh reconstruit) et
   *non-sol* (végétation, bâti…). La mosaïque est téléchargée une fois par nuage
   affiché, au zoom le plus fin dont l'assemblage tient dans `MAX_MOSAIC_PX`

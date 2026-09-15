@@ -8,20 +8,29 @@ réel, terrain 3D, et courbes de niveau.
 ### Choisir un fond de carte
 
 Dans le panneau **Couches** (sidebar à droite sur desktop, onglet *Couches* sur mobile),
-cinq fonds sont disponibles :
+six fonds sont disponibles :
 
 | Fond            | Source                          | Pertinence                          |
 |-----------------|----------------------------------|-------------------------------------|
 | **SCAN 25**     | IGN SCAN 25                 | Carte topo de référence en montagne |
 | **Plan IGN**    | IGN Plan IGN                     | Cartographie générale, lisible      |
+| **Plan IGN HD** | IGN `IGNF_PLAN-IGN-HD`           | Plan redessiné depuis le LiDAR HD  |
 | **Orthophotos** | IGN BD ORTHO                     | Imagerie aérienne                   |
 | **OSM**         | OpenStreetMap                    | Détail des sentiers / refuges       |
 | **LiDAR brut**  | IGN LiDAR HD ombrage             | Lecture pure du relief              |
 
-**SCAN 25 demande une clé IGN** (champ *Clé API SCAN 25* dans les réglages) : c'est une
-couche WMTS privée. Sans clé, le fond est proposé grisé, et s'il était déjà sélectionné
-(défaut d'usine, réglage d'une autre machine, lien partagé) l'application ouvre la carte
-sur **Plan IGN** plutôt que sur une carte vide.
+**Plan IGN HD** est le nouveau Plan IGN dérivé du LiDAR HD, celui de l'application Cartes
+IGN : emprises au sol détaillées, végétation, relief souligné — mais **aucun toponyme**,
+le raster ne porte pas de texte. Zooms 6 à 18, vérifiés tuile par tuile (le style officiel
+annonce 0 à 20, c'est faux). Métropole, Corse, La Réunion et Guadeloupe couvertes ; Guyane
+et Mayotte non. La couche publique sans clé `PLANIGN.LIDAR.SURSOL` n'est qu'une emprise de
+démonstration limitée à quelques vallées de l'Oisans, elle n'est pas utilisée.
+
+**SCAN 25 et Plan IGN HD demandent une clé IGN** (champ *SCAN 25 et Plan IGN HD* dans les
+réglages) : ce sont des couches WMTS privées, servies par `https://data.geopf.fr/private/wmts`.
+Une seule clé couvre les deux. Sans clé, ces fonds sont proposés grisés, et si l'un d'eux
+était déjà sélectionné (défaut d'usine, réglage d'une autre machine, lien partagé)
+l'application ouvre la carte sur **Plan IGN** plutôt que sur une carte vide.
 
 ### Activer l'ombrage LiDAR HD
 
@@ -92,13 +101,28 @@ flowchart LR
 
 | Fichier | Rôle |
 |---------|------|
+| [src/lib/baseLayers.ts](../src/lib/baseLayers.ts) | **Registre unique des fonds** : id, source de tuiles, libellés, description, drapabilité |
 | [src/lib/compositeProtocol.ts](../src/lib/compositeProtocol.ts) | Handler MapLibre `composite://`, parallèle base + shadow, blend 2D, gestion overzoom et detail-scale |
 | [src/lib/mapStyle.ts](../src/lib/mapStyle.ts) | Génère le `StyleSpecification` MapLibre depuis l'état du store |
 | [src/lib/ign.ts](../src/lib/ign.ts) | Registre des endpoints IGN (URL builders, definitions de couches, plages de zoom) |
 | [src/components/map/MapContainer.tsx](../src/components/map/MapContainer.tsx) | Instance MapLibre, sync style/terrain, enregistrement protocole |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | UI couches (5 fonds, ombrage, relief 3D, contours) |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | UI couches (fonds, ombrage, relief 3D, contours) |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | UI thème, blend mode, qualité de rendu, clés API IGN |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Zustand : vue, layers, persistance localStorage |
+
+### Ajouter un fond de carte
+
+Deux fichiers, dans cet ordre :
+
+1. [src/lib/ign.ts](../src/lib/ign.ts) — la couche WMTS elle-même (`IGN_LAYERS`) : identifiant
+   IGN, format, plage de zoom, `private`. Inutile pour un fond non-IGN.
+2. [src/lib/baseLayers.ts](../src/lib/baseLayers.ts) — une entrée dans `BASE_LAYERS` : source de
+   tuiles, libellé, libellé court, description.
+
+Tout le reste en découle et n'a **pas** à être touché : le type `BaseLayerId`, l'ordre des
+sélecteurs, le protocole `composite://`, le sélecteur de texture drapée du Studio LiDAR
+(`DRAPE_SOURCES`, automatiquement peuplé pour toute couche ayant une `source` fixe), et le
+verrouillage par clé IGN (`requiresIgnKey`, déduit du drapeau `private` de la couche).
 
 ### Le protocole `composite://`
 
@@ -183,7 +207,7 @@ au lieu du nearest-neighbor.
   // Vue
   view: { longitude, latitude, zoom, pitch, bearing }
   // Fonds
-  baseLayer: 'scan25' | 'plan' | 'ortho' | 'osm' | 'lidar'
+  baseLayer: 'scan25' | 'plan' | 'planhd' | 'ortho' | 'osm' | 'lidar'
   // Ombrage
   hillshadeEnabled: boolean
   hillshadeSource: 'mns' | 'mnt' | 'mnh'
@@ -199,7 +223,7 @@ au lieu du nearest-neighbor.
   renderQuality: 'balanced' | 'sharp'
   tileCacheSize: number
   // Clés
-  ignScanApiKey?: string
+  ignApiKey?: string
   ignDemApiKey?: string
   // Thème
   uiTheme: 'light' | 'dark'

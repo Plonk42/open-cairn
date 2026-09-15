@@ -23,11 +23,11 @@
  * versions are accepted with a console warning rather than rejected.
  */
 
+import type { DrapeSource } from './baseLayers';
 import type { CaptureRecord } from './captureParams';
 import type { ForestEdgeBlend, ForestGrouping } from './lidarBrowser/bdforet';
 import type { RockType, ShaderPreset } from './lidarBrowser/slope';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from './lidarCloud';
-import type { DrapeSource } from './mapStyle';
 import { DEFAULT_SUN_SETTINGS } from './sun';
 
 const MAGIC = 0x4f435353; // "OCSS"

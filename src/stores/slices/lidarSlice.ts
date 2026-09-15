@@ -1,3 +1,4 @@
+import type { DrapeSource } from '@/lib/baseLayers';
 import type { CaptureMode, CaptureParams, CaptureRecord } from '@/lib/captureParams';
 import {
     cancelLidarWorkerRequests,
@@ -19,7 +20,6 @@ import {
     defaultQualityIndex, qualityTiers, tierIndexOf, type QualityTier,
 } from '@/lib/lidarQuality';
 import { RESOLUTION_STOPS_M, resolutionToIndex, type PyramidProfile } from '@/lib/lidarResolution';
-import type { DrapeSource } from '@/lib/mapStyle';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
 import { DEFAULT_SUN_SETTINGS, formatSunDate, sunSettingsAt, todaySunDatePart } from '@/lib/sun';
 import type { StateCreator } from 'zustand';

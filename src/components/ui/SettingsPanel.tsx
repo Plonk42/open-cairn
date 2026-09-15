@@ -161,10 +161,10 @@ export function TerrainDemSection() {
     );
 }
 
-/** IGN API keys (SCAN 25 WMTS + Terrain 3D WMS-r). */
+/** IGN API keys (private WMTS layers + Terrain 3D WMS-r). */
 export function ApiKeysSection() {
-    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
-    const setIgnScanApiKey = useMapStore((s) => s.setIgnScanApiKey);
+    const ignApiKey = useMapStore((s) => s.ignApiKey);
+    const setIgnApiKey = useMapStore((s) => s.setIgnApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const setIgnDemApiKey = useMapStore((s) => s.setIgnDemApiKey);
 
@@ -172,11 +172,11 @@ export function ApiKeysSection() {
         <div>
             <div className="mb-2 text-xs font-medium text-slate-500">Clés API IGN</div>
             <label className="mb-2 block text-sm text-slate-700 dark:text-slate-300">
-                <span className="mb-1 block text-xs text-slate-500">SCAN 25 (WMTS privé)</span>
+                <span className="mb-1 block text-xs text-slate-500">SCAN 25 et Plan IGN HD (WMTS privé)</span>
                 <input
                     type="text"
-                    value={ignScanApiKey}
-                    onChange={(e) => setIgnScanApiKey(e.target.value.trim())}
+                    value={ignApiKey}
+                    onChange={(e) => setIgnApiKey(e.target.value.trim())}
                     placeholder="Votre clé API IGN"
                     className="w-full rounded-md bg-gray-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600"
                 />

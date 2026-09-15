@@ -15,8 +15,8 @@
  * meter-offset frame for the planar UV mapping.
  */
 
+import { BASE_LAYERS, type DrapeSource } from '@/lib/baseLayers';
 import { IGN_LAYERS, ignLayerUrl, OSM_TILE_URL } from '@/lib/ign';
-import type { DrapeSource } from '@/lib/mapStyle';
 
 export interface DrapeMosaic {
     /** Canvas holding the stitched basemap, ready for `texImage2D`. */
@@ -36,25 +36,17 @@ const MAX_TILES_PER_SIDE = MAX_MOSAIC_PX / TILE_SIZE;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 19;
 
-/** IGN WMTS layer backing each drapable basemap (`osm` is not an IGN layer). */
-const DRAPE_LAYER: Record<DrapeSource, keyof typeof IGN_LAYERS | 'osm'> = {
-    ortho: 'ortho',
-    scan25: 'scan25Tour',
-    plan: 'planIgn',
-    osm: 'osm',
-};
-
 /**
  * XYZ template + finest usable zoom for a drapable basemap. Each layer stops at
  * its own max zoom (SCAN 25 at z16, orthophotos at z19…), so we never request
- * tiles that don't exist; SCAN 25 additionally needs the user's IGN `apikey`.
+ * tiles that don't exist; the private layers additionally need the user's IGN `apikey`.
  */
-function drapeTileTemplate(source: DrapeSource, scanApiKey?: string): { template: string; maxZoom: number } {
-    const key = DRAPE_LAYER[source];
+function drapeTileTemplate(source: DrapeSource, ignApiKey?: string): { template: string; maxZoom: number } {
+    const key = BASE_LAYERS[source].source;
     if (key === 'osm') return { template: OSM_TILE_URL, maxZoom: MAX_ZOOM };
     const def = IGN_LAYERS[key];
     return {
-        template: ignLayerUrl(key, def.private ? scanApiKey : undefined),
+        template: ignLayerUrl(key, def.private ? ignApiKey : undefined),
         maxZoom: Math.min(MAX_ZOOM, def.maxZoom),
     };
 }
@@ -129,12 +121,12 @@ export async function fetchDrapeMosaic(opts: {
     lng: number;
     lat: number;
     radiusMeters: number;
-    /** IGN key for the private SCAN 25 layer; ignored by the public layers. */
-    scanApiKey?: string;
+    /** IGN key for the private layers; ignored by the public ones. */
+    ignApiKey?: string;
     signal?: AbortSignal;
 }): Promise<DrapeMosaic | null> {
-    const { source, lng, lat, radiusMeters, scanApiKey, signal } = opts;
-    const { template, maxZoom } = drapeTileTemplate(source, scanApiKey);
+    const { source, lng, lat, radiusMeters, ignApiKey, signal } = opts;
+    const { template, maxZoom } = drapeTileTemplate(source, ignApiKey);
     // Expand a little so the mesh (which can spill slightly past the request
     // radius) is fully covered; UVs outside [0,1] are ignored by the shader.
     const r = radiusMeters * 1.1;

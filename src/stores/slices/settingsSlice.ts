@@ -38,9 +38,9 @@ export interface SettingsSlice {
     freeCamera: boolean;
     setFreeCamera: (v: boolean) => void;
 
-    /** IGN API key for SCAN 25 (private WMTS). */
-    ignScanApiKey: string;
-    setIgnScanApiKey: (v: string) => void;
+    /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
+    ignApiKey: string;
+    setIgnApiKey: (v: string) => void;
 
     /** IGN API key for terrain DEM (private WMS-r, HIGHRES.LINEAR). */
     ignDemApiKey: string;
@@ -66,8 +66,8 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     freeCamera: false,
     setFreeCamera: (freeCamera) => set({ freeCamera }),
 
-    ignScanApiKey: persisted.ignScanApiKey ?? '',
-    setIgnScanApiKey: (ignScanApiKey) => set({ ignScanApiKey }),
+    ignApiKey: persisted.ignApiKey ?? '',
+    setIgnApiKey: (ignApiKey) => set({ ignApiKey }),
 
     ignDemApiKey: persisted.ignDemApiKey ?? '',
     setIgnDemApiKey: (ignDemApiKey) => set({ ignDemApiKey }),
@@ -82,7 +82,7 @@ export function selectSettingsPersisted(
     | 'studioTutorialSeen'
     | 'renderQuality'
     | 'tileCacheSize'
-    | 'ignScanApiKey'
+    | 'ignApiKey'
     | 'ignDemApiKey'
 > {
     return {
@@ -90,7 +90,7 @@ export function selectSettingsPersisted(
         studioTutorialSeen: s.studioTutorialSeen,
         renderQuality: s.renderQuality,
         tileCacheSize: s.tileCacheSize,
-        ignScanApiKey: s.ignScanApiKey,
+        ignApiKey: s.ignApiKey,
         ignDemApiKey: s.ignDemApiKey,
     };
 }

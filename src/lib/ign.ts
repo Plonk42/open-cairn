@@ -77,6 +77,18 @@ export const IGN_LAYERS = {
         label: 'Plan IGN',
         private: false,
     },
+    planIgnHd: {
+        // The Plan IGN redrawn from LiDAR HD, carrying no toponym. Only the
+        // keyed layer covers the whole territory: the public PLANIGN.LIDAR.SURSOL
+        // is a demo footprint limited to a few Oisans valleys. Zooms verified
+        // tile by tile: z6-z18, not the z0-z20 the official style declares.
+        id: 'IGNF_PLAN-IGN-HD',
+        format: 'image/jpeg' as const,
+        minZoom: 6,
+        maxZoom: 18,
+        label: 'Plan IGN HD',
+        private: true,
+    },
     ortho: {
         id: 'ORTHOIMAGERY.ORTHOPHOTOS',
         format: 'image/jpeg' as const,

@@ -1,6 +1,6 @@
+import type { DrapeSource } from '@/lib/baseLayers';
 import type { RockType, ShaderPreset } from '@/lib/lidarBrowser/slope';
 import type { CaptureRect } from '@/lib/lidarCaptureRect';
-import type { DrapeSource } from '@/lib/mapStyle';
 import type { AppView } from '@/lib/useView';
 import type { MapStyleSettings } from './mapStyleView';
 import type { LidarMode } from './slices/lidarSlice';
@@ -18,7 +18,7 @@ export type PersistedSettings = {
     studioTutorialSeen?: boolean;
     renderQuality?: RenderQuality;
     tileCacheSize?: number;
-    ignScanApiKey?: string;
+    ignApiKey?: string;
     ignDemApiKey?: string;
     lidarMode?: LidarMode;
     lidarShader?: ShaderPreset;

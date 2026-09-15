@@ -1,7 +1,8 @@
 import type { RenderQuality, TerrainDemSource } from '@/stores/mapStore';
 import mlcontour from 'maplibre-contour';
 import maplibregl from 'maplibre-gl';
-import { compositeTileUrl, type BlendMode, type CompositeBaseKey, type ShadowKind } from './compositeProtocol';
+import { BASE_LAYERS, type BaseLayerId } from './baseLayers';
+import { compositeTileUrl, SHADOW_LAYER_KEY, type BlendMode, type CompositeBaseKey, type ShadowKind } from './compositeProtocol';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
 
 /**
@@ -42,23 +43,6 @@ function getContourDemSource(): InstanceType<typeof mlcontour.DemSource> {
     }
     return contourDemSource;
 }
-
-export type BaseLayerId = 'scan25' | 'plan' | 'ortho' | 'osm' | 'lidar';
-
-/**
- * Basemaps that can be draped as a texture over the LiDAR mesh/points (see
- * `fetchDrapeMosaic`). `lidar` is excluded: the hillshade base is already a
- * relief rendering, draping it over 3D relief would be meaningless.
- */
-export type DrapeSource = Exclude<BaseLayerId, 'lidar'>;
-
-const BASE_DEFS = {
-    scan25: IGN_LAYERS.scan25Tour,
-    plan: IGN_LAYERS.planIgn,
-    ortho: IGN_LAYERS.ortho,
-    osm: { label: 'OpenStreetMap' },
-    lidar: { label: 'LiDAR' },
-} as const;
 
 const TERRAIN_TILE_SIZE = 256;
 
@@ -101,19 +85,6 @@ function resolveTerrainSource(
     };
 }
 
-const BASE_KEY: Record<Exclude<BaseLayerId, 'lidar'>, CompositeBaseKey> = {
-    scan25: 'scan25Tour',
-    plan: 'planIgn',
-    ortho: 'ortho',
-    osm: 'osm',
-};
-
-const LIDAR_SOURCE_KEY: Record<ShadowKind, keyof typeof IGN_LAYERS> = {
-    mns: 'lidarMnsShadow',
-    mnt: 'lidarMntShadow',
-    mnh: 'lidarMnhShadow',
-};
-
 interface ResolvedBaseLayer {
     key: CompositeBaseKey;
     minZoom: number;
@@ -122,15 +93,15 @@ interface ResolvedBaseLayer {
     attribution: string;
 }
 
-export function directBaseUrl(key: CompositeBaseKey, scanApiKey?: string): string {
+export function directBaseUrl(key: CompositeBaseKey, ignApiKey?: string): string {
     if (key === 'osm') return OSM_TILE_URL;
-    return ignLayerUrl(key, IGN_LAYERS[key].private ? scanApiKey : undefined);
+    return ignLayerUrl(key, IGN_LAYERS[key].private ? ignApiKey : undefined);
 }
 
 function resolveBaseLayer(opts: MapStyleOptions): ResolvedBaseLayer {
-    const key = opts.base === 'lidar'
-        ? LIDAR_SOURCE_KEY[opts.hillshadeSource]
-        : BASE_KEY[opts.base];
+    const key: CompositeBaseKey = opts.base === 'lidar'
+        ? SHADOW_LAYER_KEY[opts.hillshadeSource]
+        : BASE_LAYERS[opts.base].source;
     const isOsm = key === 'osm';
     const def = isOsm ? { minZoom: 0, maxZoom: 19 } : IGN_LAYERS[key];
 
@@ -138,7 +109,7 @@ function resolveBaseLayer(opts: MapStyleOptions): ResolvedBaseLayer {
         key,
         minZoom: def.minZoom,
         maxZoom: def.maxZoom,
-        tileUrl: directBaseUrl(key, opts.ignScanApiKey),
+        tileUrl: directBaseUrl(key, opts.ignApiKey),
         attribution: isOsm ? OSM_ATTRIBUTION : IGN_ATTRIBUTION,
     };
 }
@@ -164,8 +135,8 @@ export interface MapStyleOptions {
     contourLines: boolean;
     /** Opacity of the contour lines overlay (0..1). */
     contourLinesOpacity: number;
-    /** IGN API key for SCAN 25 (private WMTS). */
-    ignScanApiKey?: string;
+    /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
+    ignApiKey?: string;
     /** IGN API key for terrain DEM (private WMS-r, enables HIGHRES.LINEAR). */
     ignDemApiKey?: string;
     /** DEM provider for the 3D terrain mesh. */
@@ -314,10 +285,3 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
     return style;
 }
 
-export const BASE_LAYER_LABELS: Record<BaseLayerId, string> = {
-    scan25: BASE_DEFS.scan25.label,
-    plan: BASE_DEFS.plan.label,
-    ortho: BASE_DEFS.ortho.label,
-    osm: BASE_DEFS.osm.label,
-    lidar: BASE_DEFS.lidar.label,
-};

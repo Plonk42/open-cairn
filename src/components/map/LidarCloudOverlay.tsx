@@ -1,3 +1,4 @@
+import { requiresIgnKey } from '@/lib/baseLayers';
 import { isLodDebugEnabled } from '@/lib/debugFlags';
 import type { LngLatTuple } from '@/lib/geo';
 import { distanceMeters } from '@/lib/geo';
@@ -116,7 +117,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     const photoOpacityNonGround = useMapStore((s) => s.lidarCloudPhotoOpacityNonGround);
     const photoSource = useMapStore((s) => s.lidarCloudPhotoSource);
     const photoDetail = useMapStore((s) => s.lidarCloudPhotoDetail);
-    const scanApiKey = useMapStore((s) => s.ignScanApiKey);
+    const ignApiKey = useMapStore((s) => s.ignApiKey);
     const lodEnabled = useMapStore((s) => s.lidarLodEnabled);
     const lodForceLevel = useMapStore((s) => s.lidarLodForceLevel);
     const pointSizeMultiplier = useMapStore((s) => s.lidarPointSizeMultiplier);
@@ -508,9 +509,9 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
     // otherwise every notch of the slider aborted the in-flight download.
     const orthoSource = lidarMesh ?? lidarShaded;
     const drapeEnabled = photoOpacity > 0 || photoOpacityNonGround > 0;
-    // Only SCAN 25 is key-gated, so an unrelated key edit (typed character by
+    // Only key-gated basemaps care, so an unrelated key edit (typed character by
     // character in the settings panel) must not invalidate every mosaic.
-    const drapeKey = photoSource === 'scan25' ? scanApiKey : '';
+    const drapeKey = requiresIgnKey(photoSource) ? ignApiKey : '';
     useEffect(() => {
         const layer = webglRef.current;
         if (!layer) return undefined;
@@ -535,7 +536,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
             lng: orthoSource.centerLng,
             lat: orthoSource.centerLat,
             radiusMeters: orthoSource.radius,
-            scanApiKey: drapeKey,
+            ignApiKey: drapeKey,
             signal: controller.signal,
         })
             .then((mosaic) => {
@@ -596,7 +597,7 @@ export function LidarCloudOverlay({ cloudId }: Readonly<{ cloudId: string }>) {
                 lng: target.lng,
                 lat: target.lat,
                 radiusMeters: target.radiusMeters,
-                scanApiKey: drapeKey,
+                ignApiKey: drapeKey,
                 signal,
             })
                 .then((mosaic) => {

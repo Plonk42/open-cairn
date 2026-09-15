@@ -1,8 +1,8 @@
 import type { HillshadeSource, MapView } from '@/stores/mapStore';
 import type { RouteMode, RouteWaypoint } from '@/stores/routeStore';
+import type { BaseLayerId } from './baseLayers';
 import type { BlendMode } from './compositeProtocol';
 import type { LngLatTuple } from './geo';
-import type { BaseLayerId } from './mapStyle';
 
 /** Compact serialisable representation of the full app state. */
 interface SharePayload {

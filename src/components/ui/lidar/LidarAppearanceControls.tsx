@@ -1,12 +1,12 @@
 import { LOD_LEVEL_COUNT } from '@/components/map/LidarWebGLLayer';
 import { ClassFilterChips, type ClassChoice } from '@/components/ui/ClassFilterChips';
 import { SegmentedControl } from '@/components/ui/common/SegmentedControl';
+import { BASE_LAYERS, DRAPE_SOURCES, IGN_KEY_REQUIRED_HINT, requiresIgnKey } from '@/lib/baseLayers';
 import { isHeightDebugEnabled, isLodDebugEnabled, isMeshWireframeDebugEnabled } from '@/lib/debugFlags';
 import { forestLegendEntries, type ForestEdgeBlend, type ForestGrouping } from '@/lib/lidarBrowser/bdforet';
 import type { VegCliffDistMode } from '@/lib/lidarBrowser/groundHeight';
 import { ROCK_LABELS, SHADER_LABELS, type RockType, type ShaderPreset } from '@/lib/lidarBrowser/slope';
 import { LAS_CLASS_LABELS, type VegColorMode } from '@/lib/lidarCloud';
-import type { DrapeSource } from '@/lib/mapStyle';
 import { useMapStore } from '@/stores/mapStore';
 import type { LidarVegDiagMode } from '@/stores/slices/lidarSlice';
 
@@ -57,12 +57,11 @@ const FOREST_EDGE_OPTIONS = [
 ] as const satisfies ReadonlyArray<{ value: ForestEdgeBlend; label: string; title: string }>;
 
 /** Basemaps that can be draped over the 3D geometry (see `fetchDrapeMosaic`). */
-const DRAPE_SOURCE_OPTIONS = [
-    { value: 'ortho', label: 'Photo', title: 'Orthophotos IGN (BD ORTHO) — rendu photo-réaliste' },
-    { value: 'scan25', label: 'SCAN 25', title: 'Carte topographique SCAN 25 IGN drapée sur le relief (nécessite une clé IGN)' },
-    { value: 'plan', label: 'Plan', title: 'Plan IGN v2 drapé sur le relief' },
-    { value: 'osm', label: 'OSM', title: 'OpenStreetMap drapé sur le relief' },
-] as const satisfies ReadonlyArray<{ value: DrapeSource; label: string; title: string }>;
+const DRAPE_SOURCE_OPTIONS = DRAPE_SOURCES.map((value) => ({
+    value,
+    label: BASE_LAYERS[value].shortLabel,
+    title: `${BASE_LAYERS[value].description} · drapé sur le relief`,
+}));
 
 export function ClassFilterSection() {
     const classes = useMapStore((s) => s.lidarCloudClasses);
@@ -104,7 +103,7 @@ export function OpacityControls() {
     const setPhotoSource = useMapStore((s) => s.setLidarCloudPhotoSource);
     const photoDetail = useMapStore((s) => s.lidarCloudPhotoDetail);
     const setPhotoDetail = useMapStore((s) => s.setLidarCloudPhotoDetail);
-    const ignScanApiKey = useMapStore((s) => s.ignScanApiKey);
+    const ignApiKey = useMapStore((s) => s.ignApiKey);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
     const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
     const contourEnabled = useMapStore((s) => s.contourLinesEnabled);
@@ -178,8 +177,8 @@ export function OpacityControls() {
                 <SegmentedControl
                     value={photoSource}
                     options={DRAPE_SOURCE_OPTIONS.map((opt) => (
-                        opt.value === 'scan25' && !ignScanApiKey
-                            ? { ...opt, disabled: true, title: 'Nécessite une clé IGN (voir Réglages)' }
+                        requiresIgnKey(opt.value) && !ignApiKey
+                            ? { ...opt, disabled: true, title: `${opt.title} · ${IGN_KEY_REQUIRED_HINT}` }
                             : opt
                     ))}
                     onChange={setPhotoSource}

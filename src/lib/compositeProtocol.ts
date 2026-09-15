@@ -12,9 +12,9 @@ import { IGN_ATTRIBUTION, IGN_LAYERS, ignWmtsUrl, OSM_ATTRIBUTION, OSM_TILE_URL 
 
 let registered = false;
 
-/** Module-level getter for the SCAN apikey — set externally to avoid circular imports. */
-let _scanApiKey = '';
-export function setScanApiKey(key: string): void { _scanApiKey = key; }
+/** Module-level getter for the IGN apikey — set externally to avoid circular imports. */
+let _ignApiKey = '';
+export function setIgnApiKey(key: string): void { _ignApiKey = key; }
 
 export type CompositeBaseKey = keyof typeof IGN_LAYERS | 'osm';
 
@@ -26,13 +26,13 @@ interface RasterLayerDef {
 }
 
 /** Short URL token → IGN LiDAR HD shadow layer key. */
-const SHADOW_KEYS = {
+export const SHADOW_LAYER_KEY = {
     mns: 'lidarMnsShadow',
     mnt: 'lidarMntShadow',
     mnh: 'lidarMnhShadow',
 } as const satisfies Record<string, CompositeBaseKey>;
 
-export type ShadowKind = keyof typeof SHADOW_KEYS;
+export type ShadowKind = keyof typeof SHADOW_LAYER_KEY;
 
 /** Supported shadow blend modes. */
 export const BLEND_MODES = [
@@ -60,7 +60,7 @@ function rasterLayerDef(layerKey: CompositeBaseKey): RasterLayerDef {
             layer: def.id,
             format: def.format,
             private: def.private,
-            apikey: def.private ? _scanApiKey : undefined,
+            apikey: def.private ? _ignApiKey : undefined,
         }),
     };
 }
@@ -299,7 +299,7 @@ function renderCompositeShadow(
 async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
     const { baseKey, shadow: shadowKind, mode, intensity, detailScale, z, x, y, signal } = args;
     const baseTile = overzoomedTile(baseKey, z, x, y);
-    const shadowKey = SHADOW_KEYS[shadowKind];
+    const shadowKey = SHADOW_LAYER_KEY[shadowKind];
     const shadowDef = IGN_LAYERS[shadowKey];
     const wantShadow = intensity > 0 && z >= shadowDef.minZoom;
     const shadowTiles = wantShadow ? detailedTiles(shadowKey, z, x, y, detailScale) : [];

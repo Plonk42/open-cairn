@@ -1,4 +1,4 @@
-import type { BaseLayerId } from '@/lib/mapStyle';
+import type { BaseLayerId } from '@/lib/baseLayers';
 import type { AppView } from '@/lib/useView';
 import type maplibregl from 'maplibre-gl';
 import type { StateCreator } from 'zustand';
