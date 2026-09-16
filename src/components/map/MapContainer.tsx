@@ -13,14 +13,14 @@ import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
+import { SkyLabelsOverlay } from './SkyLabelsOverlay';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
-import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
-import { HorizonTimesOverlay } from './HorizonTimesOverlay';
 import { SkyBodiesOverlay } from './SkyBodiesOverlay';
-import { ViewpointController, type ViewpointEventData } from './ViewpointController';
+import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 import { useRectDrawInteraction } from './useRectDrawInteraction';
+import { ViewpointController, type ViewpointEventData } from './ViewpointController';
 
 /**
  * Assembles the `buildMapStyle` options from a store snapshot. Shared by all
@@ -1096,7 +1096,7 @@ export function MapContainer() {
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
             <SkyBodiesOverlay />
-            <HorizonTimesOverlay />
+            <SkyLabelsOverlay />
             <ViewpointController />
         </>
     );

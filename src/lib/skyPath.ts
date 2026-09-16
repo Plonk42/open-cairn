@@ -27,6 +27,8 @@ export const SKY_PATH_FLOATS_PER_VERTEX = 9;
 /** Byte stride of one vertex: dirA(3) + dirB(3) + at(1) + side(1) + arc(1). */
 export const SKY_PATH_STRIDE = SKY_PATH_FLOATS_PER_VERTEX * 4;
 
+type Vec3 = [number, number, number];
+
 export interface SkyPathSample {
     /** Minutes since local midnight. */
     minutesOfDay: number;
@@ -35,11 +37,21 @@ export interface SkyPathSample {
     /** APPARENT degrees above the horizon (refraction included). */
     elevationDeg: number;
     /** Unit ENU direction towards the body. */
-    dir: [number, number, number];
+    dir: Vec3;
 }
 
 /** A body's apparent position at one instant, fractional minutes allowed. */
 export type SkySampleAt = (minutesOfDay: number) => SkyPathSample;
+
+/** One whole-hour graduation across the track. */
+export interface SkyPathTick {
+    /** Minutes since local midnight — always a whole hour. */
+    minutesOfDay: number;
+    /** APPARENT elevation of the body at that hour, in degrees. */
+    elevationDeg: number;
+    /** The tick's two ends, as unit ENU directions. */
+    ends: readonly [Vec3, Vec3];
+}
 
 export interface SkyPathGeometry {
     /** Interleaved vertices for the day track. */
@@ -50,7 +62,7 @@ export interface SkyPathGeometry {
     samples: SkyPathSample[];
 }
 
-/** Half-length of an hour tick, in degrees of elevation. */
+/** Half-length of an hour tick, in degrees of arc. */
 const TICK_HALF_DEG = 0.45;
 /** Whole hours that get a longer tick, to stay readable at a glance. */
 const MAJOR_TICK_HOURS = 3;
@@ -159,27 +171,71 @@ function angleBetweenDeg(a: readonly number[], b: readonly number[]): number {
     return Math.acos(dot) / DEG;
 }
 
-/** Direction at the given azimuth/elevation, in degrees. */
-function dirAt(azimuthDeg: number, elevationDeg: number): [number, number, number] {
-    return sunDirectionVector({ azimuth: azimuthDeg * DEG, elevation: elevationDeg * DEG });
+function normalize(v: Vec3): Vec3 {
+    const len = Math.hypot(v[0], v[1], v[2]);
+    return len < 1e-12 ? [0, 0, 1] : [v[0] / len, v[1] / len, v[2] / len];
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+}
+
+/**
+ * Unit direction across the track at `samples[i]`, in the sky's tangent plane
+ * there. Built from the chord between the two neighbouring samples, with its
+ * radial part removed: what is left is the track's tangent, and its cross
+ * product with the direction is the normal the tick is drawn along.
+ */
+function acrossTrack(samples: SkyPathSample[], i: number): Vec3 {
+    const dir = samples[i].dir;
+    const prev = samples[Math.max(0, i - 1)].dir;
+    const next = samples[Math.min(samples.length - 1, i + 1)].dir;
+    const chord: Vec3 = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];
+    const along = chord[0] * dir[0] + chord[1] * dir[1] + chord[2] * dir[2];
+    const tangent = normalize([
+        chord[0] - along * dir[0],
+        chord[1] - along * dir[1],
+        chord[2] - along * dir[2],
+    ]);
+    return normalize(cross(dir, tangent));
+}
+
+/**
+ * The whole-hour graduations of a sampled day.
+ *
+ * Each tick crosses the track at a right angle: a tick along the local vertical
+ * reads as a stray mark wherever the track is steep — near rise and set, and
+ * everywhere at all in winter.
+ */
+export function hourTicks(samples: SkyPathSample[]): SkyPathTick[] {
+    const out: SkyPathTick[] = [];
+    for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        if (s.minutesOfDay % 60 !== 0 || s.minutesOfDay >= 1440) continue;
+        const hour = s.minutesOfDay / 60;
+        const half = TICK_HALF_DEG * (hour % MAJOR_TICK_HOURS === 0 ? MAJOR_TICK_FACTOR : 1) * DEG;
+        const across = acrossTrack(samples, i);
+        // Rotation of `dir` by ±half in the (dir, across) plane: the ends stay
+        // unit vectors, which the projection at infinity relies on.
+        const c = Math.cos(half);
+        const sn = Math.sin(half);
+        const end = (sign: number): Vec3 => [
+            c * s.dir[0] + sign * sn * across[0],
+            c * s.dir[1] + sign * sn * across[1],
+            c * s.dir[2] + sign * sn * across[2],
+        ];
+        out.push({ minutesOfDay: s.minutesOfDay, elevationDeg: s.elevationDeg, ends: [end(-1), end(1)] });
+    }
+    return out;
 }
 
 function buildTicks(samples: SkyPathSample[]): Float32Array {
     const out: number[] = [];
-    for (const s of samples) {
-        if (s.minutesOfDay % 60 !== 0 || s.minutesOfDay >= 1440) continue;
-        const hour = s.minutesOfDay / 60;
-        const half = TICK_HALF_DEG * (hour % MAJOR_TICK_HOURS === 0 ? MAJOR_TICK_FACTOR : 1);
-        // A tick runs along the local vertical, which reads as upright whatever
-        // the camera roll — and never overlaps the track it marks.
-        pushSegment(
-            out,
-            dirAt(s.azimuthDeg, s.elevationDeg - half),
-            dirAt(s.azimuthDeg, s.elevationDeg + half),
-            0,
-            0,
-        );
-    }
+    for (const tick of hourTicks(samples)) pushSegment(out, tick.ends[0], tick.ends[1], 0, 0);
     return new Float32Array(out);
 }
 

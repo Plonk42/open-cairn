@@ -40,7 +40,12 @@ l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derri
 - Le **disque** est dessiné à sa taille angulaire réelle (0,53°) — il sert d'étalon :
   si le soleil est à deux diamètres du sommet, il y sera dans 2 à 7 minutes selon
   la hauteur. Plein dans le ciel, réduit à un anneau creux quand il est caché.
-- Un **trait court** marque chaque heure pleine, plus long toutes les trois heures.
+- Un **trait court perpendiculaire** à la trajectoire marque chaque heure pleine, plus
+  long toutes les trois heures, avec l'**heure écrite juste en dessous** en petit
+  (`18h`). Ces heures ne sont écrites qu'au-dessus de **l'horizon** : plus bas la
+  trajectoire passe dans le sol, où une heure ne ferait que flotter sur le paysage.
+  Une graduation reste légendée là où le trait est en pointillé, c'est-à-dire
+  derrière une crête : c'est précisément l'heure que l'on cherche à lire.
 - Le tracé suit la position **apparente** (réfraction comprise), comme le reste du
   pipeline.
 - Deux **étiquettes** marquent les croisements avec la crête : `↑ 08:51` là où le
@@ -318,6 +323,22 @@ dirA(3) dirB(3) at(1) side(1) arc(1)
 d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 0`) est
 évacué hors du volume de vue plutôt que clippé.
 
+### Graduations perpendiculaires
+
+Un cran est une rotation de la direction de l'astre de ±0,45° (×2,2 toutes les trois
+heures) dans le plan `(dir, across)`, où `across = dir × tangente` : ses deux bouts
+restent donc **sur la sphère unité**, ce dont dépend la projection à l'infini. La
+tangente vient de la corde entre les deux échantillons voisins, privée de sa part
+radiale.
+
+Les crans ont d'abord été dessinés **le long de la verticale locale** : simple, mais
+faux dès que la trajectoire est raide — près du lever et du coucher, et toute la
+journée en hiver — où le cran se couche sur le trait au lieu de le croiser.
+
+L'étiquette d'heure se pose sur **le bout du cran le plus bas à l'écran**, recalculé
+à chaque frame : elle passe ainsi toujours sous la trajectoire, sans qu'il faille
+décider dans la géométrie lequel des deux bouts est le bon.
+
 ### Pièges vérifiés
 
 - Aucune porte de validation ne compile le GLSL (`vite-plugin-glsl` ne fait que de
@@ -329,15 +350,19 @@ d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 
 
 ---
 
-## Heures de lever et de coucher — implémentation
+## Étiquettes dans le ciel — implémentation
+
+Un seul composant porte tout le texte écrit sur le ciel : les deux heures de
+croisement avec la crête, et l'heure de chaque graduation.
 
 ### Fichiers
 
 | Rôle | Fichier |
 |---|---|
 | Horizon réel + recherche des croisements (pur, testable) | [src/lib/skyline.ts](../src/lib/skyline.ts) |
-| Étiquettes et câblage au store | [src/components/map/HorizonTimesOverlay.tsx](../src/components/map/HorizonTimesOverlay.tsx) |
+| Étiquettes et câblage au store | [src/components/map/SkyLabelsOverlay.tsx](../src/components/map/SkyLabelsOverlay.tsx) |
 | Échantillon d'un astre à une minute fractionnaire | `sunSampleAt` / `moonSampleAt` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
+| Graduations horaires (géométrie des crans) | `hourTicks` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
 
 Les deux astres partagent **un seul cache d'horizon par passe** : la lune parcourt
 à peu près la même bande de ciel que le soleil, et un rayon coûte quelque 400

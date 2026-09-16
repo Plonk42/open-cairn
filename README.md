@@ -42,8 +42,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Repérage photo par le soleil et la lune** — position solaire calculée pour la date, le lieu et
   l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille
-  angulaire réelle, et **heures de lever et de coucher sur l'horizon réel** écrites là où la
-  trajectoire croise la crête. De quoi lire à quelle heure le soleil sera derrière un sommet donné.
+  angulaire réelle, **graduations horaires** légendées en travers du tracé, et **heures de lever
+  et de coucher sur l'horizon réel** écrites là où la trajectoire croise la crête. De quoi lire à
+  quelle heure le soleil sera derrière un sommet donné.
   La **lune** est tracée sur le même principe, avec sa **phase** et sa corne brillante tournée vers
   le soleil.
 - **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),

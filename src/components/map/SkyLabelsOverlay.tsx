@@ -1,6 +1,7 @@
 /**
- * The hour a body clears the relief, and the hour it goes back behind it,
- * written where its track crosses the skyline — for the sun and for the moon.
+ * Every piece of text written over the sky: the hour a body clears the relief
+ * and the hour it goes back behind it, plus the hour of each graduation along
+ * the track — for the sun and for the moon.
  *
  * The sky-body layers already show *that* a track is cut by the terrain — they
  * depth-test it on the GPU and draw the hidden half dashed. That answer never
@@ -21,8 +22,7 @@
  * level and shoots hundreds of pixels off. A direction has no such dependency.
  */
 
-import { parseSunDate } from '@/lib/sun';
-import { moonSampleAt, sunSampleAt, type SkySampleAt } from '@/lib/skyPath';
+import { hourTicks, moonSampleAt, sampleSkyPath, sunSampleAt, type SkyPathTick, type SkySampleAt } from '@/lib/skyPath';
 import {
     findSkyCrossings,
     formatCrossingTime,
@@ -30,6 +30,7 @@ import {
     type SkylineObserver,
     type SkylinePoint,
 } from '@/lib/skyline';
+import { parseSunDate } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
 import { LngLat, type Map as MapLibreMap } from 'maplibre-gl';
 import { useCallback, useEffect, useRef } from 'react';
@@ -49,9 +50,11 @@ const RECOMPUTE_DEBOUNCE_MS = 250;
 
 const DEG = Math.PI / 180;
 
-interface HorizonLabel {
-    /** Unit ENU direction of the body at the crossing. */
-    dir: [number, number, number];
+interface SkyLabel {
+    /** Unit ENU directions to project; the label lands on the lowest one. */
+    dirs: readonly [number, number, number][];
+    /** How the box hangs off that point. */
+    anchor: string;
     el: HTMLElement;
 }
 
@@ -60,20 +63,28 @@ interface LabelledBody {
     /** French, for the tooltip: « Lever DU SOLEIL à … ». */
     riseOf: string;
     setOf: string;
+    /** French subject of the hour tooltip: « LE SOLEIL est ici à … ». */
+    subject: string;
     /** Tailwind classes, matching the track's palette. */
     tone: string;
+    /** Same palette, quieter: an hour label is read only when looked for. */
+    hourTone: string;
 }
 
 const SUN_BODY: LabelledBody = {
     riseOf: 'du soleil',
     setOf: 'du soleil',
+    subject: 'Le soleil',
     tone: 'text-amber-300 ring-amber-400/50',
+    hourTone: 'text-amber-200/85',
 };
 
 const MOON_BODY: LabelledBody = {
     riseOf: 'de la lune',
     setOf: 'de la lune',
+    subject: 'La lune',
     tone: 'text-sky-200 ring-sky-300/50',
+    hourTone: 'text-sky-200/85',
 };
 
 function labelElement(body: LabelledBody, kind: 'rise' | 'set', minutesOfDay: number): HTMLElement {
@@ -85,6 +96,16 @@ function labelElement(body: LabelledBody, kind: 'rise' | 'set', minutesOfDay: nu
     el.title = kind === 'rise'
         ? `Lever ${body.riseOf} sur l'horizon réel à ${when}`
         : `Coucher ${body.setOf} sur l'horizon réel à ${when}`;
+    return el;
+}
+
+/** The hour of one graduation, written just under it — no box, no ring. */
+function hourLabelElement(body: LabelledBody, tick: SkyPathTick): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'absolute left-0 top-0 hidden whitespace-nowrap text-[10px] font-medium '
+        + `leading-none will-change-transform [text-shadow:0_1px_2px_rgb(0_0_0/0.85)] ${body.hourTone}`;
+    el.textContent = `${tick.minutesOfDay / 60}h`;
+    el.title = `${body.subject} est ici à ${formatCrossingTime(tick.minutesOfDay)}`;
     return el;
 }
 
@@ -126,7 +147,7 @@ function projectDirection(map: MapLibreMap, dir: readonly number[]): { x: number
     };
 }
 
-export function HorizonTimesOverlay() {
+export function SkyLabelsOverlay() {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const enabled = useMapStore((s) => s.lidarSunPath);
     const sunDate = useMapStore((s) => s.lidarSunDate);
@@ -135,7 +156,7 @@ export function HorizonTimesOverlay() {
     const lat = useMapStore((s) => s.lidarShaded?.centerLat ?? s.lidarMesh?.centerLat ?? s.view.latitude);
 
     const hostRef = useRef<HTMLDivElement | null>(null);
-    const labelsRef = useRef<HorizonLabel[]>([]);
+    const labelsRef = useRef<SkyLabel[]>([]);
     /** Inputs the labels on screen were computed from, to skip idle no-ops. */
     const lastKeyRef = useRef('');
 
@@ -148,13 +169,20 @@ export function HorizonTimesOverlay() {
         const map = mapInstance;
         if (!map) return;
         for (const label of labelsRef.current) {
-            const at = projectDirection(map, label.dir);
+            // Lowest of the anchors on screen: an hour label then sits under
+            // its graduation whatever the camera roll, without a second rule
+            // for which end of the tick is the outer one.
+            let at: { x: number; y: number } | null = null;
+            for (const dir of label.dirs) {
+                const point = projectDirection(map, dir);
+                if (point && (!at || point.y > at.y)) at = point;
+            }
             label.el.classList.toggle('hidden', !at);
-            if (at) label.el.style.transform = `translate(${at.x}px, ${at.y}px) translate(-50%, -110%)`;
+            if (at) label.el.style.transform = `translate(${at.x}px, ${at.y}px) ${label.anchor}`;
         }
     }, [mapInstance]);
 
-    /** Solve one body's two crossings and hang the labels off the host. */
+    /** Solve one body's two crossings, and label every hour of its track. */
     const addBodyLabels = useCallback((
         host: HTMLElement,
         body: LabelledBody,
@@ -166,7 +194,19 @@ export function HorizonTimesOverlay() {
             if (!crossing) continue;
             const el = labelElement(body, crossing.kind, crossing.minutesOfDay);
             host.appendChild(el);
-            labelsRef.current.push({ dir: positionAt(crossing.minutesOfDay).dir, el });
+            labelsRef.current.push({
+                dirs: [positionAt(crossing.minutesOfDay).dir],
+                anchor: 'translate(-50%, -110%)',
+                el,
+            });
+        }
+        // Only above the true horizon: the rest of the track runs through the
+        // ground, where an hour would just float over the landscape.
+        for (const tick of hourTicks(sampleSkyPath(positionAt))) {
+            if (tick.elevationDeg <= 0) continue;
+            const el = hourLabelElement(body, tick);
+            host.appendChild(el);
+            labelsRef.current.push({ dirs: [...tick.ends], anchor: 'translate(-50%, 3px)', el });
         }
     }, []);
 

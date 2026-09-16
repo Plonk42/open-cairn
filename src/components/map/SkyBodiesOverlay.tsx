@@ -27,8 +27,8 @@ import {
     clockParts,
     moonSampleAt,
     sampleSkyPath,
-    sunSampleAt,
     SUN_ANGULAR_RADIUS_DEG,
+    sunSampleAt,
     type SkySampleAt,
 } from '@/lib/skyPath';
 import { apparentSunPosition, parseSunDate, sunDirectionVector } from '@/lib/sun';

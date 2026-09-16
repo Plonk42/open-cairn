@@ -1,5 +1,6 @@
 import {
     buildSkyPathGeometry,
+    hourTicks,
     moonSampleAt,
     sampleSkyPath,
     SKY_PATH_FLOATS_PER_VERTEX,
@@ -113,3 +114,40 @@ describe('buildSkyPathGeometry', () => {
         expect(ticks).toHaveLength(0);
     });
 });
+
+describe('hourTicks', () => {
+    // Winter solstice: the track is short and steep at both ends, which is
+    // exactly where a vertical tick used to sit along the line instead of
+    // across it.
+    const datePart = '2026-12-21';
+    const samples = sampleSkyPath(sunOn(datePart), 6);
+
+    it('crosses the track at a right angle at every hour', () => {
+        for (const tick of hourTicks(samples)) {
+            const at = (t: number) => sunSampleAt(datePart, t, CHAMONIX.lat, CHAMONIX.lng).dir;
+            // Independent, finer tangent estimate than the one the builder uses.
+            const tangent = unit(sub(at(tick.minutesOfDay + 1), at(Math.max(0, tick.minutesOfDay - 1))));
+            const chord = unit(sub(tick.ends[1], tick.ends[0]));
+            expect(Math.abs(dot(tangent, chord))).toBeLessThan(0.01);
+        }
+    });
+
+    it('keeps both ends on the unit sphere, centred on the body', () => {
+        const byHour = new Map(samples.map((s) => [s.minutesOfDay, s.dir]));
+        for (const tick of hourTicks(samples)) {
+            const centre = unit(add(tick.ends[0], tick.ends[1]));
+            expect(Math.hypot(...tick.ends[0])).toBeCloseTo(1, 9);
+            expect(Math.hypot(...tick.ends[1])).toBeCloseTo(1, 9);
+            expect(dot(centre, byHour.get(tick.minutesOfDay)!)).toBeCloseTo(1, 9);
+        }
+    });
+});
+
+type Vec3 = readonly [number, number, number];
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const unit = (v: Vec3): Vec3 => {
+    const len = Math.hypot(...v);
+    return [v[0] / len, v[1] / len, v[2] / len];
+};
