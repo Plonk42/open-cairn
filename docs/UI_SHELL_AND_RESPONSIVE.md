@@ -66,6 +66,41 @@ Même chrome en haut, mais pas de dock : la barre du bas porte les réglages de 
 (*Fond*, *Opacité*, *Classes*, *Points*, *Shader*, *Végétation*, *Lumière*,
 *Ombres*, *EDL*), avec un bouton de capture flottant et un localisateur de nuage.
 
+Le groupe d'actions du haut gagne deux boutons propres au Studio : *Caméra libre*
+(libère la collision caméra/terrain et branche les flèches haut/bas sur l'altitude)
+et *Point de vue*, décrit ci-dessous.
+
+#### Mode « Point de vue » (Studio)
+
+Le bouton *Point de vue* a trois états : **éteint**, **armé** (« Choisissez… », le
+curseur passe en croix, le clic suivant sur la carte choisit le lieu) et **actif**.
+Une fois actif, l'œil est posé **1,70 m au-dessus du sol** à l'endroit cliqué et
+n'en bouge plus : le glisser-déposer fait tourner le regard **sur place**, comme si
+l'on se tenait là et que l'on tournait la tête. C'est l'inverse de l'orbite, qui
+fait tourner la caméra *autour* d'un centre.
+
+- **Glisser** = azimut (horizontal) et hauteur du regard (vertical), le pitch étant
+  borné à 20°–150°.
+- **Molette** = **focale**, pas zoom. Avec un œil fixe, zoomer n'a plus de sens
+  géométrique ; on change le champ de vision (8° à 60° verticaux, soit ~24 mm à
+  ~160 mm en équivalent 24×36).
+- Les gestes MapLibre (pan, rotation, zoom, double-clic, clavier, tactile) sont
+  **suspendus** pendant le mode et restaurés en sortant, avec le champ de vision et
+  la caméra finale republiée dans le store.
+
+Le mode existe parce que MapLibre n'a pas d'œil : sa caméra est `centre + zoom +
+pitch + azimut`, et l'œil en est *déduit*. Le module
+[src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) inverse la relation à
+distance œil–centre **constante** (4 km), ce qui garde le zoom — donc le niveau de
+détail des tuiles — stable pendant qu'on balaie l'horizon. L'en-tête du fichier
+explique pourquoi `calculateCameraOptionsFromCameraLngLatAltRotation` de MapLibre ne
+convenait pas (elle fige la distance à 10 km près de l'horizon).
+
+La hauteur du sol est **relue après l'entrée dans le mode** : `queryTerrainElevation`
+dépend du zoom courant, et le zoom change en entrant. Sans cette correction (`idle`,
+zone morte de 0,20 m), l'œil se retrouve plusieurs mètres **sous** la surface sur un
+versant — écran noir, sans message, puisqu'il n'y a pas d'`ErrorBoundary`.
+
 ### Sur mobile (< 768 px)
 
 La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaque
@@ -85,6 +120,14 @@ d'actions qui regroupe galerie, export et partage.
   la carte.
 - **Breakpoint figé** à 768 px : pas configurable.
 - Le **tutoriel du Studio** ne se lance pas sur mobile (il désigne du chrome desktop).
+- Le mode *Point de vue* est **desktop seulement** (souris) et n'est pas persisté :
+  il s'éteint au rechargement et en quittant le Studio.
+- À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
+  rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
+  **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
+- En forte focale, la couverture raster de MapLibre se rétrécit avec le zoom induit :
+  au-delà d'une dizaine de kilomètres le relief lointain tombe en silhouette sombre
+  (`areTilesLoaded()` vaut pourtant `true`).
 
 ---
 
@@ -101,7 +144,9 @@ d'actions qui regroupe galerie, export et partage.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, galerie, `exportSlot`, aide) |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, galerie, `exportSlot`, aide) |
+| [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
+| [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
 | [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
 | [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |

@@ -106,6 +106,16 @@ export function FreeCameraIcon({ className }: IconProps): ReactElement {
     );
 }
 
+export function ViewpointIcon({ className }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" className={className} aria-hidden="true">
+            <path d="M1.5 16.5 7 8.5l3 4.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity="0.45" />
+            <circle cx="7" cy="5.6" r="1.9" fill="currentColor" />
+            <path d="M11 3 18 6.3 11 9.6Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
 export function ResetIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">

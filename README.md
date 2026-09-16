@@ -36,8 +36,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   à la distance pour les gros nuages.
 - **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
   nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
-  automatique, galerie de « vues » (scènes caméra + réglages) sauvegardables localement ou
-  partagées via [public/showcase/](public/showcase/), export d'images
+  automatique, **mode « Point de vue »** (on se place au sol et la caméra tourne sur place, comme
+  depuis un sommet, molette = focale), galerie de « vues » (scènes caméra + réglages)
+  sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
 - **Repérage photo par le soleil** — position solaire calculée pour la date, le lieu et
   l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille

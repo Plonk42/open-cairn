@@ -1,4 +1,5 @@
 import { setTileCacheMaxSize } from '@/lib/compositeProtocol';
+import type { Viewpoint } from '@/lib/viewpointCamera';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
@@ -38,6 +39,19 @@ export interface SettingsSlice {
     freeCamera: boolean;
     setFreeCamera: (v: boolean) => void;
 
+    /**
+     * Studio "point de vue": the eye is pinned to a spot on the ground and the
+     * camera only rotates, as if standing there and looking around. `null` means
+     * the mode is off. Session-only like `freeCamera` — it is a way of looking,
+     * not a setting, and it would be disorienting to reload straight into it.
+     */
+    viewpoint: Viewpoint | null;
+    setViewpoint: (v: Viewpoint | null) => void;
+
+    /** Waiting for the click that picks the viewpoint on the map. */
+    viewpointPicking: boolean;
+    setViewpointPicking: (v: boolean) => void;
+
     /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
     ignApiKey: string;
     setIgnApiKey: (v: string) => void;
@@ -65,6 +79,12 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
 
     freeCamera: false,
     setFreeCamera: (freeCamera) => set({ freeCamera }),
+
+    viewpoint: null,
+    setViewpoint: (viewpoint) => set({ viewpoint, viewpointPicking: false }),
+
+    viewpointPicking: false,
+    setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),
 
     ignApiKey: persisted.ignApiKey ?? '',
     setIgnApiKey: (ignApiKey) => set({ ignApiKey }),

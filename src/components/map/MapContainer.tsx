@@ -17,6 +17,7 @@ import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
 import { SunPathOverlay } from './SunPathOverlay';
+import { ViewpointController, type ViewpointEventData } from './ViewpointController';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 import { useRectDrawInteraction } from './useRectDrawInteraction';
 
@@ -656,6 +657,7 @@ export function MapContainer() {
     const ignApiKey = useMapStore((s) => s.ignApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const freeCamera = useMapStore((s) => s.freeCamera);
+    const viewpoint = useMapStore((s) => s.viewpoint);
 
     // Keep composite protocol in sync with the current IGN API key.
     useEffect(() => { setIgnApiKey(ignApiKey); }, [ignApiKey]);
@@ -738,11 +740,14 @@ export function MapContainer() {
         // same persistent map is shared with the classic view.
 
         map.on('moveend', (e) => {
-            // The orbit loop drives `jumpTo` every frame; persisting the view
-            // (and thus re-rendering MapContainer, a `view` subscriber) 60×/s
-            // makes the orbit stutter. Orbit frames are tagged via eventData so
-            // we skip them — the final untagged restore frame still persists.
-            if ((e as { orbit?: boolean }).orbit) return;
+            // The orbit loop and the viewpoint mode both drive `jumpTo` on every
+            // frame; persisting the view (and thus re-rendering MapContainer, a
+            // `view` subscriber) 60×/s makes them stutter. Those frames are
+            // tagged via eventData so we skip them — the orbit's final untagged
+            // restore frame still persists, and the viewpoint mode publishes the
+            // final view itself when it is switched off.
+            const tagged = e as { orbit?: boolean } & ViewpointEventData;
+            if (tagged.orbit || tagged.viewpoint) return;
             const c = map.getCenter();
             setView({
                 longitude: c.lng,
@@ -923,9 +928,11 @@ export function MapContainer() {
         }
     }, [studio]);
 
-    // Only the studio may look above the horizon; leaving it tilts back down.
+    // Only the studio may look above the horizon; leaving it tilts back down —
+    // and drops the viewpoint mode, which lives entirely above that ceiling.
     useEffect(() => {
         mapRef.current?.setMaxPitch(studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH);
+        if (!studio) useMapStore.getState().setViewpoint(null);
     }, [studio]);
 
     // "Caméra libre": studio-only release of the camera from the ground, in both
@@ -933,13 +940,18 @@ export function MapContainer() {
     // pitch AND zoom every frame when it grazes the surface — and pins the target's
     // altitude to the DEM, which makes a purely vertical move impossible. Off that
     // leash the arrows gain altitude instead of panning, like a drone.
+    //
+    // The viewpoint mode needs the same release (the eye stands 1.7 m above the
+    // ground, well inside MapLibre's collision envelope) but NOT the arrow keys:
+    // they would move the standpoint the mode exists to hold still.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        const free = studio && freeCamera;
+        const standing = Boolean(viewpoint);
+        const free = (studio && freeCamera) || standing;
         setTerrainCameraCollision(map, !free);
-        return free ? bindAltitudeKeys(map) : undefined;
-    }, [studio, freeCamera]);
+        return free && !standing ? bindAltitudeKeys(map) : undefined;
+    }, [studio, freeCamera, viewpoint]);
 
     // Rebuild style when structural settings change (base layer, hillshade on/off,
     // render quality, contour lines). Uses diff mode to preserve terrain mesh.
@@ -1083,6 +1095,7 @@ export function MapContainer() {
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
             <SunPathOverlay />
+            <ViewpointController />
         </>
     );
 }

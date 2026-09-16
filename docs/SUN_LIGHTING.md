@@ -46,8 +46,14 @@ l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derri
 
 Pour voir un soleil haut il faut lever la caméra au-dessus de l'horizon : la vue
 carte plafonne à 85° de pitch (~13° au-dessus de l'horizon), le Studio monte à 150°
-**à condition d'activer « Caméra libre »** — sans elle, MapLibre rabat la caméra à
-~96° pour éviter qu'elle traverse le terrain.
+**à condition d'activer « Caméra libre » ou « Point de vue »** — sans l'une des deux,
+MapLibre rabat la caméra à ~96° pour éviter qu'elle traverse le terrain.
+
+Le mode **« Point de vue »** du Studio est fait pour cet usage : on clique l'endroit
+où l'on se tiendrait, et la caméra tourne **sur place** au lieu d'orbiter autour d'un
+centre — on lit la trajectoire depuis l'œil du photographe, pas depuis un point qui
+se déplace à chaque rotation. Voir
+[UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md#mode-point-de-vue-studio).
 
 La trajectoire est un outil de mesure : elle est **exclue de l'ambiance** d'une
 scène, pour qu'un rendu exporté ou une scène de la galerie ne trimballe jamais un
