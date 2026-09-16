@@ -8,6 +8,9 @@
  *   - azimuth: radians, measured from NORTH clockwise (east positive).
  *   - elevation: radians above the horizon (negative = below = night).
  *   - direction vector: right-handed (x=east, y=north, z=up), unit length.
+ *
+ * `computeSunPosition` returns the GEOMETRIC (unrefracted) position; the
+ * atmospheric lift is added by `sunSettingsAt` — see `atmosphericRefractionDeg`.
  */
 
 export interface SunPosition {
@@ -88,6 +91,34 @@ export function computeSunPosition(date: Date, lat: number, lng: number): SunPos
     return { azimuth, elevation };
 }
 
+/**
+ * Below this true altitude the sun is out of sight and Saemundsson's fit breaks
+ * down (its denominator turns over near −4.5° and the correction collapses to
+ * zero), so the refraction is frozen at its −1° value — continuous, monotonic,
+ * and visually irrelevant since nothing is lit down there anyway.
+ */
+const REFRACTION_FLOOR_DEG = -1;
+
+/**
+ * Atmospheric refraction in degrees, to ADD to a geometric altitude to get the
+ * apparent (observed) one. Saemundsson's formula as given by Meeus, *Astronomical
+ * Algorithms* 16.4 — the reciprocal of Bennett's, and the one that takes the
+ * TRUE altitude, which is exactly what `computeSunPosition` produces:
+ *
+ *     R = 1.02 / tan(h + 10.3 / (h + 5.11))   [arc-minutes, h in degrees]
+ *
+ * Worth 0.48° (≈ 1.8 solar radii, ≈ 3 min of time) at the horizon, 0.09° at 10°,
+ * 0.02° at 45°. Standard atmosphere (1010 hPa, 10 °C); no pressure/temperature
+ * term, which would move the result by a few arc-seconds at most.
+ */
+export function atmosphericRefractionDeg(trueElevationDeg: number): number {
+    const h = Math.max(trueElevationDeg, REFRACTION_FLOOR_DEG);
+    const arcMinutes = 1.02 / Math.tan((h + 10.3 / (h + 5.11)) * (Math.PI / 180));
+    // The fit undershoots to ≈ −0.05″ near the zenith; clamp so refraction never
+    // pushes the sun DOWN.
+    return Math.max(0, arcMinutes / 60);
+}
+
 /** Convert a SunPosition to a unit direction vector pointing TOWARDS the sun. */
 export function sunDirectionVector(pos: SunPosition): [number, number, number] {
     const ce = Math.cos(pos.elevation);
@@ -110,7 +141,7 @@ export function sunDirectionVector(pos: SunPosition): [number, number, number] {
 export interface SunSettings {
     /** Degrees from north, clockwise (east positive). */
     azimuthDeg: number;
-    /** Degrees above the horizon; negative = below = night. */
+    /** APPARENT degrees above the horizon (refraction included); negative = below = night. */
     elevationDeg: number;
     /** Colour ramp position: 0 = deep orange grazing light, 1 = neutral white. */
     warmth: number;
@@ -154,7 +185,10 @@ export function sunWarmthAt(elevationDeg: number): number {
 /** The real sun's settings for a civil date/time at a given location. */
 export function sunSettingsAt(date: Date, lat: number, lng: number): SunSettings {
     const pos = computeSunPosition(date, lat, lng);
-    const elevationDeg = pos.elevation * (180 / Math.PI);
+    const trueElevationDeg = pos.elevation * (180 / Math.PI);
+    // Apparent, not geometric: the whole point is to show where the sun IS seen,
+    // so that the drawn disc, the light and the readout agree with the sky.
+    const elevationDeg = trueElevationDeg + atmosphericRefractionDeg(trueElevationDeg);
     return {
         azimuthDeg: ((pos.azimuth * (180 / Math.PI)) % 360 + 360) % 360,
         elevationDeg,

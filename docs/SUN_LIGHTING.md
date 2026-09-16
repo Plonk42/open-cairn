@@ -29,8 +29,13 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 
 ### Limitations
 
-- **Validité ±50 ans** autour de l'an 2000 (formule NOAA simplifiée).
-- **Pas de réfraction atmosphérique** : erreur ≤ 1° près de l'horizon.
+- **Validité ±50 ans** autour de l'an 2000 (formule NOAA simplifiée). En pratique,
+  comparée à une référence NOAA complète sur une année entière et quatre sites
+  français, l'erreur reste sous **0,8′** en azimut comme en hauteur — soit 1/40 de
+  diamètre solaire.
+- **Heure du navigateur** : la date/heure saisie est interprétée dans le fuseau de
+  la machine, pas dans celui du terrain affiché. Juste en France, faux ailleurs.
+- **Soleil ponctuel** : la position est celle du centre du disque, qui fait 0,53°.
 - **Lumière figée** au moment où on choisit la date ; pas d'animation continue.
 
 ---
@@ -79,6 +84,34 @@ flowchart TD
     Decl --> El[el = arcsin&#40;sin φ sin δ + cos φ cos δ cos H&#41;]
     H --> Az[az = atan2&#40;<br/>−cos δ sin H,<br/>sin δ cos φ − cos δ sin φ cos H&#41;]
 ```
+
+### Réfraction atmosphérique
+
+`computeSunPosition` rend la position **géométrique**. `sunSettingsAt` y ajoute la
+réfraction, de sorte que `SunSettings.elevationDeg` est la hauteur **apparente** —
+celle à laquelle on voit réellement le soleil. Formule de Saemundsson (Meeus,
+*Astronomical Algorithms* 16.4), qui est la réciproque de celle de Bennett et
+prend en entrée la hauteur vraie, exactement ce dont on dispose :
+
+```ts
+// R en minutes d'arc, h en degrés
+R = 1.02 / Math.tan((h + 10.3 / (h + 5.11)) * rad);
+```
+
+| hauteur vraie | 0° | 1° | 5° | 10° | 20° | 45° |
+|---|---|---|---|---|---|---|
+| réfraction | **0,483°** | 0,362° | 0,161° | 0,090° | 0,046° | 0,017° |
+
+À l'horizon cela vaut **1,8 rayon solaire**, soit 3 à 4 minutes d'écart sur l'heure
+d'un coucher — largement plus que l'erreur du modèle astronomique lui-même.
+
+Sous **−1°** de hauteur vraie, la correction est gelée à sa valeur en −1° : la
+formule de Saemundsson diverge vers −4,5° (son dénominateur s'annule) et le soleil
+n'est de toute façon plus visible. Le gel garde la hauteur apparente continue et
+monotone, ce dont dépend le tracé d'une trajectoire.
+
+Atmosphère standard (1010 hPa, 10 °C) ; le terme pression/température de Meeus ne
+déplacerait le résultat que de quelques secondes d'arc.
 
 ### Direction (espace monde)
 

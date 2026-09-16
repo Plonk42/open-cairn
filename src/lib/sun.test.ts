@@ -1,4 +1,5 @@
 import {
+    atmosphericRefractionDeg,
     computeSunPosition,
     formatSunDate,
     parseSunDate,
@@ -81,7 +82,53 @@ describe('computeSunPosition', () => {
     });
 });
 
+describe('atmosphericRefractionDeg', () => {
+    // Reference values of Saemundsson's formula (Meeus, Astronomical Algorithms 16.4).
+    it.each([
+        [0, 0.4831],
+        [5, 0.1612],
+        [10, 0.0902],
+        [45, 0.0169],
+    ])('lifts a true altitude of %i° by %f°', (trueDeg, expected) => {
+        expect(atmosphericRefractionDeg(trueDeg)).toBeCloseTo(expected, 3);
+    });
+
+    it('is worth about 1.8 solar radii at the horizon', () => {
+        expect(atmosphericRefractionDeg(0) / 0.2665).toBeCloseTo(1.8, 1);
+    });
+
+    it('decreases monotonically with altitude', () => {
+        let previous = Infinity;
+        for (let h = -1; h <= 90; h += 0.5) {
+            const r = atmosphericRefractionDeg(h);
+            expect(r).toBeLessThan(previous);
+            previous = r;
+        }
+    });
+
+    it('freezes below the floor instead of collapsing where the fit breaks down', () => {
+        const floor = atmosphericRefractionDeg(-1);
+        expect(atmosphericRefractionDeg(-5)).toBe(floor);
+        expect(atmosphericRefractionDeg(-30)).toBe(floor);
+    });
+
+    it('never pushes the sun down near the zenith', () => {
+        expect(atmosphericRefractionDeg(90)).toBe(0);
+    });
+});
+
 describe('sunSettingsAt', () => {
+    it('reports the APPARENT elevation, above the geometric one', () => {
+        // Low evening sun over Chamonix: refraction is at its most visible.
+        const date = new Date(Date.UTC(2026, 5, 21, 19, 0, 0));
+        const geometricDeg = computeSunPosition(date, 45.92, 6.87).elevation * (180 / Math.PI);
+        const s = sunSettingsAt(date, 45.92, 6.87);
+        expect(geometricDeg).toBeLessThan(5);
+        expect(s.elevationDeg - geometricDeg)
+            .toBeCloseTo(atmosphericRefractionDeg(geometricDeg), 10);
+        expect(s.elevationDeg).toBeGreaterThan(geometricDeg);
+    });
+
     it('reports zero intensity at night', () => {
         const date = new Date(Date.UTC(2026, 11, 21, 0, 0, 0));
         const s = sunSettingsAt(date, 45.92, 6.87);
