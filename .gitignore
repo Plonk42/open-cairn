@@ -19,5 +19,8 @@ public/showcase/scene-*.bin
 public/showcase/scene-*.webp
 public/showcase/scene-*.json
 
+# Render sweeps are full-size captures, regenerated on demand.
+tools/render-sweep/out/
+
 #concours IGN
 docs/concours/rendu/
