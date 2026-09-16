@@ -53,12 +53,29 @@ const MAJOR_TICK_FACTOR = 2.2;
 
 const DEG = Math.PI / 180;
 
-function directionAt(datePart: string, minutesOfDay: number, lat: number, lng: number): SunPathSample {
-    const h = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
-    const m = String(minutesOfDay % 60).padStart(2, '0');
+/**
+ * The sun's apparent position at one instant of a local day.
+ *
+ * Fractional minutes are honoured down to the second, because the horizon
+ * crossing solver bisects on time and would otherwise quantise every rise and
+ * set onto the minute grid it started from.
+ *
+ * @param datePart - "YYYY-MM-DD".
+ * @param minutesOfDay - Minutes since local midnight, fractional allowed.
+ */
+export function sunSampleAt(
+    datePart: string,
+    minutesOfDay: number,
+    lat: number,
+    lng: number,
+): SunPathSample {
+    const clamped = Math.max(0, Math.min(1439.999, minutesOfDay));
+    const h = String(Math.floor(clamped / 60)).padStart(2, '0');
+    const m = String(Math.floor(clamped) % 60).padStart(2, '0');
+    const s = String(Math.floor((clamped % 1) * 60)).padStart(2, '0');
     // Naive local string, exactly like `lidarSunDate`: the hour the user reads
     // on the slider is the hour the sun is computed for.
-    const pos = apparentSunPosition(new Date(`${datePart}T${h}:${m}`), lat, lng);
+    const pos = apparentSunPosition(new Date(`${datePart}T${h}:${m}:${s}`), lat, lng);
     return {
         minutesOfDay,
         azimuthDeg: ((pos.azimuth / DEG) % 360 + 360) % 360,
@@ -84,7 +101,7 @@ export function sampleSunPath(
     const step = Math.max(1, Math.round(stepMinutes));
     const out: SunPathSample[] = [];
     for (let t = 0; t <= 1440; t += step) {
-        const sample = directionAt(datePart, Math.min(t, 1439), lat, lng);
+        const sample = sunSampleAt(datePart, Math.min(t, 1439), lat, lng);
         if (!Number.isFinite(sample.elevationDeg)) return [];
         // The last sample is midnight of the NEXT day; forcing it to 1440
         // closes the loop visually without a second date string.

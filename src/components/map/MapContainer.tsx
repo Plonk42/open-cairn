@@ -16,6 +16,7 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
+import { HorizonTimesOverlay } from './HorizonTimesOverlay';
 import { SunPathOverlay } from './SunPathOverlay';
 import { ViewpointController, type ViewpointEventData } from './ViewpointController';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
@@ -1095,6 +1096,7 @@ export function MapContainer() {
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
             <SunPathOverlay />
+            <HorizonTimesOverlay />
             <ViewpointController />
         </>
     );

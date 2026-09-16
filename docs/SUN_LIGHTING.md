@@ -43,6 +43,17 @@ l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derri
 - Un **trait court** marque chaque heure pleine, plus long toutes les trois heures.
 - Le tracé suit la position **apparente** (réfraction comprise), comme le reste du
   pipeline.
+- Deux **étiquettes** marquent les croisements avec la crête : `↑ 08:51` là où le
+  soleil sort du relief, `↓ 19:44` là où il repasse derrière. Elles sont posées
+  exactement à la jonction plein/pointillé, sur la trajectoire.
+
+L'heure affichée est celle de **l'œil de la caméra**, pas celle du centre de la
+carte : c'est ce qui garantit qu'une étiquette tombe sur la silhouette réellement
+dessinée. En mode « Point de vue » l'œil est au sol, à l'endroit choisi, et les
+deux heures sont donc celles que l'on lirait sur place. En vue cartographique
+classique, la caméra est en l'air : les heures se décalent quand on la déplace,
+ce qui est le comportement voulu — c'est bien de *ce* point de vue que l'horizon
+est calculé.
 
 Pour voir un soleil haut il faut lever la caméra au-dessus de l'horizon : la vue
 carte plafonne à 85° de pitch (~13° au-dessus de l'horizon), le Studio monte à 150°
@@ -73,6 +84,15 @@ trait jaune en travers de l'image.
   pointillé vaut ce que vaut le modèle de terrain. À quelques kilomètres, une
   erreur d'altitude de quelques mètres déplace la silhouette d'environ 0,1°, soit
   un cinquième de diamètre solaire — et le MNT ignore les arbres et les bâtiments.
+- **Horizon limité à 200 km** : au-delà, le rayon s'arrête. C'est la distance de
+  l'horizon vu de 3 000 m ; depuis un sommet plus haut, sur une plaine dégagée,
+  l'horizon serait très légèrement plus bas que calculé.
+- **Étiquettes sous la barre d'outils** : elles vivent dans le conteneur de la
+  carte, comme les marqueurs MapLibre. Une crête très raide et très proche place
+  le croisement en haut de l'écran, où les boutons le recouvrent.
+- **Une seule paire d'heures** : une crête dentelée peut être franchie plusieurs
+  fois dans la journée ; seuls le **premier lever** et le **dernier coucher** sont
+  affichés.
 
 ---
 
@@ -283,3 +303,83 @@ d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 
 - HMR ne reconstruit jamais une couche WebGL déjà ajoutée — même conséquence.
 - `setGeometry()` peut être appelé avant `onAdd()` : les tampons sont alors mis en
   attente et vidés à l'ajout.
+
+---
+
+## Heures de lever et de coucher — implémentation
+
+### Fichiers
+
+| Rôle | Fichier |
+|---|---|
+| Horizon réel + recherche des croisements (pur, testable) | [src/lib/skyline.ts](../src/lib/skyline.ts) |
+| Étiquettes et câblage au store | [src/components/map/HorizonTimesOverlay.tsx](../src/components/map/HorizonTimesOverlay.tsx) |
+| Échantillon du soleil à une minute fractionnaire | `sunSampleAt` dans [src/lib/sunPath.ts](../src/lib/sunPath.ts) |
+
+### Pourquoi refaire le calcul sur CPU
+
+La couche WebGL *sait* déjà où la crête coupe la trajectoire — c'est son test de
+profondeur — mais cette réponse reste dans le framebuffer. Une étiquette a besoin
+d'un **nombre** (une heure) et d'une **direction** (où l'écrire). Les récupérer du
+GPU demanderait soit des `occlusion queries` (asynchrones, ~16 trames de retard),
+soit une passe de sondage suivie d'un `readPixels` (synchronisation coûteuse). Le
+même résultat s'obtient sur CPU en 70 ms, une fois par déplacement.
+
+### L'horizon par lancer de rayon
+
+`skylineAt(observer, azimut, sample)` avance le long d'un azimut et garde le point
+de relief dont l'**angle apparent** est le plus grand : c'est l'horizon dans cette
+direction. Trois détails qui comptent :
+
+- **pas géométrique** (`×1,02` de 80 m à 200 km, ~400 sondes) : le sol proche
+  demande des mètres de résolution, une crête à 40 km se contente de 800 m ;
+- **courbure + réfraction** : un point distant est rabaissé de `d²(1−k)/2R` avec
+  `k = 0,13`, la réfraction terrestre standard — 5 m à 20 km ;
+- **portée 200 km**, la distance de l'horizon vu de 3 000 m. S'arrêter à 80 km
+  renvoyait un horizon 0,8° trop bas, soit quatre minutes d'erreur sur un coucher.
+
+`findSkyCrossings` balaie ensuite la journée par pas de 10 min en comparant la
+hauteur de l'astre à celle de l'horizon, puis dichotomie (12 itérations, ~0,1 min)
+sur chaque changement de signe. Un astre sous **−6°** court-circuite le lancer de
+rayon : aucun point de vue réaliste n'a d'horizon aussi bas (−2,2° depuis 4 800 m).
+
+### Quelle source d'altitude
+
+Trois API donnent la même altitude à des prix très différents — mesuré sur 3 000
+appels, sur la même machine :
+
+| Appel | Coût |
+|---|---|
+| `map.queryTerrainElevation(lngLat)` | **141 µs** |
+| `map.terrain.getElevationForLngLatZoom(lngLat, 11)` | **1,7 µs** |
+| `map.terrain.getElevationForLngLatZoom(lngLat, 13)` | **2,9 µs** |
+
+Le premier rendrait un seul rayon à 50 ms, donc une journée à plusieurs secondes.
+C'est `getElevationForLngLatZoom` qui est utilisé, **au zoom 13** : comparé au
+relief réellement affiché sur huit azimuts autour de Chamonix, z11 rate une crête
+proche de 0,51° (deux diamètres solaires) là où z13 reste sous **0,07°**, pour
+0,76 ms par rayon au lieu de 0,57 ms.
+
+Piège : hors des tuiles chargées, `getElevationForLngLatZoom` renvoie **0**, pas
+`NaN`. Au-delà du MNT l'horizon est donc calculé au niveau de la mer, ce qui est
+l'hypothèse raisonnable pour un horizon lointain dégagé — mais il ne faut pas lire
+ce 0 comme une donnée.
+
+### Pourquoi pas un marqueur MapLibre
+
+Première version : un `Marker` posé sur les coordonnées de la crête gagnante.
+Rejetée après mesure. MapLibre **pose un marqueur sur le terrain**, et une crête à
+30 km sort du cache MNT dès que la carte se stabilise ailleurs : le marqueur
+retombe alors au niveau de la mer et saute de plusieurs centaines de pixels.
+
+Les étiquettes sont donc positionnées **à l'infini**, comme la trajectoire, avec le
+même modèle sténopé que le vertex shader : base caméra `(droite, haut, avant)`
+construite depuis `bearing`/`pitch`, focale `0,5·hauteur/tan(fov/2)` en pixels —
+exactement la `cameraToCenterDistance` de MapLibre. Aucune dépendance au terrain,
+aucune latence, recalcul sur `move` en quelques microsecondes.
+
+Le lancer de rayon, lui, ne dépend que de **l'œil** : il est donc recalculé sur
+`idle` (le temps que les tuiles MNT arrivent), et seulement si la position de l'œil
+a bougé — sans cette garde, l'ajout d'une étiquette relance une trame, donc un
+`idle`, donc un calcul, en boucle.
+
