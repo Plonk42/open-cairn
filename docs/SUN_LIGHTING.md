@@ -27,6 +27,32 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 - Le read-out `az … · h …` et la pastille jour/aube/nuit décrivent la lumière
   **effective**, pas celle qu'impliquerait l'heure affichée.
 
+### Trajectoire dans le ciel
+
+La case **« Trajectoire dans le ciel »**, sous le curseur d'heure, dessine la course
+du soleil pour la date choisie — l'usage visé est le repérage photo : se placer où
+l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derrière.
+
+- Le trait est **plein là où le ciel est dégagé** et **en pointillé là où le relief
+  le masque** : la limite entre les deux est la ligne de crête vue depuis la
+  caméra, donc l'heure de lever ou de coucher **sur l'horizon réel**, pas sur
+  l'horizon théorique.
+- Le **disque** est dessiné à sa taille angulaire réelle (0,53°) — il sert d'étalon :
+  si le soleil est à deux diamètres du sommet, il y sera dans 2 à 7 minutes selon
+  la hauteur. Plein dans le ciel, réduit à un anneau creux quand il est caché.
+- Un **trait court** marque chaque heure pleine, plus long toutes les trois heures.
+- Le tracé suit la position **apparente** (réfraction comprise), comme le reste du
+  pipeline.
+
+Pour voir un soleil haut il faut lever la caméra au-dessus de l'horizon : la vue
+carte plafonne à 85° de pitch (~13° au-dessus de l'horizon), le Studio monte à 150°
+**à condition d'activer « Caméra libre »** — sans elle, MapLibre rabat la caméra à
+~96° pour éviter qu'elle traverse le terrain.
+
+La trajectoire est un outil de mesure : elle est **exclue de l'ambiance** d'une
+scène, pour qu'un rendu exporté ou une scène de la galerie ne trimballe jamais un
+trait jaune en travers de l'image.
+
 ### Limitations
 
 - **Validité ±50 ans** autour de l'an 2000 (formule NOAA simplifiée). En pratique,
@@ -37,6 +63,10 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
   la machine, pas dans celui du terrain affiché. Juste en France, faux ailleurs.
 - **Soleil ponctuel** : la position est celle du centre du disque, qui fait 0,53°.
 - **Lumière figée** au moment où on choisit la date ; pas d'animation continue.
+- **La crête vient du MNT** : l'instant exact où la trajectoire passe du plein au
+  pointillé vaut ce que vaut le modèle de terrain. À quelques kilomètres, une
+  erreur d'altitude de quelques mètres déplace la silhouette d'environ 0,1°, soit
+  un cinquième de diamètre solaire — et le MNT ignore les arbres et les bâtiments.
 
 ---
 
@@ -168,3 +198,82 @@ sous `u_sunDir`, `u_sunIntensity`, `u_sunColor`. Voir
   consommateur utilise la convention « 0 = nord, sens horaire ».
 - **Pas de prise en compte du fuseau horaire** explicite : on travaille en UTC depuis
   le `Date.getTime()` qui est UTC par construction.
+
+---
+
+## Trajectoire dans le ciel — implémentation
+
+### Fichiers
+
+| Rôle | Fichier |
+|---|---|
+| Échantillonnage + géométrie (pur, testable) | [src/lib/sunPath.ts](../src/lib/sunPath.ts) |
+| Couche WebGL custom MapLibre | [src/components/map/SunPathLayer.ts](../src/components/map/SunPathLayer.ts) |
+| Montage / câblage au store | [src/components/map/SunPathOverlay.tsx](../src/components/map/SunPathOverlay.tsx) |
+| Shaders | `src/components/map/sun-gl/glsl/sunPath.{vert,frag}`, `sunDisc.{vert,frag}` |
+| Drapeau | `lidarSunPath` dans [src/stores/slices/lidarSlice.ts](../src/stores/slices/lidarSlice.ts) |
+
+### Pourquoi WebGL et pas un overlay SVG
+
+Un tracé SVG par-dessus la carte serait bien plus simple, mais il perdrait la
+notion de « derrière la montagne » — or c'est précisément là qu'est l'intérêt de la
+fonction. Le rendu WebGL la conserve gratuitement :
+
+- le framebuffer principal de MapLibre contient déjà la **profondeur du terrain 3D**,
+  et `LidarWebGLLayer._exportDepthToMapLibre` y écrit aussi celle du nuage/maillage ;
+- une couche custom ajoutée **en dernier** (pas de `beforeId`) peut donc tester
+  contre cette profondeur.
+
+### Les deux passes
+
+La géométrie est épinglée au **plan lointain** (`gl_Position.z = w * 0.9999`), comme
+une skybox. Le test de profondeur découpe alors le tracé tout seul :
+
+| Passe | `depthFunc` | Dessine | Style |
+|---|---|---|---|
+| cachée | `GREATER` | exactement ce qu'une crête recouvre | trait pointillé, disque en anneau |
+| visible | `LEQUAL` | exactement le ciel dégagé | trait plein, disque + halo |
+
+MapLibre rétrécit le `depthRange` à une tranche par couche : il faut **forcer
+`gl.depthRange(0, 1)`** puis restaurer tout l'état GL — même discipline que
+`LidarWebGLLayer`. `depthMask(false)` : la trajectoire ne doit rien occulter.
+
+Le pointillé est découpé dans le fragment shader sur la **longueur d'arc en degrés**
+accumulée le long du tracé (`u_dashDeg`), pas en pixels : la cadence des tirets ne
+change donc pas avec le zoom.
+
+### Invariance d'échelle
+
+La trajectoire est une direction, pas un lieu : elle n'a pas de distance. On
+projette avec `translateToEye(M, eye) = M · T(eye)`, où `eye` vient de
+[cameraFromMatrix](../src/lib/cameraFromMatrix.ts). Comme celui-ci résout le point
+dont le clip x = y = w = 0, la colonne de translation du résultat vaut `(0, 0, ·, 0)` :
+projeter une direction devient une application **linéaire**, et la longueur du
+vecteur se simplifie. Conséquence : aucun clipping au plan lointain, aucune
+parallaxe, rien à régler.
+
+Attention au signe : en coordonnées mercator MapLibre, **y croît vers le sud**, d'où
+la négation du nord dans `clipOf()`.
+
+### Largeur de trait
+
+`gl.lineWidth` est borné à 1 sur GL desktop. Les polylignes sont donc pré-étendues
+en quads face écran (**6 sommets par segment**), décalés dans le vertex shader par
+la normale 2D en pixels de device. Layout par sommet, 9 floats :
+
+```
+dirA(3) dirB(3) at(1) side(1) arc(1)
+```
+
+`at` choisit l'extrémité du segment, `side` le côté du trait, `arc` porte la longueur
+d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 0`) est
+évacué hors du volume de vue plutôt que clippé.
+
+### Pièges vérifiés
+
+- Aucune porte de validation ne compile le GLSL (`vite-plugin-glsl` ne fait que de
+  l'inclusion textuelle) : après édition d'un shader, **rechargement complet** de la
+  page et lecture de la console.
+- HMR ne reconstruit jamais une couche WebGL déjà ajoutée — même conséquence.
+- `setGeometry()` peut être appelé avant `onAdd()` : les tampons sont alors mis en
+  attente et vidés à l'ajout.

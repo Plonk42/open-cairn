@@ -178,6 +178,13 @@ Deux cas particuliers :
   `uniform1f` correspondants.
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
+- **Outil de mesure, pas d'ambiance** : `lidarSunPath` (la trajectoire du soleil dans le ciel)
+  est persisté comme préférence mais **volontairement exclu de l'ambiance** — une scène de la
+  galerie ou un rendu exporté ne doit jamais trimballer un trait de mesure en travers de
+  l'image. Même logique que `lidarShadowMapSize`, qui dépend de la VRAM de la machine
+  d'affichage. Le test `showcaseAmbiance.test.ts` vérifie que tout `LIDAR_RENDER_DEFAULTS` est
+  dans l'ambiance : une exclusion doit être ajoutée à son ensemble `NOT_IN_AMBIANCE`, ce qui
+  force à la justifier.
 - **Bascule d'un attribut cuit à la capture** : `lidarCoverEnabled` est une ambiance (donc
   rejouable à chaud) alors que la donnée qu'elle pilote, `a_cover`, est produite par le worker.
   L'astuce est que l'uniforme `u_coverEnabled` à 0 fait lire `255` (= inconnu) au shader, ce qui

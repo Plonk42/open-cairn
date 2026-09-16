@@ -69,6 +69,9 @@ export type PersistedSettings = {
     lidarSunWarmth?: number;
     lidarSunIntensity?: number;
     lidarSunEnabled?: boolean;
+    // Deliberately NOT part of a scene's ambiance: it is a planning overlay, and
+    // an exported showcase render must not carry a measurement line across it.
+    lidarSunPath?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
     lidarShadowMapSize?: number;

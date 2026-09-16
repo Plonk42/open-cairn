@@ -3,13 +3,18 @@ import { useMapStore } from '@/stores/mapStore';
 import { LIDAR_RENDER_DEFAULTS } from '@/stores/slices/lidarSlice';
 import { describe, expect, it } from 'vitest';
 
-/** The only render setting deliberately kept out of the ambiance: it weighs on the VRAM of the displaying machine. */
-const MACHINE_ONLY = new Set<string>(['lidarShadowMapSize']);
+/**
+ * Render settings deliberately kept out of the ambiance:
+ *   - `lidarShadowMapSize` weighs on the VRAM of the displaying machine;
+ *   - `lidarSunPath` is a planning overlay, and an exported showcase render must
+ *     not carry a measurement line across it.
+ */
+const NOT_IN_AMBIANCE = new Set<string>(['lidarShadowMapSize', 'lidarSunPath']);
 
 describe('showcaseAmbiance', () => {
     it('carries every LiDAR render setting', () => {
         const ambiance = extractAmbiance(useMapStore.getState());
-        const missing = Object.keys(LIDAR_RENDER_DEFAULTS).filter((k) => !(k in ambiance) && !MACHINE_ONLY.has(k));
+        const missing = Object.keys(LIDAR_RENDER_DEFAULTS).filter((k) => !(k in ambiance) && !NOT_IN_AMBIANCE.has(k));
         expect(missing).toEqual([]);
     });
 

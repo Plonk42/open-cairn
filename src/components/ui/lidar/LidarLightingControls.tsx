@@ -93,10 +93,37 @@ export function SunControls() {
                     className={`m-0 mt-2 min-w-0 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50 ${sunEnabled ? '' : 'opacity-50'}`}
                 >
                     <SunDateControl />
+                    <SunPathToggle />
                     <SunManualControls />
                 </fieldset>
             </div>
         </div>
+    );
+}
+
+/**
+ * Draws the day's solar track in the sky. Lives inside the sun fieldset because
+ * it tracks the same date picker; the disc follows the *effective* light, so a
+ * forced lighting shows up as a disc that has left its track.
+ */
+function SunPathToggle() {
+    const sunPath = useMapStore((s) => s.lidarSunPath);
+    const setSunPath = useMapStore((s) => s.setLidarSunPath);
+    return (
+        <label className="mt-2 flex cursor-pointer items-center gap-2">
+            <input
+                type="checkbox"
+                checked={sunPath}
+                onChange={(e) => setSunPath(e.target.checked)}
+                className="h-3.5 w-3.5 flex-shrink-0 accent-green-600"
+            />
+            <span
+                className="text-xs text-slate-700 dark:text-slate-300"
+                title="Dessine la course du soleil dans le ciel pour la date choisie, avec le disque à sa taille réelle. Les portions cachées par le relief sont en pointillé. Lever la caméra au-dessus de l'horizon (pitch > 90°) demande la caméra libre."
+            >
+                Trajectoire dans le ciel
+            </span>
+        </label>
     );
 }
 

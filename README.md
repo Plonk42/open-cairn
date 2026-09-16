@@ -38,6 +38,10 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
   automatique, galerie de « vues » (scènes caméra + réglages) sauvegardables localement ou
   partagées via [public/showcase/](public/showcase/), export d'images
+- **Repérage photo par le soleil** — position solaire calculée pour la date, le lieu et
+  l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
+  ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille
+  angulaire réelle. De quoi lire à quelle heure le soleil sera derrière un sommet donné.
 - **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),
   enrichissement par essence via la BD Forêt IGN, panneau de diagnostic dédié à la classification
   falaise / pente / surplomb

@@ -129,6 +129,17 @@ export function sunDirectionVector(pos: SunPosition): [number, number, number] {
     ];
 }
 
+/** Where the sun is actually SEEN: geometric position lifted by refraction. */
+export function apparentSunPosition(date: Date, lat: number, lng: number): SunPosition {
+    const pos = computeSunPosition(date, lat, lng);
+    const deg = 180 / Math.PI;
+    const trueDeg = pos.elevation * deg;
+    return {
+        azimuth: pos.azimuth,
+        elevation: (trueDeg + atmosphericRefractionDeg(trueDeg)) / deg,
+    };
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Sun settings — the four knobs the whole render is lit from
 //
@@ -184,11 +195,10 @@ export function sunWarmthAt(elevationDeg: number): number {
 
 /** The real sun's settings for a civil date/time at a given location. */
 export function sunSettingsAt(date: Date, lat: number, lng: number): SunSettings {
-    const pos = computeSunPosition(date, lat, lng);
-    const trueElevationDeg = pos.elevation * (180 / Math.PI);
     // Apparent, not geometric: the whole point is to show where the sun IS seen,
     // so that the drawn disc, the light and the readout agree with the sky.
-    const elevationDeg = trueElevationDeg + atmosphericRefractionDeg(trueElevationDeg);
+    const pos = apparentSunPosition(date, lat, lng);
+    const elevationDeg = pos.elevation * (180 / Math.PI);
     return {
         azimuthDeg: ((pos.azimuth * (180 / Math.PI)) % 360 + 360) % 360,
         elevationDeg,

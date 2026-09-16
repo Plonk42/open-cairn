@@ -16,6 +16,7 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
+import { SunPathOverlay } from './SunPathOverlay';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 import { useRectDrawInteraction } from './useRectDrawInteraction';
 
@@ -1081,6 +1082,7 @@ export function MapContainer() {
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
+            <SunPathOverlay />
         </>
     );
 }
