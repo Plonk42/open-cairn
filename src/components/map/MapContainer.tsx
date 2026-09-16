@@ -17,7 +17,7 @@ import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
 import { HorizonTimesOverlay } from './HorizonTimesOverlay';
-import { SunPathOverlay } from './SunPathOverlay';
+import { SkyBodiesOverlay } from './SkyBodiesOverlay';
 import { ViewpointController, type ViewpointEventData } from './ViewpointController';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 import { useRectDrawInteraction } from './useRectDrawInteraction';
@@ -1095,7 +1095,7 @@ export function MapContainer() {
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
-            <SunPathOverlay />
+            <SkyBodiesOverlay />
             <HorizonTimesOverlay />
             <ViewpointController />
         </>

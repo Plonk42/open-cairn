@@ -1,11 +1,11 @@
 /**
- * The hour the sun clears the relief, and the hour it goes back behind it,
- * written where the track crosses the skyline.
+ * The hour a body clears the relief, and the hour it goes back behind it,
+ * written where its track crosses the skyline — for the sun and for the moon.
  *
- * The sun-path layer already shows *that* the track is cut by the terrain — it
- * depth-tests the track on the GPU and draws the hidden half dashed. That
- * answer never leaves the GPU though, so the crossing is solved a second time
- * on the CPU (`src/lib/skyline.ts`) to obtain a time and a direction.
+ * The sky-body layers already show *that* a track is cut by the terrain — they
+ * depth-test it on the GPU and draw the hidden half dashed. That answer never
+ * leaves the GPU though, so the crossing is solved a second time on the CPU
+ * (`src/lib/skyline.ts`) to obtain a time and a direction.
  *
  * The observer is the CAMERA EYE, not the LiDAR site: that is the eye the
  * dashed/solid split is computed from, so the label lands exactly where the
@@ -13,8 +13,8 @@
  * same site as the track itself — otherwise the label would describe a
  * slightly different sun than the one drawn.
  *
- * The labels are positioned like the track, i.e. **at infinity**, with the same
- * pinhole model the layer's vertex shader uses. A `Marker` anchored to the
+ * The labels are positioned like the tracks, i.e. **at infinity**, with the
+ * same pinhole model the layers' vertex shader uses. A `Marker` anchored to the
  * ridge's ground coordinates was tried first and is the wrong tool: MapLibre
  * lifts a marker onto the terrain, and a ridge 30 km away falls outside the
  * loaded DEM as soon as the map settles elsewhere — the label then drops to sea
@@ -22,7 +22,7 @@
  */
 
 import { parseSunDate } from '@/lib/sun';
-import { sunSampleAt } from '@/lib/sunPath';
+import { moonSampleAt, sunSampleAt, type SkySampleAt } from '@/lib/skyPath';
 import {
     findSkyCrossings,
     formatCrossingTime,
@@ -55,15 +55,36 @@ interface HorizonLabel {
     el: HTMLElement;
 }
 
-function labelElement(kind: 'rise' | 'set', minutesOfDay: number): HTMLElement {
+/** What tells one body's labels from the other's, in the UI's own language. */
+interface LabelledBody {
+    /** French, for the tooltip: « Lever DU SOLEIL à … ». */
+    riseOf: string;
+    setOf: string;
+    /** Tailwind classes, matching the track's palette. */
+    tone: string;
+}
+
+const SUN_BODY: LabelledBody = {
+    riseOf: 'du soleil',
+    setOf: 'du soleil',
+    tone: 'text-amber-300 ring-amber-400/50',
+};
+
+const MOON_BODY: LabelledBody = {
+    riseOf: 'de la lune',
+    setOf: 'de la lune',
+    tone: 'text-sky-200 ring-sky-300/50',
+};
+
+function labelElement(body: LabelledBody, kind: 'rise' | 'set', minutesOfDay: number): HTMLElement {
     const el = document.createElement('div');
     const when = formatCrossingTime(minutesOfDay);
     el.className = 'absolute left-0 top-0 hidden rounded px-1.5 py-0.5 text-xs font-semibold '
-        + 'bg-black/65 text-amber-300 ring-1 ring-amber-400/50 whitespace-nowrap will-change-transform';
+        + `bg-black/65 ring-1 whitespace-nowrap will-change-transform ${body.tone}`;
     el.textContent = `${kind === 'rise' ? '↑' : '↓'} ${when}`;
     el.title = kind === 'rise'
-        ? `Lever du soleil sur l'horizon réel à ${when}`
-        : `Coucher du soleil sur l'horizon réel à ${when}`;
+        ? `Lever ${body.riseOf} sur l'horizon réel à ${when}`
+        : `Coucher ${body.setOf} sur l'horizon réel à ${when}`;
     return el;
 }
 
@@ -133,6 +154,22 @@ export function HorizonTimesOverlay() {
         }
     }, [mapInstance]);
 
+    /** Solve one body's two crossings and hang the labels off the host. */
+    const addBodyLabels = useCallback((
+        host: HTMLElement,
+        body: LabelledBody,
+        positionAt: SkySampleAt,
+        skyline: (azimuthDeg: number) => SkylinePoint,
+    ) => {
+        const { rise, set } = findSkyCrossings(positionAt, skyline);
+        for (const crossing of [rise, set]) {
+            if (!crossing) continue;
+            const el = labelElement(body, crossing.kind, crossing.minutesOfDay);
+            host.appendChild(el);
+            labelsRef.current.push({ dir: positionAt(crossing.minutesOfDay).dir, el });
+        }
+    }, []);
+
     const recompute = useCallback(() => {
         const map = mapInstance;
         const terrain = map?.terrain;
@@ -149,10 +186,10 @@ export function HorizonTimesOverlay() {
         if (key === lastKeyRef.current) return;
         lastKeyRef.current = key;
 
-        const { datePart } = parseSunDate(sunDate);
-        const positionAt = (minutesOfDay: number) => sunSampleAt(datePart, minutesOfDay, lat, lng);
-        // One cache per pass: the bisection re-asks for azimuths the coarse scan
-        // already solved, and a single ray is some 400 DEM lookups.
+        // One cache for the whole pass, shared by both bodies: the bisection
+        // re-asks for azimuths the coarse scan already solved, the moon walks
+        // much the same band of sky as the sun, and a single ray is some 400
+        // DEM lookups.
         const cache = new Map<number, SkylinePoint>();
         const skyline = (azimuthDeg: number): SkylinePoint => {
             const cacheKey = Math.round(azimuthDeg * 4);
@@ -164,16 +201,12 @@ export function HorizonTimesOverlay() {
             return point;
         };
 
-        const { rise, set } = findSkyCrossings(positionAt, skyline);
+        const { datePart } = parseSunDate(sunDate);
         clearLabels();
-        for (const crossing of [rise, set]) {
-            if (!crossing) continue;
-            const el = labelElement(crossing.kind, crossing.minutesOfDay);
-            host.appendChild(el);
-            labelsRef.current.push({ dir: positionAt(crossing.minutesOfDay).dir, el });
-        }
+        addBodyLabels(host, SUN_BODY, (t) => sunSampleAt(datePart, t, lat, lng), skyline);
+        addBodyLabels(host, MOON_BODY, (t) => moonSampleAt(datePart, t, lat, lng), skyline);
         place();
-    }, [mapInstance, sunDate, lat, lng, clearLabels, place]);
+    }, [mapInstance, sunDate, lat, lng, clearLabels, place, addBodyLabels]);
 
     useEffect(() => {
         const map = mapInstance;

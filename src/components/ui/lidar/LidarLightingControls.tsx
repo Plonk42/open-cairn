@@ -119,7 +119,7 @@ function SunPathToggle() {
             />
             <span
                 className="text-xs text-slate-700 dark:text-slate-300"
-                title="Dessine la course du soleil dans le ciel pour la date choisie, avec le disque à sa taille réelle. Les portions cachées par le relief sont en pointillé. Lever la caméra au-dessus de l'horizon (pitch > 90°) demande la caméra libre."
+                title="Dessine la course du soleil et de la lune dans le ciel pour la date choisie, avec les disques à leur taille réelle et la phase de la lune. Les portions cachées par le relief sont en pointillé. Lever la caméra au-dessus de l'horizon (pitch > 90°) demande la caméra libre."
             >
                 Trajectoire dans le ciel
             </span>

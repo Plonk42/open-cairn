@@ -49,7 +49,7 @@ Topic → document:
 | Search, geocoding, coordinates | `docs/SEARCH_AND_COORDINATES.md` |
 | URL sharing | `docs/SHARE_VIEW.md` |
 | Zustand store, persistence | `docs/STATE_AND_PERSISTENCE.md` |
-| Sun, lighting | `docs/SUN_LIGHTING.md` |
+| Sun, moon, lighting | `docs/SUN_LIGHTING.md` |
 | UI shell, responsive, mobile | `docs/UI_SHELL_AND_RESPONSIVE.md` |
 | Improvement plan (task status) | `docs/ARCHITECTURE_REVIEW_PLAN.md` |
 

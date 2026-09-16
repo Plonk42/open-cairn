@@ -1,6 +1,8 @@
 /**
- * MapLibre CustomLayerInterface — the sun's track across the sky, drawn with a
- * hidden-line pass so a ridge actually hides it.
+ * MapLibre CustomLayerInterface — one sky body's track across the sky, drawn
+ * with a hidden-line pass so a ridge actually hides it. One instance per body;
+ * the sun and the moon differ only by their palette, their disc radius and
+ * their phase.
  *
  * The whole feature rests on two facts about MapLibre's framebuffer:
  *
@@ -18,31 +20,71 @@
  */
 
 import { linkProgram } from '@/components/map/lidar-gl/shaders';
-import FS_SUN_DISC from '@/components/map/sun-gl/glsl/sunDisc.frag';
-import VS_SUN_DISC from '@/components/map/sun-gl/glsl/sunDisc.vert';
-import FS_SUN_PATH from '@/components/map/sun-gl/glsl/sunPath.frag';
-import VS_SUN_PATH from '@/components/map/sun-gl/glsl/sunPath.vert';
+import FS_SKY_DISC from '@/components/map/sky-gl/glsl/skyDisc.frag';
+import VS_SKY_DISC from '@/components/map/sky-gl/glsl/skyDisc.vert';
+import FS_SKY_PATH from '@/components/map/sky-gl/glsl/skyPath.frag';
+import VS_SKY_PATH from '@/components/map/sky-gl/glsl/skyPath.vert';
 import { cameraFromMatrix } from '@/lib/cameraFromMatrix';
-import { SUN_ANGULAR_RADIUS_DEG, SUN_PATH_FLOATS_PER_VERTEX, SUN_PATH_STRIDE } from '@/lib/sunPath';
+import { SKY_PATH_FLOATS_PER_VERTEX, SKY_PATH_STRIDE } from '@/lib/skyPath';
 import type { CustomLayerInterface, CustomRenderMethodInput, Map } from 'maplibre-gl';
 
 type Rgba = readonly [number, number, number, number];
 
-/** Half-tangent of the solar radius: the quad is built around a unit vector. */
-const DISC_RADIUS = Math.tan(SUN_ANGULAR_RADIUS_DEG * (Math.PI / 180));
-/** Glare reaches a few radii out; drawn behind the disc, clipped the same way. */
-const HALO_RADIUS_FACTOR = 4;
+/** Everything that distinguishes one body's drawing from another's. */
+export interface SkyBodyPalette {
+    trackVisible: Rgba;
+    trackHidden: Rgba;
+    discVisible: Rgba;
+    discHidden: Rgba;
+    /** Glare drawn behind the disc, clipped the same way. */
+    halo: Rgba;
+    /** How many disc radii the halo reaches; 0 disables it. */
+    haloRadiusFactor: number;
+}
+
+export const SUN_PALETTE: SkyBodyPalette = {
+    trackVisible: [1, 0.86, 0.36, 0.95],
+    trackHidden: [1, 0.86, 0.36, 0.42],
+    discVisible: [1, 0.96, 0.78, 1],
+    discHidden: [1, 0.9, 0.55, 0.65],
+    halo: [1, 0.82, 0.4, 0.22],
+    haloRadiusFactor: 4,
+};
+
+/**
+ * Cool and paler than the sun's: the two tracks routinely cross, and the eye
+ * has to tell them apart at a glance without reading a legend.
+ */
+export const MOON_PALETTE: SkyBodyPalette = {
+    trackVisible: [0.72, 0.84, 1, 0.9],
+    trackHidden: [0.72, 0.84, 1, 0.38],
+    discVisible: [0.94, 0.96, 1, 1],
+    discHidden: [0.8, 0.88, 1, 0.6],
+    halo: [0.6, 0.76, 1, 0],
+    // No glare: the moon does not dazzle, and a halo would swamp a thin
+    // crescent that is only a few pixels wide.
+    haloRadiusFactor: 0,
+};
 
 const TRACK_WIDTH_CSS = 1.7;
 const TICK_WIDTH_CSS = 2.4;
 /** Dash period along the hidden half of the track, in degrees of arc. */
 const DASH_DEG = 1.1;
 
-const TRACK_VISIBLE: Rgba = [1, 0.86, 0.36, 0.95];
-const TRACK_HIDDEN: Rgba = [1, 0.86, 0.36, 0.42];
-const DISC_VISIBLE: Rgba = [1, 0.96, 0.78, 1];
-const DISC_HIDDEN: Rgba = [1, 0.9, 0.55, 0.65];
-const HALO: Rgba = [1, 0.82, 0.4, 0.22];
+/** A body's disc: where it is, how big it looks, and how much of it is lit. */
+export interface SkyBodyDisc {
+    /** Unit ENU direction towards the body. */
+    dir: [number, number, number];
+    /** Apparent angular RADIUS, in degrees. */
+    radiusDeg: number;
+    /** Illuminated fraction, 0 (new) to 1 (full). */
+    illuminatedFraction: number;
+    /**
+     * Unit ENU direction, perpendicular to `dir`, towards the lit limb.
+     * Ignored when the body is full.
+     */
+    limbDir: [number, number, number];
+}
 
 interface PathUniforms {
     matrix: WebGLUniformLocation | null;
@@ -60,6 +102,8 @@ interface DiscUniforms {
     radius: WebGLUniformLocation | null;
     color: WebGLUniformLocation | null;
     ring: WebGLUniformLocation | null;
+    phase: WebGLUniformLocation | null;
+    limb: WebGLUniformLocation | null;
 }
 
 /**
@@ -98,7 +142,7 @@ function billboardBasis(dir: readonly number[]): { right: number[]; up: number[]
     return { right, up };
 }
 
-export class SunPathLayer implements CustomLayerInterface {
+export class SkyBodyLayer implements CustomLayerInterface {
     readonly id: string;
     readonly type = 'custom' as const;
     readonly renderingMode = '3d' as const;
@@ -107,7 +151,10 @@ export class SunPathLayer implements CustomLayerInterface {
     private _progPath: WebGLProgram | null = null;
     private _progDisc: WebGLProgram | null = null;
     private _locPath: PathUniforms = { matrix: null, halfRes: null, halfWidth: null, color: null, dashDeg: null };
-    private _locDisc: DiscUniforms = { matrix: null, dir: null, right: null, up: null, radius: null, color: null, ring: null };
+    private _locDisc: DiscUniforms = {
+        matrix: null, dir: null, right: null, up: null, radius: null, color: null, ring: null,
+        phase: null, limb: null,
+    };
 
     private _vaoTrack: WebGLVertexArrayObject | null = null;
     private _vaoTicks: WebGLVertexArrayObject | null = null;
@@ -119,18 +166,18 @@ export class SunPathLayer implements CustomLayerInterface {
     private _trackCount = 0;
     private _ticksCount = 0;
     private _pending: { track: Float32Array; ticks: Float32Array } | null = null;
-    private _sunDir: [number, number, number] | null = null;
+    private _disc: SkyBodyDisc | null = null;
     private _visible = true;
 
-    constructor(id: string) {
+    constructor(id: string, private readonly _palette: SkyBodyPalette) {
         this.id = id;
     }
 
     onAdd(_map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
         const gl2 = gl as WebGL2RenderingContext;
         this._gl = gl2;
-        this._progPath = linkProgram(gl2, VS_SUN_PATH, FS_SUN_PATH);
-        this._progDisc = linkProgram(gl2, VS_SUN_DISC, FS_SUN_DISC);
+        this._progPath = linkProgram(gl2, VS_SKY_PATH, FS_SKY_PATH);
+        this._progDisc = linkProgram(gl2, VS_SKY_DISC, FS_SKY_DISC);
         this._locPath = {
             matrix: gl2.getUniformLocation(this._progPath, 'u_matrix'),
             halfRes: gl2.getUniformLocation(this._progPath, 'u_halfRes'),
@@ -146,6 +193,8 @@ export class SunPathLayer implements CustomLayerInterface {
             radius: gl2.getUniformLocation(this._progDisc, 'u_radius'),
             color: gl2.getUniformLocation(this._progDisc, 'u_color'),
             ring: gl2.getUniformLocation(this._progDisc, 'u_ring'),
+            phase: gl2.getUniformLocation(this._progDisc, 'u_phase'),
+            limb: gl2.getUniformLocation(this._progDisc, 'u_limb'),
         };
 
         this._bufTrack = gl2.createBuffer();
@@ -183,9 +232,9 @@ export class SunPathLayer implements CustomLayerInterface {
         this._visible = visible;
     }
 
-    /** Direction towards the sun at the selected instant, or null to hide it. */
-    setSunDir(dir: [number, number, number] | null): void {
-        this._sunDir = dir;
+    /** The body's disc at the selected instant, or null to hide it. */
+    setDisc(disc: SkyBodyDisc | null): void {
+        this._disc = disc;
     }
 
     setGeometry(track: Float32Array, ticks: Float32Array): void {
@@ -201,13 +250,13 @@ export class SunPathLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this._bufTicks);
         gl.bufferData(gl.ARRAY_BUFFER, ticks, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-        this._trackCount = track.length / SUN_PATH_FLOATS_PER_VERTEX;
-        this._ticksCount = ticks.length / SUN_PATH_FLOATS_PER_VERTEX;
+        this._trackCount = track.length / SKY_PATH_FLOATS_PER_VERTEX;
+        this._ticksCount = ticks.length / SKY_PATH_FLOATS_PER_VERTEX;
     }
 
     render(gl: WebGLRenderingContext | WebGL2RenderingContext, args: CustomRenderMethodInput): void {
         if (!this._visible || !this._progPath || !this._progDisc) return;
-        if (!this._trackCount && !this._sunDir) return;
+        if (!this._trackCount && !this._disc) return;
 
         const matrix = args.defaultProjectionData?.mainMatrix;
         if (!matrix) return;
@@ -234,18 +283,20 @@ export class SunPathLayer implements CustomLayerInterface {
 
     // ── Passes ───────────────────────────────────────────────────────────────
 
-    /** What a ridge covers: dashed track, hollow sun. Drawn first, underneath. */
+    /** What a ridge covers: dashed track, hollow body. Drawn first, underneath. */
     private _drawHidden(gl: WebGL2RenderingContext, m: Float32Array): void {
         gl.depthFunc(gl.GREATER);
-        this._drawPaths(gl, m, TRACK_HIDDEN, DASH_DEG);
-        this._drawDisc(gl, m, DISC_HIDDEN, 1, 0.22);
+        this._drawPaths(gl, m, this._palette.trackHidden, DASH_DEG);
+        this._drawDisc(gl, m, this._palette.discHidden, 1, 0.22);
     }
 
     private _drawVisible(gl: WebGL2RenderingContext, m: Float32Array): void {
         gl.depthFunc(gl.LEQUAL);
-        this._drawPaths(gl, m, TRACK_VISIBLE, 0);
-        this._drawDisc(gl, m, HALO, HALO_RADIUS_FACTOR, 0);
-        this._drawDisc(gl, m, DISC_VISIBLE, 1, 0);
+        this._drawPaths(gl, m, this._palette.trackVisible, 0);
+        if (this._palette.haloRadiusFactor > 0) {
+            this._drawDisc(gl, m, this._palette.halo, this._palette.haloRadiusFactor, 0);
+        }
+        this._drawDisc(gl, m, this._palette.discVisible, 1, 0);
     }
 
     private _drawPaths(gl: WebGL2RenderingContext, m: Float32Array, color: Rgba, dashDeg: number): void {
@@ -276,17 +327,24 @@ export class SunPathLayer implements CustomLayerInterface {
         radiusFactor: number,
         ring: number,
     ): void {
-        const dir = this._sunDir;
-        if (!dir) return;
+        const disc = this._disc;
+        if (!disc) return;
+        const { dir } = disc;
         const { right, up } = billboardBasis(dir);
+        const dot = (v: readonly number[]) =>
+            disc.limbDir[0] * v[0] + disc.limbDir[1] * v[1] + disc.limbDir[2] * v[2];
         gl.useProgram(this._progDisc);
         gl.uniformMatrix4fv(this._locDisc.matrix, false, m);
         gl.uniform3f(this._locDisc.dir, dir[0], dir[1], dir[2]);
         gl.uniform3f(this._locDisc.right, right[0], right[1], right[2]);
         gl.uniform3f(this._locDisc.up, up[0], up[1], up[2]);
-        gl.uniform1f(this._locDisc.radius, DISC_RADIUS * radiusFactor);
+        gl.uniform1f(this._locDisc.radius, Math.tan(disc.radiusDeg * (Math.PI / 180)) * radiusFactor);
         gl.uniform4f(this._locDisc.color, color[0], color[1], color[2], color[3]);
         gl.uniform1f(this._locDisc.ring, ring);
+        // The halo has no phase: a crescent moon has no glare to carve anyway.
+        gl.uniform1f(this._locDisc.phase, radiusFactor === 1 ? disc.illuminatedFraction : 1);
+        // The lit limb, expressed in the billboard's own 2D frame.
+        gl.uniform2f(this._locDisc.limb, dot(right), dot(up));
         gl.bindVertexArray(this._vaoDisc);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
@@ -301,7 +359,7 @@ export class SunPathLayer implements CustomLayerInterface {
         const layout: [number, number, number][] = [[0, 3, 0], [1, 3, 12], [2, 1, 24], [3, 1, 28], [4, 1, 32]];
         for (const [index, size, offset] of layout) {
             gl.enableVertexAttribArray(index);
-            gl.vertexAttribPointer(index, size, gl.FLOAT, false, SUN_PATH_STRIDE, offset);
+            gl.vertexAttribPointer(index, size, gl.FLOAT, false, SKY_PATH_STRIDE, offset);
         }
         gl.bindVertexArray(null);
         return vao;
@@ -331,7 +389,7 @@ export class SunPathLayer implements CustomLayerInterface {
         };
     }
 
-    private _restoreState(gl: WebGL2RenderingContext, s: ReturnType<SunPathLayer['_saveState']>): void {
+    private _restoreState(gl: WebGL2RenderingContext, s: ReturnType<SkyBodyLayer['_saveState']>): void {
         gl.bindVertexArray(s.vao);
         gl.useProgram(s.program);
         gl.depthRange(s.depthRange[0], s.depthRange[1]);

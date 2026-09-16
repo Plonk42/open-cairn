@@ -47,6 +47,20 @@ l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derri
   soleil sort du relief, `↓ 19:44` là où il repasse derrière. Elles sont posées
   exactement à la jonction plein/pointillé, sur la trajectoire.
 
+La même case dessine aussi la **lune**, en bleu pâle, avec exactement les mêmes
+conventions — trait plein/pointillé, graduations horaires, étiquettes `↑`/`↓`. Deux
+différences seulement :
+
+- le disque porte sa **phase** : le terminateur est tracé à la bonne épaisseur, et
+  la corne brillante pointe vers **le vrai soleil** — celui de la date, même si
+  l'éclairage a été forcé ailleurs. La partie non éclairée reste faiblement
+  visible, comme la lumière cendrée ;
+- il n'a **pas de halo**, sans quoi le croissant disparaîtrait dedans.
+
+La lune est souvent au-dessus de l'horizon en plein jour : c'est normal, et c'est
+même l'intérêt de l'outil — savoir à quelle heure elle sortira de telle crête, et
+de quel côté le croissant sera tourné.
+
 L'heure affichée est celle de **l'œil de la caméra**, pas celle du centre de la
 carte : c'est ce qui garantit qu'une étiquette tombe sur la silhouette réellement
 dessinée. En mode « Point de vue » l'œil est au sol, à l'endroit choisi, et les
@@ -93,6 +107,10 @@ trait jaune en travers de l'image.
 - **Une seule paire d'heures** : une crête dentelée peut être franchie plusieurs
   fois dans la journée ; seuls le **premier lever** et le **dernier coucher** sont
   affichés.
+- **La lune n'éclaire pas la scène** : elle est dessinée, pas utilisée comme source
+  de lumière. L'ombrage du nuage reste celui du soleil.
+- **Phase sans libration ni inclinaison de l'axe** : le terminateur est l'ellipse
+  théorique. À l'œil nu et à 0,5° de diamètre, la différence n'est pas observable.
 
 ---
 
@@ -233,11 +251,16 @@ sous `u_sunDir`, `u_sunIntensity`, `u_sunColor`. Voir
 
 | Rôle | Fichier |
 |---|---|
-| Échantillonnage + géométrie (pur, testable) | [src/lib/sunPath.ts](../src/lib/sunPath.ts) |
-| Couche WebGL custom MapLibre | [src/components/map/SunPathLayer.ts](../src/components/map/SunPathLayer.ts) |
-| Montage / câblage au store | [src/components/map/SunPathOverlay.tsx](../src/components/map/SunPathOverlay.tsx) |
-| Shaders | `src/components/map/sun-gl/glsl/sunPath.{vert,frag}`, `sunDisc.{vert,frag}` |
+| Échantillonnage + géométrie (pur, testable) | [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
+| Éphéméride lunaire (pur, testable) | [src/lib/moon.ts](../src/lib/moon.ts) |
+| Couche WebGL custom MapLibre, **une par astre** | [src/components/map/SkyBodyLayer.ts](../src/components/map/SkyBodyLayer.ts) |
+| Montage / câblage au store | [src/components/map/SkyBodiesOverlay.tsx](../src/components/map/SkyBodiesOverlay.tsx) |
+| Shaders | `src/components/map/sky-gl/glsl/skyPath.{vert,frag}`, `skyDisc.{vert,frag}` |
 | Drapeau | `lidarSunPath` dans [src/stores/slices/lidarSlice.ts](../src/stores/slices/lidarSlice.ts) |
+
+Un seul drapeau pour les deux astres : la case est un outil de repérage, pas un
+réglage de rendu, et deux cases pour deux traits qu'on regarde ensemble n'auraient
+fait qu'ajouter un état à persister.
 
 ### Pourquoi WebGL et pas un overlay SVG
 
@@ -314,7 +337,11 @@ d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 
 |---|---|
 | Horizon réel + recherche des croisements (pur, testable) | [src/lib/skyline.ts](../src/lib/skyline.ts) |
 | Étiquettes et câblage au store | [src/components/map/HorizonTimesOverlay.tsx](../src/components/map/HorizonTimesOverlay.tsx) |
-| Échantillon du soleil à une minute fractionnaire | `sunSampleAt` dans [src/lib/sunPath.ts](../src/lib/sunPath.ts) |
+| Échantillon d'un astre à une minute fractionnaire | `sunSampleAt` / `moonSampleAt` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
+
+Les deux astres partagent **un seul cache d'horizon par passe** : la lune parcourt
+à peu près la même bande de ciel que le soleil, et un rayon coûte quelque 400
+sondages du MNT.
 
 ### Pourquoi refaire le calcul sur CPU
 
@@ -382,4 +409,83 @@ Le lancer de rayon, lui, ne dépend que de **l'œil** : il est donc recalculé s
 `idle` (le temps que les tuiles MNT arrivent), et seulement si la position de l'œil
 a bougé — sans cette garde, l'ajout d'une étiquette relance une trame, donc un
 `idle`, donc un calcul, en boucle.
+
+---
+
+## La lune — implémentation
+
+### Pourquoi une éphéméride complète et pas la recette du soleil
+
+La formule NOAA simplifiée du soleil tient en quelques lignes parce que l'orbite
+terrestre est presque une ellipse képlérienne fixe. L'orbite lunaire, elle, est
+perturbée au premier ordre par le Soleil : évection, variation, équation annuelle.
+Une longitude moyenne corrigée de la seule équation du centre se trompe de plus de
+**1°**, soit deux diamètres lunaires — une étiquette de lever serait fausse d'une
+demi-heure.
+
+[src/lib/moon.ts](../src/lib/moon.ts) reprend donc Meeus, *Astronomical Algorithms*,
+chapitre 47 : **42 termes** de longitude et de distance (table 47.A), **30 termes**
+de latitude (table 47.B), plus les additifs A1/A2/A3 (Vénus, Jupiter, aplatissement)
+et le facteur d'excentricité `E^|M|`. Mesuré contre l'exemple 47.a du livre
+(1992-04-12,0 TD) :
+
+| Grandeur | Écart |
+|---|---|
+| longitude λ | −0,032′ |
+| latitude β | +0,033′ |
+| distance Δ | −0,74 km |
+| ascension droite α | −0,30′ |
+| déclinaison δ | +0,097′ |
+
+Le disque lunaire fait ~15,5′ de rayon : l'erreur vaut donc entre 1/500 et 1/50 du
+disque. Les bornes de [src/lib/moon.test.ts](../src/lib/moon.test.ts) sont posées à
+ces valeurs mesurées, pas à un ordre de grandeur confortable.
+
+### La parallaxe n'est pas une finesse
+
+La Terre fait 6 378 km de rayon, la lune est à 380 000 km : un observateur à la
+surface la voit jusqu'à **0,95° plus bas** qu'un observateur au centre de la Terre,
+près de l'horizon. C'est deux fois la réfraction, et presque deux diamètres
+lunaires — sans cette correction toutes les heures de lever seraient fausses de
+plusieurs minutes. `moonState` applique donc `h' = h − π·cos h` **avant** la
+réfraction, dans cet ordre.
+
+Un test vérifie la chose de bout en bout : près de l'horizon, hauteur topocentrique
+moins hauteur géocentrique tombe entre 0,3° et 0,7° (0,95° de parallaxe moins 0,48°
+de réfraction).
+
+### Phase et corne brillante
+
+`illuminatedFraction` suit Meeus 48 : `tan i = R·sin ψ / (Δ − R·cos ψ)`, puis
+`k = (1 + cos i)/2`.
+
+Le terminateur est rendu dans `skyDisc.frag` comme la projection d'un grand cercle
+sur le disque, soit une demi-ellipse : le point éclairé est celui où
+`x > (1 − 2k)·√(1 − y²)`, dans le repère 2D du billboard. L'aire ainsi allumée vaut
+**exactement `k`**, ce qui est la définition de la fraction éclairée. Le bord est
+antialiasé avec `fwidth`, et la part sombre garde 13 % d'alpha — la lumière cendrée,
+sans quoi un mince croissant flotterait sans disque.
+
+Pour orienter le croissant, Meeus donne l'angle de position χ du bord brillant,
+mesuré depuis le nord céleste — ce qui obligerait à calculer en plus l'angle
+parallactique pour passer au repère de l'écran. `brightLimbDirection` prend le
+chemin court : la composante de la direction du **soleil** perpendiculaire à la
+direction de la lune, normalisée. C'est déjà un vecteur monde, que la couche projette
+sur les axes `right`/`up` du billboard — les mêmes axes que la géométrie du quad,
+donc le résultat est juste même si ce repère est indirect à l'écran.
+
+Le soleil utilisé est **celui de la date**, jamais l'éclairage forcé : un croissant
+qui ne pointerait pas vers le vrai soleil serait une désinformation.
+
+### Une couche par astre
+
+`SkyBodyLayer` est paramétrée par une `SkyBodyPalette` (couleurs des deux passes,
+halo) et reçoit un `SkyBodyDisc` (direction, rayon angulaire, fraction éclairée,
+direction du bord brillant). `SUN_PALETTE` garde son halo à 4 rayons ;
+`MOON_PALETTE` a `haloRadiusFactor: 0` — un halo noierait le croissant, et la lune
+n'éblouit pas.
+
+Le disque du soleil suit l'éclairage **effectif** (le voir quitter la trajectoire
+est le signal utile quand on force la lumière) ; celui de la lune suit la date,
+puisque c'est aussi de là que vient sa phase.
 

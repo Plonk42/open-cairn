@@ -1,12 +1,12 @@
 #version 300 es
-// Solar disc — a billboard quad at infinity, sized to the sun's TRUE angular
+// A body's disc — a billboard quad at infinity, sized to its TRUE angular
 // radius so "the disc touches the ridge" is a judgement you can trust.
 precision highp float;
 
 layout(location = 0) in vec2 a_corner;  // -1..1 square
 
 uniform mat4 u_matrix;
-uniform vec3 u_dir;     // unit ENU direction towards the sun
+uniform vec3 u_dir;     // unit ENU direction towards the body
 uniform vec3 u_right;   // unit, perpendicular to u_dir
 uniform vec3 u_up;      // unit, perpendicular to both
 uniform float u_radius; // tan(angular radius), possibly scaled up for the halo

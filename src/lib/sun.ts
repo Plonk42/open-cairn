@@ -59,36 +59,78 @@ export function formatSunDate(datePart: string, minutesOfDay: number): string {
     return `${base}T${h}:${m}`;
 }
 
-export function computeSunPosition(date: Date, lat: number, lng: number): SunPosition {
+/** Days since J2000.0 (2000-01-01 12:00 UTC), the argument of every series here. */
+export function daysSinceJ2000(date: Date): number {
+    return date.getTime() / 86400000 + 2440587.5 - 2451545;
+}
+
+/** Mean obliquity of the ecliptic, in radians. Nutation (±9″) is ignored. */
+export function meanObliquity(n: number): number {
+    return (23.439 - 0.0000004 * n) * (Math.PI / 180);
+}
+
+/** A geocentric equatorial position: right ascension, declination, distance. */
+export interface EquatorialPosition {
+    /** Radians. */
+    ra: number;
+    /** Radians. */
+    dec: number;
+    distanceKm: number;
+}
+
+const AU_KM = 149597870.7;
+
+/** Geocentric equatorial position of the sun. */
+export function sunEquatorial(date: Date): EquatorialPosition {
     const rad = Math.PI / 180;
-    // Julian day (UTC)
-    const jd = date.getTime() / 86400000 + 2440587.5;
-    const n = jd - 2451545;
+    const n = daysSinceJ2000(date);
 
     const Ldeg = ((280.46 + 0.9856474 * n) % 360 + 360) % 360;
     const g = (((357.528 + 0.9856003 * n) % 360 + 360) % 360) * rad;
     const lambda = (Ldeg + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
-    const epsilon = (23.439 - 0.0000004 * n) * rad;
+    const epsilon = meanObliquity(n);
 
-    const decl = Math.asin(Math.sin(epsilon) * Math.sin(lambda));
-    const ra = Math.atan2(Math.cos(epsilon) * Math.sin(lambda), Math.cos(lambda));
+    return {
+        dec: Math.asin(Math.sin(epsilon) * Math.sin(lambda)),
+        ra: Math.atan2(Math.cos(epsilon) * Math.sin(lambda), Math.cos(lambda)),
+        // Radius vector of the elliptical orbit, to a few hundred km.
+        distanceKm: (1.00014 - 0.01671 * Math.cos(g) - 0.00014 * Math.cos(2 * g)) * AU_KM,
+    };
+}
 
+/**
+ * Geocentric equatorial → topocentric horizontal, for an observer at
+ * `lat`/`lng`. Geometric: no refraction, no parallax (negligible for the sun,
+ * but worth ~1° for the moon — see `moon.ts`).
+ */
+export function horizontalFromEquatorial(
+    eq: EquatorialPosition,
+    date: Date,
+    lat: number,
+    lng: number,
+): SunPosition {
+    const rad = Math.PI / 180;
+    const n = daysSinceJ2000(date);
     // Greenwich mean sidereal time → local sidereal time
     const gmstHours = ((18.697374558 + 24.06570982441908 * n) % 24 + 24) % 24;
     const lst = (gmstHours * 15 + lng) * rad;
-    const H = lst - ra;
+    const H = lst - eq.ra;
 
     const phi = lat * rad;
-    const sinEl = Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(H);
+    const sinEl = Math.sin(phi) * Math.sin(eq.dec) + Math.cos(phi) * Math.cos(eq.dec) * Math.cos(H);
     const elevation = Math.asin(Math.max(-1, Math.min(1, sinEl)));
 
     // Azimuth from north, clockwise (east positive)
     const azimuth = Math.atan2(
-        -Math.cos(decl) * Math.sin(H),
-        Math.sin(decl) * Math.cos(phi) - Math.cos(decl) * Math.sin(phi) * Math.cos(H),
+        -Math.cos(eq.dec) * Math.sin(H),
+        Math.sin(eq.dec) * Math.cos(phi) - Math.cos(eq.dec) * Math.sin(phi) * Math.cos(H),
     );
 
     return { azimuth, elevation };
+}
+
+export function computeSunPosition(date: Date, lat: number, lng: number): SunPosition {
+    return horizontalFromEquatorial(sunEquatorial(date), date, lat, lng);
 }
 
 /**
