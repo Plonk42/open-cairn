@@ -82,6 +82,10 @@ function cloudStatsLabel(points: number | null, triangles: number | null): strin
 /** Metres-per-degree of latitude, used to convert the cloud radius to a lng/lat footprint. */
 const METERS_PER_DEGREE_LAT = 111_319.491;
 
+const EQUATOR_METERS = 40_075_016.686;
+/** MapLibre's zoom is defined on 512 px tiles: `worldSize = 512 · 2^zoom`. */
+const TILE_SIZE = 512;
+
 /**
  * Approximate lng/lat bounding box of the cloud's footprint (a radius-metre
  * square around its centre), used for the on-screen test below.
@@ -116,8 +120,8 @@ function isCloudOnScreen(map: maplibregl.Map, lng: number, lat: number, radius: 
 function frameCloud(map: maplibregl.Map, lng: number, lat: number, radius: number): void {
     const minDim = Math.min(map.getCanvas().clientWidth, map.getCanvas().clientHeight);
     const targetMpp = (2 * radius) / (0.6 * minDim);
-    const worldMpp = 156543.03 * Math.cos((lat * Math.PI) / 180);
-    const zoom = Math.log2(worldMpp / targetMpp);
+    const worldMeters = EQUATOR_METERS * Math.cos((lat * Math.PI) / 180);
+    const zoom = Math.log2(worldMeters / (TILE_SIZE * targetMpp));
     // With 3D terrain forced on, easeTo carries over the *start* center
     // elevation and never recomputes it for the destination, so the camera
     // target ends up above/below the relief and the cloud isn't framed. Pre-

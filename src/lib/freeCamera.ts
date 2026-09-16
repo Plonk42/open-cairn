@@ -94,9 +94,13 @@ export function isTerrainCameraCollisionDisabled(map: MapLibreMap): boolean {
 const ALTITUDE_STEP_PX = 20;
 const ALTITUDE_FAST_FACTOR = 5;
 
+const EQUATOR_METERS = 40075016.686;
+/** MapLibre's zoom is defined on 512 px tiles: `worldSize = 512 · 2^zoom`. */
+const TILE_SIZE = 512;
+
 function metersPerPixel(map: MapLibreMap): number {
     const { lat } = map.getCenter();
-    return (156543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** map.getZoom();
+    return (EQUATOR_METERS * Math.cos((lat * Math.PI) / 180)) / (TILE_SIZE * 2 ** map.getZoom());
 }
 
 /** Move the camera straight up (`deltaM > 0`) or down, like a drone. */
