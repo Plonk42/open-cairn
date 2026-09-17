@@ -69,8 +69,10 @@ export interface SettingsSlice {
     setFreeCamera: (v: boolean) => void;
 
     /**
-     * Studio "point de vue": the eye is pinned to a spot on the ground and the
-     * camera only rotates, as if standing there and looking around. `null` means
+     * "Point de vue": the eye is pinned to a spot on the ground and the camera
+     * only rotates, as if standing there and looking around. Offered in BOTH
+     * views — the question it answers (what does that ridge hide from where I
+     * will be standing?) is asked while planning an itinerary too. `null` means
      * the mode is off. Session-only like `freeCamera` — it is a way of looking,
      * not a setting, and it would be disorienting to reload straight into it.
      */

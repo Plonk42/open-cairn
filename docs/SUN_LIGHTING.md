@@ -43,8 +43,9 @@ et lire à quelle heure le soleil sera derrière. Ce sont **les mêmes drapeaux*
 cocher d'un côté coche de l'autre.
 
 > **Demande le relief 3D.** Le tracé est testé en profondeur contre le terrain et
-> les heures de lever/coucher sont lues sur sa ligne de crête. Sans terrain il n'y
-> a ni pointillé ni étiquette : les deux cases sont donc grisées tant que
+> les heures de lever/coucher sont lues sur sa ligne de crête. Sans terrain, rien
+> n'est dessiné du tout — ni trajectoire, ni pointillé, ni étiquette — et les deux
+> cases sont grisées tant que
 > « Terrain 3D » est éteint. Attention aussi à l'**exagération verticale** de la vue Itinéraire (1× à
 > 3×, forcée à 1× dans le Studio) : l'horizon est lu sur le relief *affiché*, donc
 > au-delà de 1× les heures restent cohérentes avec l'image mais ne sont plus
@@ -467,9 +468,11 @@ la position courante de l'astre.
 | Échantillon d'un astre à une minute fractionnaire | `sunSampleAt` / `moonSampleAt` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
 | Graduations horaires (géométrie des crans) | `hourTicks` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
 
-Les deux astres partagent **un seul cache d'horizon par passe** : la lune parcourt
-à peu près la même bande de ciel que le soleil, et un rayon coûte quelque 400
-sondages du MNT.
+Les deux astres partagent **un seul cache d'horizon, gardé tant que l'œil ne bouge
+pas** : un rayon coûte quelque 400 sondages du MNT et ne dépend pas de l'heure, si
+bien que promener le curseur de date ne relance aucun lancer de rayon. La lune, qui
+parcourt à peu près la même bande de ciel que le soleil, réutilise les rayons du
+soleil.
 
 ### Pourquoi refaire le calcul sur CPU
 
@@ -536,7 +539,10 @@ aucune latence, recalcul sur `move` en quelques microsecondes.
 Le lancer de rayon, lui, ne dépend que de **l'œil** : il est donc recalculé sur
 `idle` (le temps que les tuiles MNT arrivent), et seulement si la position de l'œil
 a bougé — sans cette garde, l'ajout d'une étiquette relance une trame, donc un
-`idle`, donc un calcul, en boucle.
+`idle`, donc un calcul, en boucle. Le conteneur des étiquettes, lui, n'est créé
+qu'une fois par activation : l'accrocher au centre de la carte le détruisait à
+chaque déplacement, et pendant l'animation de la journée il était démonté plus vite
+que l'anti-rebond de 250 ms ne pouvait se déclencher.
 
 ---
 

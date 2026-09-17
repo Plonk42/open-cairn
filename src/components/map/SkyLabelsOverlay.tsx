@@ -171,20 +171,25 @@ function projectDirection(map: MapLibreMap, dir: readonly number[]): { x: number
     };
 }
 
-export function SkyLabelsOverlay() {
+export function SkyLabelsOverlay({ studio }: Readonly<{ studio: boolean }>) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const sunEnabled = useMapStore((s) => s.skySunPath);
     const moonEnabled = useMapStore((s) => s.skyMoonPath);
     const showHidden = useMapStore((s) => s.skyHiddenPath);
+    const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     // Same site as the track (see `SunPathOverlay`), so both describe one sun.
     const lng = useMapStore((s) => s.lidarShaded?.centerLng ?? s.lidarMesh?.centerLng ?? s.view.longitude);
     const lat = useMapStore((s) => s.lidarShaded?.centerLat ?? s.lidarMesh?.centerLat ?? s.view.latitude);
+    const hasTerrain = studio || terrainEnabled;
 
     const hostRef = useRef<HTMLDivElement | null>(null);
     const labelsRef = useRef<SkyLabel[]>([]);
     /** Inputs the labels on screen were computed from, to skip idle no-ops. */
     const lastKeyRef = useRef('');
+    /** Rays already marched, keyed by the eye they were marched from. */
+    const skylineRef = useRef({ eye: '', rays: new Map<number, SkylinePoint>() });
+    const timerRef = useRef<number | undefined>(undefined);
 
     const clearLabels = useCallback(() => {
         for (const label of labelsRef.current) label.el.remove();
@@ -264,25 +269,27 @@ export function SkyLabelsOverlay() {
         if (!observer) return;
         // The eye is what the skyline depends on, so a pure rotation or a zoom
         // that leaves it in place need not pay for a new scan.
-        const key = [
-            sunDate, lat.toFixed(4), lng.toFixed(4), String(showHidden),
+        const eyeKey = [
             observer.lng.toFixed(4), observer.lat.toFixed(4), observer.altitudeM.toFixed(0),
         ].join('|');
+        const key = [sunDate, lat.toFixed(4), lng.toFixed(4), String(showHidden), eyeKey].join('|');
         if (key === lastKeyRef.current) return;
         lastKeyRef.current = key;
 
-        // One cache for the whole pass, shared by both bodies: the bisection
-        // re-asks for azimuths the coarse scan already solved, the moon walks
-        // much the same band of sky as the sun, and a single ray is some 400
-        // DEM lookups.
-        const cache = new Map<number, SkylinePoint>();
+        // One cache per EYE, not per pass: a ray is some 400 DEM lookups and
+        // does not depend on the hour, so scrubbing the date slider reuses the
+        // whole scan. Shared by both bodies too — the bisection re-asks for
+        // azimuths the coarse scan already solved, and the moon walks much the
+        // same band of sky as the sun.
+        if (skylineRef.current.eye !== eyeKey) skylineRef.current = { eye: eyeKey, rays: new Map() };
+        const rays = skylineRef.current.rays;
         const skyline = (azimuthDeg: number): SkylinePoint => {
             const cacheKey = Math.round(azimuthDeg * 4);
-            const hit = cache.get(cacheKey);
+            const hit = rays.get(cacheKey);
             if (hit) return hit;
             const point = skylineAt(observer, azimuthDeg, (sLng, sLat) =>
                 terrain.getElevationForLngLatZoom(new LngLat(sLng, sLat), SKYLINE_ZOOM));
-            cache.set(cacheKey, point);
+            rays.set(cacheKey, point);
             return point;
         };
 
@@ -297,20 +304,30 @@ export function SkyLabelsOverlay() {
         place();
     }, [mapInstance, sunDate, lat, lng, sunEnabled, moonEnabled, showHidden, clearLabels, place, addBodyLabels]);
 
+    const recomputeRef = useRef(recompute);
+    const schedule = useCallback(() => {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => recomputeRef.current(), RECOMPUTE_DEBOUNCE_MS);
+    }, []);
+
+    // Deliberately NOT folded into the mount effect below: `lat`/`lng` follow
+    // the map centre, so tying the host DOM to them tore every label down on
+    // each pan — and, while the date slider plays, faster than the debounce
+    // could ever fire, so nothing was ever drawn.
+    useEffect(() => {
+        recomputeRef.current = recompute;
+        schedule();
+    }, [recompute, schedule]);
+
     useEffect(() => {
         const map = mapInstance;
-        if (!map || (!sunEnabled && !moonEnabled)) return undefined;
+        if (!map || !hasTerrain || (!sunEnabled && !moonEnabled)) return undefined;
 
         const host = document.createElement('div');
         host.className = 'pointer-events-none absolute inset-0 overflow-hidden';
         map.getContainer().appendChild(host);
         hostRef.current = host;
 
-        let timer: number | undefined;
-        const schedule = () => {
-            window.clearTimeout(timer);
-            timer = window.setTimeout(recompute, RECOMPUTE_DEBOUNCE_MS);
-        };
         // `idle` rather than `moveend`: the DEM tiles the march reads are only
         // in place once the map has finished loading what the move asked for.
         map.on('idle', schedule);
@@ -318,15 +335,16 @@ export function SkyLabelsOverlay() {
         schedule();
 
         return () => {
-            window.clearTimeout(timer);
+            window.clearTimeout(timerRef.current);
             map.off('idle', schedule);
             map.off('move', place);
             clearLabels();
             lastKeyRef.current = '';
+            skylineRef.current = { eye: '', rays: new Map() };
             host.remove();
             hostRef.current = null;
         };
-    }, [mapInstance, sunEnabled, moonEnabled, recompute, place, clearLabels]);
+    }, [mapInstance, hasTerrain, sunEnabled, moonEnabled, schedule, place, clearLabels]);
 
     return null;
 }

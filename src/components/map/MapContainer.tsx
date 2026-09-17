@@ -1180,8 +1180,8 @@ export function MapContainer() {
             <LidarCloudOverlayGate />
             <BasemapDimmer studio={studio} />
             <PhotorealAmbiance studio={studio} />
-            <SkyBodiesOverlay />
-            <SkyLabelsOverlay />
+            <SkyBodiesOverlay studio={studio} />
+            <SkyLabelsOverlay studio={studio} />
             <ViewpointController />
         </>
     );

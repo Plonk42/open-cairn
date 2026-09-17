@@ -138,10 +138,11 @@ function moonDisc(datePart: string, minutesOfDay: number, lat: number, lng: numb
     };
 }
 
-export function SkyBodiesOverlay() {
+export function SkyBodiesOverlay({ studio }: Readonly<{ studio: boolean }>) {
     const sunEnabled = useMapStore((s) => s.skySunPath);
     const moonEnabled = useMapStore((s) => s.skyMoonPath);
     const hiddenPass = useMapStore((s) => s.skyHiddenPath);
+    const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const azimuthDeg = useMapStore((s) => s.lidarSunAzimuth);
     const elevationDeg = useMapStore((s) => s.lidarSunElevation);
@@ -150,9 +151,14 @@ export function SkyBodiesOverlay() {
     const lng = useMapStore((s) => s.lidarShaded?.centerLng ?? s.lidarMesh?.centerLng ?? s.view.longitude);
     const lat = useMapStore((s) => s.lidarShaded?.centerLat ?? s.lidarMesh?.centerLat ?? s.view.latitude);
 
+    // Nothing writes depth without the 3D terrain, so the hidden pass would
+    // never trigger and the track would be drawn solid, straight through the
+    // ground. The Studio forces the terrain on whatever the stored flag says.
+    const hasTerrain = studio || terrainEnabled;
+
     const { datePart, minutesOfDay } = parseSunDate(sunDate);
-    const sun = useBodyLayer(SUN_LAYER_ID, SUN_PALETTE, sunEnabled);
-    const moon = useBodyLayer(MOON_LAYER_ID, MOON_PALETTE, moonEnabled);
+    const sun = useBodyLayer(SUN_LAYER_ID, SUN_PALETTE, sunEnabled && hasTerrain);
+    const moon = useBodyLayer(MOON_LAYER_ID, MOON_PALETTE, moonEnabled && hasTerrain);
     const site = [datePart, lat, lng] as const;
 
     useTrack(sun.layerRef, sun.epoch, (t) => sunSampleAt(datePart, t, lat, lng), site);
