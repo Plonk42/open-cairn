@@ -36,17 +36,22 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   à la distance pour les gros nuages.
 - **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
   nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
-  automatique, **mode « Point de vue »** (on se place au sol et la caméra tourne sur place, comme
-  depuis un sommet, molette = focale), galerie de « vues » (scènes caméra + réglages)
+  automatique, galerie de « vues » (scènes caméra + réglages)
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
+- **Mode « Point de vue »** — disponible dans les **deux vues** : on clique l'endroit où l'on se
+  tiendrait, l'œil se pose 1,70 m au-dessus du sol et la caméra tourne **sur place** comme depuis
+  un sommet (molette = focale). Demande le relief 3D.
 - **Repérage photo par le soleil et la lune** — position solaire calculée pour la date, le lieu et
   l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille
   angulaire réelle, **graduations horaires** légendées en travers du tracé, et **heures de lever
   et de coucher sur l'horizon réel** écrites là où la trajectoire croise la crête. De quoi lire à
-  quelle heure le soleil sera derrière un sommet donné.
+  quelle heure le soleil sera derrière un sommet donné. Disponible dans les deux vues (pilule
+  *Soleil* côté carte), sur le relief 3D.
   La **lune** est tracée sur le même principe, avec sa **phase** et sa corne brillante tournée vers
-  le soleil.
+  le soleil ; les deux astres ont leur propre case, l'heure se règle au curseur **ou au clavier**,
+  et une case **« Ciel atmosphérique »** peint le ciel de la vue carte d'après la position du
+  soleil.
 - **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),
   enrichissement par essence via la BD Forêt IGN, panneau de diagnostic dédié à la classification
   falaise / pente / surplomb

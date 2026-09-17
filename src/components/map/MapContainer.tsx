@@ -13,10 +13,10 @@ import { useRouteStore } from '@/stores/routeStore';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
-import { SkyLabelsOverlay } from './SkyLabelsOverlay';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
-import { SkyBodiesOverlay } from './SkyBodiesOverlay';
+import { SKY_BODY_LAYER_IDS, SkyBodiesOverlay } from './SkyBodiesOverlay';
+import { SkyLabelsOverlay } from './SkyLabelsOverlay';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
 import { useLidarPreviewOverlay } from './useLidarPreviewOverlay';
 import { useRectDrawInteraction } from './useRectDrawInteraction';
@@ -129,14 +129,17 @@ function paintRelight(map: maplibregl.Map, relight: RasterRelight): void {
  * render to a flat, high-sun lighting. {@link basemapRelight} re-exposes it so
  * the two agree and raking light becomes usable.
  *
- * Studio-only, and only on the photorealistic path — the itinerary view keeps
- * the style's neutral sky and its unmodified basemap. Re-applied on
+ * The basemap relight is Studio-only, and only on the photorealistic path. The
+ * itinerary view keeps its unmodified basemap but can opt into the same
+ * sun-driven sky ("Ciel atmosphérique"), which is what one sees once the camera
+ * is tilted up at the sky tracks. Re-applied on
  * `styledata` because a base-layer switch rebuilds the style and takes the
  * runtime sky and paint overrides with it (same reason as {@link BasemapDimmer}).
  */
 function PhotorealAmbiance({ studio }: { studio: boolean }) {
     const mapInstance = useMapStore((s) => s.mapInstance);
     const photoreal = useMapStore((s) => s.lidarPhotoreal);
+    const atmosphericSky = useMapStore((s) => s.atmosphericSky);
     const sunEnabled = useMapStore((s) => s.lidarSunEnabled);
     const sunAzimuth = useMapStore((s) => s.lidarSunAzimuth);
     const sunElevation = useMapStore((s) => s.lidarSunElevation);
@@ -148,13 +151,12 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
     useEffect(() => {
         const map = mapInstance;
         if (!map) return;
-        const on = studio && photoreal;
+        // The map view gets the sky alone: its basemap is the plain IGN raster,
+        // with no mesh beside it to match, so re-exposing it would only be a
+        // filter over the whole screen.
+        const relightOn = studio && photoreal;
+        const skyOn = relightOn || (!studio && atmosphericSky);
         const apply = () => {
-            if (!on) {
-                map.setSky({ ...DEFAULT_SKY });
-                paintRelight(map, NEUTRAL_RELIGHT);
-                return;
-            }
             const { dir, intensity, color } = sunLight({
                 azimuthDeg: sunAzimuth,
                 elevationDeg: sunElevation,
@@ -169,8 +171,8 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
                 ambient,
                 sunStrength,
             };
-            map.setSky(skyFromAtmosphere(atmosphereFromSun(params), exposure));
-            paintRelight(map, basemapRelight(params, exposure));
+            map.setSky(skyOn ? skyFromAtmosphere(atmosphereFromSun(params), exposure) : { ...DEFAULT_SKY });
+            paintRelight(map, relightOn ? basemapRelight(params, exposure) : NEUTRAL_RELIGHT);
         };
         // `setSky` throws outright while the style is still loading, and
         // `styledata` fires *during* the load, so every call has to be able to
@@ -178,7 +180,7 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
         // on `idle` would not work either: with the LiDAR tiles still streaming
         // it can be minutes away.
         return applyWhenStyleReady(map, apply);
-    }, [mapInstance, studio, photoreal, sunEnabled, sunAzimuth, sunElevation, sunWarmth, sunIntensity, exposure, ambient, sunStrength]);
+    }, [mapInstance, studio, photoreal, atmosphericSky, sunEnabled, sunAzimuth, sunElevation, sunWarmth, sunIntensity, exposure, ambient, sunStrength]);
     return null;
 }
 
@@ -209,16 +211,21 @@ const ROUTE_SNAP_SOURCE = 'open-cairn-route-snap';
 const MARKERS_SOURCE = 'open-cairn-markers';
 const ROUTE_POINT_LAYERS = ['open-cairn-route-point-fill', 'open-cairn-route-point-halo'];
 
-/** Classic map view: stay at MapLibre's traditional near-horizon ceiling. */
+/**
+ * Classic map view. Also the ceiling every map is *constructed* with, whatever
+ * the restored view says: MapLibre's below-terrain camera correction
+ * dereferences an uninitialised transform when the map starts above the
+ * horizon, throwing "Invalid LngLat (NaN, NaN)".
+ */
 const MAP_MAX_PITCH = 85;
 /**
- * LiDAR Studio: allow tilting past 90° so the camera can look upward when
- * inspecting a mesh from below (overhangs, cliff undersides). MapLibre still
- * pushes the pitch back down whenever the camera would end up inside the
- * terrain, so the reachable angle depends on how far the camera sits from the
- * ground.
+ * Looking up at the sky: the LiDAR Studio (inspecting a mesh from below —
+ * overhangs, cliff undersides) and the viewpoint mode in either view, where the
+ * whole point is to follow the sun's track overhead. MapLibre still pushes the
+ * pitch back down whenever the camera would end up inside the terrain, so the
+ * reachable angle depends on how far the camera sits from the ground.
  */
-const STUDIO_MAX_PITCH = 150;
+const SKY_MAX_PITCH = 150;
 
 registerCompositeProtocol();
 
@@ -510,6 +517,15 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             }
         }
     }
+    // Same diff, worse symptom for the sky tracks: with the `base` raster back
+    // on top, MapLibre draws the draped terrain AFTER them, so the half a ridge
+    // covers — the one the tracks exist to show — is repainted away while the
+    // clear-sky half survives. `moveLayer` with no target puts them back last.
+    for (const id of SKY_BODY_LAYER_IDS) {
+        if (map.getLayer(id)) {
+            try { map.moveLayer(id); } catch { /* ignore */ }
+        }
+    }
 }
 
 function routeLineGeoJson(segments: ReturnType<typeof useRouteStore.getState>['routeSegments']): GeoJSON.FeatureCollection {
@@ -610,6 +626,22 @@ function syncRouteToMap(map: maplibregl.Map): void {
     updateGeoJsonSource(map, ROUTE_SNAP_SOURCE, snapLinesGeoJson(route.routeSegments));
 }
 
+/**
+ * Whether the map is currently being used for something other than editing the
+ * itinerary. Orthogonal to the panel's own Lecture/Édition switch
+ * (`route.active`), which stays the primary gate: this one suspends editing
+ * from the *outside*, while the panel keeps saying what mode it is in.
+ *
+ * The Studio shares this map instance and must never touch the route, a mobile
+ * long-press is a coordinate readout, and in viewpoint mode the click plants
+ * the eye (then every drag turns the head).
+ */
+function routeEditingSuspended(studio: boolean): boolean {
+    if (studio) return true;
+    const s = useMapStore.getState();
+    return s.coordPickActive || s.viewpointPicking || s.viewpoint !== null;
+}
+
 function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
     if (route.deleteMode) return 'cell';
     if (route.active) return 'crosshair';
@@ -678,13 +710,9 @@ export function MapContainer() {
             style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
             center: [view.longitude, view.latitude],
             zoom: view.zoom,
-            // MapLibre's below-terrain camera correction dereferences an
-            // uninitialised transform when the map is *constructed* above the
-            // horizon, throwing "Invalid LngLat (NaN, NaN)". Start below 90°
-            // and let the user tilt further once the map is alive.
             pitch: Math.min(view.pitch, MAP_MAX_PITCH),
             bearing: view.bearing,
-            maxPitch: studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH,
+            maxPitch: studio ? SKY_MAX_PITCH : MAP_MAX_PITCH,
             canvasContextAttributes: {
                 antialias: true,
                 powerPreference: 'high-performance',
@@ -790,11 +818,14 @@ export function MapContainer() {
             return nearest && nearest.distance <= 28 ? nearest.id : null;
         };
 
+        /**
+         * Gestures that edit the itinerary must stand down whenever the map is
+         * being used for something else — see {@link routeEditingSuspended}.
+         */
+        const editingSuspended = () => routeEditingSuspended(studioRef.current);
+
         map.on('click', (event) => {
-            // The LiDAR Studio shares this map but must never edit the itinerary.
-            if (studioRef.current) return;
-            // The tap ending a mobile long-press coordinate readout isn't an edit.
-            if (useMapStore.getState().coordPickActive) return;
+            if (editingSuspended()) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -807,8 +838,7 @@ export function MapContainer() {
         });
 
         map.on('dblclick', (event) => {
-            if (studioRef.current) return;
-            if (useMapStore.getState().coordPickActive) return;
+            if (editingSuspended()) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -823,8 +853,7 @@ export function MapContainer() {
         });
 
         map.on('contextmenu', (event) => {
-            if (studioRef.current) return;
-            if (useMapStore.getState().coordPickActive) return;
+            if (editingSuspended()) return;
             const route = useRouteStore.getState();
             if (!route.active) return;
             const waypointId = waypointAt(event.point);
@@ -835,8 +864,7 @@ export function MapContainer() {
 
         const startDrag = (event: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
             // Dragging waypoints only makes sense in route mode.
-            if (studioRef.current) return;
-            if (useMapStore.getState().coordPickActive) return;
+            if (editingSuspended()) return;
             const route = useRouteStore.getState();
             if (!route.active || route.deleteMode) return;
             const waypointId = waypointAt(event.point);
@@ -929,12 +957,13 @@ export function MapContainer() {
         }
     }, [studio]);
 
-    // Only the studio may look above the horizon; leaving it tilts back down —
-    // and drops the viewpoint mode, which lives entirely above that ceiling.
+    // Looking well above the horizon is reserved for the Studio and for the
+    // viewpoint mode, which lives entirely up there. Ordinary map navigation
+    // keeps its historical 85° ceiling: past it MapLibre's terrain collision
+    // starts rewriting pitch and zoom on its own, on every gesture.
     useEffect(() => {
-        mapRef.current?.setMaxPitch(studio ? STUDIO_MAX_PITCH : MAP_MAX_PITCH);
-        if (!studio) useMapStore.getState().setViewpoint(null);
-    }, [studio]);
+        mapRef.current?.setMaxPitch(studio || viewpoint ? SKY_MAX_PITCH : MAP_MAX_PITCH);
+    }, [studio, viewpoint]);
 
     // "Caméra libre": studio-only release of the camera from the ground, in both
     // senses. MapLibre otherwise pushes the eye back out of the terrain — rewriting
@@ -1078,7 +1107,9 @@ export function MapContainer() {
             if (route.selectionCoordinates !== prev.selectionCoordinates) {
                 updateGeoJsonSource(m, ROUTE_SELECTION_SOURCE, selectionGeoJson(route.selectionCoordinates));
             }
-            m.getCanvas().style.cursor = routeCursor(route);
+            // Leave the cursor alone while another mode owns it: the viewpoint
+            // controller sets its own grab/crosshair and restores what it found.
+            if (!routeEditingSuspended(studioRef.current)) m.getCanvas().style.cursor = routeCursor(route);
         });
         return () => {
             cancelSync?.();

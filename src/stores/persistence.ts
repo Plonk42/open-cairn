@@ -16,6 +16,16 @@ export type PersistedSettings = {
     mapStyleByView?: Record<AppView, MapStyleSettings>;
     uiTheme?: UiTheme;
     studioTutorialSeen?: boolean;
+    /**
+     * Sky tracks of the sun and of the moon. A planning overlay, not part of a
+     * scene's ambiance: an exported showcase render must not carry a
+     * measurement line across it.
+     */
+    skySunPath?: boolean;
+    skyMoonPath?: boolean;
+    skyHiddenPath?: boolean;
+    /** Map view: sun-driven sky instead of the style's neutral one. */
+    atmosphericSky?: boolean;
     renderQuality?: RenderQuality;
     tileCacheSize?: number;
     ignApiKey?: string;
@@ -69,9 +79,6 @@ export type PersistedSettings = {
     lidarSunWarmth?: number;
     lidarSunIntensity?: number;
     lidarSunEnabled?: boolean;
-    // Deliberately NOT part of a scene's ambiance: it is a planning overlay, and
-    // an exported showcase render must not carry a measurement line across it.
-    lidarSunPath?: boolean;
     lidarShadows?: boolean;
     lidarShadowStrength?: number;
     lidarShadowMapSize?: number;

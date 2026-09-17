@@ -1,8 +1,10 @@
 import type { IconProps } from '@/components/icons/LidarIcons';
+import { LightIcon } from '@/components/icons/LidarIcons';
 import {
     BaseLayerSection,
     ContourSection,
     HillshadeSection,
+    SkyPathSection,
     Terrain3DSection,
 } from '@/components/ui/LayerSwitcher';
 import {
@@ -105,6 +107,12 @@ export const ROUTE_SETTING_SECTIONS: ReadonlyArray<RouteSettingSection> = [
                 <TerrainDemSection />
             </>
         ),
+    },
+    {
+        id: 'soleil',
+        label: 'Soleil',
+        Icon: LightIcon,
+        render: () => <SkyPathSection />,
     },
     {
         id: 'avance',

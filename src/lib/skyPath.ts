@@ -62,11 +62,11 @@ export interface SkyPathGeometry {
     samples: SkyPathSample[];
 }
 
-/** Half-length of an hour tick, in degrees of arc. */
-const TICK_HALF_DEG = 0.45;
+/** Half-length of an hour tick, in degrees of arc — a minor tick is about one solar diameter. */
+const TICK_HALF_DEG = 0.25;
 /** Whole hours that get a longer tick, to stay readable at a glance. */
 const MAJOR_TICK_HOURS = 3;
-const MAJOR_TICK_FACTOR = 2.2;
+const MAJOR_TICK_FACTOR = 2;
 
 const DEG = Math.PI / 180;
 

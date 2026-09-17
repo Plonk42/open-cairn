@@ -12,6 +12,11 @@ Ainsi, un coup d'œil rapide à 14 h en plein été montre une lumière haute, p
 zénithale ; un coup d'œil à 18 h en hiver montre une lumière rasante orangée qui
 révèle bien le micro-relief.
 
+L'heure se règle **au curseur ou au clavier** : le champ à droite du curseur accepte
+une heure tapée (`18:03`), et les deux sont liés dans les deux sens. Le curseur avance
+donc **à la minute**, pour qu'il puisse afficher exactement ce que contient le champ.
+Le bouton ▶ joue la journée par pas de 5 minutes en sautant la nuit (22 h → 4 h).
+
 ### Forcer l'éclairage
 
 La date/heure ne fait que **piloter quatre réglages bas niveau** — orientation,
@@ -29,31 +34,52 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 
 ### Trajectoire dans le ciel
 
-La case **« Trajectoire dans le ciel »**, sous le curseur d'heure, dessine la course
-du soleil pour la date choisie — l'usage visé est le repérage photo : se placer où
-l'on veut être, regarder le sujet, et lire à quelle heure le soleil sera derrière.
+Deux cases indépendantes, **« Trajectoire du soleil »** et **« Trajectoire de la
+lune »**, dessinent la course de chaque astre pour la date choisie. On les trouve
+sous le curseur d'heure du Studio et dans la pilule **Soleil** de la vue Itinéraire.
+L'usage visé est le repérage photo : se placer où l'on veut être, regarder le sujet,
+et lire à quelle heure le soleil sera derrière. Ce sont **les mêmes drapeaux**
+(`skySunPath`, `skyMoonPath`) et le même sélecteur de date dans les deux vues :
+cocher d'un côté coche de l'autre.
+
+> **Demande le relief 3D.** Le tracé est testé en profondeur contre le terrain et
+> les heures de lever/coucher sont lues sur sa ligne de crête. Sans terrain il n'y
+> a ni pointillé ni étiquette : les deux cases sont donc grisées tant que
+> « Terrain 3D » est éteint. Attention aussi à l'**exagération verticale** de la vue Itinéraire (1× à
+> 3×, forcée à 1× dans le Studio) : l'horizon est lu sur le relief *affiché*, donc
+> au-delà de 1× les heures restent cohérentes avec l'image mais ne sont plus
+> celles du terrain réel.
 
 - Le trait est **plein là où le ciel est dégagé** et **en pointillé là où le relief
   le masque** : la limite entre les deux est la ligne de crête vue depuis la
   caméra, donc l'heure de lever ou de coucher **sur l'horizon réel**, pas sur
-  l'horizon théorique.
+  l'horizon théorique. La moitié cachée est en plus nettement plus transparente.
 - Le **disque** est dessiné à sa taille angulaire réelle (0,53°) — il sert d'étalon :
   si le soleil est à deux diamètres du sommet, il y sera dans 2 à 7 minutes selon
   la hauteur. Plein dans le ciel, réduit à un anneau creux quand il est caché.
-- Un **trait court perpendiculaire** à la trajectoire marque chaque heure pleine, plus
-  long toutes les trois heures, avec l'**heure écrite juste en dessous** en petit
+- Un **trait court perpendiculaire** à la trajectoire marque chaque heure pleine
+  (environ un diamètre solaire de long, deux fois plus toutes les trois heures), avec
+  l'**heure écrite juste en dessous** en petit
   (`18h`). Ces heures ne sont écrites qu'au-dessus de **l'horizon** : plus bas la
   trajectoire passe dans le sol, où une heure ne ferait que flotter sur le paysage.
   Une graduation reste légendée là où le trait est en pointillé, c'est-à-dire
   derrière une crête : c'est précisément l'heure que l'on cherche à lire.
+- **L'heure choisie** est écrite dans une petite étiquette juste à droite de l'astre,
+  là où il se trouve à cette minute — `17:43` entre les graduations `17h` et `18h`.
+  Elle est posée sur la **trajectoire**, pas sur le disque : si l'éclairage a été
+  forcé, le disque du soleil quitte sa trajectoire et l'étiquette reste là où cette
+  heure-là se trouve vraiment. Elle disparaît quand l'astre est sous l'horizon.
 - Le tracé suit la position **apparente** (réfraction comprise), comme le reste du
   pipeline.
 - Deux **étiquettes** marquent les croisements avec la crête : `↑ 08:51` là où le
-  soleil sort du relief, `↓ 19:44` là où il repasse derrière. Elles sont posées
-  exactement à la jonction plein/pointillé, sur la trajectoire.
+  soleil sort du relief, `↓ 19:44` là où il repasse derrière. Elles sont décalées
+  au-dessus du croisement et **sur le côté libre** — à gauche pour un lever, à droite
+  pour un coucher, puisque l'astre dérive toujours vers la droite de l'écran : posées
+  sur le point lui-même, elles se retrouvaient à cheval sur l'horizon et masquaient
+  la trajectoire.
 
-La même case dessine aussi la **lune**, en bleu pâle, avec exactement les mêmes
-conventions — trait plein/pointillé, graduations horaires, étiquettes `↑`/`↓`. Deux
+La case **« Trajectoire de la lune »** dessine la **lune** en bleu pâle, avec
+exactement les mêmes conventions — trait plein/pointillé, graduations horaires, étiquettes `↑`/`↓`. Deux
 différences seulement :
 
 - le disque porte sa **phase** : le terminateur est tracé à la bonne épaisseur, et
@@ -66,6 +92,15 @@ La lune est souvent au-dessus de l'horizon en plein jour : c'est normal, et c'es
 même l'intérêt de l'outil — savoir à quelle heure elle sortira de telle crête, et
 de quel côté le croissant sera tourné.
 
+Une troisième case, **« Portions cachées »** (cochée par défaut), n'apparaît que
+quand au moins une trajectoire est allumée et vaut **pour les deux astres** : elle
+répond à « est-ce que je veux voir à travers le relief », ce qui n'a rien à voir
+avec le choix des astres. Décochée, il ne reste que ce qui est réellement visible
+depuis ce point de vue : plus de pointillé, plus d'anneau creux quand l'astre est
+derrière une crête, et **plus d'étiquette d'heure** pour les graduations masquées
+— elles n'auraient plus de trait sous lequel se poser. Les étiquettes `↑`/`↓` de
+lever et de coucher restent : elles marquent justement la frontière.
+
 L'heure affichée est celle de **l'œil de la caméra**, pas celle du centre de la
 carte : c'est ce qui garantit qu'une étiquette tombe sur la silhouette réellement
 dessinée. En mode « Point de vue » l'œil est au sol, à l'endroit choisi, et les
@@ -74,18 +109,38 @@ classique, la caméra est en l'air : les heures se décalent quand on la déplac
 ce qui est le comportement voulu — c'est bien de *ce* point de vue que l'horizon
 est calculé.
 
-Pour voir un soleil haut il faut lever la caméra au-dessus de l'horizon : la vue
-carte plafonne à 85° de pitch (~13° au-dessus de l'horizon), le Studio monte à 150°
-**à condition d'activer « Caméra libre » ou « Point de vue »** — sans l'une des deux,
-MapLibre rabat la caméra à ~96° pour éviter qu'elle traverse le terrain.
+Pour voir un soleil haut il faut lever la caméra au-dessus de l'horizon :
 
-Le mode **« Point de vue »** du Studio est fait pour cet usage : on clique l'endroit
+- la **vue Itinéraire** plafonne à **85°** de pitch en navigation ordinaire, comme
+  une carte classique. En pratique le ciel n'y est pas atteignable : dès ~80°, avec
+  le relief 3D, MapLibre replonge la caméra dans le terrain et l'image se réduit à
+  des traînées de sol. La lecture d'une trajectoire se fait donc en « Point de vue » ;
+- le **Studio** monte à 150° **à condition d'activer « Caméra libre » ou « Point de
+  vue »** — sans l'une des deux, MapLibre rabat la caméra à ~96° pour éviter
+  qu'elle traverse le terrain ;
+- le mode **« Point de vue »** libère le même plafond de 150° **dans les deux vues** :
+  c'est là que le nez se lève vraiment.
+
+Le mode **« Point de vue »** est fait pour cet usage : on clique l'endroit
 où l'on se tiendrait, et la caméra tourne **sur place** au lieu d'orbiter autour d'un
 centre — on lit la trajectoire depuis l'œil du photographe, pas depuis un point qui
-se déplace à chaque rotation. Voir
-[UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md#mode-point-de-vue-studio).
+se déplace à chaque rotation. Il est offert dans les deux vues (le bouton est grisé
+en Itinéraire tant que le relief 3D est éteint : sans MNT il n'y a pas de sol où
+poser l'œil), et tant qu'il est actif l'édition de l'itinéraire est suspendue — le
+clic sert à se placer, pas à poser un point de passage. Voir
+[UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md#mode-point-de-vue).
 
-La trajectoire est un outil de mesure : elle est **exclue de l'ambiance** d'une
+La case **« Ciel atmosphérique »** de la pilule **Soleil** peint le ciel de la vue
+Itinéraire d'après la position du soleil à l'heure choisie, au lieu du bleu nuit
+neutre du style. Elle n'est jamais grisée (le ciel ne demande pas de MNT) mais ne se
+voit qu'une fois la carte inclinée, et surtout en « Point de vue ». Elle ne touche
+**que le ciel** : le fond de carte garde ses couleurs. Le rééclairage du fond reste
+réservé au Studio, où le mode photoréaliste (`lidarPhotoreal`) allume les deux d'un
+coup — là un raster mal éclairé jurerait contre le nuage voisin, alors qu'en vue
+Itinéraire il n'y a rien à accorder et le rééclairage ne serait qu'un filtre posé sur
+tout l'écran.
+
+Les trajectoires sont un outil de mesure : elles sont **exclues de l'ambiance** d'une
 scène, pour qu'un rendu exporté ou une scène de la galerie ne trimballe jamais un
 trait jaune en travers de l'image.
 
@@ -261,11 +316,24 @@ sous `u_sunDir`, `u_sunIntensity`, `u_sunColor`. Voir
 | Couche WebGL custom MapLibre, **une par astre** | [src/components/map/SkyBodyLayer.ts](../src/components/map/SkyBodyLayer.ts) |
 | Montage / câblage au store | [src/components/map/SkyBodiesOverlay.tsx](../src/components/map/SkyBodiesOverlay.tsx) |
 | Shaders | `src/components/map/sky-gl/glsl/skyPath.{vert,frag}`, `skyDisc.{vert,frag}` |
-| Drapeau | `lidarSunPath` dans [src/stores/slices/lidarSlice.ts](../src/stores/slices/lidarSlice.ts) |
+| Drapeaux | `skySunPath`, `skyMoonPath`, `skyHiddenPath`, `atmosphericSky` dans [src/stores/slices/settingsSlice.ts](../src/stores/slices/settingsSlice.ts) |
 
-Un seul drapeau pour les deux astres : la case est un outil de repérage, pas un
-réglage de rendu, et deux cases pour deux traits qu'on regarde ensemble n'auraient
-fait qu'ajouter un état à persister.
+Un drapeau par astre : on cherche souvent l'un sans l'autre — la lune traîne dans le
+ciel en plein jour et encombre l'image quand on repère un coucher de soleil.
+
+Mais un seul drapeau pour les deux vues, dans `settingsSlice` — pas dans `lidarSlice`
+ni dans `terrainSlice` :
+
+- `terrainSlice` passe par `patchActiveStyle`, donc ses champs sont **propres à la
+  vue** (le Studio et l'Itinéraire ont chacun leur bundle de style) ; les
+  trajectoires doivent rester les mêmes des deux côtés ;
+- `lidarSlice` les aurait remis dans `LIDAR_RENDER_DEFAULTS`, donc effacés par
+  « Réinitialiser le rendu » et à exclure explicitement de l'ambiance d'une scène.
+
+Ils vivent donc avec les autres réglages globaux d'outillage (`renderQuality`,
+`viewpoint`, `freeCamera`), et `showcaseAmbiance` n'a plus besoin de les exclure.
+`atmosphericSky` les rejoint : c'est un réglage de la vue Itinéraire seule, dont le
+pendant Studio est `lidarPhotoreal`.
 
 ### Pourquoi WebGL et pas un overlay SVG
 
@@ -292,9 +360,35 @@ MapLibre rétrécit le `depthRange` à une tranche par couche : il faut **forcer
 `gl.depthRange(0, 1)`** puis restaurer tout l'état GL — même discipline que
 `LidarWebGLLayer`. `depthMask(false)` : la trajectoire ne doit rien occulter.
 
+La passe cachée est **optionnelle** : `skyHiddenPath` arrive par
+`SkyBodyLayer.setHiddenPass()` et fait simplement sauter l'appel à `_drawHidden`.
+Un seul drapeau pour les deux astres, et `SkyLabelsOverlay` le lit aussi pour ne
+pas laisser d'étiquette d'heure orpheline derrière une crête.
+
 Le pointillé est découpé dans le fragment shader sur la **longueur d'arc en degrés**
 accumulée le long du tracé (`u_dashDeg`), pas en pixels : la cadence des tirets ne
 change donc pas avec le zoom.
+
+### « En dernier » doit être réaffirmé après chaque changement de fond
+
+Changer de fond de carte remplace la **source** raster : MapLibre applique alors un
+`setStyle({diff:true})` qui retire puis ré-ajoute la couche `base`. Rien ne la suit
+dans la spécification du style, donc elle revient **en haut** de la pile, au-dessus
+des couches custom. Les couches d'astres, elles, survivent au diff — leur garde
+`if (map.getLayer(id)) return;` ne se déclenche jamais et personne ne remet l'ordre.
+
+Conséquence visible : le terrain drapé est dessiné **après** les tracés, donc la
+moitié qu'une crête recouvre — exactement celle que la passe cachée existe pour
+montrer — est repeinte, alors que la moitié en ciel dégagé survit. D'où le symptôme
+« les pointillés disparaissent quand je change de fond, et ne reviennent qu'en
+décochant/recochant Soleil » (le décochage démonte la couche, le recochage la
+ré-ajoute donc en dernier).
+
+`ensureRouteLayers` (dans `MapContainer`, rejoué à chaque `styledata`) termine donc
+par un `map.moveLayer(id)` sans cible — qui replace en haut — pour chaque id de
+`SKY_BODY_LAYER_IDS`, exporté par `SkyBodiesOverlay`. Même correctif, même endroit
+que pour les couches de nuage LiDAR, avec la même raison de ne pas coder les
+identifiants en dur des deux côtés.
 
 ### Invariance d'échelle
 
@@ -325,11 +419,12 @@ d'arc cumulée. Un segment dont une extrémité est derrière la caméra (`w <= 
 
 ### Graduations perpendiculaires
 
-Un cran est une rotation de la direction de l'astre de ±0,45° (×2,2 toutes les trois
+Un cran est une rotation de la direction de l'astre de ±0,25° (×2 toutes les trois
 heures) dans le plan `(dir, across)`, où `across = dir × tangente` : ses deux bouts
 restent donc **sur la sphère unité**, ce dont dépend la projection à l'infini. La
 tangente vient de la corde entre les deux échantillons voisins, privée de sa part
-radiale.
+radiale. Un cran ordinaire fait donc à peu près **un diamètre solaire** de long :
+assez pour être vu, trop court pour encombrer le ciel.
 
 Les crans ont d'abord été dessinés **le long de la verticale locale** : simple, mais
 faux dès que la trajectoire est raide — près du lever et du coucher, et toute la
@@ -353,7 +448,8 @@ décider dans la géométrie lequel des deux bouts est le bon.
 ## Étiquettes dans le ciel — implémentation
 
 Un seul composant porte tout le texte écrit sur le ciel : les deux heures de
-croisement avec la crête, et l'heure de chaque graduation.
+croisement avec la crête, l'heure de chaque graduation, et l'heure choisie à côté de
+la position courante de l'astre.
 
 ### Fichiers
 

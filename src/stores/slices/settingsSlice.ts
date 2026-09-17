@@ -31,6 +31,35 @@ export interface SettingsSlice {
     setStudioTutorialSeen: (v: boolean) => void;
 
     /**
+     * Draw the sun's track across the sky for the selected day, with the disc at
+     * its true angular size and a hidden-line pass so a ridge hides it. Needs the
+     * 3D terrain: without it there is no relief to test the track against, and no
+     * skyline to read the rise/set times from.
+     */
+    skySunPath: boolean;
+    setSkySunPath: (v: boolean) => void;
+
+    /** Same for the moon, which carries its phase. Independent of the sun's. */
+    skyMoonPath: boolean;
+    setSkyMoonPath: (v: boolean) => void;
+
+    /**
+     * Whether the dashed half of the tracks — what a ridge covers — is drawn.
+     * One switch for both bodies: it answers "do I want to see through the
+     * relief", which has nothing to do with which body is on.
+     */
+    skyHiddenPath: boolean;
+    setSkyHiddenPath: (v: boolean) => void;
+
+    /**
+     * Map view only: paint the sky from the sun's position instead of the style's
+     * neutral one. The Studio has its own switch for it (`lidarPhotoreal`), which
+     * also re-exposes the basemap.
+     */
+    atmosphericSky: boolean;
+    setAtmosphericSky: (v: boolean) => void;
+
+    /**
      * Studio "caméra libre": lets the camera cross the terrain surface instead of
      * being pushed back out by MapLibre, and unpins its altitude from the terrain
      * so the arrow keys can climb. Session-only on purpose — it changes how
@@ -77,6 +106,18 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     studioTutorialSeen: persisted.studioTutorialSeen ?? false,
     setStudioTutorialSeen: (studioTutorialSeen) => set({ studioTutorialSeen }),
 
+    skySunPath: persisted.skySunPath ?? false,
+    setSkySunPath: (skySunPath) => set({ skySunPath }),
+
+    skyMoonPath: persisted.skyMoonPath ?? false,
+    setSkyMoonPath: (skyMoonPath) => set({ skyMoonPath }),
+
+    skyHiddenPath: persisted.skyHiddenPath ?? true,
+    setSkyHiddenPath: (skyHiddenPath) => set({ skyHiddenPath }),
+
+    atmosphericSky: persisted.atmosphericSky ?? false,
+    setAtmosphericSky: (atmosphericSky) => set({ atmosphericSky }),
+
     freeCamera: false,
     setFreeCamera: (freeCamera) => set({ freeCamera }),
 
@@ -100,6 +141,10 @@ export function selectSettingsPersisted(
     PersistedSettings,
     | 'uiTheme'
     | 'studioTutorialSeen'
+    | 'skySunPath'
+    | 'skyMoonPath'
+    | 'skyHiddenPath'
+    | 'atmosphericSky'
     | 'renderQuality'
     | 'tileCacheSize'
     | 'ignApiKey'
@@ -108,6 +153,10 @@ export function selectSettingsPersisted(
     return {
         uiTheme: s.uiTheme,
         studioTutorialSeen: s.studioTutorialSeen,
+        skySunPath: s.skySunPath,
+        skyMoonPath: s.skyMoonPath,
+        skyHiddenPath: s.skyHiddenPath,
+        atmosphericSky: s.atmosphericSky,
         renderQuality: s.renderQuality,
         tileCacheSize: s.tileCacheSize,
         ignApiKey: s.ignApiKey,

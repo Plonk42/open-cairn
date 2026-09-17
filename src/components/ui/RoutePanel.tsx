@@ -52,6 +52,9 @@ export function RoutePanel() {
     const dragNodeRef = useRef<HTMLDivElement | null>(null);
     const isMobile = useIsMobile();
     const active = useRouteStore((s) => s.active);
+    // Editing is suspended while the eye is planted on the ground, so the
+    // "click to drop a point" hint would be a lie (see `routeEditingSuspended`).
+    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
     const uiTheme = useMapStore((s) => s.uiTheme);
     const setActive = useRouteStore((s) => s.setActive);
     const mode = useRouteStore((s) => s.mode);
@@ -278,7 +281,11 @@ export function RoutePanel() {
                     </div>
                 )}
                 {!statusMessage && active && waypoints.length === 0 && (
-                    <div className="text-xs text-slate-400">Cliquez sur la carte pour poser un point.</div>
+                    <div className="text-xs text-slate-400">
+                        {viewpointOn
+                            ? 'Édition suspendue pendant le mode « Point de vue ».'
+                            : 'Cliquez sur la carte pour poser un point.'}
+                    </div>
                 )}
             </div>
 

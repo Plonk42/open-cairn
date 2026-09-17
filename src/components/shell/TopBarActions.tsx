@@ -58,21 +58,26 @@ function FreeCameraTopBarButton() {
 }
 
 /**
- * Studio-only "point de vue" toggle: a three-state button, off → armed →
- * standing. Armed, the next click on the map plants the eye on the ground
- * there; from then on the camera only turns, as if you were standing on that
- * spot. Clicking again gives the ordinary camera back.
+ * "Point de vue" toggle: a three-state button, off → armed → standing. Armed,
+ * the next click on the map plants the eye on the ground there; from then on the
+ * camera only turns, as if you were standing on that spot. Clicking again gives
+ * the ordinary camera back.
  *
  * It exists because the orbiting camera makes the sun path hard to read: what
  * you want to know is what a ridge hides *from where you will be shooting*, and
- * that question only has an answer if the eye stops moving.
+ * that question only has an answer if the eye stops moving. Offered in both
+ * views — the question is asked while planning an itinerary, not only in the
+ * Studio.
  */
-function ViewpointTopBarButton() {
+function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain: boolean }>) {
     const viewpoint = useMapStore((s) => s.viewpoint);
     const picking = useMapStore((s) => s.viewpointPicking);
     const setViewpoint = useMapStore((s) => s.setViewpoint);
     const setViewpointPicking = useMapStore((s) => s.setViewpointPicking);
+    const terrainEnabled = useMapStore((s) => s.terrainEnabled);
     const active = viewpoint !== null;
+    // The eye is planted at the DEM height under the click: no relief, no ground.
+    const disabled = needsTerrain && !terrainEnabled;
 
     const onClick = () => {
         if (active) setViewpoint(null);
@@ -80,17 +85,19 @@ function ViewpointTopBarButton() {
     };
 
     let title = 'Point de vue : choisir où se tenir, puis tourner sur place';
-    if (picking) title = 'Cliquez sur la carte pour vous placer — recliquez ici pour annuler';
+    if (disabled) title = 'Activez le terrain 3D pour vous poser au sol';
+    else if (picking) title = 'Cliquez sur la carte pour vous placer — recliquez ici pour annuler';
     else if (active) title = 'Vous êtes au sol : glisser pour regarder autour, molette pour la focale. Cliquez pour libérer la caméra.';
 
     return (
         <button
             type="button"
             onClick={onClick}
+            disabled={disabled}
             title={title}
             aria-label="Point de vue au sol"
             aria-pressed={active || picking}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${active || picking
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${active || picking
                 ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
                 : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
         >
@@ -140,7 +147,7 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
             <OrbitTopBarButton />
             {studio && <FreeCameraTopBarButton />}
-            {studio && <ViewpointTopBarButton />}
+            <ViewpointTopBarButton needsTerrain={!studio} />
             <ShowcaseGallery />
             {exportSlot}
             <HelpButton onClick={studio ? onHelp : undefined} />

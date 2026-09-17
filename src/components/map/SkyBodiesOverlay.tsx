@@ -37,6 +37,16 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 
 const DEG = Math.PI / 180;
 
+const SUN_LAYER_ID = 'open-cairn-sun-path';
+const MOON_LAYER_ID = 'open-cairn-moon-path';
+
+/**
+ * The tracks depth-test against the terrain, so they only work while they are
+ * the LAST layers of the style. MapContainer re-asserts that after a style diff
+ * (see `ensureRouteLayers`), which is why the ids live here rather than inline.
+ */
+export const SKY_BODY_LAYER_IDS = [SUN_LAYER_ID, MOON_LAYER_ID] as const;
+
 /** One mounted layer, plus the counter that survives a style rebuild. */
 function useBodyLayer(id: string, palette: SkyBodyPalette, enabled: boolean) {
     const mapInstance = useMapStore((s) => s.mapInstance);
@@ -103,6 +113,15 @@ function useDisc(layerRef: RefObject<SkyBodyLayer | null>, epoch: number, disc: 
     }, [mapInstance, layerRef, epoch, ...dir, radiusDeg, illuminatedFraction, ...limbDir]);
 }
 
+/** Whether the dashed half — the one a ridge covers — is drawn at all. */
+function useHiddenPass(layerRef: RefObject<SkyBodyLayer | null>, epoch: number, draw: boolean) {
+    const mapInstance = useMapStore((s) => s.mapInstance);
+    useEffect(() => {
+        layerRef.current?.setHiddenPass(draw);
+        mapInstance?.triggerRepaint();
+    }, [mapInstance, layerRef, epoch, draw]);
+}
+
 /** The moon as the layer wants it: direction, size, phase and lit limb. */
 function moonDisc(datePart: string, minutesOfDay: number, lat: number, lng: number): SkyBodyDisc {
     const { h, m, s } = clockParts(minutesOfDay);
@@ -120,7 +139,9 @@ function moonDisc(datePart: string, minutesOfDay: number, lat: number, lng: numb
 }
 
 export function SkyBodiesOverlay() {
-    const enabled = useMapStore((s) => s.lidarSunPath);
+    const sunEnabled = useMapStore((s) => s.skySunPath);
+    const moonEnabled = useMapStore((s) => s.skyMoonPath);
+    const hiddenPass = useMapStore((s) => s.skyHiddenPath);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     const azimuthDeg = useMapStore((s) => s.lidarSunAzimuth);
     const elevationDeg = useMapStore((s) => s.lidarSunElevation);
@@ -130,12 +151,15 @@ export function SkyBodiesOverlay() {
     const lat = useMapStore((s) => s.lidarShaded?.centerLat ?? s.lidarMesh?.centerLat ?? s.view.latitude);
 
     const { datePart, minutesOfDay } = parseSunDate(sunDate);
-    const sun = useBodyLayer('open-cairn-sun-path', SUN_PALETTE, enabled);
-    const moon = useBodyLayer('open-cairn-moon-path', MOON_PALETTE, enabled);
+    const sun = useBodyLayer(SUN_LAYER_ID, SUN_PALETTE, sunEnabled);
+    const moon = useBodyLayer(MOON_LAYER_ID, MOON_PALETTE, moonEnabled);
     const site = [datePart, lat, lng] as const;
 
     useTrack(sun.layerRef, sun.epoch, (t) => sunSampleAt(datePart, t, lat, lng), site);
     useTrack(moon.layerRef, moon.epoch, (t) => moonSampleAt(datePart, t, lat, lng), site);
+
+    useHiddenPass(sun.layerRef, sun.epoch, hiddenPass);
+    useHiddenPass(moon.layerRef, moon.epoch, hiddenPass);
 
     useDisc(sun.layerRef, sun.epoch, {
         dir: sunDirectionVector({ azimuth: azimuthDeg * DEG, elevation: elevationDeg * DEG }),

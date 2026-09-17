@@ -5,11 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Render settings deliberately kept out of the ambiance:
- *   - `lidarShadowMapSize` weighs on the VRAM of the displaying machine;
- *   - `lidarSunPath` is a planning overlay, and an exported showcase render must
- *     not carry a measurement line across it.
+ *   - `lidarShadowMapSize` weighs on the VRAM of the displaying machine.
  */
-const NOT_IN_AMBIANCE = new Set<string>(['lidarShadowMapSize', 'lidarSunPath']);
+const NOT_IN_AMBIANCE = new Set<string>(['lidarShadowMapSize']);
 
 describe('showcaseAmbiance', () => {
     it('carries every LiDAR render setting', () => {

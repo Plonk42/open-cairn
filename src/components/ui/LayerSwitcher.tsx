@@ -1,3 +1,4 @@
+import { SunDateControl } from '@/components/ui/lidar/SunDateControl';
 import { BASE_LAYER_IDS, BASE_LAYERS, IGN_KEY_REQUIRED_HINT, requiresIgnKey } from '@/lib/baseLayers';
 import { HILLSHADE_SOURCE_LABELS, useMapStore, type HillshadeSource } from '@/stores/mapStore';
 
@@ -179,6 +180,100 @@ export function Terrain3DSection() {
                     className="mt-1 w-full accent-green-600 disabled:opacity-40"
                 />
             </label>
+        </div>
+    );
+}
+
+/**
+ * Sun and moon sky tracks. Shown in both views, so the hint is written once
+ * here and reused by the Studio's own compact checkboxes.
+ */
+export const SKY_PATH_HINT = 'Dessine la course de l’astre dans le ciel pour la date choisie, le disque à sa taille réelle et les heures pleines graduées. Les portions cachées par le relief sont en pointillé. Demande le terrain 3D.';
+
+export const HIDDEN_PATH_HINT = 'Prolonge la trajectoire en pointillé derrière le relief, là où l’astre est masqué. Décochez pour ne garder que la portion réellement visible depuis ce point.';
+
+const ATMOSPHERIC_SKY_HINT = 'Peint le ciel d’après la position du soleil à l’heure choisie, au lieu du bleu nuit neutre. Visible surtout quand la carte est inclinée vers le haut.';
+
+/** One labelled checkbox row, the shape every switch in this section takes. */
+function SkyToggle({ label, title, checked, disabled, onChange }: Readonly<{
+    label: string;
+    title: string;
+    checked: boolean;
+    disabled?: boolean;
+    onChange: (v: boolean) => void;
+}>) {
+    return (
+        <label className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-700 dark:text-slate-300" title={title}>{label}</span>
+            <input
+                aria-label={label}
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={(e) => onChange(e.target.checked)}
+                className="h-4 w-4 accent-green-600 disabled:opacity-40"
+            />
+        </label>
+    );
+}
+
+/**
+ * Sky-track toggles + the date/time picker they read. The tracks are drawn
+ * against the 3D terrain (hidden-line pass, skyline times), so they are
+ * disabled when the relief is off — the atmospheric sky is not, it needs no
+ * terrain.
+ */
+export function SkyPathSection() {
+    const sunPath = useMapStore((s) => s.skySunPath);
+    const setSunPath = useMapStore((s) => s.setSkySunPath);
+    const moonPath = useMapStore((s) => s.skyMoonPath);
+    const setMoonPath = useMapStore((s) => s.setSkyMoonPath);
+    const hiddenPath = useMapStore((s) => s.skyHiddenPath);
+    const setHiddenPath = useMapStore((s) => s.setSkyHiddenPath);
+    const atmosphericSky = useMapStore((s) => s.atmosphericSky);
+    const setAtmosphericSky = useMapStore((s) => s.setAtmosphericSky);
+    const terrainEnabled = useMapStore((s) => s.terrainEnabled);
+
+    const noTerrain = 'Activez le terrain 3D pour afficher les trajectoires.';
+    const tracksOn = terrainEnabled && (sunPath || moonPath);
+
+    return (
+        <div className="space-y-2">
+            <SkyToggle
+                label="Trajectoire du soleil"
+                title={terrainEnabled ? SKY_PATH_HINT : noTerrain}
+                checked={sunPath && terrainEnabled}
+                disabled={!terrainEnabled}
+                onChange={setSunPath}
+            />
+            <SkyToggle
+                label="Trajectoire de la lune"
+                title={terrainEnabled ? `${SKY_PATH_HINT} Le disque porte la phase, corne brillante tournée vers le soleil.` : noTerrain}
+                checked={moonPath && terrainEnabled}
+                disabled={!terrainEnabled}
+                onChange={setMoonPath}
+            />
+            <SkyToggle
+                label="Ciel atmosphérique"
+                title={ATMOSPHERIC_SKY_HINT}
+                checked={atmosphericSky}
+                onChange={setAtmosphericSky}
+            />
+            {tracksOn && (
+                <SkyToggle
+                    label="Portions cachées"
+                    title={HIDDEN_PATH_HINT}
+                    checked={hiddenPath}
+                    onChange={setHiddenPath}
+                />
+            )}
+            {tracksOn && (
+                <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                    Posez-vous au sol avec « Point de vue » pour regarder le ciel : en navigation ordinaire
+                    l’inclinaison est plafonnée à 85°, et au-delà de 80° la caméra replonge dans le relief.
+                </p>
+            )}
+            {(tracksOn || atmosphericSky) && <SunDateControl />}
         </div>
     );
 }

@@ -66,11 +66,11 @@ Même chrome en haut, mais pas de dock : la barre du bas porte les réglages de 
 (*Fond*, *Opacité*, *Classes*, *Points*, *Shader*, *Végétation*, *Lumière*,
 *Ombres*, *EDL*), avec un bouton de capture flottant et un localisateur de nuage.
 
-Le groupe d'actions du haut gagne deux boutons propres au Studio : *Caméra libre*
-(libère la collision caméra/terrain et branche les flèches haut/bas sur l'altitude)
-et *Point de vue*, décrit ci-dessous.
+Le groupe d'actions du haut gagne un bouton propre au Studio : *Caméra libre*
+(libère la collision caméra/terrain et branche les flèches haut/bas sur l'altitude).
+*Point de vue*, décrit ci-dessous, est offert dans les **deux** vues.
 
-#### Mode « Point de vue » (Studio)
+#### Mode « Point de vue »
 
 Le bouton *Point de vue* a trois états : **éteint**, **armé** (« Choisissez… », le
 curseur passe en croix, le clic suivant sur la carte choisit le lieu) et **actif**.
@@ -78,6 +78,24 @@ Une fois actif, l'œil est posé **1,70 m au-dessus du sol** à l'endroit cliqu�
 n'en bouge plus : le glisser-déposer fait tourner le regard **sur place**, comme si
 l'on se tenait là et que l'on tournait la tête. C'est l'inverse de l'orbite, qui
 fait tourner la caméra *autour* d'un centre.
+
+En vue *Itinéraire*, le bouton est **grisé tant que le relief 3D est éteint** : sans
+MNT il n'y a pas de sol où poser l'œil. Et tant que le mode est armé ou actif,
+l'**édition de l'itinéraire est suspendue** — sinon le clic qui choisit le lieu, puis
+chaque clic de rotation, poseraient un point de passage. Le panneau *Itinéraire* le
+dit à la place de son invite habituelle : « Édition suspendue pendant le mode
+« Point de vue ». »
+
+Le garde `routeEditingSuspended()` de `MapContainer` couvre les quatre gestes
+concernés (clic, double-clic, clic droit, début de glisser) et vaut aussi pour le
+Studio et le mode « copier les coordonnées ». Il est **orthogonal** à la bascule
+*Lecture / Édition* du panneau (`route.active`, persistée) : celle-ci reste le garde
+principal, testé juste après dans chaque gestionnaire. `routeEditingSuspended()`
+suspend l'édition **de l'extérieur**, le temps qu'un autre mode se serve de la carte,
+sans changer le mode que l'utilisateur a choisi — il le retrouve intact en sortant.
+Il gouverne aussi le **curseur** : tant qu'un autre mode le possède (le contrôleur de
+point de vue pose son propre `grab`/croix et restaure ce qu'il a trouvé), la
+synchronisation du curseur d'itinéraire s'abstient.
 
 - **Glisser** = azimut (horizontal) et hauteur du regard (vertical), le pitch étant
   borné à 20°–150°.
@@ -106,8 +124,9 @@ versant — écran noir, sans message, puisqu'il n'y a pas d'`ErrorBoundary`.
 La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaque
 outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 
-- vue *Itinéraire* — 5 outils : *Itinéraire* (panneau d'édition + profil) puis les
-  quatre mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Avancé*) ;
+- vue *Itinéraire* — 6 outils : *Itinéraire* (panneau d'édition + profil) puis les
+  cinq mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Soleil*,
+  *Avancé*) ;
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
@@ -121,7 +140,8 @@ d'actions qui regroupe galerie, export et partage.
 - **Breakpoint figé** à 768 px : pas configurable.
 - Le **tutoriel du Studio** ne se lance pas sur mobile (il désigne du chrome desktop).
 - Le mode *Point de vue* est **desktop seulement** (souris) et n'est pas persisté :
-  il s'éteint au rechargement et en quittant le Studio.
+  il s'éteint au rechargement. Il survit en revanche à un changement de vue, puisque
+  les deux vues l'offrent.
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
@@ -149,7 +169,7 @@ d'actions qui regroupe galerie, export et partage.
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
 | [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
-| [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |
+| [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 5 sections de la vue carte |
 | [src/components/shell/RouteBottomBar.tsx](../src/components/shell/RouteBottomBar.tsx) | Barre de pilules desktop + bascule du dock |
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
@@ -160,7 +180,7 @@ d'actions qui regroupe galerie, export et partage.
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain* |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, *Soleil* (`SkyPathSection` : 3 cases + date/heure) |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la pilule *Avancé* (rendu, clés d'API) |
 | [src/components/ui/SavedRoutesPanel.tsx](../src/components/ui/SavedRoutesPanel.tsx) | `PreviewThumb` — vignette d'itinéraire réutilisée par la galerie |
 
@@ -205,6 +225,7 @@ la barre de pilules desktop et la barre d'outils mobile.
 | `fond`    | Fond       | `MapBackgroundSection`                   |
 | `courbes` | Courbes    | `ContourSection`                         |
 | `terrain` | Terrain    | `Terrain3DSection` + `TerrainDemSection` |
+| `soleil`  | Soleil     | `SkyPathSection` (trajectoires soleil / lune, ciel atmosphérique, portions cachées, `SunDateControl`) |
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
 
 Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend

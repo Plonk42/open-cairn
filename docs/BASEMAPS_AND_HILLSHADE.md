@@ -117,7 +117,7 @@ flowchart LR
 | [src/lib/mapStyle.ts](../src/lib/mapStyle.ts) | Génère le `StyleSpecification` MapLibre depuis l'état du store |
 | [src/lib/ign.ts](../src/lib/ign.ts) | Registre des endpoints IGN (URL builders, definitions de couches, plages de zoom) |
 | [src/components/map/MapContainer.tsx](../src/components/map/MapContainer.tsx) | Instance MapLibre, sync style/terrain, enregistrement protocole |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | UI couches (fonds, ombrage, relief 3D, contours) |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | UI couches (fonds, ombrage, relief 3D, contours, trajectoires soleil/lune, ciel atmosphérique) |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | UI thème, blend mode, qualité de rendu, clés API IGN |
 | [src/stores/mapStore.ts](../src/stores/mapStore.ts) | Zustand : vue, layers, persistance localStorage |
 

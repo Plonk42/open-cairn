@@ -168,6 +168,7 @@ export class SkyBodyLayer implements CustomLayerInterface {
     private _pending: { track: Float32Array; ticks: Float32Array } | null = null;
     private _disc: SkyBodyDisc | null = null;
     private _visible = true;
+    private _hiddenPass = true;
 
     constructor(id: string, private readonly _palette: SkyBodyPalette) {
         this.id = id;
@@ -232,6 +233,11 @@ export class SkyBodyLayer implements CustomLayerInterface {
         this._visible = visible;
     }
 
+    /** Whether the part of the track a ridge covers is drawn at all. */
+    setHiddenPass(draw: boolean): void {
+        this._hiddenPass = draw;
+    }
+
     /** The body's disc at the selected instant, or null to hide it. */
     setDisc(disc: SkyBodyDisc | null): void {
         this._disc = disc;
@@ -275,7 +281,7 @@ export class SkyBodyLayer implements CustomLayerInterface {
         gl2.blendFunc(gl2.ONE, gl2.ONE_MINUS_SRC_ALPHA);
         gl2.disable(gl2.CULL_FACE);
 
-        this._drawHidden(gl2, m);
+        if (this._hiddenPass) this._drawHidden(gl2, m);
         this._drawVisible(gl2, m);
 
         this._restoreState(gl2, saved);

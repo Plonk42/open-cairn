@@ -69,7 +69,6 @@ export function SunDateControl() {
     const { datePart, minutesOfDay } = parseSunDate(value);
     const hh = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
     const mm = String(minutesOfDay % 60).padStart(2, '0');
-    const timeLabel = `${hh}h${mm}`;
 
     const setDate = (d: string) => {
         if (!d) return;
@@ -77,6 +76,12 @@ export function SunDateControl() {
     };
     const setMinutes = (n: number) => {
         onChange(formatSunDate(datePart, n));
+    };
+    const setTime = (t: string) => {
+        // Empty while the user is still typing one of the two fields.
+        const [h, m] = t.split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+        setMinutes(h * 60 + m);
     };
 
     const [playing, setPlaying] = useState(false);
@@ -124,14 +129,24 @@ export function SunDateControl() {
                     type="range"
                     min={0}
                     max={1439}
-                    step={5}
+                    // To the minute, so the slider can show exactly what the
+                    // adjacent field holds — a coarser step would snap the
+                    // thumb away from a typed 18:03.
+                    step={1}
                     value={minutesOfDay}
                     onChange={(e) => setMinutes(Number(e.target.value))}
                     className="min-w-0 flex-1 accent-green-600"
                 />
-                <span className="w-12 text-right font-mono text-xs text-slate-700 tabular-nums dark:text-slate-200">
-                    {timeLabel}
-                </span>
+                <input
+                    aria-label="Heure saisie au clavier"
+                    title="Heure exacte, à la minute — liée au curseur."
+                    type="time"
+                    step={60}
+                    value={`${hh}:${mm}`}
+                    onChange={(e) => setTime(e.target.value)}
+                    // Wide enough for a browser whose locale adds an AM/PM field.
+                    className="w-24 flex-shrink-0 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-xs text-slate-700 tabular-nums focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                />
             </div>
             <div className="mt-1 flex items-center justify-between gap-2">
                 <p className="font-mono text-[10px] text-slate-400">

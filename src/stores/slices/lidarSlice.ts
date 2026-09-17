@@ -472,13 +472,6 @@ export interface LidarSlice {
      */
     lidarSunEnabled: boolean;
     setLidarSunEnabled: (v: boolean) => void;
-    /**
-     * Draw the sun's track across the sky for the selected day, with the disc at
-     * its true angular size and a hidden-line pass so a ridge hides it. What
-     * turns the date picker into a "when do I need to be there" tool.
-     */
-    lidarSunPath: boolean;
-    setLidarSunPath: (v: boolean) => void;
     /** Cast hard/soft shadows from the LiDAR mesh based on the sun direction. */
     lidarShadows: boolean;
     setLidarShadows: (v: boolean) => void;
@@ -775,7 +768,6 @@ export const LIDAR_RENDER_DEFAULTS = {
     lidarSunWarmth: DEFAULT_SUN_SETTINGS.warmth,
     lidarSunIntensity: DEFAULT_SUN_SETTINGS.intensity,
     lidarSunEnabled: false,
-    lidarSunPath: false,
     lidarShadows: true,
     lidarShadowStrength: 0.7,
     lidarShadowMapSize: 2048,
@@ -1010,8 +1002,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         setLidarSunIntensity: (lidarSunIntensity) => set({ lidarSunIntensity }),
         lidarSunEnabled: persisted.lidarSunEnabled ?? LIDAR_RENDER_DEFAULTS.lidarSunEnabled,
         setLidarSunEnabled: (lidarSunEnabled) => set({ lidarSunEnabled }),
-        lidarSunPath: persisted.lidarSunPath ?? LIDAR_RENDER_DEFAULTS.lidarSunPath,
-        setLidarSunPath: (lidarSunPath) => set({ lidarSunPath }),
         lidarShadows: persisted.lidarShadows ?? LIDAR_RENDER_DEFAULTS.lidarShadows,
         setLidarShadows: (lidarShadows) => set({ lidarShadows }),
         lidarShadowStrength: persisted.lidarShadowStrength ?? LIDAR_RENDER_DEFAULTS.lidarShadowStrength,
@@ -1362,7 +1352,6 @@ export function selectLidarPersisted(
     | 'lidarSunWarmth'
     | 'lidarSunIntensity'
     | 'lidarSunEnabled'
-    | 'lidarSunPath'
     | 'lidarShadows'
     | 'lidarShadowStrength'
     | 'lidarShadowMapSize'
@@ -1441,7 +1430,6 @@ export function selectLidarPersisted(
         lidarSunWarmth: s.lidarSunWarmth,
         lidarSunIntensity: s.lidarSunIntensity,
         lidarSunEnabled: s.lidarSunEnabled,
-        lidarSunPath: s.lidarSunPath,
         lidarShadows: s.lidarShadows,
         lidarShadowStrength: s.lidarShadowStrength,
         lidarShadowMapSize: s.lidarShadowMapSize,

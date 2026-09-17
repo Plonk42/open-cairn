@@ -1,7 +1,8 @@
 /**
  * Every piece of text written over the sky: the hour a body clears the relief
- * and the hour it goes back behind it, plus the hour of each graduation along
- * the track — for the sun and for the moon.
+ * and the hour it goes back behind it, the hour of each graduation along the
+ * track, and the selected time beside the body's current position — for the sun
+ * and for the moon.
  *
  * The sky-body layers already show *that* a track is cut by the terrain — they
  * depth-test it on the GPU and draw the hidden half dashed. That answer never
@@ -22,7 +23,15 @@
  * level and shoots hundreds of pixels off. A direction has no such dependency.
  */
 
-import { hourTicks, moonSampleAt, sampleSkyPath, sunSampleAt, type SkyPathTick, type SkySampleAt } from '@/lib/skyPath';
+import {
+    hourTicks,
+    moonSampleAt,
+    sampleSkyPath,
+    sunSampleAt,
+    type SkyPathSample,
+    type SkyPathTick,
+    type SkySampleAt,
+} from '@/lib/skyPath';
 import {
     findSkyCrossings,
     formatCrossingTime,
@@ -109,6 +118,21 @@ function hourLabelElement(body: LabelledBody, tick: SkyPathTick): HTMLElement {
     return el;
 }
 
+/**
+ * The selected time, beside where the body stands at that minute. Anchored to
+ * the TRACK, not to the disc: forcing the lighting moves the sun's disc off its
+ * track, and the hour must stay where that hour really is.
+ */
+function nowLabelElement(body: LabelledBody, minutesOfDay: number): HTMLElement {
+    const el = document.createElement('div');
+    const when = formatCrossingTime(minutesOfDay);
+    el.className = 'absolute left-0 top-0 hidden rounded px-1 py-px text-[11px] font-semibold '
+        + `bg-black/55 whitespace-nowrap will-change-transform ${body.hourTone}`;
+    el.textContent = when;
+    el.title = `${body.subject} est ici à ${when}, l'heure choisie`;
+    return el;
+}
+
 /** The camera eye — the same eye the track's hidden half is depth-tested from. */
 function cameraObserver(map: MapLibreMap): SkylineObserver | null {
     const eye = map.transform.getCameraLngLat();
@@ -149,7 +173,9 @@ function projectDirection(map: MapLibreMap, dir: readonly number[]): { x: number
 
 export function SkyLabelsOverlay() {
     const mapInstance = useMapStore((s) => s.mapInstance);
-    const enabled = useMapStore((s) => s.lidarSunPath);
+    const sunEnabled = useMapStore((s) => s.skySunPath);
+    const moonEnabled = useMapStore((s) => s.skyMoonPath);
+    const showHidden = useMapStore((s) => s.skyHiddenPath);
     const sunDate = useMapStore((s) => s.lidarSunDate);
     // Same site as the track (see `SunPathOverlay`), so both describe one sun.
     const lng = useMapStore((s) => s.lidarShaded?.centerLng ?? s.lidarMesh?.centerLng ?? s.view.longitude);
@@ -188,7 +214,14 @@ export function SkyLabelsOverlay() {
         body: LabelledBody,
         positionAt: SkySampleAt,
         skyline: (azimuthDeg: number) => SkylinePoint,
+        nowMinutes: number,
+        showHidden: boolean,
     ) => {
+        // With the hidden half switched off, an hour behind a ridge has no
+        // graduation left to sit under: its label would float over the
+        // landscape pointing at nothing.
+        const covered = (sample: SkyPathSample) =>
+            !showHidden && sample.elevationDeg <= skyline(sample.azimuthDeg).elevationDeg;
         const { rise, set } = findSkyCrossings(positionAt, skyline);
         for (const crossing of [rise, set]) {
             if (!crossing) continue;
@@ -196,14 +229,26 @@ export function SkyLabelsOverlay() {
             host.appendChild(el);
             labelsRef.current.push({
                 dirs: [positionAt(crossing.minutesOfDay).dir],
-                anchor: 'translate(-50%, -110%)',
+                // Off the crossing, or the box would sit astride the ridge and
+                // over the track. The body always drifts rightwards on screen,
+                // so the track leaves a rise to the right and reaches a set
+                // from the left: each label steps to its own free side.
+                anchor: crossing.kind === 'rise'
+                    ? 'translate(calc(-100% - 8px), -240%)'
+                    : 'translate(8px, -240%)',
                 el,
             });
+        }
+        const now = positionAt(nowMinutes);
+        if (now.elevationDeg > 0 && !covered(now)) {
+            const el = nowLabelElement(body, nowMinutes);
+            host.appendChild(el);
+            labelsRef.current.push({ dirs: [now.dir], anchor: 'translate(14px, -50%)', el });
         }
         // Only above the true horizon: the rest of the track runs through the
         // ground, where an hour would just float over the landscape.
         for (const tick of hourTicks(sampleSkyPath(positionAt))) {
-            if (tick.elevationDeg <= 0) continue;
+            if (tick.elevationDeg <= 0 || covered(positionAt(tick.minutesOfDay))) continue;
             const el = hourLabelElement(body, tick);
             host.appendChild(el);
             labelsRef.current.push({ dirs: [...tick.ends], anchor: 'translate(-50%, 3px)', el });
@@ -220,7 +265,7 @@ export function SkyLabelsOverlay() {
         // The eye is what the skyline depends on, so a pure rotation or a zoom
         // that leaves it in place need not pay for a new scan.
         const key = [
-            sunDate, lat.toFixed(4), lng.toFixed(4),
+            sunDate, lat.toFixed(4), lng.toFixed(4), String(showHidden),
             observer.lng.toFixed(4), observer.lat.toFixed(4), observer.altitudeM.toFixed(0),
         ].join('|');
         if (key === lastKeyRef.current) return;
@@ -241,16 +286,20 @@ export function SkyLabelsOverlay() {
             return point;
         };
 
-        const { datePart } = parseSunDate(sunDate);
+        const { datePart, minutesOfDay } = parseSunDate(sunDate);
         clearLabels();
-        addBodyLabels(host, SUN_BODY, (t) => sunSampleAt(datePart, t, lat, lng), skyline);
-        addBodyLabels(host, MOON_BODY, (t) => moonSampleAt(datePart, t, lat, lng), skyline);
+        if (sunEnabled) {
+            addBodyLabels(host, SUN_BODY, (t) => sunSampleAt(datePart, t, lat, lng), skyline, minutesOfDay, showHidden);
+        }
+        if (moonEnabled) {
+            addBodyLabels(host, MOON_BODY, (t) => moonSampleAt(datePart, t, lat, lng), skyline, minutesOfDay, showHidden);
+        }
         place();
-    }, [mapInstance, sunDate, lat, lng, clearLabels, place, addBodyLabels]);
+    }, [mapInstance, sunDate, lat, lng, sunEnabled, moonEnabled, showHidden, clearLabels, place, addBodyLabels]);
 
     useEffect(() => {
         const map = mapInstance;
-        if (!map || !enabled) return undefined;
+        if (!map || (!sunEnabled && !moonEnabled)) return undefined;
 
         const host = document.createElement('div');
         host.className = 'pointer-events-none absolute inset-0 overflow-hidden';
@@ -277,7 +326,7 @@ export function SkyLabelsOverlay() {
             host.remove();
             hostRef.current = null;
         };
-    }, [mapInstance, enabled, recompute, place, clearLabels]);
+    }, [mapInstance, sunEnabled, moonEnabled, recompute, place, clearLabels]);
 
     return null;
 }

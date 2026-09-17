@@ -47,6 +47,9 @@ Champs principaux :
   baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity
   terrainEnabled, terrainExaggeration, contourLinesEnabled, contourLinesOpacity
   renderQuality, tileCacheSize, ignApiKey?, ignDemApiKey?, uiTheme
+  skySunPath, skyMoonPath           // trajectoires dans le ciel, communes aux deux vues
+  skyHiddenPath                     // dessiner ou non leur moitié masquée par le relief
+  atmosphericSky                    // vue Itinéraire : ciel piloté par le soleil
 
   // LiDAR (chargement)
   lidarMode: 'shaded' | 'delaunay' | 'poisson'
@@ -178,12 +181,16 @@ Deux cas particuliers :
   `uniform1f` correspondants.
 - **Réglage de capture** (il change la géométrie produite) : il va dans `captureParamsFromState`
   et `applyCaptureParams`, pas dans l'ambiance. Un réglage rejouable à chaud est une ambiance.
-- **Outil de mesure, pas d'ambiance** : `lidarSunPath` (la trajectoire du soleil dans le ciel)
-  est persisté comme préférence mais **volontairement exclu de l'ambiance** — une scène de la
-  galerie ou un rendu exporté ne doit jamais trimballer un trait de mesure en travers de
-  l'image. Même logique que `lidarShadowMapSize`, qui dépend de la VRAM de la machine
-  d'affichage. Le test `showcaseAmbiance.test.ts` vérifie que tout `LIDAR_RENDER_DEFAULTS` est
-  dans l'ambiance : une exclusion doit être ajoutée à son ensemble `NOT_IN_AMBIANCE`, ce qui
+- **Outil de mesure, pas d'ambiance** : les trajectoires du soleil et de la lune dans le ciel
+  ne sont pas des réglages de rendu. Leurs drapeaux `skySunPath` / `skyMoonPath` /
+  `skyHiddenPath` ne vivent donc
+  **pas** dans `lidarSlice` mais dans [settingsSlice.ts](../src/stores/slices/settingsSlice.ts),
+  avec les autres réglages globaux d'outillage — les deux vues (Studio et Itinéraire) partagent
+  les mêmes cases, et
+  « Réinitialiser le rendu » ne l'efface pas. Un réglage rangé dans `lidarSlice` aurait dû être
+  exclu de l'ambiance à la main, comme `lidarShadowMapSize` qui dépend de la VRAM de la machine
+  d'affichage : le test `showcaseAmbiance.test.ts` vérifie que tout `LIDAR_RENDER_DEFAULTS` est
+  dans l'ambiance, et toute exclusion doit être ajoutée à son ensemble `NOT_IN_AMBIANCE`, ce qui
   force à la justifier.
 - **Bascule d'un attribut cuit à la capture** : `lidarCoverEnabled` est une ambiance (donc
   rejouable à chaud) alors que la donnée qu'elle pilote, `a_cover`, est produite par le worker.
