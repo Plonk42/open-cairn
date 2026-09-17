@@ -25,6 +25,7 @@ import {
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
     VIEWPOINT_INITIAL_PITCH,
+    VIEWPOINT_MAX_PITCH,
     type LookDirection,
 } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
@@ -98,10 +99,19 @@ export function ViewpointController(): null {
         // clamped if we did not turn it off here too.
         map.setCenterClampedToGround(false);
         setTerrainCameraCollision(map, false);
+        // Same reason for the pitch ceiling: MapContainer raises it for this mode,
+        // but its effect runs after ours and nothing would re-apply the camera —
+        // a restored look above the horizon would stay clamped at 85°.
+        map.setMaxPitch(VIEWPOINT_MAX_PITCH);
         const restoreGestures = suspendMapGestures(map);
 
-        const look: LookDirection = { bearing: map.getBearing(), pitch: VIEWPOINT_INITIAL_PITCH };
-        let fovDeg = initialFov;
+        // A share link opens straight onto its author's framing; otherwise we
+        // face whichever way the map already did, just below the horizon.
+        const framing = useMapStore.getState().viewpointFraming;
+        const look: LookDirection = framing
+            ? { bearing: framing.bearing, pitch: framing.pitch }
+            : { bearing: map.getBearing(), pitch: VIEWPOINT_INITIAL_PITCH };
+        let fovDeg = framing?.fovDeg ?? initialFov;
         // Local copy: the altitude is not user data, it is a reading of the DEM,
         // and the DEM answers differently depending on the zoom it is sampled at
         // (see `settleOnGround`). Refining it in the store would restart this

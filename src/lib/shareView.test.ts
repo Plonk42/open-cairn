@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
 import { decodeShareState, encodeShareState, type SharedState } from '@/lib/shareView';
+import {
+    VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_MIN_FOV,
+    type ViewpointFraming,
+} from '@/lib/viewpointCamera';
+import { describe, expect, it } from 'vitest';
 
 function baseState(): SharedState {
     return {
         view: { longitude: 6.865432, latitude: 45.832611, zoom: 14.27, pitch: 52.3, bearing: 117.8 },
+        viewpoint: null,
         baseLayer: 'plan',
         hillshadeEnabled: true,
         hillshadeSource: 'mnh',
@@ -11,8 +17,14 @@ function baseState(): SharedState {
         hillshadeIntensity: 0.8,
         terrainEnabled: true,
         terrainExaggeration: 1.4,
+        terrainDemSource: 'mapterhorn',
         contourLinesEnabled: false,
         contourLinesOpacity: 0.5,
+        sunDate: '2024-06-21T07:30',
+        atmosphericSky: true,
+        skySunPath: true,
+        skyMoonPath: false,
+        skyHiddenPath: true,
         routeActive: true,
         routeMode: 'auto',
         colorElevationBySlope: true,
@@ -50,6 +62,16 @@ describe('shareView round-trip', () => {
         expect(decoded.waypoints[1].modeFromPrevious).toBe('free');
     });
 
+    it('carries the terrain DEM source and the sun/moon settings', () => {
+        const decoded = decodeShareState(encodeShareState(baseState()))!;
+        expect(decoded.terrainDemSource).toBe('mapterhorn');
+        expect(decoded.sunDate).toBe('2024-06-21T07:30');
+        expect(decoded.atmosphericSky).toBe(true);
+        expect(decoded.skySunPath).toBe(true);
+        expect(decoded.skyMoonPath).toBe(false);
+        expect(decoded.skyHiddenPath).toBe(true);
+    });
+
     it('produces a URL-safe payload (no +, /, or = characters)', () => {
         const encoded = encodeShareState(baseState());
         expect(encoded).not.toMatch(/[+/=]/);
@@ -58,5 +80,41 @@ describe('shareView round-trip', () => {
     it('returns null for malformed input', () => {
         expect(decodeShareState('not-valid-base64-$$$')).toBeNull();
         expect(decodeShareState('')).toBeNull();
+    });
+});
+
+describe('shareView viewpoint', () => {
+    function withViewpoint(framing: ViewpointFraming): SharedState {
+        return {
+            ...baseState(),
+            viewpoint: { eye: { lng: 6.912345, lat: 45.901234, altitude: 2843.6 }, framing },
+        };
+    }
+
+    it('round-trips the eye and its framing', () => {
+        const decoded = decodeShareState(
+            encodeShareState(withViewpoint({ bearing: 214.7, pitch: 96.4, fovDeg: 23.5 })),
+        )!;
+        expect(decoded.viewpoint).not.toBeNull();
+        const vp = decoded.viewpoint!;
+        expect(vp.eye.lng).toBeCloseTo(6.912345, 6);
+        expect(vp.eye.lat).toBeCloseTo(45.901234, 6);
+        expect(vp.eye.altitude).toBeCloseTo(2843.6, 1);
+        expect(vp.framing.bearing).toBeCloseTo(214.7, 1);
+        // above the horizon: the ceiling the plain map camera has must not apply
+        expect(vp.framing.pitch).toBeCloseTo(96.4, 1);
+        expect(vp.framing.fovDeg).toBeCloseTo(23.5, 2);
+    });
+
+    it('clamps a framing the mode could not accept', () => {
+        const decoded = decodeShareState(
+            encodeShareState(withViewpoint({ bearing: 0, pitch: 400, fovDeg: 0.1 })),
+        )!;
+        expect(decoded.viewpoint!.framing.pitch).toBe(VIEWPOINT_MAX_PITCH);
+        expect(decoded.viewpoint!.framing.fovDeg).toBe(VIEWPOINT_MIN_FOV);
+    });
+
+    it('decodes to null when the sharer was not in the mode', () => {
+        expect(decodeShareState(encodeShareState(baseState()))!.viewpoint).toBeNull();
     });
 });

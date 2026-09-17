@@ -147,7 +147,9 @@ d'actions qui regroupe galerie, export et partage.
 - Le **tutoriel du Studio** ne se lance pas sur mobile (il désigne du chrome desktop).
 - Le mode *Point de vue* est **desktop seulement** (souris) et n'est pas persisté :
   il s'éteint au rechargement. Il survit en revanche à un changement de vue, puisque
-  les deux vues l'offrent.
+  les deux vues l'offrent, et un **lien de partage** émis depuis le mode rouvre
+  directement dessus — même point de station, même direction, même focale
+  (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.

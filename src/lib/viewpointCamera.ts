@@ -41,6 +41,16 @@ export interface LookDirection {
     pitch: number;
 }
 
+/**
+ * A look direction plus the lens it is seen through. Together with the eye, this
+ * is everything the rendered image depends on — which is why it travels as one
+ * piece through a share link.
+ */
+export interface ViewpointFraming extends LookDirection {
+    /** Vertical field of view in degrees. */
+    fovDeg: number;
+}
+
 /** Canvas and field of view, i.e. everything the projection needs besides the eye. */
 export interface ViewpointLens {
     /** Canvas height in CSS pixels (`canvas.clientHeight`). */

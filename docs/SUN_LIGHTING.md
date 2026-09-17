@@ -339,6 +339,11 @@ Ils vivent donc avec les autres réglages globaux d'outillage (`renderQuality`,
 `atmosphericSky` les rejoint : c'est un réglage de la vue Itinéraire seule, dont le
 pendant Studio est `lidarPhotoreal`.
 
+Les quatre drapeaux **et** `lidarSunDate` voyagent dans un lien de partage : une
+trajectoire ne veut rien dire sans sa date. La restauration passe par
+`applyLidarSunDate`, qui écrit aussi les quatre valeurs d'éclairage dérivées dont le
+ciel atmosphérique est peint (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
+
 ### Pourquoi WebGL et pas un overlay SVG
 
 Un tracé SVG par-dessus la carte serait bien plus simple, mais il perdrait la

@@ -21,8 +21,25 @@ if (shared) {
     map.setHillshadeIntensity(shared.hillshadeIntensity);
     map.setTerrainEnabled(shared.terrainEnabled);
     map.setTerrainExaggeration(shared.terrainExaggeration);
+    map.setTerrainDemSource(shared.terrainDemSource);
     map.setContourLinesEnabled(shared.contourLinesEnabled);
     map.setContourLinesOpacity(shared.contourLinesOpacity);
+    // Sun/moon: the date comes first and through `applyLidarSunDate`, which also
+    // recomputes the four lighting values the atmospheric sky is painted from —
+    // setting the date alone would show the right tracks under the wrong sky.
+    // It reads the map centre, hence after `setView`.
+    map.applyLidarSunDate(shared.sunDate);
+    map.setAtmosphericSky(shared.atmosphericSky);
+    map.setSkySunPath(shared.skySunPath);
+    map.setSkyMoonPath(shared.skyMoonPath);
+    map.setSkyHiddenPath(shared.skyHiddenPath);
+    if (shared.viewpoint) {
+        // The first-person mode is session-only by design; a share link is the one
+        // thing allowed to start in it, because there the standpoint IS the view.
+        map.setViewpoint(shared.viewpoint.eye);
+        // After `setViewpoint`, which clears the framing.
+        map.setViewpointFraming(shared.viewpoint.framing);
+    }
     const route = useRouteStore.getState();
     route.setActive(false); // Always start in read mode when opening a shared link
     route.setMode(shared.routeMode);

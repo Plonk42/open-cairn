@@ -1,5 +1,5 @@
 import { setTileCacheMaxSize } from '@/lib/compositeProtocol';
-import type { Viewpoint } from '@/lib/viewpointCamera';
+import type { Viewpoint, ViewpointFraming } from '@/lib/viewpointCamera';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
@@ -79,6 +79,18 @@ export interface SettingsSlice {
     viewpoint: Viewpoint | null;
     setViewpoint: (v: Viewpoint | null) => void;
 
+    /**
+     * Look direction and lens the mode STARTS with, `null` for its defaults
+     * (facing the current bearing, just below the horizon). Only a share link
+     * fills it: during the mode the framing changes on every pointer move and
+     * lives in `ViewpointController`'s closure, never here.
+     *
+     * Cleared by {@link setViewpoint}, so picking another standpoint on the map
+     * always starts from the defaults.
+     */
+    viewpointFraming: ViewpointFraming | null;
+    setViewpointFraming: (v: ViewpointFraming | null) => void;
+
     /** Waiting for the click that picks the viewpoint on the map. */
     viewpointPicking: boolean;
     setViewpointPicking: (v: boolean) => void;
@@ -124,7 +136,10 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     setFreeCamera: (freeCamera) => set({ freeCamera }),
 
     viewpoint: null,
-    setViewpoint: (viewpoint) => set({ viewpoint, viewpointPicking: false }),
+    setViewpoint: (viewpoint) => set({ viewpoint, viewpointPicking: false, viewpointFraming: null }),
+
+    viewpointFraming: null,
+    setViewpointFraming: (viewpointFraming) => set({ viewpointFraming }),
 
     viewpointPicking: false,
     setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),

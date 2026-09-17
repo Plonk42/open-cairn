@@ -1,18 +1,41 @@
-import type { HillshadeSource, MapView } from '@/stores/mapStore';
+import type { HillshadeSource, MapView, TerrainDemSource } from '@/stores/mapStore';
 import type { RouteMode, RouteWaypoint } from '@/stores/routeStore';
 import type { BaseLayerId } from './baseLayers';
 import type { BlendMode } from './compositeProtocol';
 import type { LngLatTuple } from './geo';
+import { formatSunDate, todaySunDatePart } from './sun';
+import {
+    clampNumber,
+    VIEWPOINT_MAX_FOV,
+    VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_MIN_FOV,
+    VIEWPOINT_MIN_PITCH,
+    type Viewpoint,
+    type ViewpointFraming,
+} from './viewpointCamera';
+
+/**
+ * Eye, look direction and lens of the first-person mode: `[lng, lat, altitude,
+ * bearing, pitch, fovDeg]`.
+ *
+ * The MapLibre camera this produces is NOT serialised: its centre sits 4 km away
+ * at an altitude unrelated to the relief, and the recipient's canvas has another
+ * height, so replaying `center/zoom/elevation` would frame something else
+ * entirely. Only the standpoint is portable — `cameraForViewpoint` rebuilds the
+ * rest from it.
+ */
+type SerializedViewpoint = [number, number, number, number, number, number];
 
 /** Compact serialisable representation of the full app state. */
 interface SharePayload {
-    v: 1;
+    v: 2;
     // Map view
     lng: number;
     lat: number;
     z: number;
     p: number;
     b: number;
+    vp?: SerializedViewpoint;
     // Layers
     bl: BaseLayerId;
     hs: 0 | 1;
@@ -21,8 +44,15 @@ interface SharePayload {
     hsi: number;
     te: 0 | 1;
     tex: number;
+    tds: TerrainDemSource;
     cl: 0 | 1;
     clo: number;
+    // Sky, sun and moon
+    sd: string;
+    as: 0 | 1;
+    sp: 0 | 1;
+    mp: 0 | 1;
+    hp: 0 | 1;
     // Route
     ra: 0 | 1;
     rm: RouteMode;
@@ -36,8 +66,16 @@ interface SerializedWaypoint {
     m?: RouteMode;
 }
 
+/** Standpoint of the "Point de vue" mode, when it was on at share time. */
+export interface SharedViewpoint {
+    eye: Viewpoint;
+    framing: ViewpointFraming;
+}
+
 export interface SharedState {
     view: MapView;
+    /** `null` when the sharer was not in the first-person mode. */
+    viewpoint: SharedViewpoint | null;
     baseLayer: BaseLayerId;
     hillshadeEnabled: boolean;
     hillshadeSource: HillshadeSource;
@@ -45,8 +83,15 @@ export interface SharedState {
     hillshadeIntensity: number;
     terrainEnabled: boolean;
     terrainExaggeration: number;
+    terrainDemSource: TerrainDemSource;
     contourLinesEnabled: boolean;
     contourLinesOpacity: number;
+    /** Naive "YYYY-MM-DDTHH:mm": drives the sky colour and both sky tracks. */
+    sunDate: string;
+    atmosphericSky: boolean;
+    skySunPath: boolean;
+    skyMoonPath: boolean;
+    skyHiddenPath: boolean;
     routeActive: boolean;
     routeMode: RouteMode;
     colorElevationBySlope: boolean;
@@ -54,19 +99,56 @@ export interface SharedState {
     selectionRange: [number, number] | null;
 }
 
+/** Exhaustive by construction: a new DEM source will not compile until listed. */
+const KNOWN_DEM_SOURCES: Record<TerrainDemSource, true> = { auto: true, ign: true, mapterhorn: true };
+
+const SUN_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
 function round(n: number, decimals: number): number {
     const f = 10 ** decimals;
     return Math.round(n * f) / f;
 }
 
+function serializeViewpoint(vp: SharedViewpoint): SerializedViewpoint {
+    return [
+        round(vp.eye.lng, 6),
+        round(vp.eye.lat, 6),
+        round(vp.eye.altitude, 1),
+        round(vp.framing.bearing, 1),
+        round(vp.framing.pitch, 1),
+        round(vp.framing.fovDeg, 2),
+    ];
+}
+
+/**
+ * Rebuild a standpoint from its tuple, clamped to the ranges the mode accepts.
+ * A link forged with a pitch of 400° must land on a usable view, not on a camera
+ * MapLibre refuses: there is no error boundary to catch the throw.
+ */
+function deserializeViewpoint(vp: SerializedViewpoint | undefined): SharedViewpoint | null {
+    if (!Array.isArray(vp) || vp.length !== 6 || vp.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+        return null;
+    }
+    const [lng, lat, altitude, bearing, pitch, fovDeg] = vp;
+    return {
+        eye: { lng, lat, altitude },
+        framing: {
+            bearing,
+            pitch: clampNumber(pitch, VIEWPOINT_MIN_PITCH, VIEWPOINT_MAX_PITCH),
+            fovDeg: clampNumber(fovDeg, VIEWPOINT_MIN_FOV, VIEWPOINT_MAX_FOV),
+        },
+    };
+}
+
 export function encodeShareState(state: SharedState): string {
     const payload: SharePayload = {
-        v: 1,
+        v: 2,
         lng: round(state.view.longitude, 6),
         lat: round(state.view.latitude, 6),
         z: round(state.view.zoom, 2),
         p: round(state.view.pitch, 1),
         b: round(state.view.bearing, 1),
+        vp: state.viewpoint ? serializeViewpoint(state.viewpoint) : undefined,
         bl: state.baseLayer,
         hs: state.hillshadeEnabled ? 1 : 0,
         hss: state.hillshadeSource,
@@ -74,8 +156,14 @@ export function encodeShareState(state: SharedState): string {
         hsi: round(state.hillshadeIntensity, 2),
         te: state.terrainEnabled ? 1 : 0,
         tex: round(state.terrainExaggeration, 2),
+        tds: state.terrainDemSource,
         cl: state.contourLinesEnabled ? 1 : 0,
         clo: round(state.contourLinesOpacity, 2),
+        sd: state.sunDate,
+        as: state.atmosphericSky ? 1 : 0,
+        sp: state.skySunPath ? 1 : 0,
+        mp: state.skyMoonPath ? 1 : 0,
+        hp: state.skyHiddenPath ? 1 : 0,
         ra: state.routeActive ? 1 : 0,
         rm: state.routeMode,
         ces: state.colorElevationBySlope ? 1 : 0,
@@ -106,7 +194,7 @@ export function decodeShareState(hash: string): SharedState | null {
         const bytes = Uint8Array.from(binary, (c) => c.codePointAt(0) ?? 0);
         const json = new TextDecoder().decode(bytes);
         const p: SharePayload = JSON.parse(json);
-        if (p.v !== 1) return null;
+        if (p.v !== 2) return null;
 
         let wpId = 1;
         const waypoints: RouteWaypoint[] = p.wps.map((wp, i) => ({
@@ -117,6 +205,7 @@ export function decodeShareState(hash: string): SharedState | null {
 
         return {
             view: { longitude: p.lng, latitude: p.lat, zoom: p.z, pitch: p.p, bearing: p.b },
+            viewpoint: deserializeViewpoint(p.vp),
             baseLayer: p.bl,
             hillshadeEnabled: p.hs === 1,
             hillshadeSource: p.hss,
@@ -124,8 +213,14 @@ export function decodeShareState(hash: string): SharedState | null {
             hillshadeIntensity: p.hsi,
             terrainEnabled: p.te === 1,
             terrainExaggeration: p.tex,
+            terrainDemSource: KNOWN_DEM_SOURCES[p.tds] ? p.tds : 'auto',
             contourLinesEnabled: p.cl === 1,
             contourLinesOpacity: p.clo,
+            sunDate: SUN_DATE_RE.test(p.sd) ? p.sd : formatSunDate(todaySunDatePart(), 12 * 60),
+            atmosphericSky: p.as === 1,
+            skySunPath: p.sp === 1,
+            skyMoonPath: p.mp === 1,
+            skyHiddenPath: p.hp === 1,
             routeActive: p.ra === 1,
             routeMode: p.rm,
             colorElevationBySlope: p.ces === 1,
