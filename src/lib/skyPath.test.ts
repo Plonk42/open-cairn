@@ -46,9 +46,10 @@ describe('sampleSkyPath', () => {
     it('culminates around solar noon and stays below the horizon at night', () => {
         const samples = sampleSkyPath(sunOn('2026-06-21'), 10);
         const highest = samples.reduce((a, b) => (b.elevationDeg > a.elevationDeg ? b : a));
-        // 13:34 local (CEST) — solar noon plus the equation of time. The sample
-        // grid is 10 min wide and the azimuth sweeps 0.57°/min at culmination,
-        // so the nearest sample lands within a few degrees of due south.
+        // 13:34 in Europe/Paris, the zone the suite is pinned to — solar noon
+        // plus the equation of time. The sample grid is 10 min wide and the
+        // azimuth sweeps 0.57°/min at culmination, so the nearest sample lands
+        // within a few degrees of due south.
         expect(highest.minutesOfDay).toBeGreaterThan(13 * 60);
         expect(highest.minutesOfDay).toBeLessThan(14 * 60);
         expect(Math.abs(highest.azimuthDeg - 180)).toBeLessThan(3);
