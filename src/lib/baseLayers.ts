@@ -18,6 +18,12 @@ interface BaseLayerDef {
     shortLabel: string;
     /** Hover hint describing what the layer is. */
     description: string;
+    /**
+     * The raster carries no place name of its own, so the IGN toponym overlay
+     * can be offered on it. False for the basemaps that print their own labels:
+     * the overlay would double-print them.
+     */
+    textless: boolean;
 }
 
 /** Declaration order drives the pickers. */
@@ -27,42 +33,49 @@ export const BASE_LAYERS = {
         label: IGN_LAYERS.scan25Tour.label,
         shortLabel: 'SCAN 25',
         description: 'Carte topographique IGN au 1:25 000 — la référence en montagne',
+        textless: false,
     },
     plan: {
         source: 'planIgn',
         label: IGN_LAYERS.planIgn.label,
         shortLabel: 'Plan',
         description: 'Plan IGN v2 — cartographie générale, lisible à tous les zooms',
+        textless: false,
     },
     planhd: {
         source: 'planIgnHd',
         label: IGN_LAYERS.planIgnHd.label,
         shortLabel: 'Plan HD',
-        description: 'Le Plan IGN redessiné à partir du LiDAR HD — très détaillé, sans toponymes',
+        description: 'Le Plan IGN redessiné à partir du LiDAR HD — très détaillé, toponymes en option',
+        textless: true,
     },
     ortho: {
         source: 'ortho',
         label: IGN_LAYERS.ortho.label,
         shortLabel: 'Photo',
         description: 'Orthophotos IGN (BD ORTHO) — imagerie aérienne',
+        textless: true,
     },
     cosia: {
         source: 'cosia',
         label: IGN_LAYERS.cosia.label,
         shortLabel: 'CoSIA',
         description: 'Couverture du sol prédite par IA depuis la BD ORTHO — 15 classes (sol nu, neige, pelouse, conifère…)',
+        textless: true,
     },
     osm: {
         source: 'osm',
         label: 'OpenStreetMap',
         shortLabel: 'OSM',
         description: 'OpenStreetMap — sentiers, refuges et points d’eau détaillés',
+        textless: false,
     },
     lidar: {
         source: null,
         label: 'LiDAR',
         shortLabel: 'LiDAR',
         description: 'Ombrage du relief calculé depuis le LiDAR HD, sans carte ni photo',
+        textless: true,
     },
 } as const satisfies Record<string, BaseLayerDef>;
 

@@ -20,6 +20,31 @@ export const IGN_WMS_R_PUBLIC = 'https://data.geopf.fr/wms-r';
 export const IGN_WMS_R_PRIVATE = 'https://data.geopf.fr/private/wms-r/wms';
 
 /**
+ * `PLAN.IGN` vector tiles, open and key-free. Despite the `/tms/` path the
+ * endpoint is served in XYZ order (its own `metadata.json` says so), which is
+ * what MapLibre expects by default. Zooms 0-18, 256 px, Mapbox Vector Tiles.
+ *
+ * This is the tileset the toponym overlay reads: the Plan IGN HD raster carries
+ * no text, and Cartes IGN draws its labels from exactly these tiles.
+ */
+export const IGN_VECTOR_TILE_URL = 'https://data.geopf.fr/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf';
+export const IGN_VECTOR_TILE_MAXZOOM = 18;
+
+/**
+ * IGN's own glyph server, used as the style-wide `glyphs` endpoint.
+ *
+ * A MapLibre style accepts ONE glyphs URL, so every `text-font` in the app must
+ * resolve there. It serves `Source Sans Pro *` (what the IGN toponym layers
+ * ask for) and `Open Sans *` (what our own labels use), but NOT `Noto Sans`.
+ * It also only answers SINGLE-font stacks: a comma-joined fallback stack such
+ * as `Open Sans Bold,Arial Unicode MS Bold` returns 404.
+ */
+export const IGN_GLYPHS_URL = 'https://data.geopf.fr/annexes/ressources/vectorTiles/fonts/{fontstack}/{range}.pbf';
+
+/** Sprite of the official `PLAN.IGN` styles — the pictograms a few toponym layers draw. */
+export const IGN_PLAN_SPRITE_URL = 'https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/sprite/PlanIgn';
+
+/**
  * Build a WMTS GetTile URL template (placeholders {z}/{x}/{y}) for a layer.
  *
  * NOTE: we cannot use `URLSearchParams` here because it would percent-encode

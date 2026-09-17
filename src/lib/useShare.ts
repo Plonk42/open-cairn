@@ -40,6 +40,7 @@ export function useShare(): { shareTooltip: boolean; handleShare: () => void } {
             view: map.view,
             viewpoint: currentViewpoint(map),
             baseLayer: map.baseLayer,
+            toponymsEnabled: map.toponymsEnabled,
             hillshadeEnabled: map.hillshadeEnabled,
             hillshadeSource: map.hillshadeSource,
             hillshadeBlend: map.hillshadeBlend,

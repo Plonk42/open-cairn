@@ -10,11 +10,15 @@ const SHADOW_TITLES: Record<HillshadeSource, string> = {
     mnh: 'Modèle Numérique de Hauteur (canopée)',
 };
 
+const TOPONYMS_HINT = 'Superpose les noms de lieux issus des tuiles vectorielles IGN. Proposé sur les fonds qui ne portent aucun texte : décochez pour retrouver l’image nue.';
+
 /** Base-map picker (SCAN 25 / Plan / Ortho / OSM / LiDAR). */
 export function BaseLayerSection() {
     const baseLayer = useMapStore((s) => s.baseLayer);
     const setBaseLayer = useMapStore((s) => s.setBaseLayer);
     const ignApiKey = useMapStore((s) => s.ignApiKey);
+    const toponymsEnabled = useMapStore((s) => s.toponymsEnabled);
+    const setToponymsEnabled = useMapStore((s) => s.setToponymsEnabled);
 
     return (
         <div>
@@ -39,6 +43,18 @@ export function BaseLayerSection() {
                     );
                 })}
             </div>
+            {BASE_LAYERS[baseLayer].textless && (
+                <label className="mt-2 flex items-center justify-between gap-3" title={TOPONYMS_HINT}>
+                    <span className="text-sm text-slate-700 dark:text-slate-300">Toponymes</span>
+                    <input
+                        aria-label="Afficher les toponymes"
+                        type="checkbox"
+                        checked={toponymsEnabled}
+                        onChange={(e) => setToponymsEnabled(e.target.checked)}
+                        className="h-4 w-4 accent-green-600"
+                    />
+                </label>
+            )}
         </div>
     );
 }

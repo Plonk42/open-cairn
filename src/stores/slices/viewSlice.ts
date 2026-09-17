@@ -66,6 +66,13 @@ export interface ViewSlice {
     setBaseLayer: (id: BaseLayerId) => void;
 
     /**
+     * IGN toponym overlay. Only has an effect on the basemaps flagged `textless`
+     * in `BASE_LAYERS` (see `showToponyms` in `mapStyle`).
+     */
+    toponymsEnabled: boolean;
+    setToponymsEnabled: (v: boolean) => void;
+
+    /**
      * Set by the mobile long-press coordinate readout (`TouchCoordinates`) for
      * the span between the press firing and the finger lifting, so the click
      * synthesised by that touch doesn't also edit the route. Session-only.
@@ -97,6 +104,9 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
 
     baseLayer: initialActiveStyle.baseLayer,
     setBaseLayer: (baseLayer) => patchActiveStyle(set, { baseLayer }),
+
+    toponymsEnabled: initialActiveStyle.toponymsEnabled,
+    setToponymsEnabled: (toponymsEnabled) => patchActiveStyle(set, { toponymsEnabled }),
 
     coordPickActive: false,
     setCoordPickActive: (coordPickActive) => set({ coordPickActive }),

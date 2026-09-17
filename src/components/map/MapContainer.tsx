@@ -4,7 +4,7 @@ import { compositeTileUrl, registerCompositeProtocol, setIgnApiKey, SHADOW_LAYER
 import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
 import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
-import { buildMapStyle, DEFAULT_SKY, directBaseUrl, type MapStyleOptions } from '@/lib/mapStyle';
+import { buildMapStyle, DEFAULT_SKY, directBaseUrl, LABEL_FONT, type MapStyleOptions } from '@/lib/mapStyle';
 import { skyFromAtmosphere } from '@/lib/skyPaint';
 import { sunLight } from '@/lib/sun';
 import { useView } from '@/lib/useView';
@@ -41,6 +41,7 @@ function mapStyleOptionsFrom(s: MapState, studio: boolean): MapStyleOptions {
         renderQuality: s.renderQuality,
         contourLines: s.contourLinesEnabled,
         contourLinesOpacity: s.contourLinesOpacity,
+        toponyms: s.toponymsEnabled,
         ignApiKey: s.ignApiKey,
         ignDemApiKey: s.ignDemApiKey,
         terrainDemSource: s.terrainDemSource,
@@ -345,7 +346,7 @@ function ensureMarkerLayers(map: maplibregl.Map): void {
             layout: {
                 'text-field': ['get', 'name'],
                 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 18, 13],
-                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-font': [LABEL_FONT],
                 'text-anchor': 'top',
                 'text-offset': [0, 0.7],
                 'text-optional': true,
@@ -502,7 +503,7 @@ function ensureRouteLayers(map: maplibregl.Map): void {
             layout: {
                 'text-field': ['get', 'label'],
                 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 18, 14],
-                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-font': [LABEL_FONT],
                 'text-anchor': 'center',
                 'text-allow-overlap': true,
             },
@@ -725,6 +726,7 @@ export function MapContainer() {
     const renderQuality = useMapStore((s) => s.renderQuality);
     const contourLinesEnabled = useMapStore((s) => s.contourLinesEnabled);
     const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
+    const toponymsEnabled = useMapStore((s) => s.toponymsEnabled);
     const ignApiKey = useMapStore((s) => s.ignApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const freeCamera = useMapStore((s) => s.freeCamera);
@@ -1054,7 +1056,7 @@ export function MapContainer() {
             });
         }, 120);
         return () => globalThis.clearTimeout(handle);
-    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, ignApiKey, ignDemApiKey, terrainDemSource]);
+    }, [baseLayer, renderQuality, contourLinesEnabled, contourLinesOpacity, toponymsEnabled, ignApiKey, ignDemApiKey, terrainDemSource]);
 
     // When only hillshade compositing params change (source, blend, intensity),
     // swap the tile URL on the existing source to avoid any style diff overhead.

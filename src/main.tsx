@@ -15,6 +15,7 @@ if (shared) {
     map.setView(shared.view);
     // The API key is never part of a share link, so the recipient may not have one.
     map.setBaseLayer(gateKeyedBaseLayer(shared.baseLayer, map.ignApiKey));
+    map.setToponymsEnabled(shared.toponymsEnabled);
     map.setHillshadeEnabled(shared.hillshadeEnabled);
     map.setHillshadeSource(shared.hillshadeSource);
     map.setHillshadeBlend(shared.hillshadeBlend);

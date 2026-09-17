@@ -11,6 +11,7 @@ function baseState(): SharedState {
         view: { longitude: 6.865432, latitude: 45.832611, zoom: 14.27, pitch: 52.3, bearing: 117.8 },
         viewpoint: null,
         baseLayer: 'plan',
+        toponymsEnabled: true,
         hillshadeEnabled: true,
         hillshadeSource: 'mnh',
         hillshadeBlend: 'multiply',
@@ -45,6 +46,7 @@ describe('shareView round-trip', () => {
         expect(s.view.latitude).toBeCloseTo(45.832611, 6);
         expect(s.view.zoom).toBeCloseTo(14.27, 2);
         expect(s.baseLayer).toBe('plan');
+        expect(s.toponymsEnabled).toBe(true);
         expect(s.hillshadeEnabled).toBe(true);
         expect(s.hillshadeBlend).toBe('multiply');
         expect(s.terrainExaggeration).toBeCloseTo(1.4, 2);

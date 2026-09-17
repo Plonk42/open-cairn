@@ -23,6 +23,9 @@ Toutes les données restent la **propriété de l'IGN** ; leur usage est régi p
 | WMTS public                | `https://data.geopf.fr/wmts`                   | GET tuile    | Plan IGN, Ortho, CoSIA, OSM, LiDAR HD ombrage |
 | WMTS privé (clé)           | `https://data.geopf.fr/private/wmts`           | GET tuile    | SCAN 25, Plan IGN HD               |
 | WMS-r privé (clé)          | `https://data.geopf.fr/private/wms-r`          | GetMap       | DEM TerrainRGB haute résolution         |
+| Tuiles vectorielles        | `https://data.geopf.fr/tms/1.0.0/PLAN.IGN`     | GET tuile    | Surcouche de toponymes du Plan IGN HD   |
+| Polices vectorielles       | `https://data.geopf.fr/annexes/ressources/vectorTiles/fonts` | GET | `glyphs` du style MapLibre (tous les libellés) |
+| Sprite vectoriel           | `https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/sprite/PlanIgn` | GET | Pictogrammes des toponymes |
 | Navigation                 | `https://data.geopf.fr/navigation/itineraire`  | GET          | Calcul itinéraire piéton (bdtopo-osrm)  |
 | Altimétrie                 | `https://data.geopf.fr/altimetrie/1.0/.../elevationLine.json` | POST | Profil altimétrique                    |
 | Géocodage — completion     | `https://data.geopf.fr/geocodage/completion`   | GET          | Autocomplétion adresse / POI            |

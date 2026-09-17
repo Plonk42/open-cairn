@@ -17,6 +17,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 ## ✨ Fonctionnalités
 
 - **Cartographie multi-fonds** — SCAN 25, Plan IGN, Plan IGN HD, Orthophotos, CoSIA (occupation du sol par IA), OpenStreetMap, ombrage LiDAR brut
+- **Toponymes en option** — sur les fonds qui ne portent aucun texte (Plan IGN HD, Orthophotos, CoSIA, ombrage LiDAR), les noms de lieux se superposent à la demande depuis les tuiles vectorielles IGN
 - **Ombrage LiDAR HD** — composition temps réel (mode *multiply* ou *neutre*) des couches MNS / MNT / MNH
   IGN sur le fond choisi, via un protocole MapLibre custom `composite://`
 - **Relief 3D** — terrain MapLibre alimenté par le MNT IGN (TerrainRGB) ou Mapterhorn (MNT LiDAR HD), exagération réglable

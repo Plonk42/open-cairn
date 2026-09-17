@@ -45,6 +45,7 @@ Champs principaux :
   view: { longitude, latitude, zoom, pitch, bearing }
   // Fonds & overlays
   baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity
+  toponymsEnabled                   // surcouche de toponymes IGN, sur les fonds sans texte
   terrainEnabled, terrainExaggeration, contourLinesEnabled, contourLinesOpacity
   renderQuality, tileCacheSize, ignApiKey?, ignDemApiKey?, uiTheme
   skySunPath, skyMoonPath           // trajectoires dans le ciel, communes aux deux vues

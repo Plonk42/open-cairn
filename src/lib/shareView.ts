@@ -38,6 +38,7 @@ interface SharePayload {
     vp?: SerializedViewpoint;
     // Layers
     bl: BaseLayerId;
+    tp: 0 | 1;
     hs: 0 | 1;
     hss: HillshadeSource;
     hsb: BlendMode;
@@ -77,6 +78,7 @@ export interface SharedState {
     /** `null` when the sharer was not in the first-person mode. */
     viewpoint: SharedViewpoint | null;
     baseLayer: BaseLayerId;
+    toponymsEnabled: boolean;
     hillshadeEnabled: boolean;
     hillshadeSource: HillshadeSource;
     hillshadeBlend: BlendMode;
@@ -150,6 +152,7 @@ export function encodeShareState(state: SharedState): string {
         b: round(state.view.bearing, 1),
         vp: state.viewpoint ? serializeViewpoint(state.viewpoint) : undefined,
         bl: state.baseLayer,
+        tp: state.toponymsEnabled ? 1 : 0,
         hs: state.hillshadeEnabled ? 1 : 0,
         hss: state.hillshadeSource,
         hsb: state.hillshadeBlend,
@@ -207,6 +210,7 @@ export function decodeShareState(hash: string): SharedState | null {
             view: { longitude: p.lng, latitude: p.lat, zoom: p.z, pitch: p.p, bearing: p.b },
             viewpoint: deserializeViewpoint(p.vp),
             baseLayer: p.bl,
+            toponymsEnabled: p.tp === 1,
             hillshadeEnabled: p.hs === 1,
             hillshadeSource: p.hss,
             hillshadeBlend: p.hsb,

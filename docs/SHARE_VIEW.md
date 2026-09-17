@@ -71,6 +71,7 @@ Le préfixe `#share=` distingue ce fragment de celui que MapLibre écrit lui-mê
   vp?,   // point de vue : [lng, lat, altitude, bearing, pitch, fovDeg]
   // Fonds & overlays
   bl,    // baseLayer
+  tp,    // toponymsEnabled (surcouche de noms, sur les fonds sans texte)
   hs,    // hillshadeEnabled
   hss,   // hillshadeSource
   hsb,   // hillshadeBlend

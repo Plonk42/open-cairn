@@ -21,11 +21,33 @@ sept fonds sont disponibles :
 | **LiDAR brut**  | IGN LiDAR HD ombrage             | Lecture pure du relief              |
 
 **Plan IGN HD** est le nouveau Plan IGN dérivé du LiDAR HD, celui de l'application Cartes
-IGN : emprises au sol détaillées, végétation, relief souligné — mais **aucun toponyme**,
-le raster ne porte pas de texte. Zooms 6 à 18, vérifiés tuile par tuile (le style officiel
+IGN : emprises au sol détaillées, végétation, relief souligné — mais le raster ne porte
+**aucun texte**. Les toponymes sont disponibles en option, voir la section suivante.
+Zooms 6 à 18, vérifiés tuile par tuile (le style officiel
 annonce 0 à 20, c'est faux). Métropole, Corse, La Réunion et Guadeloupe couvertes ; Guyane
 et Mayotte non. La couche publique sans clé `PLANIGN.LIDAR.SURSOL` n'est qu'une emprise de
 démonstration limitée à quelques vallées de l'Oisans, elle n'est pas utilisée.
+
+### Toponymes sur les fonds sans texte
+
+Sous la grille des fonds, une case **Toponymes** apparaît dès que le fond sélectionné ne porte
+aucun nom de lieu : *Plan IGN HD*, *Orthophotos*, *CoSIA* et *LiDAR brut*. Décochée (le défaut),
+l'image reste nue — c'est le rendu « propre ». Cochée, les noms se superposent — communes,
+sommets, cols, hydronymes, refuges, numéros de routes, avec les pictogrammes associés.
+
+Ces libellés ne viennent pas du raster mais des **tuiles vectorielles `PLAN.IGN`** de la
+Géoplateforme, ouvertes et sans clé, dessinées avec le style officiel *toponymes* de l'IGN —
+exactement ce que fait l'application Cartes IGN. Seules les couches `symbol` de ce style sont
+reprises : les routes et bâtiments qu'il contient aussi sont déjà peints par le raster HD en
+dessous, les rajouter le salirait.
+
+La typographie IGN (texte sombre à halo blanc) est calibrée pour un fond de plan clair : elle
+est excellente sur le Plan HD et sur l'ombrage LiDAR, plus inégale sur une photo aérienne
+selon la luminosité locale.
+
+Le réglage est mémorisé par vue (Itinéraire / Studio LiDAR) et voyage dans les liens de
+partage. Sur SCAN 25, Plan IGN et OSM la case n'est pas proposée : ces fonds impriment déjà
+leurs propres noms, la surcouche les doublerait.
 
 **SCAN 25 et Plan IGN HD demandent une clé IGN** (champ *SCAN 25 et Plan IGN HD* dans les
 réglages) : ce sont des couches WMTS privées, servies par `https://data.geopf.fr/private/wmts`.
@@ -113,6 +135,7 @@ flowchart LR
 | Fichier | Rôle |
 |---------|------|
 | [src/lib/baseLayers.ts](../src/lib/baseLayers.ts) | **Registre unique des fonds** : id, source de tuiles, libellés, description, drapabilité |
+| [src/lib/ignToponymLayers.json](../src/lib/ignToponymLayers.json) | Les 117 couches `symbol` extraites du style officiel IGN *toponymes* — **généré**, voir `tools/fetch-ign-toponyms.mjs` |
 | [src/lib/compositeProtocol.ts](../src/lib/compositeProtocol.ts) | Handler MapLibre `composite://`, parallèle base + shadow, blend 2D, gestion overzoom et detail-scale |
 | [src/lib/mapStyle.ts](../src/lib/mapStyle.ts) | Génère le `StyleSpecification` MapLibre depuis l'état du store |
 | [src/lib/ign.ts](../src/lib/ign.ts) | Registre des endpoints IGN (URL builders, definitions de couches, plages de zoom) |
@@ -134,6 +157,35 @@ Tout le reste en découle et n'a **pas** à être touché : le type `BaseLayerId
 sélecteurs, le protocole `composite://`, le sélecteur de texture drapée du Studio LiDAR
 (`DRAPE_SOURCES`, automatiquement peuplé pour toute couche ayant une `source` fixe), et le
 verrouillage par clé IGN (`requiresIgnKey`, déduit du drapeau `private` de la couche).
+
+### La surcouche toponymes et les polices
+
+`buildMapStyle` n'ajoute la source vectorielle `ign-toponyms` et ses 117 couches que si
+`toponyms` est vrai **et** que le fond courant est marqué `textless` dans `BASE_LAYERS`
+(helper `showToponyms`). Ce drapeau est déclaré une fois, avec le reste du fond : proposer
+la surcouche sur un nouveau fond, c'est basculer ce booléen. Les couches viennent d'un
+fichier **généré**, régénérable par :
+
+```bash
+node tools/fetch-ign-toponyms.mjs
+```
+
+Le script télécharge `…/vectorTiles/styles/PLAN.IGN/toponymes.json`, ne garde que les couches
+`type: 'symbol'`, les relie à notre id de source et préfixe leurs id par `ign-toponym-`.
+Le sprite officiel `PlanIgn` n'est déclaré que quand la surcouche est active : une dizaine de
+ces couches dessinent un pictogramme en plus du texte.
+
+> ⚠️ **Un style MapLibre n'accepte qu'une seule URL `glyphs`.** C'est celle de l'IGN
+> (`…/vectorTiles/fonts/{fontstack}/{range}.pbf`), parce que les couches toponymes demandent
+> `Source Sans Pro`. Deux conséquences qui cassent en silence — un `text-font` introuvable ne
+> lève rien, le texte disparaît simplement :
+>
+> - ce serveur ne connaît **pas** `Noto Sans` (l'ancien endpoint `demotiles.maplibre.org`) ;
+> - il ne répond qu'aux piles **mono-police** : `Open Sans Bold,Arial Unicode MS Bold`
+>   renvoie 404, `Open Sans Bold` renvoie 200.
+>
+> D'où la constante `LABEL_FONT` exportée par `mapStyle.ts` : tous les libellés maison
+> (courbes de niveau, points d'itinéraire, marqueurs de recherche) passent par elle.
 
 ### Le protocole `composite://`
 
@@ -300,6 +352,7 @@ du parent, donc un relief localement plus grossier. Ce n'est pas un défaut de l
   view: { longitude, latitude, zoom, pitch, bearing }
   // Fonds
   baseLayer: 'scan25' | 'plan' | 'planhd' | 'ortho' | 'cosia' | 'osm' | 'lidar'
+  toponymsEnabled: boolean     // surcouche de noms, n'agit que sur les fonds `textless`
   // Ombrage
   hillshadeEnabled: boolean
   hillshadeSource: 'mns' | 'mnt' | 'mnh'

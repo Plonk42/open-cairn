@@ -20,6 +20,8 @@ import type { HillshadeSource, TerrainDemSource } from './slices/terrainSlice';
  */
 export interface MapStyleSettings {
     baseLayer: BaseLayerId;
+    /** IGN toponym overlay, only drawn over the textless Plan IGN HD raster. */
+    toponymsEnabled: boolean;
     hillshadeEnabled: boolean;
     hillshadeSource: HillshadeSource;
     hillshadeBlend: BlendMode;
@@ -34,6 +36,7 @@ export interface MapStyleSettings {
 /** Defaults for the classic Itinéraire view. */
 export const MAP_STYLE_DEFAULTS: MapStyleSettings = {
     baseLayer: 'scan25',
+    toponymsEnabled: false,
     hillshadeEnabled: true,
     hillshadeSource: 'mns',
     hillshadeBlend: 'lidar-neutral',

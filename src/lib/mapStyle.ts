@@ -3,7 +3,8 @@ import mlcontour from 'maplibre-contour';
 import maplibregl from 'maplibre-gl';
 import { BASE_LAYERS, type BaseLayerId } from './baseLayers';
 import { compositeTileUrl, SHADOW_LAYER_KEY, type BlendMode, type CompositeBaseKey, type ShadowKind } from './compositeProtocol';
-import { IGN_ATTRIBUTION, IGN_LAYERS, ignLayerUrl, ignTerrainRgbUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
+import { IGN_ATTRIBUTION, IGN_GLYPHS_URL, IGN_LAYERS, IGN_PLAN_SPRITE_URL, IGN_VECTOR_TILE_MAXZOOM, IGN_VECTOR_TILE_URL, ignLayerUrl, ignTerrainRgbUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
+import ignToponymLayers from './ignToponymLayers.json';
 
 /**
  * Mapterhorn global terrain tiles, used as the DEM for contour lines.
@@ -140,12 +141,35 @@ export interface MapStyleOptions {
     contourLines: boolean;
     /** Opacity of the contour lines overlay (0..1). */
     contourLinesOpacity: number;
+    /** Draw the IGN toponyms over a basemap that carries none (see `showToponyms`). */
+    toponyms: boolean;
     /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
     ignApiKey?: string;
     /** IGN API key for terrain DEM (private WMS-r, enables HIGHRES.LINEAR). */
     ignDemApiKey?: string;
     /** DEM provider for the 3D terrain mesh. */
     terrainDemSource: TerrainDemSource;
+}
+
+/**
+ * The one font every label of the app asks for.
+ *
+ * A MapLibre style accepts a SINGLE `glyphs` endpoint, and ours is IGN's (the
+ * toponym layers need `Source Sans Pro`). That server answers single-font
+ * stacks only, so no fallback font may be appended here: `Open Sans Bold,Arial
+ * Unicode MS Bold` returns 404 and the labels silently vanish.
+ */
+export const LABEL_FONT = 'Open Sans Bold';
+
+/** Source id the generated `ignToponymLayers.json` layers are bound to. */
+const IGN_TOPONYM_SOURCE = 'ign-toponyms';
+
+/**
+ * The overlay is offered on the basemaps that carry no text of their own; on
+ * SCAN 25, Plan IGN or OSM it would double-print labels the raster already has.
+ */
+function showToponyms(opts: MapStyleOptions): boolean {
+    return opts.toponyms && BASE_LAYERS[opts.base].textless;
 }
 
 /**
@@ -187,7 +211,7 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
 
     const style: maplibregl.StyleSpecification = {
         version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        glyphs: IGN_GLYPHS_URL,
         sources: {
             base: {
                 type: 'raster',
@@ -274,10 +298,22 @@ export function buildMapStyle(opts: MapStyleOptions): maplibregl.StyleSpecificat
                     'symbol-placement': 'line',
                     'text-size': 10,
                     'text-field': ['concat', ['number-format', ['get', 'ele'], {}], ' m'],
-                    'text-font': ['Noto Sans Bold'],
+                    'text-font': [LABEL_FONT],
                 },
             },
         );
+    }
+
+    if (showToponyms(opts)) {
+        style.sprite = IGN_PLAN_SPRITE_URL;
+        style.sources[IGN_TOPONYM_SOURCE] = {
+            type: 'vector',
+            tiles: [IGN_VECTOR_TILE_URL],
+            minzoom: 0,
+            maxzoom: IGN_VECTOR_TILE_MAXZOOM,
+            attribution: IGN_ATTRIBUTION,
+        };
+        style.layers.push(...(ignToponymLayers as maplibregl.LayerSpecification[]));
     }
 
     if (opts.terrain) {
