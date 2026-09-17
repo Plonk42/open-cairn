@@ -105,6 +105,12 @@ synchronisation du curseur d'itinéraire s'abstient.
 - Les gestes MapLibre (pan, rotation, zoom, double-clic, clavier, tactile) sont
   **suspendus** pendant le mode et restaurés en sortant, avec le champ de vision et
   la caméra finale republiée dans le store.
+- Le **`mousemove` est absorbé pendant le glisser** (et seulement pendant). MapLibre
+  construit un `MapMouseEvent` pour chaque `mousemove`, et ce constructeur
+  désprojette le pointeur ; avec le relief 3D cela coûtait ~7 ms par image, pour une
+  coordonnée au sol qui ne veut rien dire pendant qu'on balaie le panorama. Le survol
+  simple continue d'alimenter la lecture des coordonnées. Voir
+  « Le coût caché d'un `unproject` avec relief 3D » plus bas.
 
 Le mode existe parce que MapLibre n'a pas d'œil : sa caméra est `centre + zoom +
 pitch + azimut`, et l'œil en est *déduit*. Le module
@@ -277,6 +283,31 @@ on extrait systématiquement :
 
 Si vous ajoutez du JSX conditionnel, **préférez extraire un sous-composant** plutôt
 qu'empiler des `&&` / ternaires.
+
+### Le coût caché d'un `unproject` avec relief 3D
+
+Avec le MNT branché, `map.unproject()` ne fait plus une inversion de matrice : il
+passe par `Terrain.pointCoordinate`, qui redessine le terrain dans le *framebuffer*
+de coordonnées puis bloque sur `gl.readPixels`. Mesuré sur cette carte (relief 3D,
+pitch 85°), un `setBearing` coûte **0,2 ms** sans `unproject` et **~6 ms** avec. Le
+résultat est mis en cache tant que la transformation ne change pas — c'est-à-dire
+jamais pendant un geste.
+
+Deux consommateurs payaient ce prix à **chaque image** d'un glisser :
+
+- le **`ScaleControl` de MapLibre**, qui se recalcule sur `move` en désprojetant deux
+  points de l'écran. Il est donc débranché de `move` et rebranché sur **`idle`**
+  ([MapContainer.tsx](../src/components/map/MapContainer.tsx)) : `moveend` ne
+  conviendrait pas, l'orbite et le mode *Point de vue* pilotant `jumpTo` (donc
+  `moveend`) une fois par image ;
+- le **`mousemove` de MapLibre**, dont le constructeur `MapMouseEvent` désprojette le
+  pointeur *avant* de savoir si quelqu'un écoute — le coût est payé même sans
+  abonné. Le mode *Point de vue* l'absorbe pendant le glisser (voir ci-dessus).
+
+Mesure bout en bout d'un pas de rotation en *Point de vue* (médiane sur 30 pas,
+`pointermove` + `mousemove` + `jumpTo` complet) : **11 ms → 7 ms** (échelle) →
+**0,4 ms** (les deux). Avant d'ajouter un abonné à `move` ou à `mousemove`,
+vérifiez qu'il ne désprojette pas.
 
 ### Limitations techniques
 

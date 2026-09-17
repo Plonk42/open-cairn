@@ -745,7 +745,17 @@ export function MapContainer() {
         // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
 
-        map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+        // The scale bar re-measures itself by unprojecting two screen points, and
+        // MapLibre wires that to `move`. With 3D terrain an unproject goes through
+        // the coords framebuffer and blocks on `gl.readPixels`: measured on this
+        // map, a `setBearing` costs 0.2 ms with the control detached and 10 ms with
+        // it attached — half of the per-frame budget spent on a bar nobody reads
+        // mid-gesture. `idle` rather than `moveend` because the orbit and the
+        // viewpoint mode drive `jumpTo` every frame, and each one fires `moveend`.
+        const scaleControl = new maplibregl.ScaleControl({ unit: 'metric' });
+        map.addControl(scaleControl, 'bottom-left');
+        map.off('move', scaleControl._onMove);
+        map.on('idle', scaleControl._onMove);
 
         map.addControl(
             new maplibregl.NavigationControl({
