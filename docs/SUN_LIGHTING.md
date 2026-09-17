@@ -93,14 +93,17 @@ La lune est souvent au-dessus de l'horizon en plein jour : c'est normal, et c'es
 même l'intérêt de l'outil — savoir à quelle heure elle sortira de telle crête, et
 de quel côté le croissant sera tourné.
 
-Une troisième case, **« Portions cachées »** (cochée par défaut), n'apparaît que
-quand au moins une trajectoire est allumée et vaut **pour les deux astres** : elle
-répond à « est-ce que je veux voir à travers le relief », ce qui n'a rien à voir
-avec le choix des astres. Décochée, il ne reste que ce qui est réellement visible
-depuis ce point de vue : plus de pointillé, plus d'anneau creux quand l'astre est
-derrière une crête, et **plus d'étiquette d'heure** pour les graduations masquées
-— elles n'auraient plus de trait sous lequel se poser. Les étiquettes `↑`/`↓` de
-lever et de coucher restent : elles marquent justement la frontière.
+Une troisième case, **« Portions cachées »** (cochée par défaut), vaut **pour les
+deux astres** : elle répond à « est-ce que je veux voir à travers le relief », ce
+qui n'a rien à voir avec le choix des astres. Elle est **grisée**, et non retirée,
+tant qu'aucune trajectoire n'est allumée — comme le sélecteur de date en dessous :
+le panneau est calé sur son bord bas, si bien qu'escamoter une ligne ferait sauter
+la case que l'on vient de cocher sous le curseur. Décochée, il ne reste que ce qui
+est réellement visible depuis ce point de vue : plus de pointillé, plus d'anneau
+creux quand l'astre est derrière une crête, et **plus d'étiquette d'heure** pour
+les graduations masquées — elles n'auraient plus de trait sous lequel se poser.
+Les étiquettes `↑`/`↓` de lever et de coucher restent : elles marquent justement
+la frontière.
 
 L'heure affichée est celle de **l'œil de la caméra**, pas celle du centre de la
 carte : c'est ce qui garantit qu'une étiquette tombe sur la silhouette réellement

@@ -57,7 +57,7 @@ function useSunPlayback(
  * the playback (which rewrites the value every ~60 ms) only re-renders this
  * small control.
  */
-export function SunDateControl() {
+export function SunDateControl({ disabled }: Readonly<{ disabled?: boolean }>) {
     const value = useMapStore((s) => s.lidarSunDate);
     const onChange = useMapStore((s) => s.applyLidarSunDate);
     const azimuthDeg = useMapStore((s) => s.lidarSunAzimuth);
@@ -87,14 +87,15 @@ export function SunDateControl() {
     const [playing, setPlaying] = useState(false);
     const minutesRef = useRef(minutesOfDay);
     minutesRef.current = minutesOfDay;
-    useSunPlayback(playing, datePart, minutesRef, onChange);
+    // Greying the control hides the stop button, so the loop must stop itself.
+    useSunPlayback(playing && !disabled, datePart, minutesRef, onChange);
 
     const { badge: dayBadge, label: dayLabel } = SUN_BADGES[sunDayState(intensity, minutesOfDay)];
     const azStr = `${Math.round(azimuthDeg)}°`;
     const elStr = `${elevationDeg >= 0 ? '+' : ''}${Math.round(elevationDeg)}°`;
 
     return (
-        <div>
+        <fieldset disabled={disabled} className={`m-0 min-w-0 border-0 p-0 ${disabled ? 'opacity-50' : ''}`}>
             <input
                 aria-label="Date pour le calcul du soleil"
                 type="date"
@@ -156,6 +157,6 @@ export function SunDateControl() {
                     {dayLabel}
                 </span>
             </div>
-        </div>
+        </fieldset>
     );
 }

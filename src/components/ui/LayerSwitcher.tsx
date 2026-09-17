@@ -259,21 +259,16 @@ export function SkyPathSection() {
                 checked={atmosphericSky}
                 onChange={setAtmosphericSky}
             />
-            {tracksOn && (
-                <SkyToggle
-                    label="Portions cachées"
-                    title={HIDDEN_PATH_HINT}
-                    checked={hiddenPath}
-                    onChange={setHiddenPath}
-                />
-            )}
-            {tracksOn && (
-                <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                    Posez-vous au sol avec « Point de vue » pour regarder le ciel : en navigation ordinaire
-                    l’inclinaison est plafonnée à 85°, et au-delà de 80° la caméra replonge dans le relief.
-                </p>
-            )}
-            {(tracksOn || atmosphericSky) && <SunDateControl />}
+            {/* Greyed rather than unmounted: the panel is anchored by its
+                bottom edge, so hiding a row makes it jump under the cursor. */}
+            <SkyToggle
+                label="Portions cachées"
+                title={HIDDEN_PATH_HINT}
+                checked={hiddenPath}
+                disabled={!tracksOn}
+                onChange={setHiddenPath}
+            />
+            <SunDateControl disabled={!tracksOn && !atmosphericSky} />
         </div>
     );
 }

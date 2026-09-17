@@ -109,10 +109,11 @@ export function SunControls() {
  * track. The Itinéraire view offers the same switches in its « Soleil » pill —
  * same store flags.
  */
-function SkyPathToggle({ label, title, checked, onChange }: Readonly<{
+function SkyPathToggle({ label, title, checked, disabled, onChange }: Readonly<{
     label: string;
     title: string;
     checked: boolean;
+    disabled?: boolean;
     onChange: (v: boolean) => void;
 }>) {
     return (
@@ -120,8 +121,9 @@ function SkyPathToggle({ label, title, checked, onChange }: Readonly<{
             <input
                 type="checkbox"
                 checked={checked}
+                disabled={disabled}
                 onChange={(e) => onChange(e.target.checked)}
-                className="h-3.5 w-3.5 flex-shrink-0 accent-green-600"
+                className="h-3.5 w-3.5 flex-shrink-0 accent-green-600 disabled:opacity-40"
             />
             <span
                 className="text-xs text-slate-700 dark:text-slate-300"
@@ -145,14 +147,13 @@ function SkyPathToggles() {
         <>
             <SkyPathToggle label="Trajectoire du soleil" title={trackTitle} checked={sunPath} onChange={setSunPath} />
             <SkyPathToggle label="Trajectoire de la lune" title={trackTitle} checked={moonPath} onChange={setMoonPath} />
-            {(sunPath || moonPath) && (
-                <SkyPathToggle
-                    label="Portions cachées"
-                    title={HIDDEN_PATH_HINT}
-                    checked={hiddenPath}
-                    onChange={setHiddenPath}
-                />
-            )}
+            <SkyPathToggle
+                label="Portions cachées"
+                title={HIDDEN_PATH_HINT}
+                checked={hiddenPath}
+                disabled={!sunPath && !moonPath}
+                onChange={setHiddenPath}
+            />
         </>
     );
 }
