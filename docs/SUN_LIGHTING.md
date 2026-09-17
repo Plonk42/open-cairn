@@ -385,10 +385,17 @@ décochant/recochant Soleil » (le décochage démonte la couche, le recochage l
 ré-ajoute donc en dernier).
 
 `ensureRouteLayers` (dans `MapContainer`, rejoué à chaque `styledata`) termine donc
-par un `map.moveLayer(id)` sans cible — qui replace en haut — pour chaque id de
-`SKY_BODY_LAYER_IDS`, exporté par `SkyBodiesOverlay`. Même correctif, même endroit
-que pour les couches de nuage LiDAR, avec la même raison de ne pas coder les
-identifiants en dur des deux côtés.
+par `reassertCustomLayerOrder`, qui replace en haut — `map.moveLayer(id)` sans cible
+— chaque id de `SKY_BODY_LAYER_IDS`, exporté par `SkyBodiesOverlay`. Même correctif,
+même endroit que pour les couches de nuage LiDAR, avec la même raison de ne pas coder
+les identifiants en dur des deux côtés.
+
+Le déplacement est **conditionné à un ordre réellement faux**, testé sur
+`map.getLayersOrder()`. `moveLayer` marque toujours le style modifié et réémet
+`styledata` : déplacer sans condition depuis un gestionnaire `styledata` alimente ce
+même gestionnaire, et la carte repeint alors sans fin sans que rien ne bouge à
+l'écran. Voir « La carte qui repeint sans fin » dans
+[UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md).
 
 ### Invariance d'échelle
 

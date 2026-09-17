@@ -296,18 +296,46 @@ jamais pendant un geste.
 Deux consommateurs payaient ce prix à **chaque image** d'un glisser :
 
 - le **`ScaleControl` de MapLibre**, qui se recalcule sur `move` en désprojetant deux
-  points de l'écran. Il est donc débranché de `move` et rebranché sur **`idle`**
-  ([MapContainer.tsx](../src/components/map/MapContainer.tsx)) : `moveend` ne
-  conviendrait pas, l'orbite et le mode *Point de vue* pilotant `jumpTo` (donc
-  `moveend`) une fois par image ;
+  points de l'écran. Il reste sur `move` — une échelle figée pendant le geste n'est pas
+  acceptable — mais son `_onMove` est enveloppé pour **masquer le relief** le temps du
+  calcul (`map.terrain` mis de côté puis restauré,
+  [MapContainer.tsx](../src/components/map/MapContainer.tsx)) : MapLibre retombe alors
+  sur l'inversion de matrice. C'est aussi plus juste : la barre veut la distance au sol
+  à plat, alors que deux points drapés sur une pente s'écartent avec le relief et font
+  sauter la valeur. L'enveloppe est posée **avant `addControl`**, qui est ce qui capture
+  l'écouteur ;
 - le **`mousemove` de MapLibre**, dont le constructeur `MapMouseEvent` désprojette le
   pointeur *avant* de savoir si quelqu'un écoute — le coût est payé même sans
   abonné. Le mode *Point de vue* l'absorbe pendant le glisser (voir ci-dessus).
 
 Mesure bout en bout d'un pas de rotation en *Point de vue* (médiane sur 30 pas,
-`pointermove` + `mousemove` + `jumpTo` complet) : **11 ms → 7 ms** (échelle) →
-**0,4 ms** (les deux). Avant d'ajouter un abonné à `move` ou à `mousemove`,
+`pointermove` + `mousemove` + `jumpTo` complet) : **11 ms → 0,4 ms**. Un `setBearing`
+seul passe de 9,4 ms à 0,7 ms. Avant d'ajouter un abonné à `move` ou à `mousemove`,
 vérifiez qu'il ne désprojette pas.
+
+> **`idle` n'est pas un repli utilisable ici.** La première version reportait la barre
+> d'échelle sur `idle` — elle ne s'est plus jamais mise à jour, parce que la carte
+> n'était *jamais* au repos : voir « La carte qui repeint sans fin » ci-dessous.
+
+### La carte qui repeint sans fin
+
+`map.loaded()` est faux tant que le style est marqué modifié, et MapLibre redemande
+alors une image à la suivante. Deux appels posés dans un gestionnaire `styledata`
+s'auto-alimentaient et tenaient la carte à ~24 im/s **en permanence**, carte immobile,
+onglet au premier plan — et `idle` ne se déclenchait plus jamais :
+
+- **`map.setSky()`** ne court-circuite pas, contrairement à `setPaintProperty` : il
+  émet `styledata` même quand chaque valeur est déjà en place. `PhotorealAmbiance` le
+  rappelait donc à chaque image. Il est maintenant précédé d'une comparaison
+  (`setSkyIfChanged`).
+- **`map.moveLayer()`** marque toujours le style modifié. La réaffirmation de l'ordre
+  des couches (nuages LiDAR sous l'itinéraire, astres en dernier) déplaçait sans
+  condition ; elle ne déplace plus que ce qui est réellement mal placé, testé sur
+  `map.getLayersOrder()`.
+
+Règle générale : **tout ce qui est appelé depuis `applyWhenStyleReady` doit être muet
+quand rien n'a changé.** Le garde-fou de mesure est `m.on('render', …)` sur une carte
+immobile : le compteur doit rester à **0**.
 
 ### Limitations techniques
 

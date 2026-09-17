@@ -10,6 +10,7 @@ import { sunLight } from '@/lib/sun';
 import { useView } from '@/lib/useView';
 import { useMapStore, type MapState } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
+import type { SkySpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
@@ -115,6 +116,18 @@ function paintRelight(map: maplibregl.Map, relight: RasterRelight): void {
 }
 
 /**
+ * `setSky` has no short-circuit: unlike `setPaintProperty` it fires `styledata`
+ * even when every value is already in place. Since the effect below re-applies
+ * on `styledata`, calling it unconditionally feeds itself — the map repaints
+ * forever, `map.loaded()` stays false and `idle` never fires again.
+ */
+function setSkyIfChanged(map: maplibregl.Map, sky: SkySpecification): void {
+    const current = map.getSky() as Record<string, unknown> | undefined;
+    if (current && Object.entries(sky).every(([key, value]) => current[key] === value)) return;
+    map.setSky(sky);
+}
+
+/**
  * Drives MapLibre's sky AND the basemap's exposure from the same lighting
  * environment the photorealistic LiDAR mesh uses.
  *
@@ -171,7 +184,7 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
                 ambient,
                 sunStrength,
             };
-            map.setSky(skyOn ? skyFromAtmosphere(atmosphereFromSun(params), exposure) : { ...DEFAULT_SKY });
+            setSkyIfChanged(map, skyOn ? skyFromAtmosphere(atmosphereFromSun(params), exposure) : { ...DEFAULT_SKY });
             paintRelight(map, relightOn ? basemapRelight(params, exposure) : NEUTRAL_RELIGHT);
         };
         // `setSky` throws outright while the style is still loading, and
@@ -501,30 +514,55 @@ function ensureRouteLayers(map: maplibregl.Map): void {
         });
     }
     ensureMarkerLayers(map);
-    // Keep the LiDAR cloud layers directly above the basemap but under the
-    // route layers, so the itinerary stays visible on top. A style diff (e.g.
-    // a per-view Photo/Plan switch) re-adds the `base` raster layer at the TOP
-    // of the stack — ABOVE our custom LiDAR layers — which drops the 3D mesh
-    // below the basemap. Runs on every `styledata`, so re-assert the order
-    // here. We reposition exactly the layers we own (derived from the loaded
-    // clouds via the shared `lidarCloudLayerId`), rather than string-matching
-    // layer ids, so the naming stays single-sourced with LidarCloudOverlay.
-    if (map.getLayer('open-cairn-route-line-casing')) {
-        for (const cloud of useMapStore.getState().lidarClouds) {
-            const id = lidarCloudLayerId(cloud.id);
-            if (map.getLayer(id)) {
-                try { map.moveLayer(id, 'open-cairn-route-line-casing'); } catch { /* ignore */ }
-            }
-        }
+    reassertCustomLayerOrder(map);
+}
+
+/**
+ * A style diff (e.g. a per-view Photo/Plan switch) re-adds the `base` raster
+ * layer at the TOP of the stack, above the custom layers we own, so the order
+ * has to be re-asserted on every `styledata`.
+ *
+ * Both helpers below only move a layer that is actually out of place, because
+ * `moveLayer` always marks the style changed and fires `styledata` — moving
+ * unconditionally here feeds this very function, and the map then repaints
+ * forever and never fires `idle`.
+ */
+function reassertCustomLayerOrder(map: maplibregl.Map): void {
+    moveCloudsUnderRoute(map);
+    moveSkyBodiesLast(map);
+}
+
+/**
+ * The LiDAR clouds belong directly above the basemap but under the route,
+ * otherwise the 3D mesh ends up hidden below the basemap. The layers we own are
+ * derived from the loaded clouds via the shared `lidarCloudLayerId` rather than
+ * string-matched, so the naming stays single-sourced with LidarCloudOverlay.
+ */
+function moveCloudsUnderRoute(map: maplibregl.Map): void {
+    const casing = 'open-cairn-route-line-casing';
+    const order = map.getLayersOrder();
+    const casingIndex = order.indexOf(casing);
+    if (casingIndex < 0) return;
+    for (const cloud of useMapStore.getState().lidarClouds) {
+        const id = lidarCloudLayerId(cloud.id);
+        if (order.indexOf(id) <= casingIndex) continue;
+        try { map.moveLayer(id, casing); } catch { /* ignore */ }
     }
-    // Same diff, worse symptom for the sky tracks: with the `base` raster back
-    // on top, MapLibre draws the draped terrain AFTER them, so the half a ridge
-    // covers — the one the tracks exist to show — is repainted away while the
-    // clear-sky half survives. `moveLayer` with no target puts them back last.
-    for (const id of SKY_BODY_LAYER_IDS) {
-        if (map.getLayer(id)) {
-            try { map.moveLayer(id); } catch { /* ignore */ }
-        }
+}
+
+/**
+ * Same diff, worse symptom for the sky tracks: with the `base` raster back on
+ * top, MapLibre draws the draped terrain AFTER them, so the half a ridge covers
+ * — the one the tracks exist to show — is repainted away while the clear-sky
+ * half survives. `moveLayer` with no target puts them back last.
+ */
+function moveSkyBodiesLast(map: maplibregl.Map): void {
+    const order = map.getLayersOrder();
+    const bodies = SKY_BODY_LAYER_IDS.filter((id) => order.includes(id));
+    const tail = order.slice(order.length - bodies.length);
+    if (bodies.every((id, i) => tail[i] === id)) return;
+    for (const id of bodies) {
+        try { map.moveLayer(id); } catch { /* ignore */ }
     }
 }
 
@@ -745,17 +783,23 @@ export function MapContainer() {
         // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
 
-        // The scale bar re-measures itself by unprojecting two screen points, and
-        // MapLibre wires that to `move`. With 3D terrain an unproject goes through
-        // the coords framebuffer and blocks on `gl.readPixels`: measured on this
-        // map, a `setBearing` costs 0.2 ms with the control detached and 10 ms with
-        // it attached — half of the per-frame budget spent on a bar nobody reads
-        // mid-gesture. `idle` rather than `moveend` because the orbit and the
-        // viewpoint mode drive `jumpTo` every frame, and each one fires `moveend`.
+        // The scale bar re-measures itself on every `move` by unprojecting two
+        // screen points. With 3D terrain an unproject renders the coords
+        // framebuffer and blocks on `gl.readPixels`: a `setBearing` costs 0.2 ms
+        // with the control detached and 10 ms with it attached — most of a frame
+        // spent on a bar that only needs the flat ground distance across the
+        // screen. So hide the terrain from it and MapLibre falls back to a matrix
+        // inversion. Also steadier: over a slope, two draped points drift apart
+        // with the relief and the bar jumps. Wrapped before `addControl`, which is
+        // what captures the listener.
         const scaleControl = new maplibregl.ScaleControl({ unit: 'metric' });
+        const measureScale = scaleControl._onMove;
+        scaleControl._onMove = () => {
+            const terrain = map.terrain;
+            map.terrain = undefined as unknown as typeof terrain;
+            try { measureScale(); } finally { map.terrain = terrain; }
+        };
         map.addControl(scaleControl, 'bottom-left');
-        map.off('move', scaleControl._onMove);
-        map.on('idle', scaleControl._onMove);
 
         map.addControl(
             new maplibregl.NavigationControl({

@@ -41,7 +41,8 @@ export function retryUntilStyleAccepts(
  * `apply` must therefore be idempotent, and must not change the style in a way
  * that fires `styledata` again, or it will loop. (MapLibre short-circuits a
  * `setPaintProperty` to the value already in place, which is what keeps the
- * relight and dimmer effects from looping.)
+ * relight and dimmer effects from looping. `setSky` does *not*: it must be
+ * guarded by an explicit comparison.)
  */
 export function applyWhenStyleReady(
     map: maplibregl.Map, apply: (map: maplibregl.Map) => void,
