@@ -95,6 +95,14 @@ export interface SettingsSlice {
     viewpointPicking: boolean;
     setViewpointPicking: (v: boolean) => void;
 
+    /**
+     * Name the summits one can see from the standpoint, along the ridge. Only
+     * has an effect while {@link viewpoint} is set: the sightings are solved
+     * for a fixed eye, and there is no fixed eye outside that mode.
+     */
+    peakLabels: boolean;
+    setPeakLabels: (v: boolean) => void;
+
     /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
     ignApiKey: string;
     setIgnApiKey: (v: string) => void;
@@ -144,6 +152,9 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     viewpointPicking: false,
     setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),
 
+    peakLabels: persisted.peakLabels ?? true,
+    setPeakLabels: (peakLabels) => set({ peakLabels }),
+
     ignApiKey: persisted.ignApiKey ?? '',
     setIgnApiKey: (ignApiKey) => set({ ignApiKey }),
 
@@ -161,6 +172,7 @@ export function selectSettingsPersisted(
     | 'skySunPath'
     | 'skyMoonPath'
     | 'skyHiddenPath'
+    | 'peakLabels'
     | 'atmosphericSky'
     | 'renderQuality'
     | 'tileCacheSize'
@@ -173,6 +185,7 @@ export function selectSettingsPersisted(
         skySunPath: s.skySunPath,
         skyMoonPath: s.skyMoonPath,
         skyHiddenPath: s.skyHiddenPath,
+        peakLabels: s.peakLabels,
         atmosphericSky: s.atmosphericSky,
         renderQuality: s.renderQuality,
         tileCacheSize: s.tileCacheSize,

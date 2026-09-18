@@ -403,7 +403,7 @@ function StudioMobileShell() {
     return (
         <div className="relative h-[100dvh] w-screen overflow-hidden bg-slate-950">
             <MapSlot />
-            <MobileTopBar actions={<MobileActionsMenu exportSlot={<ShowcaseExport />} />} />
+            <MobileTopBar actions={<MobileActionsMenu view="lidar" exportSlot={<ShowcaseExport />} />} />
             {/* The floating capture FAB + cloud locator only show over the bare
                 map, so an open render sheet never fights them for the bottom. */}
             {activeId === null && (

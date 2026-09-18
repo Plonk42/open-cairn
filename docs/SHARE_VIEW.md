@@ -26,6 +26,9 @@ Coller cette URL dans une autre fenêtre / l'envoyer à quelqu'un :
 - Les réglages d'éclairage du **Studio LiDAR** (exposition, ambiance, intensité du
   soleil). Ils ne sont pas réglables depuis la vue Itinéraire mais teintent quand même
   le ciel atmosphérique : le destinataire garde les siens.
+- L'affichage des **noms des sommets** en *Point de vue* : c'est un confort de lecture,
+  pas une vue. Le destinataire garde son propre choix, et le lien lui ouvre bien la même
+  image.
 
 ### Limitations
 

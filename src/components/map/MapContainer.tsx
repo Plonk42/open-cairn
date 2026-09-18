@@ -16,6 +16,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';
 import { getActiveMapSlot, subscribeMapSlot } from './MapSlot';
+import { PeakLabelsOverlay } from './PeakLabelsOverlay';
 import { SKY_BODY_LAYER_IDS, SkyBodiesOverlay } from './SkyBodiesOverlay';
 import { SkyLabelsOverlay } from './SkyLabelsOverlay';
 import { applyWhenStyleReady, retryUntilStyleAccepts } from './styleReady';
@@ -1184,6 +1185,7 @@ export function MapContainer() {
             <PhotorealAmbiance studio={studio} />
             <SkyBodiesOverlay studio={studio} />
             <SkyLabelsOverlay studio={studio} />
+            <PeakLabelsOverlay />
             <ViewpointController />
         </>
     );

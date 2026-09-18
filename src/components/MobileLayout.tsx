@@ -30,7 +30,7 @@ export function MobileLayout() {
     return (
         <div className="relative h-[100dvh] w-screen overflow-hidden bg-gray-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
             <MapSlot />
-            <MobileTopBar actions={<MobileActionsMenu exportSlot={<><RouteExportButton /><RouteShareButton /></>} />} />
+            <MobileTopBar actions={<MobileActionsMenu view="map" exportSlot={<><RouteExportButton /><RouteShareButton /></>} />} />
             <MobileToolbar tools={tools} activeId={activeTool} onSelect={handleSelect} />
         </div>
     );

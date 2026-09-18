@@ -116,6 +116,17 @@ export function ViewpointIcon({ className }: IconProps): ReactElement {
     );
 }
 
+/** A skyline with a name pinned to its highest summit. */
+export function PeakLabelsIcon({ className }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" className={className} aria-hidden="true">
+            <path d="M1.5 16.5 6.5 9l3 4 3-6 5.5 9.5Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" opacity="0.5" />
+            <path d="M12.5 7 11 3.2" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            <path d="M8.6 3.4h6.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+    );
+}
+
 export function ResetIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">

@@ -200,3 +200,12 @@ export function lookAfterDrag(
 export function fovAfterWheel(fovDeg: number, deltaY: number): number {
     return clampNumber(fovDeg * Math.exp(deltaY * 0.0015), VIEWPOINT_MIN_FOV, VIEWPOINT_MAX_FOV);
 }
+
+/**
+ * Field of view after a pinch, `ratio` being how much the finger spacing grew.
+ * Spreading the fingers magnifies, i.e. narrows the lens, so the focal length
+ * follows the spacing exactly — the image scales with the gesture.
+ */
+export function fovAfterPinch(fovDeg: number, ratio: number): number {
+    return clampNumber(fovDeg / Math.max(ratio, 1e-6), VIEWPOINT_MIN_FOV, VIEWPOINT_MAX_FOV);
+}

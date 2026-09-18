@@ -39,9 +39,15 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
   automatique, galerie de « vues » (scènes caméra + réglages)
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
-- **Mode « Point de vue »** — disponible dans les **deux vues** : on clique l'endroit où l'on se
-  tiendrait, l'œil se pose 1,70 m au-dessus du sol et la caméra tourne **sur place** comme depuis
-  un sommet (molette = focale). Demande le relief 3D.
+- **Mode « Point de vue »** — disponible dans les **deux vues**, sur ordinateur comme sur mobile :
+  on clique (ou on touche) l'endroit où l'on se tiendrait, l'œil se pose 1,70 m au-dessus du sol et
+  la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale). Demande le
+  relief 3D.
+- **Noms des sommets** — en *Point de vue*, les sommets IGN **réellement visibles depuis l'œil**
+  sont nommés sur une étiquette penchée reliée par un trait de rappel au point exact du sommet,
+  à la manière de PeakFinder. Une arête plus proche qui masque un sommet le fait disparaître de
+  la liste. Noms issus de la BD TOPO® IGN (couverture française), **altitude relevée** issue des
+  cotes de la BD CARTO® — affichée seulement quand l'IGN en publie une, jamais estimée.
 - **Repérage photo par le soleil et la lune** — position solaire calculée pour la date, le lieu et
   l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille

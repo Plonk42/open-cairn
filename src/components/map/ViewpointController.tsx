@@ -5,8 +5,8 @@
  *   - **picking**: one click on the map turns into an eye position, the DEM
  *     height under the click plus {@link VIEWPOINT_EYE_HEIGHT_M};
  *   - **the mode itself**: MapLibre's own gestures are switched off and replaced
- *     by a panorama drag that only moves `bearing` / `pitch`, plus a wheel that
- *     changes the field of view instead of the zoom.
+ *     by a panorama drag that only moves `bearing` / `pitch`, plus a wheel (or a
+ *     two-finger pinch) that changes the field of view instead of the zoom.
  *
  * The wheel does NOT zoom here, and that is not a shortcut: with the eye and the
  * field of view fixed, the rendered image does not depend on the zoom at all
@@ -21,6 +21,7 @@
 import { setTerrainCameraCollision } from '@/lib/freeCamera';
 import {
     cameraForViewpoint,
+    fovAfterPinch,
     fovAfterWheel,
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
@@ -35,6 +36,13 @@ import { useEffect } from 'react';
 /** Marks the frames this mode drives, so `moveend` subscribers can skip them. */
 export interface ViewpointEventData {
     viewpoint?: boolean;
+}
+
+/** Distance between the two first tracked pointers, 0 unless there are two. */
+function pinchSpacing(pointers: Map<number, { x: number; y: number }>): number {
+    if (pointers.size < 2) return 0;
+    const [a, b] = [...pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 /** Disables every MapLibre gesture that would move the eye, and restores them. */
@@ -153,39 +161,53 @@ export function ViewpointController(): null {
             apply();
         };
 
-        let pointerId: number | null = null;
-        let lastX = 0;
-        let lastY = 0;
+        // Tracked by id so a second finger is a pinch rather than a jump: with
+        // MapLibre's own touch handlers suspended, nothing else would read it.
+        const pointers = new Map<number, { x: number; y: number }>();
+        let spacing = 0;
 
         const onPointerDown = (e: PointerEvent) => {
-            if (e.button !== 0) return;
-            pointerId = e.pointerId;
-            lastX = e.clientX;
-            lastY = e.clientY;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            spacing = pinchSpacing(pointers);
             canvas.setPointerCapture(e.pointerId);
             canvas.style.cursor = 'grabbing';
         };
 
         const onPointerMove = (e: PointerEvent) => {
-            if (pointerId !== e.pointerId) return;
+            const previous = pointers.get(e.pointerId);
+            if (!previous) return;
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            if (pointers.size > 1) {
+                const next = pinchSpacing(pointers);
+                if (spacing > 0 && next > 0) fovDeg = fovAfterPinch(fovDeg, next / spacing);
+                spacing = next;
+                apply();
+                return;
+            }
+
             const next = lookAfterDrag(
                 look,
-                { dx: e.clientX - lastX, dy: e.clientY - lastY },
+                { dx: e.clientX - previous.x, dy: e.clientY - previous.y },
                 { widthPx: canvas.clientWidth, heightPx: canvas.clientHeight },
                 fovDeg,
             );
             look.bearing = next.bearing;
             look.pitch = next.pitch;
-            lastX = e.clientX;
-            lastY = e.clientY;
             apply();
         };
 
         const onPointerUp = (e: PointerEvent) => {
-            if (pointerId !== e.pointerId) return;
-            pointerId = null;
-            canvas.releasePointerCapture(e.pointerId);
-            canvas.style.cursor = 'grab';
+            if (!pointers.delete(e.pointerId)) return;
+            // Lifting one finger of a pinch leaves the other one dragging from
+            // its last known position, so the panorama does not jump.
+            spacing = pinchSpacing(pointers);
+            // `pointercancel` — the browser taking the gesture over, which a
+            // touch stream does far more readily than a mouse — has already
+            // dropped the capture, and releasing it twice throws.
+            if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+            if (pointers.size === 0) canvas.style.cursor = 'grab';
         };
 
         const onWheel = (e: WheelEvent) => {
@@ -203,9 +225,15 @@ export function ViewpointController(): null {
         // container MapLibre listens on, and only swallows during a drag — so the
         // coordinate readout still follows a plain hover.
         const onMouseMove = (e: MouseEvent) => {
-            if (pointerId !== null) e.stopPropagation();
+            if (pointers.size > 0) e.stopPropagation();
         };
 
+        // MapLibre drops `touch-action: none` from the canvas when its touch
+        // handlers are disabled, which hands the gesture back to the browser:
+        // the first finger movement would scroll the page and cancel our pointer
+        // stream. Ours is the only touch consumer while the mode is on.
+        const previousTouchAction = canvas.style.touchAction;
+        canvas.style.touchAction = 'none';
         canvas.style.cursor = 'grab';
         canvas.addEventListener('pointerdown', onPointerDown);
         canvas.addEventListener('pointermove', onPointerMove);
@@ -225,6 +253,7 @@ export function ViewpointController(): null {
             canvas.removeEventListener('wheel', onWheel);
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
+            canvas.style.touchAction = previousTouchAction;
             restoreGestures();
             map.setVerticalFieldOfView(initialFov);
             map.setCenterClampedToGround(wasClampedToGround);

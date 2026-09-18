@@ -472,6 +472,7 @@ la position courante de l'astre.
 | Rôle | Fichier |
 |---|---|
 | Horizon réel + recherche des croisements (pur, testable) | [src/lib/skyline.ts](../src/lib/skyline.ts) |
+| Maths caméra communes aux surcouches du ciel | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) |
 | Étiquettes et câblage au store | [src/components/map/SkyLabelsOverlay.tsx](../src/components/map/SkyLabelsOverlay.tsx) |
 | Échantillon d'un astre à une minute fractionnaire | `sunSampleAt` / `moonSampleAt` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
 | Graduations horaires (géométrie des crans) | `hourTicks` dans [src/lib/skyPath.ts](../src/lib/skyPath.ts) |
@@ -529,7 +530,15 @@ proche de 0,51° (deux diamètres solaires) là où z13 reste sous **0,07°**, p
 Piège : hors des tuiles chargées, `getElevationForLngLatZoom` renvoie **0**, pas
 `NaN`. Au-delà du MNT l'horizon est donc calculé au niveau de la mer, ce qui est
 l'hypothèse raisonnable pour un horizon lointain dégagé — mais il ne faut pas lire
-ce 0 comme une donnée.
+ce 0 comme une donnée. Les noms de sommets, eux, en tirent la conclusion inverse et
+**écartent** le sommet dont le MNT se lit à 0 m : là, ce 0 voudrait dire qu'un
+4 000 est à dessiner au niveau de la mer.
+
+Ce choix de zoom, la lecture de l'œil depuis la caméra, la clé de cache de position
+et la projection d'une direction vers l'écran sont **partagés** par la surcouche des
+trajectoires et par celle des noms de sommets : ils vivent dans
+[skyProjection.ts](../src/lib/skyProjection.ts). Deux surcouches qui échantillonneraient
+le MNT à des zooms différents dessineraient deux horizons différents sur la même image.
 
 ### Pourquoi pas un marqueur MapLibre
 

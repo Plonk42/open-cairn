@@ -86,9 +86,40 @@ const STEP_RATIO = 1.02;
 const HORIZON_FLOOR_DEG = -6;
 
 /** Apparent angle of a ground point, Earth curvature and refraction included. */
-function apparentAngleDeg(observerAltM: number, groundM: number, distanceM: number): number {
+export function apparentAngleDeg(observerAltM: number, groundM: number, distanceM: number): number {
     const drop = (distanceM * distanceM * (1 - REFRACTION_K)) / (2 * EARTH_RADIUS_M);
     return Math.atan2(groundM - observerAltM - drop, distanceM) / DEG;
+}
+
+/**
+ * Degrees of longitude and latitude per metre walked along one azimuth.
+ *
+ * The flat local approximation, shared by every consumer on purpose: a sighting
+ * that placed a summit with a different projection than the march would land in
+ * a neighbouring gully and be declared hidden by relief that is not in its way.
+ */
+function rayStep(observer: SkylineObserver, azimuthDeg: number): { perMetreLng: number; perMetreLat: number } {
+    const az = azimuthDeg * DEG;
+    const cosLat = Math.max(1e-6, Math.cos(observer.lat * DEG));
+    return {
+        perMetreLat: Math.cos(az) / METRES_PER_DEG_LAT,
+        perMetreLng: Math.sin(az) / (METRES_PER_DEG_LAT * cosLat),
+    };
+}
+
+/** Azimuth (0 = north, 90 = east) and distance of a spot, in the same frame. */
+export function sightingFrom(
+    observer: SkylineObserver,
+    lng: number,
+    lat: number,
+): { azimuthDeg: number; distanceM: number } {
+    const cosLat = Math.max(1e-6, Math.cos(observer.lat * DEG));
+    const northM = (lat - observer.lat) * METRES_PER_DEG_LAT;
+    const eastM = (lng - observer.lng) * METRES_PER_DEG_LAT * cosLat;
+    return {
+        azimuthDeg: Math.atan2(eastM, northM) / DEG,
+        distanceM: Math.hypot(eastM, northM),
+    };
 }
 
 /**
@@ -102,10 +133,7 @@ export function skylineAt(
     azimuthDeg: number,
     sample: GroundSampler,
 ): SkylinePoint {
-    const az = azimuthDeg * DEG;
-    const cosLat = Math.max(1e-6, Math.cos(observer.lat * DEG));
-    const perMetreLat = Math.cos(az) / METRES_PER_DEG_LAT;
-    const perMetreLng = Math.sin(az) / (METRES_PER_DEG_LAT * cosLat);
+    const { perMetreLng, perMetreLat } = rayStep(observer, azimuthDeg);
 
     // Nothing found yet reads as "open sky": a body at any elevation clears it.
     let best: SkylinePoint = {
@@ -124,6 +152,32 @@ export function skylineAt(
         if (elevationDeg > best.elevationDeg) best = { elevationDeg, distanceM: d, lng, lat, groundM };
     }
     return best;
+}
+
+/**
+ * Highest apparent angle the relief reaches between the eye and `farM`, along
+ * one azimuth. `-90` when nothing stands in the way.
+ *
+ * This is {@link skylineAt} stopped short, and the distinction matters: a named
+ * summit is seen exactly when it stands above everything CLOSER than itself.
+ * Marching all the way to the horizon would let the far wall BEHIND it — which
+ * it is drawn against, not hidden by — declare it invisible.
+ */
+export function ridgeAngleBefore(
+    observer: SkylineObserver,
+    azimuthDeg: number,
+    farM: number,
+    sample: GroundSampler,
+): number {
+    const { perMetreLng, perMetreLat } = rayStep(observer, azimuthDeg);
+    let highest = -90;
+    for (let d = NEAR_M; d <= farM; d *= STEP_RATIO) {
+        const groundM = sample(observer.lng + perMetreLng * d, observer.lat + perMetreLat * d);
+        if (!Number.isFinite(groundM)) continue;
+        const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, d);
+        if (elevationDeg > highest) highest = elevationDeg;
+    }
+    return highest;
 }
 
 /** How far the body stands above the skyline, in degrees. Negative = hidden. */

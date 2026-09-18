@@ -1,4 +1,4 @@
-import { FreeCameraIcon, OrbitIcon, ViewpointIcon } from '@/components/icons/LidarIcons';
+import { FreeCameraIcon, OrbitIcon, PeakLabelsIcon, ViewpointIcon } from '@/components/icons/LidarIcons';
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import type { AppView } from '@/lib/useView';
@@ -67,9 +67,10 @@ function FreeCameraTopBarButton() {
  * you want to know is what a ridge hides *from where you will be shooting*, and
  * that question only has an answer if the eye stops moving. Offered in both
  * views — the question is asked while planning an itinerary, not only in the
- * Studio.
+ * Studio. Exported because the mobile chrome composes it into its own menu:
+ * the mode is a touch gesture like any other, not a desktop-only feature.
  */
-function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain: boolean }>) {
+export function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain: boolean }>) {
     const viewpoint = useMapStore((s) => s.viewpoint);
     const picking = useMapStore((s) => s.viewpointPicking);
     const setViewpoint = useMapStore((s) => s.setViewpoint);
@@ -103,6 +104,39 @@ function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain: boolea
         >
             <ViewpointIcon className="h-4 w-4" />
             <span>{picking ? 'Choisissez…' : 'Point de vue'}</span>
+        </button>
+    );
+}
+
+/**
+ * « Sommets »: name what the panorama is made of. Only shown while standing,
+ * because that is the only state it means anything in — the sightings are
+ * solved for one fixed eye, and a moving camera has none.
+ *
+ * `withLabel` spells the name out for the mobile actions menu, where the
+ * buttons are stacked full-width and an icon alone would be a lone square.
+ */
+export function PeakLabelsTopBarButton({ withLabel = false }: Readonly<{ withLabel?: boolean }>) {
+    const standing = useMapStore((s) => s.viewpoint !== null);
+    const active = useMapStore((s) => s.peakLabels);
+    const setPeakLabels = useMapStore((s) => s.setPeakLabels);
+    if (!standing) return null;
+
+    return (
+        <button
+            type="button"
+            onClick={() => setPeakLabels(!active)}
+            title={active
+                ? 'Masquer les noms des sommets'
+                : 'Nommer les sommets visibles d’ici (IGN BD TOPO®, couverture française)'}
+            aria-label="Noms des sommets"
+            aria-pressed={active}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-md ring-1 transition ${withLabel ? 'px-3 py-1.5 text-xs font-medium' : 'h-8 w-8'} ${active
+                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
+                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
+        >
+            <PeakLabelsIcon className="h-4 w-4" />
+            {withLabel && <span>Sommets</span>}
         </button>
     );
 }
@@ -148,6 +182,7 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
             <OrbitTopBarButton />
             {studio && <FreeCameraTopBarButton />}
             <ViewpointTopBarButton needsTerrain={!studio} />
+            <PeakLabelsTopBarButton />
             <ShowcaseGallery />
             {exportSlot}
             <HelpButton onClick={studio ? onHelp : undefined} />

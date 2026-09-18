@@ -97,14 +97,20 @@ Il gouverne aussi le **curseur** : tant qu'un autre mode le possède (le contrô
 point de vue pose son propre `grab`/croix et restaure ce qu'il a trouvé), la
 synchronisation du curseur d'itinéraire s'abstient.
 
-- **Glisser** = azimut (horizontal) et hauteur du regard (vertical), le pitch étant
-  borné à 20°–150°.
-- **Molette** = **focale**, pas zoom. Avec un œil fixe, zoomer n'a plus de sens
-  géométrique ; on change le champ de vision (8° à 60° verticaux, soit ~24 mm à
-  ~160 mm en équivalent 24×36).
+- **Glisser** (souris ou **un doigt**) = azimut (horizontal) et hauteur du regard
+  (vertical), le pitch étant borné à 20°–150°.
+- **Molette**, ou **pincement à deux doigts** = **focale**, pas zoom. Avec un œil
+  fixe, zoomer n'a plus de sens géométrique ; on change le champ de vision (8° à
+  60° verticaux, soit ~24 mm à ~160 mm en équivalent 24×36). L'écartement des
+  doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
+  par deux) : l'image suit le geste, comme un pincement de photo.
 - Les gestes MapLibre (pan, rotation, zoom, double-clic, clavier, tactile) sont
   **suspendus** pendant le mode et restaurés en sortant, avec le champ de vision et
-  la caméra finale republiée dans le store.
+  la caméra finale republiée dans le store. En les désactivant, MapLibre retire du
+  canvas ses classes `maplibregl-touch-*` — donc le `touch-action: none` qu'elles
+  portent — et le navigateur reprendrait le geste (défilement de page, `pointercancel`
+  au premier mouvement de doigt). Le contrôleur repose donc `touch-action: none`
+  lui-même le temps du mode, et restaure la valeur trouvée en sortant.
 - Le **`mousemove` est absorbé pendant le glisser** (et seulement pendant). MapLibre
   construit un `MapMouseEvent` pour chaque `mousemove`, et ce constructeur
   désprojette le pointeur ; avec le relief 3D cela coûtait ~7 ms par image, pour une
@@ -125,6 +131,49 @@ dépend du zoom courant, et le zoom change en entrant. Sans cette correction (`i
 zone morte de 0,20 m), l'œil se retrouve plusieurs mètres **sous** la surface sur un
 versant — écran noir, sans message, puisqu'il n'y a pas d'`ErrorBoundary`.
 
+#### Noms des sommets
+
+Un bouton **« Noms des sommets »** apparaît dans la barre du haut — et dans le menu
+`⋯` sur mobile — **uniquement quand on est debout** (mode *Point de vue* actif) ; il
+disparaît en sortant du mode. Actif par défaut, son état est persisté.
+
+Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le nom, et son
+altitude quand l'IGN en publie une, sur une étiquette penchée à 58°, reliée par un trait
+de rappel au point exact du sommet, à la manière de PeakFinder. Une arête plus proche qui
+masque un sommet le fait disparaître de la liste.
+
+Ce qu'il faut savoir :
+
+- Les noms viennent de la **BD TOPO® IGN**, dont la couverture s'arrête à la frontière
+  (plus une mince bande). Depuis le Brévent, le massif du Mont-Blanc est entièrement
+  nommé ; le Gran Paradiso, non.
+- L'**altitude est la cote relevée de la BD CARTO®**, jointe par `cleabs` (voir
+  `docs/IGN_DATA_SOURCES.md`). Elle est juste au mètre — mais l'IGN n'en publie que pour
+  **un tiers environ** des sommets, et les autres sont affichés **sans altitude**. C'est
+  délibéré : en randonnée, une altitude fausse est pire que pas d'altitude, et aucun MNT
+  ne donne la bonne, le point du toponyme n'étant pas sur le sommet (le Néron y est
+  relevé 183 m trop bas).
+- Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
+  **s'il porte une cote** : c'est la seule preuve qu'il désigne un point culminant
+  (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).
+- Une cote **que le terrain contredit largement est jetée** : la BD CARTO® en rattache
+  quelques-unes au mauvais objet (la « Grande Lance de Domène », 2790 m, reçoit les 2596 m
+  de la *Petite* Lance). La cote reste une mesure exacte ; c'est son rattachement qui est
+  faux. Quand le sol se tient plus de 15 m **au-dessus** d'elle, on ne tranche pas laquelle
+  des deux sources a tort : on n'affiche rien. Le seuil est large à dessein, un MNT pouvant
+  lire quelques mètres trop haut (névé, pylône). Mesuré : 4 cotes sur 179 en Chartreuse.
+- Un sommet hors du relief déjà chargé se lit à l'altitude 0 et est **silencieusement
+  écarté** plutôt que placé au niveau de la mer. Le test de visibilité travaille
+  entièrement sur le MNT, cote relevée ou pas : comparer un sommet relevé à une arête
+  issue du MNT biaiserait chaque verdict de l'écart entre les deux modèles.
+- Sur une crête dense, les noms sont **poussés vers la droite** pour ne pas se recouvrir ;
+  celui qu'il faudrait trop éloigner de son sommet est **abandonné** — un trait de rappel
+  qui traverse trois autres sommets est pire que pas d'étiquette. L'écart imposé se mesure
+  **perpendiculairement aux bandeaux de texte**, pas sur l'horizontale : deux noms écartés
+  de 19 px mais décalés de 30 px en hauteur sont, à 58°, imprimés l'un sur l'autre.
+- Le réglage **n'est pas partagé** dans les liens : il relève du confort de lecture, pas
+  de la vue.
+
 ### Sur mobile (< 768 px)
 
 La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaque
@@ -136,7 +185,12 @@ outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
-d'actions qui regroupe galerie, export et partage.
+d'actions (`⋯`) qui regroupe **orbite**, **point de vue**, **noms des sommets**,
+galerie, export et partage. C'est le **seul** accès mobile à ces actions : le
+groupe `TopBarActions` du desktop n'est pas monté sous 768 px, donc tout bouton
+ajouté là-bas doit être repris ici sous peine de ne pas exister sur téléphone.
+Armer le mode *Point de vue* **referme le menu** de lui-même : le geste suivant est
+un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 
 ### Limitations
 
@@ -145,11 +199,10 @@ d'actions qui regroupe galerie, export et partage.
   la carte.
 - **Breakpoint figé** à 768 px : pas configurable.
 - Le **tutoriel du Studio** ne se lance pas sur mobile (il désigne du chrome desktop).
-- Le mode *Point de vue* est **desktop seulement** (souris) et n'est pas persisté :
-  il s'éteint au rechargement. Il survit en revanche à un changement de vue, puisque
-  les deux vues l'offrent, et un **lien de partage** émis depuis le mode rouvre
-  directement dessus — même point de station, même direction, même focale
-  (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
+- Le mode *Point de vue* n'est **pas persisté** : il s'éteint au rechargement. Il
+  survit en revanche à un changement de vue, puisque les deux vues l'offrent, et un
+  **lien de partage** émis depuis le mode rouvre directement dessus — même point de
+  station, même direction, même focale (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
@@ -172,8 +225,12 @@ d'actions qui regroupe galerie, export et partage.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, galerie, `exportSlot`, aide) |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, noms des sommets, galerie, `exportSlot`, aide) |
 | [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
+| [src/components/map/PeakLabelsOverlay.tsx](../src/components/map/PeakLabelsOverlay.tsx) | Surcouche SVG des noms de sommets : les trois cadences (requête / visée / placement) |
+| [src/lib/peaks.ts](../src/lib/peaks.ts) | Requêtes WFS BD TOPO® + BD CARTO® des sommets nommés et de leurs cotes |
+| [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
+| [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
 | [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
@@ -182,7 +239,7 @@ d'actions qui regroupe galerie, export et partage.
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
-| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (galerie, export, partage) |
+| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, sommets, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
 | [src/components/lidar/StudioBottomBar.tsx](../src/components/lidar/StudioBottomBar.tsx) | Barre de pilules du Studio (desktop) |
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
@@ -338,6 +395,45 @@ onglet au premier plan — et `idle` ne se déclenchait plus jamais :
 Règle générale : **tout ce qui est appelé depuis `applyWhenStyleReady` doit être muet
 quand rien n'a changé.** Le garde-fou de mesure est `m.on('render', …)` sur une carte
 immobile : le compteur doit rester à **0**.
+
+### Les trois cadences des noms de sommets
+
+`PeakLabelsOverlay` fait trois choses de coûts très différents, et c'est ce qui dicte
+sur quel événement chacune est branchée :
+
+| Travail | Coût | Cadence |
+|---|---|---|
+| Requêtes WFS des sommets alentour (BD TOPO® + cotes BD CARTO®, en parallèle) | deux allers-retours réseau | une fois par **kilomètre** de déplacement de l'œil |
+| Visée : un rayon par sommet à travers le MNT | ~220 rayons, ~130 ms | une fois par **position** de l'œil, sur `idle` |
+| Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
+
+Seule la troisième suit le geste, et c'est la seule qui le peut : les deux autres
+dépendent de *où l'on se tient*, pas de *où l'on regarde*. Tourner la tête ne
+redéclenche donc ni requête ni visée.
+
+Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
+des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le
+rayon dans le couloir voisin. Et la marche s'arrête **1,5 % avant** le sommet
+(`SELF_CLEARANCE`) : sinon l'échantillon pris un pas avant la cime — sur sa propre
+pente, à peine plus bas — compte comme un obstacle et masque tout le panorama.
+
+Le désencombrement ne mesure aucun texte, et c'est volontaire : comme les étiquettes
+sont toutes inclinées du même angle, ce sont des **bandes parallèles**, et deux bandes
+parallèles ne se touchent pas dès qu'elles sont assez écartées **en travers** de cette
+direction — une hauteur de ligne — quelle que soit la longueur des noms.
+
+> ⚠️ Mesurer cet écart **sur l'horizontale** est la première version, et elle est fausse :
+> elle n'est exacte que si les deux noms sont à la même hauteur. À −58°, un nom décalé de
+> 19 px à droite **et** de 30 px vers le haut n'est plus qu'à 0,2 px du précédent en
+> travers des bandes, c'est-à-dire imprimé dessus — constaté depuis Chamechaude. La règle
+> projette désormais chaque ancre sur la **normale** aux bandeaux ; à hauteur égale elle
+> redonne exactement les 19 px d'avant, et elle cesse d'écarter pour rien deux noms que
+> 300 px de hauteur séparent déjà.
+
+> La visée est branchée sur **`idle`**, ce qui ne marche que parce que la carte se
+> repose vraiment : voir « La carte qui repeint sans fin » juste au-dessus. Si un jour
+> un appel remet le style en « modifié » à chaque image, les noms de sommets cesseront
+> silencieusement de se mettre à jour.
 
 ### Limitations techniques
 

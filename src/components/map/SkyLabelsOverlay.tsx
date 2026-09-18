@@ -24,6 +24,12 @@
  */
 
 import {
+    findSkyCrossings,
+    formatCrossingTime,
+    skylineAt,
+    type SkylinePoint,
+} from '@/lib/skyline';
+import {
     hourTicks,
     moonSampleAt,
     sampleSkyPath,
@@ -32,32 +38,13 @@ import {
     type SkyPathTick,
     type SkySampleAt,
 } from '@/lib/skyPath';
-import {
-    findSkyCrossings,
-    formatCrossingTime,
-    skylineAt,
-    type SkylineObserver,
-    type SkylinePoint,
-} from '@/lib/skyline';
+import { cameraObserver, demSampler, observerKey, projectDirection } from '@/lib/skyProjection';
 import { parseSunDate } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
-import { LngLat, type Map as MapLibreMap } from 'maplibre-gl';
 import { useCallback, useEffect, useRef } from 'react';
-
-/**
- * Zoom the DEM is sampled at. Measured against the renderer's own
- * `queryTerrainElevation` over eight azimuths around Chamonix: z11 misses a
- * near ridge by up to 0.51° — two solar diameters — while z13 stays within
- * 0.07° everywhere for 0.76 ms a ray instead of 0.57 ms. Going finer buys
- * nothing and risks reading tiles the terrain cache never loaded for the far
- * field, which would come back as sea level.
- */
-const SKYLINE_ZOOM = 13;
 
 /** Recompute no more often than this — a full day's scan costs ~70 ms. */
 const RECOMPUTE_DEBOUNCE_MS = 250;
-
-const DEG = Math.PI / 180;
 
 interface SkyLabel {
     /** Unit ENU directions to project; the label lands on the lowest one. */
@@ -131,44 +118,6 @@ function nowLabelElement(body: LabelledBody, minutesOfDay: number): HTMLElement 
     el.textContent = when;
     el.title = `${body.subject} est ici à ${when}, l'heure choisie`;
     return el;
-}
-
-/** The camera eye — the same eye the track's hidden half is depth-tested from. */
-function cameraObserver(map: MapLibreMap): SkylineObserver | null {
-    const eye = map.transform.getCameraLngLat();
-    const altitudeM = map.transform.getCameraAltitude();
-    if (!eye || !Number.isFinite(altitudeM)) return null;
-    return { lng: eye.lng, lat: eye.lat, altitudeM };
-}
-
-/**
- * Where a direction at infinity lands on screen, in CSS pixels.
- *
- * Same pinhole as MapLibre's own camera: the focal length in pixels is
- * `0.5·height/tan(fovY/2)`, which is exactly its `cameraToCenterDistance`.
- * Returns null when the direction is behind the camera.
- */
-function projectDirection(map: MapLibreMap, dir: readonly number[]): { x: number; y: number } | null {
-    const bearing = map.getBearing() * DEG;
-    const pitch = map.getPitch() * DEG;
-    const sinB = Math.sin(bearing);
-    const cosB = Math.cos(bearing);
-    const sinP = Math.sin(pitch);
-    const cosP = Math.cos(pitch);
-    // ENU basis of the camera: pitch 0 looks straight down, 90 at the horizon.
-    const forward = [sinB * sinP, cosB * sinP, -cosP];
-    const up = [sinB * cosP, cosB * cosP, sinP];
-    const right = [cosB, -sinB, 0];
-    const dot = (v: number[]) => dir[0] * v[0] + dir[1] * v[1] + dir[2] * v[2];
-
-    const depth = dot(forward);
-    if (depth <= 1e-4) return null;
-    const { width, height } = map.getCanvas().getBoundingClientRect();
-    const focal = (0.5 * height) / Math.tan((map.getVerticalFieldOfView() * DEG) / 2);
-    return {
-        x: width / 2 + (focal * dot(right)) / depth,
-        y: height / 2 - (focal * dot(up)) / depth,
-    };
 }
 
 export function SkyLabelsOverlay({ studio }: Readonly<{ studio: boolean }>) {
@@ -267,11 +216,7 @@ export function SkyLabelsOverlay({ studio }: Readonly<{ studio: boolean }>) {
         if (!map || !terrain || !host) return;
         const observer = cameraObserver(map);
         if (!observer) return;
-        // The eye is what the skyline depends on, so a pure rotation or a zoom
-        // that leaves it in place need not pay for a new scan.
-        const eyeKey = [
-            observer.lng.toFixed(4), observer.lat.toFixed(4), observer.altitudeM.toFixed(0),
-        ].join('|');
+        const eyeKey = observerKey(observer);
         const key = [sunDate, lat.toFixed(4), lng.toFixed(4), String(showHidden), eyeKey].join('|');
         if (key === lastKeyRef.current) return;
         lastKeyRef.current = key;
@@ -283,12 +228,12 @@ export function SkyLabelsOverlay({ studio }: Readonly<{ studio: boolean }>) {
         // same band of sky as the sun.
         if (skylineRef.current.eye !== eyeKey) skylineRef.current = { eye: eyeKey, rays: new Map() };
         const rays = skylineRef.current.rays;
+        const sample = demSampler(terrain);
         const skyline = (azimuthDeg: number): SkylinePoint => {
             const cacheKey = Math.round(azimuthDeg * 4);
             const hit = rays.get(cacheKey);
             if (hit) return hit;
-            const point = skylineAt(observer, azimuthDeg, (sLng, sLat) =>
-                terrain.getElevationForLngLatZoom(new LngLat(sLng, sLat), SKYLINE_ZOOM));
+            const point = skylineAt(observer, azimuthDeg, sample);
             rays.set(cacheKey, point);
             return point;
         };

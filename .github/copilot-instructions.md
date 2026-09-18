@@ -55,6 +55,38 @@ Topic → document:
 
 `README.md` lists the features: update it when a feature is added, removed, or visibly renamed.
 
+## Mobile is half the app
+
+The app has **two chromes**, not one desktop chrome with a narrower layout. Below 768 px the whole
+desktop shell is unmounted and replaced:
+
+| Desktop | Mobile (`< 768 px`) |
+|---|---|
+| `TopBarActions.tsx` (button group) | `MobileActionsMenu.tsx` (the `⋯` dropdown) |
+| `RouteBottomBar` + `RouteDock` | `MobileToolbar` + bottom sheets |
+| `App.tsx` / `LidarStudio.tsx` desktop branch | `MobileLayout.tsx` / `StudioMobileShell` |
+
+So a new affordance added to `TopBarActions` **does not exist on a phone** until it is also placed
+in `MobileActionsMenu` — which both mobile shells share, hence its `view` prop. Whenever you add or
+move a control, ask where its mobile twin lives and put it there in the same pass.
+
+The same applies to gestures — a feature reachable by touch but undrivable by touch is still
+missing:
+
+- anything driven by the **wheel** needs a **two-finger pinch** equivalent (`fovAfterPinch` next to
+  `fovAfterWheel` is the pattern);
+- anything driven by `mousedown` needs pointer events, `e.button` guarded by `pointerType`, and
+  multi-pointer bookkeeping keyed by `pointerId` — a second finger must not read as a jump;
+- when MapLibre's gesture handlers are **disabled**, MapLibre also drops its `maplibregl-touch-*`
+  classes, and with them the canvas `touch-action: none`. The browser then claims the gesture and
+  fires `pointercancel` at the first finger move. Set `canvas.style.touchAction = 'none'` for the
+  duration and restore the previous value in the cleanup;
+- `pointercancel` has already released the capture — `releasePointerCapture` throws a second time.
+  Guard with `hasPointerCapture`.
+
+Check the result at a phone viewport (390 × 844), not just at a narrow desktop window, and keep the
+mobile section of `docs/UI_SHELL_AND_RESPONSIVE.md` (including its *Limitations*) in step.
+
 ## Validation gates
 
 `npm run lint` checks **nothing** (the root `tsconfig.json` has `"files": []`). The real gates are:

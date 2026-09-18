@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     cameraForViewpoint,
     focalEquivalentMm,
+    fovAfterPinch,
     fovAfterWheel,
     horizontalFovDeg,
     lookAfterDrag,
@@ -138,5 +139,21 @@ describe('fovAfterWheel', () => {
     it('stays inside the usable lens range', () => {
         expect(fovAfterWheel(30, -100000)).toBe(VIEWPOINT_MIN_FOV);
         expect(fovAfterWheel(30, 100000)).toBe(VIEWPOINT_MAX_FOV);
+    });
+});
+
+describe('fovAfterPinch', () => {
+    it('narrows the lens as the fingers spread, exactly in proportion', () => {
+        expect(fovAfterPinch(30, 2)).toBeCloseTo(15, 6);
+        expect(fovAfterPinch(15, 0.5)).toBeCloseTo(30, 6);
+    });
+
+    it('stays inside the usable lens range', () => {
+        expect(fovAfterPinch(30, 1000)).toBe(VIEWPOINT_MIN_FOV);
+        expect(fovAfterPinch(30, 0.001)).toBe(VIEWPOINT_MAX_FOV);
+    });
+
+    it('survives a degenerate ratio rather than returning NaN', () => {
+        expect(fovAfterPinch(30, 0)).toBe(VIEWPOINT_MAX_FOV);
     });
 });

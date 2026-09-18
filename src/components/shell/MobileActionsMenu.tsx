@@ -1,13 +1,23 @@
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
-import { OrbitTopBarButton } from '@/components/shell/TopBarActions';
+import { OrbitTopBarButton, PeakLabelsTopBarButton, ViewpointTopBarButton } from '@/components/shell/TopBarActions';
+import type { AppView } from '@/lib/useView';
+import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
  * Compact "more actions" menu for the mobile top bar: a `⋯` button that opens a
- * dropdown grouping the cross-view actions (orbit toggle, the unified gallery and
- * the view's export dialog) so they don't crowd the toolbar. The gallery/export
- * children render their own modals (portalled to `document.body`), so they work
- * unchanged here. Theme-aware; dismisses on outside tap.
+ * dropdown grouping the cross-view actions (orbit toggle, viewpoint mode, the
+ * unified gallery and the view's export dialog) so they don't crowd the toolbar.
+ * The gallery/export children render their own modals (portalled to
+ * `document.body`), so they work unchanged here. Theme-aware; dismisses on
+ * outside tap.
+ *
+ * It is the mobile counterpart of `TopBarActions`, and the only place a mobile
+ * user can reach those actions: anything added there has to be mirrored here or
+ * it simply does not exist below 768 px.
+ *
+ * `view` is what tells the viewpoint button whether the 3D terrain is a
+ * prerequisite — in the Studio the LiDAR cloud is the ground.
  *
  * IMPORTANT: the dropdown content stays MOUNTED (just visually hidden) even
  * when the menu is "closed" — see the CSS-only hide below. Conditionally
@@ -18,9 +28,16 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * the gallery — which silently closed its modal too, making it look like the
  * gallery "disappeared" on any click (reported on mobile).
  */
-export function MobileActionsMenu({ exportSlot }: Readonly<{ exportSlot: ReactNode }>) {
+export function MobileActionsMenu({ view, exportSlot }: Readonly<{ view: AppView; exportSlot: ReactNode }>) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    const viewpointPicking = useMapStore((s) => s.viewpointPicking);
+
+    // Arming the viewpoint mode asks for a tap on the map; on a phone the open
+    // dropdown covers a good third of it, so it gets out of the way by itself.
+    useEffect(() => {
+        if (viewpointPicking) setOpen(false);
+    }, [viewpointPicking]);
 
     useEffect(() => {
         if (!open) return;
@@ -53,6 +70,8 @@ export function MobileActionsMenu({ exportSlot }: Readonly<{ exportSlot: ReactNo
                 className={`absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10 ${open ? '' : 'invisible opacity-0'}`}
             >
                 <OrbitTopBarButton />
+                <ViewpointTopBarButton needsTerrain={view === 'map'} />
+                <PeakLabelsTopBarButton withLabel />
                 <ShowcaseGallery />
                 {exportSlot}
             </div>
