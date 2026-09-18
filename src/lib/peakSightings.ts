@@ -61,24 +61,6 @@ const CLEARANCE_TOLERANCE_DEG = 0.02;
 /** A summit whose DEM reads at sea level is outside the loaded terrain. */
 const MIN_GROUND_M = 1;
 
-/**
- * How far the ground may stand above a surveyed height before that height is
- * taken to describe some other point.
- *
- * A cote is an exact measurement; what goes wrong is what it is attached to.
- * BD CARTO® hangs the 2596 m of the *Petite* Lance de Domène — which it does not
- * itself contain — on the identifier of the Grande Lance, whose own ground the
- * DEM reads 168 m higher.
- *
- * The margin is wide because a DEM can genuinely read high: névé standing on the
- * rock when the survey was flown, or a mast the bare-earth filter left behind on
- * a narrow top. Measured over the Chartreuse, the ground stands above the cote by
- * 155, 23, 23 and 20 m on four summits, then by 10 and 9.7 m on two where that
- * explanation is credible, then by no more than 1.7 m. Cutting at 15 m keeps
- * only what no DEM error accounts for.
- */
-const MAX_SURVEY_UNDERSHOOT_M = 15;
-
 export interface PeakSighting {
     peak: Peak;
     distanceM: number;
@@ -117,11 +99,11 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
  * sun labels do would be 130 m off course at 30 km, enough to march up the
  * wrong gully and call a summit hidden.
  *
- * The whole test runs in DEM space, the summit included, even when BD CARTO®
- * publishes a surveyed height for it: comparing a surveyed top against a DEM
- * ridge would tilt every verdict by the few metres that separate the two
- * models. The surveyed height is only printed — and only after the terrain
- * under it has failed to contradict it.
+ * The whole test runs in DEM space, the summit included, even when a surveyed
+ * height is published for it: comparing a surveyed top against a DEM ridge
+ * would tilt every verdict by the few metres that separate the two models. The
+ * published height is only printed — and `tools/build-peaks.mjs` has already
+ * dropped the ones RGE ALTI® contradicts.
  */
 export function sightPeaks(
     observer: SkylineObserver,
@@ -139,19 +121,12 @@ export function sightPeaks(
         const el = elevationDeg * DEG;
         const ce = Math.cos(el);
         out.push({
-            peak: withCheckedSpotHeight(peak, groundM),
+            peak,
             distanceM,
             dir: [ce * Math.sin(az), ce * Math.cos(az), Math.sin(el)],
         });
     }
     return out;
-}
-
-/** Drop a surveyed height the terrain under it says cannot be right. */
-function withCheckedSpotHeight(peak: Peak, groundM: number): Peak {
-    if (peak.spotHeightM === null) return peak;
-    if (groundM <= peak.spotHeightM + MAX_SURVEY_UNDERSHOOT_M) return peak;
-    return { ...peak, spotHeightM: null };
 }
 
 // ── Screen-space layout ──────────────────────────────────────────────────────

@@ -9,8 +9,8 @@
  *
  * Three things happen here, in this order and at three different rates:
  *
- *   - the summit list is FETCHED once per kilometre of eye movement
- *     (`lib/peaks.ts`, IGN BD TOPO® over WFS);
+ *   - the summit list is LOADED once per session (`lib/peaks.ts`, a file built
+ *     offline by `tools/build-peaks.mjs`), then sliced to the eye's box;
  *   - visibility is MARCHED once per eye position — ~220 rays, ~130 ms, paid
  *     when the eye lands and never again while you turn (`lib/peakSightings.ts`);
  *   - the labels are PLACED on every frame, which is pure arithmetic on
@@ -22,7 +22,7 @@
  * dependency — the same reason `SkyLabelsOverlay` positions its hours that way.
  */
 
-import { fetchPeaks, PEAKS_RADIUS_M, type Peak } from '@/lib/peaks';
+import { loadPeaks as loadAllPeaks, peaksWithin, PEAKS_RADIUS_M, type Peak } from '@/lib/peaks';
 import {
     LABEL_ANGLE_DEG,
     layoutPeakLabels,
@@ -41,7 +41,6 @@ const RECOMPUTE_DEBOUNCE_MS = 250;
 
 /** The summit list is reused while the eye stays inside this radius. */
 const REFETCH_DISTANCE_KEY_DIGITS = 2;
-
 /** Margin, in pixels, a label may sit outside the canvas before being culled. */
 const CULL_MARGIN_PX = 80;
 
@@ -79,9 +78,9 @@ function createNode(sighting: PeakSighting): PeakNode {
     text.setAttribute('font-size', '12');
     text.setAttribute('font-weight', '600');
     text.setAttribute('dominant-baseline', 'middle');
-    // No height rather than a wrong one: IGN publishes a surveyed spot height
-    // for about a third of its summits, and nothing else on the map is worth
-    // trusting for the one number a walker plans on (`lib/peaks.ts`).
+    // No height rather than a wrong one: no source publishes one for every
+    // summit, and a height RGE ALTI® contradicted was dropped when the data
+    // file was built rather than printed (`lib/peaks.ts`).
     const { name, spotHeightM } = sighting.peak;
     text.textContent = spotHeightM === null ? name : `${name} ${spotHeightM} m`;
 
@@ -99,10 +98,9 @@ export function PeakLabelsOverlay() {
     const nodesRef = useRef<PeakNode[]>([]);
     /** The eye the labels on screen were solved for, to skip idle no-ops. */
     const lastKeyRef = useRef('');
-    /** Summits already downloaded, and the rounded eye they were asked around. */
+    /** Summits already sliced out, and the rounded eye they were sliced around. */
     const peaksRef = useRef<{ key: string; peaks: Peak[] }>({ key: '', peaks: [] });
     const timerRef = useRef<number | undefined>(undefined);
-    const abortRef = useRef<AbortController | null>(null);
 
     const clearNodes = useCallback(() => {
         for (const node of nodesRef.current) node.group.remove();
@@ -142,21 +140,17 @@ export function PeakLabelsOverlay() {
         }
     }, [mapInstance]);
 
-    /** Download the summits around the eye, reusing the list while it barely moves. */
+    /** Slice the summits around the eye, reusing the list while it barely moves. */
     const loadPeaks = useCallback(async (lng: number, lat: number): Promise<Peak[] | null> => {
         const key = `${lng.toFixed(REFETCH_DISTANCE_KEY_DIGITS)}|${lat.toFixed(REFETCH_DISTANCE_KEY_DIGITS)}`;
         if (peaksRef.current.key === key) return peaksRef.current.peaks;
-        abortRef.current?.abort();
-        const controller = new AbortController();
-        abortRef.current = controller;
         try {
-            const peaks = await fetchPeaks(lng, lat, PEAKS_RADIUS_M, controller.signal);
+            const peaks = peaksWithin(await loadAllPeaks(), lng, lat, PEAKS_RADIUS_M);
             peaksRef.current = { key, peaks };
             return peaks;
         } catch (err) {
-            if (controller.signal.aborted) return null;
             // No ErrorBoundary anywhere: a rejected fetch must never escape.
-            console.warn('Peak labels: IGN summit query failed', err);
+            console.warn('Peak labels: summit data failed to load', err);
             return null;
         }
     }, []);
@@ -217,8 +211,6 @@ export function PeakLabelsOverlay() {
 
         return () => {
             window.clearTimeout(timerRef.current);
-            abortRef.current?.abort();
-            abortRef.current = null;
             map.off('idle', schedule);
             map.off('move', place);
             clearNodes();

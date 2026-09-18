@@ -1,192 +1,104 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Named summits around a standpoint, from the IGN BD TOPO® and BD CARTO®.
+// Named summits around a standpoint, read from a file built offline.
 //
-// `detail_orographique` exists in BOTH products, under the SAME `cleabs`
-// identifier. That pairing is what this module is built on, because each side
-// holds exactly one of the two things a panorama needs:
+// This was two live WFS queries per kilometre of eye movement — BD TOPO® for
+// the summits and their `importance` rank, BD CARTO® for the `cote`, joined on
+// the `cleabs` both products share. The join is expensive and its answer never
+// changes, so `tools/build-peaks.mjs` now does it once and writes the result
+// into `peaksData.json`. That bought three things a live query could not:
 //
-//   - BD TOPO® is the dense one, and the only one carrying `importance`, IGN's
-//     notoriety rank (1 = most notorious … 6). It is the only sane way to thin
-//     a panorama: around Chamonix a ±80 km box holds 1655 summits at rank ≤ 4;
-//   - BD CARTO® is the generalised one, and the only one carrying `cote`, the
-//     spot height printed on the map — the surveyed altitude of the summit.
+//   - heights from SEVERAL sources. BD CARTO® publishes a cote for barely a
+//     fifth of the summits we keep; OSM and GeoNames cover a different fifth,
+//     and merging them is only affordable offline;
+//   - every height checked against RGE ALTI® at 1 m rather than against the
+//     terrainrgb the app samples at ~10 m. The check that used to run on every
+//     sighting — and could only ever delete a height — now runs once, on better
+//     data, and lets the next source have its turn instead;
+//   - no network on the path to a label, and no dependency on the Géoplateforme
+//     answering when the eye lands.
 //
-// Why the height cannot come from a DEM: the toponym's point is placed to hang
-// a label on, not on the top. Sampled against RGE ALTI® 1 m it reads
-// Chamechaude −9 m, Grand Som −12 m, Mont Saint-Eynard −9 m, le Néron −183 m,
-// and taking the local maximum over 400 m around it recovers none of them. An
-// altitude is a hiking decision, so it is BD CARTO®'s `cote` or nothing:
-// `spotHeightM` is null on the two thirds of summits IGN gives no spot height
-// for, and those are labelled with their name alone.
-//
-// The nature filter falls out of the same join. `Sommet` and `Pic` ARE tops by
-// definition. `Montagne`, `Rochers`, `Crête` and `Escarpement` sometimes name a
-// culminating point (la Meije, la Grande Sure, les Lances de Malissard) and
-// sometimes an area ("Massif de la Chartreuse", "les Grandes Rousses"); a spot
-// height is precisely the evidence that separates the two, so those four are
-// kept only when BD CARTO® gives them one. Over the northern Alps that adds
-// ~110 real tops and no area label.
+// The price is freshness: the file is frozen until someone reruns the tool. For
+// surveyed summits, whose heights do not move from one decade to the next, that
+// is a price of zero.
 //
 // Coverage is French, and only just past the border: the Miravidi and the Becca
 // du Lac are in, the Gran Paradiso is not. A panorama facing Italy or the Valais
 // will be labelled on its French half only.
-//
-// Same host and the same keyless WFS as the LiDAR tile index (`lidarBrowser/
-// wfs.ts`), CORS confirmed from any origin.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WFS_URL = 'https://data.geopf.fr/wfs/ows';
-const TOPO_TYPENAME = 'BDTOPO_V3:detail_orographique';
-const CARTO_TYPENAME = 'BDCARTO_V5:detail_orographique';
+import peaksUrl from '@/lib/peaksData.json?url';
 
 /** Beyond this the haze wins and a name cannot be checked against anything. */
 export const PEAKS_RADIUS_M = 60_000;
 
-/**
- * Coarsest rank fetched. 5 and 6 name knolls and shoulders — at any distance
- * where they are legible you are standing on them.
- */
-const MAX_IMPORTANCE = 4;
-
-/** A 60 km box holds ~800 features at rank ≤ 4 in the Alps; this is the net. */
-const MAX_FEATURES = 4000;
-
 const METRES_PER_DEG_LAT = 111320;
 const DEG = Math.PI / 180;
 
-/** Natures that name a top whether or not IGN has surveyed its height. */
-const SUMMIT_NATURES = new Set(['Sommet', 'Pic']);
-
-/** Natures kept only when a spot height proves they name a point, not an area. */
-const CULMINATION_NATURES = ['Montagne', 'Rochers', 'Crête', 'Escarpement'];
-
 export interface Peak {
-    /** IGN's own stable identifier (`cleabs`), shared by both products. */
+    /** Row number in the data file: stable within a build, and only a list key. */
     id: string;
     name: string;
     lng: number;
     lat: number;
-    /** IGN notoriety rank, 1 (highest) … 6. */
+    /** IGN notoriety rank, 1 (highest) … 4. */
     importance: number;
-    /** BD CARTO® spot height in metres, or null when IGN publishes none. */
+    /** Published spot height in metres, or null when no source carries one. */
     spotHeightM: number | null;
 }
 
-function boundingBox(lng: number, lat: number, radiusM: number): string {
-    const dLat = radiusM / METRES_PER_DEG_LAT;
-    const dLng = dLat / Math.max(0.05, Math.cos(lat * DEG));
-    return [lng - dLng, lat - dLat, lng + dLng, lat + dLat].map((v) => v.toFixed(5)).join(',');
+/** One row of the data file. Positional: naming the fields costs 130 kB gzipped. */
+type PeakRow = [
+    name: string,
+    lng: number,
+    lat: number,
+    importance: number,
+    spotHeightM: number | null,
+];
+
+
+/**
+ * In flight or resolved, shared by every caller.
+ *
+ * Deliberately takes no `AbortSignal`: one caller giving up would reject the
+ * promise every later caller is waiting on. The file is a static asset a few
+ * hundred kilobytes wide, and the overlay already discards a result whose eye
+ * has moved on, so there is nothing worth cancelling.
+ */
+let pending: Promise<Peak[]> | null = null;
+
+/** Every named French summit, downloaded once and kept for the session. */
+export function loadPeaks(): Promise<Peak[]> {
+    pending ??= fetch(peaksUrl)
+        .then((res) => {
+            if (!res.ok) throw new Error(`peaksData.json → ${res.status} ${res.statusText}`);
+            return res.json() as Promise<PeakRow[]>;
+        })
+        .then((rows) => rows.map(([name, lng, lat, importance, spotHeightM], i): Peak => ({
+            id: String(i), name, lng, lat, importance, spotHeightM,
+        })))
+        .catch((err: unknown) => {
+            // Let a later idle try again rather than cache the failure for good.
+            pending = null;
+            throw err;
+        });
+    return pending;
 }
 
 /**
- * One `GetFeature` call, returning the raw feature array.
+ * The summits inside a square box of `radiusM` around a spot.
  *
- * The bbox travels inside `cql_filter`, never in the `bbox` parameter: the IGN
- * WFS rejects the two together ("bbox and cql_filter both specified but are
- * mutually exclusive"), and every caller here needs a filter anyway.
+ * A box, not a disc: `selectCandidates` measures the real distance anyway, and
+ * this only exists to keep the ray budget from being sorted over the whole
+ * country on every idle.
  */
-async function getFeatures(
-    typename: string,
-    propertyname: string,
-    cqlFilter: string,
-    signal?: AbortSignal,
-): Promise<unknown[]> {
-    const params = new URLSearchParams({
-        service: 'WFS',
-        version: '2.0.0',
-        request: 'GetFeature',
-        typenames: typename,
-        srsname: 'EPSG:4326',
-        outputFormat: 'application/json',
-        count: String(MAX_FEATURES),
-        propertyname,
-        cql_filter: cqlFilter,
-    });
-    const res = await fetch(`${WFS_URL}?${params.toString()}`, {
-        headers: { Accept: 'application/json' },
-        signal,
-    });
-    if (!res.ok) throw new Error(`WFS GetFeature failed: ${res.status} ${res.statusText}`);
-    const data = await res.json() as { features?: unknown[] };
-    return Array.isArray(data.features) ? data.features : [];
-}
-
-/**
- * The surveyed heights of the box, keyed by `cleabs`.
- *
- * Asking for `cleabs,cote` alone makes the WFS answer with a null geometry,
- * which is the whole point: this is a lookup table, ~17 kB for a 60 km box.
- */
-async function fetchSpotHeights(bbox: string, signal?: AbortSignal): Promise<Map<string, number>> {
-    const features = await getFeatures(
-        CARTO_TYPENAME,
-        'cleabs,cote',
-        `cote IS NOT NULL AND BBOX(geometrie,${bbox},'EPSG:4326')`,
-        signal,
-    );
-    const heights = new Map<string, number>();
-    for (const raw of features) {
-        const props = (raw as { properties?: { cleabs?: unknown; cote?: unknown } }).properties;
-        if (typeof props?.cleabs !== 'string') continue;
-        const cote = Number(props.cote);
-        if (Number.isFinite(cote)) heights.set(props.cleabs, cote);
-    }
-    return heights;
-}
-
-function parseFeature(raw: unknown, spotHeights: ReadonlyMap<string, number>): Peak | null {
-    const f = raw as {
-        properties?: { cleabs?: unknown; toponyme?: unknown; nature?: unknown; importance?: unknown };
-        geometry?: { coordinates?: unknown };
-    };
-    const cleabs = f.properties?.cleabs;
-    const name = f.properties?.toponyme;
-    const nature = f.properties?.nature;
-    if (typeof cleabs !== 'string' || typeof name !== 'string' || !name) return null;
-    const coords = f.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) return null;
-    const [lng, lat] = coords as number[];
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-    const spotHeightM = spotHeights.get(cleabs) ?? null;
-    // Without a spot height, a `Montagne` or a `Crête` is an area name whose
-    // point sits in the middle of nothing one can aim at.
-    if (spotHeightM === null && !(typeof nature === 'string' && SUMMIT_NATURES.has(nature))) {
-        return null;
-    }
-    const importance = Number(f.properties?.importance);
-    return {
-        id: cleabs,
-        name,
-        lng,
-        lat,
-        importance: Number.isFinite(importance) ? importance : MAX_IMPORTANCE,
-        spotHeightM,
-    };
-}
-
-/** Every named summit within `radiusM` of a spot, surveyed heights joined in. */
-export async function fetchPeaks(
+export function peaksWithin(
+    peaks: readonly Peak[],
     lng: number,
     lat: number,
     radiusM: number,
-    signal?: AbortSignal,
-): Promise<Peak[]> {
-    const bbox = boundingBox(lng, lat, radiusM);
-    const natures = [...SUMMIT_NATURES, ...CULMINATION_NATURES].map((n) => `'${n}'`).join(',');
-    const [features, spotHeights] = await Promise.all([
-        getFeatures(
-            TOPO_TYPENAME,
-            'cleabs,toponyme,nature,importance,geometrie',
-            `nature IN (${natures}) AND importance <= '${MAX_IMPORTANCE}' `
-            + `AND BBOX(geometrie,${bbox},'EPSG:4326')`,
-            signal,
-        ),
-        fetchSpotHeights(bbox, signal),
-    ]);
-    const peaks: Peak[] = [];
-    for (const raw of features) {
-        const peak = parseFeature(raw, spotHeights);
-        if (peak) peaks.push(peak);
-    }
-    return peaks;
+): Peak[] {
+    const dLat = radiusM / METRES_PER_DEG_LAT;
+    const dLng = dLat / Math.max(0.05, Math.cos(lat * DEG));
+    return peaks.filter((p) => Math.abs(p.lat - lat) <= dLat && Math.abs(p.lng - lng) <= dLng);
 }
+

@@ -109,16 +109,10 @@ describe('sightPeaks', () => {
         expect(sightPeaks(OBSERVER, [peak], () => 0)).toEqual([]);
     });
 
-    it('drops a surveyed height the ground under it stands above', () => {
-        // The Grande Lance de Domène case: BD CARTO hands it the neighbour's cote.
-        const peak = { ...peakNorth('mislabelled', 6_000), spotHeightM: 1_800 };
-        const [seen] = sightPeaks(OBSERVER, [peak], summits(2_000, [peak]));
-        expect(seen.peak.spotHeightM).toBeNull();
-    });
-
-    it('keeps a surveyed height the DEM merely reads a few metres under', () => {
-        // Névé or a mast the bare-earth filter missed: the DEM, not the cote.
-        const peak = { ...peakNorth('snowed', 6_000), spotHeightM: 1_990 };
+    it('carries the published height straight through, having no say over it', () => {
+        // Which heights survive is settled by `tools/build-peaks.mjs` against
+        // RGE ALTI, not here: a sighting reports, it does not arbitrate.
+        const peak = { ...peakNorth('coted', 6_000), spotHeightM: 1_990 };
         const [seen] = sightPeaks(OBSERVER, [peak], summits(2_000, [peak]));
         expect(seen.peak.spotHeightM).toBe(1_990);
     });
