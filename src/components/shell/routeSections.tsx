@@ -1,9 +1,9 @@
 import type { IconProps } from '@/components/icons/LidarIcons';
-import { LightIcon } from '@/components/icons/LidarIcons';
 import {
     BaseLayerSection,
     ContourSection,
     HillshadeSection,
+    PeakLabelsToggle,
     SkyPathSection,
     Terrain3DSection,
 } from '@/components/ui/LayerSwitcher';
@@ -53,6 +53,16 @@ export function AdvancedIcon({ className }: IconProps): ReactElement {
     );
 }
 
+/** Peaks under a sun: what the *Point de vue* mode lets you read off the skyline. */
+export function PanoramaIcon({ className }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" className={className} aria-hidden="true">
+            <circle cx="14" cy="5.5" r="2.2" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 16.5l4.5-7 3 4.2 2.5-3.7 5 6.5H1.5z" />
+        </svg>
+    );
+}
+
 export function RouteIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
@@ -69,6 +79,12 @@ export interface RouteSettingSection {
     label: string;
     Icon: (props: IconProps) => ReactElement;
     render: () => ReactElement;
+    /**
+     * Section that only answers a question asked from a fixed eye. Outside the
+     * *Point de vue* mode the map is capped at `MAP_MAX_PITCH` (85°), so there is
+     * no sky on screen to draw a track across and no panorama to name.
+     */
+    requiresViewpoint?: boolean;
 }
 
 /**
@@ -109,10 +125,17 @@ export const ROUTE_SETTING_SECTIONS: ReadonlyArray<RouteSettingSection> = [
         ),
     },
     {
-        id: 'soleil',
-        label: 'Soleil',
-        Icon: LightIcon,
-        render: () => <SkyPathSection />,
+        id: 'panorama',
+        label: 'Panorama',
+        Icon: PanoramaIcon,
+        requiresViewpoint: true,
+        render: () => (
+            <>
+                <PeakLabelsToggle />
+                <SectionDivider />
+                <SkyPathSection />
+            </>
+        ),
     },
     {
         id: 'avance',

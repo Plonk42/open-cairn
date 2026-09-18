@@ -68,8 +68,32 @@ export interface ViewpointCamera {
     pitch: number;
 }
 
-/** Eye height above the ground. A user-settable value can replace it later. */
+/** Eye height above the ground on arrival, and the floor the arrows cannot go under. */
 export const VIEWPOINT_EYE_HEIGHT_M = 1.7;
+
+/**
+ * Ceiling for the arrow keys. Well past what the mode is for, but standing at
+ * 1.70 m the drawn terrain a few metres ahead often rises above the eye, and
+ * getting clear of it takes tens of metres, not two (see
+ * `docs/UI_SHELL_AND_RESPONSIVE.md`).
+ */
+export const VIEWPOINT_MAX_EYE_HEIGHT_M = 3000;
+
+/** Vertical travel per arrow press, ×10 with Shift. */
+export const VIEWPOINT_EYE_STEP_M = 2;
+const VIEWPOINT_EYE_FAST_FACTOR = 10;
+
+/**
+ * Eye height after one arrow press, clamped to the usable range.
+ *
+ * @param heightM - Current height above the ground.
+ * @param up - `true` for the up arrow.
+ * @param fast - Shift held: ten steps at once.
+ */
+export function eyeHeightAfterStep(heightM: number, up: boolean, fast: boolean): number {
+    const step = VIEWPOINT_EYE_STEP_M * (fast ? VIEWPOINT_EYE_FAST_FACTOR : 1);
+    return clampNumber(heightM + (up ? step : -step), VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M);
+}
 
 /**
  * Distance from the eye to MapLibre's center point. Invisible in the image, but

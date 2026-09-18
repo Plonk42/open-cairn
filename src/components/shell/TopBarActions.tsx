@@ -113,6 +113,10 @@ export function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain:
  * because that is the only state it means anything in — the sightings are
  * solved for one fixed eye, and a moving camera has none.
  *
+ * **Studio only.** The Itinéraire view offers the same flag in its *Panorama*
+ * pill, alongside the sky tracks that answer the same question; the Studio
+ * bottom bar has no such pill, so there it stays a top-bar button.
+ *
  * `withLabel` spells the name out for the mobile actions menu, where the
  * buttons are stacked full-width and an icon alone would be a lone square.
  */
@@ -182,7 +186,7 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
             <OrbitTopBarButton />
             {studio && <FreeCameraTopBarButton />}
             <ViewpointTopBarButton needsTerrain={!studio} />
-            <PeakLabelsTopBarButton />
+            {studio && <PeakLabelsTopBarButton />}
             <ShowcaseGallery />
             {exportSlot}
             <HelpButton onClick={studio ? onHelp : undefined} />

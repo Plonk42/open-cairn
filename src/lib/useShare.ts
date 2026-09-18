@@ -20,6 +20,7 @@ function currentViewpoint(map: MapState): SharedViewpoint | null {
             pitch: map.mapInstance.getPitch(),
             fovDeg: map.mapInstance.getVerticalFieldOfView(),
         },
+        heightM: map.viewpointHeightM,
     };
 }
 

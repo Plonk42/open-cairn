@@ -38,8 +38,9 @@ if (shared) {
         // The first-person mode is session-only by design; a share link is the one
         // thing allowed to start in it, because there the standpoint IS the view.
         map.setViewpoint(shared.viewpoint.eye);
-        // After `setViewpoint`, which clears the framing.
+        // After `setViewpoint`, which clears the framing and the height.
         map.setViewpointFraming(shared.viewpoint.framing);
+        map.setViewpointHeightM(shared.viewpoint.heightM);
     }
     const route = useRouteStore.getState();
     route.setActive(false); // Always start in read mode when opening a shared link

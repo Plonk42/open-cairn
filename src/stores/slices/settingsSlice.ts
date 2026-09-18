@@ -1,5 +1,5 @@
 import { setTileCacheMaxSize } from '@/lib/compositeProtocol';
-import type { Viewpoint, ViewpointFraming } from '@/lib/viewpointCamera';
+import { VIEWPOINT_EYE_HEIGHT_M, type Viewpoint, type ViewpointFraming } from '@/lib/viewpointCamera';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import { persisted, type PersistedSettings } from '../persistence';
@@ -91,6 +91,17 @@ export interface SettingsSlice {
     viewpointFraming: ViewpointFraming | null;
     setViewpointFraming: (v: ViewpointFraming | null) => void;
 
+    /**
+     * How high above the ground the eye stands, in metres. The arrow keys move
+     * it; unlike the framing it IS kept here, because `settleOnGround` has to
+     * read it back on every `idle` to know what height it is settling to.
+     *
+     * Reset to {@link VIEWPOINT_EYE_HEIGHT_M} by {@link setViewpoint}: a new
+     * standpoint is a new pair of feet on the ground.
+     */
+    viewpointHeightM: number;
+    setViewpointHeightM: (v: number) => void;
+
     /** Waiting for the click that picks the viewpoint on the map. */
     viewpointPicking: boolean;
     setViewpointPicking: (v: boolean) => void;
@@ -144,10 +155,19 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     setFreeCamera: (freeCamera) => set({ freeCamera }),
 
     viewpoint: null,
-    setViewpoint: (viewpoint) => set({ viewpoint, viewpointPicking: false, viewpointFraming: null }),
+    setViewpoint: (viewpoint) =>
+        set({
+            viewpoint,
+            viewpointPicking: false,
+            viewpointFraming: null,
+            viewpointHeightM: VIEWPOINT_EYE_HEIGHT_M,
+        }),
 
     viewpointFraming: null,
     setViewpointFraming: (viewpointFraming) => set({ viewpointFraming }),
+
+    viewpointHeightM: VIEWPOINT_EYE_HEIGHT_M,
+    setViewpointHeightM: (viewpointHeightM) => set({ viewpointHeightM }),
 
     viewpointPicking: false,
     setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),

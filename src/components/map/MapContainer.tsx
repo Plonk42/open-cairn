@@ -1029,8 +1029,10 @@ export function MapContainer() {
     // leash the arrows gain altitude instead of panning, like a drone.
     //
     // The viewpoint mode needs the same release (the eye stands 1.7 m above the
-    // ground, well inside MapLibre's collision envelope) but NOT the arrow keys:
-    // they would move the standpoint the mode exists to hold still.
+    // ground, well inside MapLibre's collision envelope) but not THESE arrow keys:
+    // `bindAltitudeKeys` raises the map centre, which would drag the standpoint the
+    // mode exists to hold still. `ViewpointController` binds its own pair, moving
+    // the eye height while the feet stay put.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;

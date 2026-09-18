@@ -104,6 +104,13 @@ synchronisation du curseur d'itinéraire s'abstient.
   60° verticaux, soit ~24 mm à ~160 mm en équivalent 24×36). L'écartement des
   doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
   par deux) : l'image suit le geste, comme un pincement de photo.
+- **Flèches haut / bas** = **hauteur de l'œil au-dessus du sol**, 2 m par appui, 20 m
+  avec Maj, entre 1,70 m et 3 000 m. Le point de vue, lui, ne bouge pas : seule
+  l'altitude change. C'est le remède au relief qui passe devant l'œil (voir
+  « Ce que 1,70 m ne garantit pas » plus bas) — se dégager demande une quinzaine de
+  mètres, pas deux. La liaison est posée en phase de **capture** sur `document`, comme
+  `bindAltitudeKeys`, et ignore les frappes dans un champ de saisie. Elle est **sans
+  équivalent tactile** : sur téléphone la hauteur reste à 1,70 m (voir *Limitations*).
 - Les gestes MapLibre (pan, rotation, zoom, double-clic, clavier, tactile) sont
   **suspendus** pendant le mode et restaurés en sortant, avec le champ de vision et
   la caméra finale republiée dans le store. En les désactivant, MapLibre retire du
@@ -131,11 +138,36 @@ dépend du zoom courant, et le zoom change en entrant. Sans cette correction (`i
 zone morte de 0,20 m), l'œil se retrouve plusieurs mètres **sous** la surface sur un
 versant — écran noir, sans message, puisqu'il n'y a pas d'`ErrorBoundary`.
 
+La correction se fait sur l'altitude **atteinte** (`transform.getCameraAltitude()`),
+pas sur celle demandée. L'œil est reconstruit 4 km en arrière du centre : `cameraForViewpoint`
+sort en équirectangulaire, MapLibre rebâtit en mercator, et la composante verticale du
+bras de levier vaut `4000 · cos(85°) ≈ 348 m` — 0,3 % d'écart y font un mètre. Tant que
+la boucle comparait la consigne à elle-même, elle ne pouvait pas le voir : mesuré sur
+cinq points de vue, l'œil arrivait entre **0,73 m et 2,08 m** au-dessus du sol au lieu de
+1,70 m. En corrigeant sur l'altitude atteinte — qui suit la consigne avec une pente de 1,
+donc converge en une passe — les cinq mêmes points donnent **1,70 m** exactement.
+
+> **Ce que 1,70 m ne garantit pas.** Être au-dessus du sol *selon le MNT* ne veut pas
+> dire être au-dessus du sol *dessiné*. `queryTerrainElevation` interpole le raster en
+> bilinéaire, alors que MapLibre dessine une grille de triangles qui ne coïncide avec
+> lui qu'aux sommets du maillage — quelque 13 m de côté à z14. Mesuré sur un versant des
+> Aiguilles Rouges : l'œil à 2,43 m au-dessus de sa propre empreinte, mais **33 m de
+> dénivelé dans les 40 m alentour** et un point à 20 m qui culmine **8,44 m au-dessus de
+> l'œil**. À incidence rasante on regarde alors l'intérieur du versant, et MapLibre
+> affiche les **jupes** de ses tuiles (les rideaux verticaux qui masquent les fissures
+> entre tuiles de zooms voisins), texturées par une seule colonne de texels : d'où les
+> rayures verticales qui remplissent le bas de l'écran. Remonter d'un ou deux mètres n'y
+> change rien — mesuré : +2 m est invisible, +10 m réduit la bande au tiers inférieur,
+> +20 m la fait disparaître. 1,70 m est simplement sous le plancher de bruit de la
+> représentation du terrain.
+
 #### Noms des sommets
 
-Un bouton **« Noms des sommets »** apparaît dans la barre du haut — et dans le menu
-`⋯` sur mobile — **uniquement quand on est debout** (mode *Point de vue* actif) ; il
-disparaît en sortant du mode. Actif par défaut, son état est persisté.
+La case **« Noms des sommets »** ouvre la pilule **Panorama** de la barre du bas (vue
+Itinéraire), en tête, juste au-dessus des trajectoires. Dans le **Studio**, dont la barre
+du bas n'a pas de pilule *Panorama*, elle reste le bouton de la barre du haut — et le
+menu `⋯` sur mobile — qui n'apparaît **que quand on est debout**. Actif par défaut, son
+état est persisté.
 
 Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le nom, et son
 altitude quand l'IGN en publie une. Une arête plus proche qui masque un sommet le fait
@@ -199,13 +231,15 @@ La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaqu
 outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 
 - vue *Itinéraire* — 6 outils : *Itinéraire* (panneau d'édition + profil) puis les
-  cinq mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Soleil*,
-  *Avancé*) ;
+  cinq mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Panorama*,
+  *Avancé*), *Panorama* étant grisé hors mode *Point de vue* comme sur desktop ; si on
+  quitte le mode la feuille ouverte se replie d'elle-même ;
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
-d'actions (`⋯`) qui regroupe **orbite**, **point de vue**, **noms des sommets**,
-galerie, export et partage. C'est le **seul** accès mobile à ces actions : le
+d'actions (`⋯`) qui regroupe **orbite**, **point de vue**, galerie, export et partage
+(plus **noms des sommets** dans le Studio seulement — côté carte la case vit dans la
+feuille *Panorama*). C'est le **seul** accès mobile à ces actions : le
 groupe `TopBarActions` du desktop n'est pas monté sous 768 px, donc tout bouton
 ajouté là-bas doit être repris ici sous peine de ne pas exister sur téléphone.
 Armer le mode *Point de vue* **referme le menu** de lui-même : le geste suivant est
@@ -221,7 +255,11 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 - Le mode *Point de vue* n'est **pas persisté** : il s'éteint au rechargement. Il
   survit en revanche à un changement de vue, puisque les deux vues l'offrent, et un
   **lien de partage** émis depuis le mode rouvre directement dessus — même point de
-  station, même direction, même focale (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
+  station, même direction, même focale, même hauteur d'œil (cf.
+  [SHARE_VIEW.md](SHARE_VIEW.md)).
+- La **hauteur de l'œil n'a pas d'équivalent tactile** : les flèches sont un geste
+  clavier, donc sur téléphone on reste à 1,70 m, là où c'est justement le cadrage le
+  plus souvent bouché par le relief proche.
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
@@ -244,7 +282,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, noms des sommets, galerie, `exportSlot`, aide) |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, noms des sommets — Studio seul —, galerie, `exportSlot`, aide) |
 | [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
 | [src/components/map/PeakLabelsOverlay.tsx](../src/components/map/PeakLabelsOverlay.tsx) | Surcouche SVG des noms de sommets : les trois cadences (requête / visée / placement) |
 | [src/lib/peaks.ts](../src/lib/peaks.ts) | Requêtes WFS BD TOPO® + BD CARTO® des sommets nommés et de leurs cotes |
@@ -258,13 +296,13 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
-| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, sommets, galerie, export, partage) |
+| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, sommets — Studio seul —, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
 | [src/components/lidar/StudioBottomBar.tsx](../src/components/lidar/StudioBottomBar.tsx) | Barre de pilules du Studio (desktop) |
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, *Soleil* (`SkyPathSection` : 3 cases + date/heure) |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, *Panorama* (`PeakLabelsToggle` + `SkyPathSection` : 4 cases + date/heure) |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la pilule *Avancé* (rendu, clés d'API) |
 | [src/components/ui/SavedRoutesPanel.tsx](../src/components/ui/SavedRoutesPanel.tsx) | `PreviewThumb` — vignette d'itinéraire réutilisée par la galerie |
 
@@ -309,8 +347,16 @@ la barre de pilules desktop et la barre d'outils mobile.
 | `fond`    | Fond       | `MapBackgroundSection`                   |
 | `courbes` | Courbes    | `ContourSection`                         |
 | `terrain` | Terrain    | `Terrain3DSection` + `TerrainDemSection` |
-| `soleil`  | Soleil     | `SkyPathSection` (trajectoires soleil / lune, ciel atmosphérique, portions cachées, `SunDateControl`) |
+| `panorama` | Panorama  | `PeakLabelsToggle`, puis `SkyPathSection` (trajectoires soleil / lune, ciel atmosphérique, portions cachées, `SunDateControl`) |
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
+
+Une section peut porter `requiresViewpoint`, et *Panorama* est la seule : hors mode
+*Point de vue* la carte est plafonnée à `MAP_MAX_PITCH` (85°), donc **il n'y a pas de
+ciel à l'écran** pour y tracer une course d'astre, ni de panorama à nommer. Les deux
+chromes lisent ce drapeau et grisent la pilule / l'onglet ; `viewpoint` étant dans le
+store, la bascule est immédiate. C'est aussi ce qui a décidé du nom : *Panorama* décrit
+ce qu'on y lit, là où *Point de vue* aurait doublé le libellé du bouton qui arme le
+mode — une pilule grisée portant le nom du bouton à presser se lit comme une panne.
 
 Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend
 `BottomPanelContent` — le même contenu que le dock desktop.

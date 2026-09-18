@@ -71,7 +71,7 @@ Le préfixe `#share=` distingue ce fragment de celui que MapLibre écrit lui-mê
   v: 2,
   // Vue carte
   lng, lat, z, p (pitch), b (bearing),
-  vp?,   // point de vue : [lng, lat, altitude, bearing, pitch, fovDeg]
+  vp?,   // point de vue : [lng, lat, altitude, bearing, pitch, fovDeg, heightM]
   // Fonds & overlays
   bl,    // baseLayer
   tp,    // toponymsEnabled (surcouche de noms, sur les fonds sans texte)
@@ -112,6 +112,13 @@ caméra chez quelqu'un dont la fenêtre n'a pas la même taille cadre autre chos
 Ce qui est portable, c'est le **point de station** : l'œil, la direction du regard et
 la focale. `cameraForViewpoint` reconstruit le reste à l'arrivée.
 
+L'altitude absolue de l'œil voyage quand même, mais elle ne suffit pas : à l'arrivée
+`settleOnGround` la **rabat sur le sol** que le destinataire charge, qui n'est pas celui
+que l'émetteur voyait. Sans le septième nombre, une station remontée à 50 m aux flèches
+retomberait silencieusement à 1,70 m chez le destinataire. `heightM` dit **à quelle
+hauteur se reposer**, et il est borné à la lecture à `[1,7 ; 3000]` m comme le pitch et
+la focale.
+
 Trois conséquences dans le code :
 
 - `useShare` lit `bearing` / `pitch` / `fov` **sur la carte**, pas dans le store :
@@ -119,7 +126,10 @@ Trois conséquences dans le code :
   chaque image faisait saccader la rotation.
 - le store gagne un `viewpointFraming` (session, non persisté) que seul un lien partagé
   remplit ; `setViewpoint` le remet à `null`, donc choisir un nouveau point de vue à la
-  souris repart toujours des valeurs par défaut.
+  souris repart toujours des valeurs par défaut. `viewpointHeightM` suit la même règle,
+  mais lui est écrit **aussi pendant le mode** (à chaque appui sur une flèche), parce que
+  `settleOnGround` doit le relire à chaque `idle` ; une frappe de touche n'est pas une
+  image d'animation, l'écriture ne coûte rien.
 - `ViewpointController` pose lui-même `setMaxPitch(VIEWPOINT_MAX_PITCH)` à l'entrée :
   l'effet parent qui relève ce plafond s'exécute *après* le sien, et un regard au-dessus
   de l'horizon serait resté bloqué à 85°.

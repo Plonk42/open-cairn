@@ -1,5 +1,36 @@
 # TODO
 
+- [ ] La case **« Noms des sommets »** vit désormais dans la pilule *Panorama* côté carte,
+      mais reste un bouton de la barre du haut côté Studio — la barre du bas du Studio est
+      bâtie sur `STUDIO_RENDER_SETTINGS`, qui n'a pas de section *Panorama* où la loger.
+      Deux emplacements pour un même drapeau : à unifier si le Studio gagne un jour une
+      section « lecture du paysage ».
+
+- [ ] Monter l'œil en *Point de vue* est **clavier seulement** (flèches haut/bas) : sur
+      téléphone on reste cloué à 1,70 m, c'est-à-dire précisément au cadrage que le relief
+      proche bouche le plus souvent. Il manque un jumeau tactile — glissement à deux doigts
+      vertical dans `MobileToolbar`, ou petit couple de boutons ▲/▼ dans la feuille du mode.
+
+- [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
+      désactivation de notre part : `_elevateCameraIfInsideTerrain` (maplibre-gl 5.11) est
+      bien la méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,
+      **marge nulle**, et n'y arrive même pas : itéré quatre fois il est un **point fixe à
+      −0,29 m** (même pitch 77,22°, même zoom 16,486, caméra déplacée de 0 m). Il ne teste
+      qu'un échantillon bilinéaire sous la caméra — jamais le terrain *entre* l'œil et le
+      centre, jamais le maillage de triangles réellement dessiné, qui le dépasse de plusieurs
+      mètres sur un versant. Mesuré sur un tour complet à z16,5 / pitch 80 : **12 images sur
+      60 sous le sol**, et le pitch oscille 77,2° ↔ 64,5° parce que le garde réécrit *pitch et
+      zoom* au lieu de reculer la caméra. Piste : remplacer le garde par le nôtre (on sait
+      déjà le faire, cf. `setTerrainCameraCollision`), avec une marge réelle, un maximum sur
+      quelques sondes autour de l'œil, et une correction qui ne touche qu'au zoom pour ne pas
+      manger le cadrage demandé.
+- [ ] En *Point de vue* le bas de l'écran se remplit de rayures verticales — les jupes des
+      tuiles de terrain de MapLibre, vues de l'intérieur du versant à incidence rasante.
+      L'œil est pourtant bien au-dessus du sol (1,70 m garanti désormais) ; c'est le relief
+      des 20 m alentour qui le dépasse (mesuré : +8,44 m à 20 m sur un versant des Aiguilles
+      Rouges). Deux pistes : monter l'œil à ~15 m, ou accrocher le clic au **point haut local**
+      dans un rayon de quelques centaines de mètres, comme PeakFinder — le sol tombe alors
+      immédiatement et le problème disparaît sans tricher sur la hauteur.
 - [ ] Les noms de sommets ancrés près du bord droit sont coupés : le texte part vers la
       droite depuis son ancre et rien ne mesure sa longueur. PeakFinder les coupe aussi,
       mais on pourrait les faire courir vers la gauche dans la marge droite — au prix de

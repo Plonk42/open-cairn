@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
     cameraForViewpoint,
+    eyeHeightAfterStep,
     focalEquivalentMm,
     fovAfterPinch,
     fovAfterWheel,
     horizontalFovDeg,
     lookAfterDrag,
+    VIEWPOINT_EYE_HEIGHT_M,
+    VIEWPOINT_EYE_STEP_M,
+    VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_FOV,
     VIEWPOINT_MAX_PITCH,
     VIEWPOINT_MIN_FOV,
@@ -155,5 +159,21 @@ describe('fovAfterPinch', () => {
 
     it('survives a degenerate ratio rather than returning NaN', () => {
         expect(fovAfterPinch(30, 0)).toBe(VIEWPOINT_MAX_FOV);
+    });
+});
+
+describe('eyeHeightAfterStep', () => {
+    it('moves one step per press, ten with Shift', () => {
+        expect(eyeHeightAfterStep(50, true, false)).toBeCloseTo(50 + VIEWPOINT_EYE_STEP_M, 6);
+        expect(eyeHeightAfterStep(50, false, false)).toBeCloseTo(50 - VIEWPOINT_EYE_STEP_M, 6);
+        expect(eyeHeightAfterStep(50, true, true)).toBeCloseTo(50 + 10 * VIEWPOINT_EYE_STEP_M, 6);
+    });
+
+    it('never sinks below standing height', () => {
+        expect(eyeHeightAfterStep(VIEWPOINT_EYE_HEIGHT_M, false, true)).toBe(VIEWPOINT_EYE_HEIGHT_M);
+    });
+
+    it('stops at the ceiling', () => {
+        expect(eyeHeightAfterStep(VIEWPOINT_MAX_EYE_HEIGHT_M, true, true)).toBe(VIEWPOINT_MAX_EYE_HEIGHT_M);
     });
 });

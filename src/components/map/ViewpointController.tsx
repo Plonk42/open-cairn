@@ -18,9 +18,10 @@
  * orbit stutter.
  */
 
-import { setTerrainCameraCollision } from '@/lib/freeCamera';
+import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
 import {
     cameraForViewpoint,
+    eyeHeightAfterStep,
     fovAfterPinch,
     fovAfterWheel,
     lookAfterDrag,
@@ -125,6 +126,9 @@ export function ViewpointController(): null {
         // (see `settleOnGround`). Refining it in the store would restart this
         // effect on every correction.
         const eye = { ...viewpoint };
+        // Height the eye holds above the ground; the arrows move it, and
+        // `settleOnGround` reads it on every `idle` to know what it settles to.
+        let eyeHeightM = useMapStore.getState().viewpointHeightM;
 
         const apply = () => {
             if (map.getVerticalFieldOfView() !== fovDeg) map.setVerticalFieldOfView(fovDeg);
@@ -148,16 +152,43 @@ export function ViewpointController(): null {
          * a 5.7 m gap on a slope. That is more than the eye height, so the
          * camera ended up inside the mountain and the screen went black.
          *
-         * Re-reading on `idle` costs one extra frame and converges immediately:
-         * the altitude does not feed back into the zoom, and the dead band stops
-         * a DEM that keeps wobbling by centimetres from looping.
+         * The correction is made against where the camera LANDED, not against
+         * what `eye.altitude` asked for. MapLibre rebuilds the eye from a centre
+         * placed 4 km down the ray, in mercator, where `cameraForViewpoint` went
+         * out in equirectangular: measured over five standpoints the eye arrived
+         * 0.73 m to 2.08 m above the ground instead of 1.70 m, and comparing the
+         * request to itself could never see it. `getCameraAltitude` follows the
+         * asked-for altitude with slope 1, so one pass closes the gap.
+         *
+         * Re-reading on `idle` costs one extra frame: the altitude does not feed
+         * back into the zoom, and the dead band stops a DEM that keeps wobbling
+         * by centimetres from looping.
          */
         const settleOnGround = () => {
-            const ground = map.queryTerrainElevation([eye.lng, eye.lat]);
+            const at = map.transform.getCameraLngLat();
+            const ground = map.queryTerrainElevation([at.lng, at.lat]);
             if (typeof ground !== 'number' || !Number.isFinite(ground)) return;
-            const wanted = ground + VIEWPOINT_EYE_HEIGHT_M;
-            if (Math.abs(wanted - eye.altitude) < 0.2) return;
-            eye.altitude = wanted;
+            const error = ground + eyeHeightM - map.transform.getCameraAltitude();
+            if (Math.abs(error) < 0.2) return;
+            eye.altitude += error;
+            apply();
+        };
+
+        // Up/down arrows lift the standpoint, the one thing the mode otherwise
+        // holds fixed — because at 1.70 m the drawn terrain a few metres ahead
+        // often stands higher than the eye. MapLibre's own arrow panning is
+        // already suspended here; the capture phase also keeps the page from
+        // scrolling under the map.
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+            if (e.ctrlKey || e.metaKey || e.altKey || isTextEntry(e.target)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const next = eyeHeightAfterStep(eyeHeightM, e.key === 'ArrowUp', e.shiftKey);
+            if (next === eyeHeightM) return;
+            eye.altitude += next - eyeHeightM;
+            eyeHeightM = next;
+            useMapStore.getState().setViewpointHeightM(next);
             apply();
         };
 
@@ -241,6 +272,7 @@ export function ViewpointController(): null {
         canvas.addEventListener('pointercancel', onPointerUp);
         canvas.addEventListener('mousemove', onMouseMove);
         canvas.addEventListener('wheel', onWheel, { passive: false });
+        document.addEventListener('keydown', onKeyDown, true);
         map.on('idle', settleOnGround);
         apply();
 
@@ -251,6 +283,7 @@ export function ViewpointController(): null {
             canvas.removeEventListener('pointercancel', onPointerUp);
             canvas.removeEventListener('mousemove', onMouseMove);
             canvas.removeEventListener('wheel', onWheel);
+            document.removeEventListener('keydown', onKeyDown, true);
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;

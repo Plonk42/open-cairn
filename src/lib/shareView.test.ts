@@ -1,5 +1,7 @@
 import { decodeShareState, encodeShareState, type SharedState } from '@/lib/shareView';
 import {
+    VIEWPOINT_EYE_HEIGHT_M,
+    VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_PITCH,
     VIEWPOINT_MIN_FOV,
     type ViewpointFraming,
@@ -86,10 +88,10 @@ describe('shareView round-trip', () => {
 });
 
 describe('shareView viewpoint', () => {
-    function withViewpoint(framing: ViewpointFraming): SharedState {
+    function withViewpoint(framing: ViewpointFraming, heightM = 1.7): SharedState {
         return {
             ...baseState(),
-            viewpoint: { eye: { lng: 6.912345, lat: 45.901234, altitude: 2843.6 }, framing },
+            viewpoint: { eye: { lng: 6.912345, lat: 45.901234, altitude: 2843.6 }, framing, heightM },
         };
     }
 
@@ -114,6 +116,20 @@ describe('shareView viewpoint', () => {
         )!;
         expect(decoded.viewpoint!.framing.pitch).toBe(VIEWPOINT_MAX_PITCH);
         expect(decoded.viewpoint!.framing.fovDeg).toBe(VIEWPOINT_MIN_FOV);
+    });
+
+    it('carries a raised eye rather than flattening it back to standing height', () => {
+        const framing = { bearing: 12, pitch: 85, fovDeg: 40 };
+        const decoded = decodeShareState(encodeShareState(withViewpoint(framing, 48.5)))!;
+        expect(decoded.viewpoint!.heightM).toBeCloseTo(48.5, 1);
+    });
+
+    it('clamps a height the arrows could not have reached', () => {
+        const framing = { bearing: 0, pitch: 85, fovDeg: 40 };
+        expect(decodeShareState(encodeShareState(withViewpoint(framing, -500)))!.viewpoint!.heightM)
+            .toBe(VIEWPOINT_EYE_HEIGHT_M);
+        expect(decodeShareState(encodeShareState(withViewpoint(framing, 1e6)))!.viewpoint!.heightM)
+            .toBe(VIEWPOINT_MAX_EYE_HEIGHT_M);
     });
 
     it('decodes to null when the sharer was not in the mode', () => {

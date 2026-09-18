@@ -41,7 +41,8 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
 - **Mode « Point de vue »** — disponible dans les **deux vues**, sur ordinateur comme sur mobile :
   on clique (ou on touche) l'endroit où l'on se tiendrait, l'œil se pose 1,70 m au-dessus du sol et
-  la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale). Demande le
+  la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale ; flèches
+  haut/bas au clavier = hauteur de l'œil, pour se dégager d'un relief proche). Demande le
   relief 3D.
 - **Noms des sommets** — en *Point de vue*, les sommets IGN **réellement visibles depuis l'œil**
   sont nommés sur une étiquette penchée reliée par un trait de rappel au point exact du sommet,
@@ -57,7 +58,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   angulaire réelle, **graduations horaires** légendées en travers du tracé, et **heures de lever
   et de coucher sur l'horizon réel** écrites là où la trajectoire croise la crête. De quoi lire à
   quelle heure le soleil sera derrière un sommet donné. Disponible dans les deux vues (pilule
-  *Soleil* côté carte), sur le relief 3D.
+  *Panorama* côté carte, réservée au mode *Point de vue*), sur le relief 3D.
   La **lune** est tracée sur le même principe, avec sa **phase** et sa corne brillante tournée vers
   le soleil ; les deux astres ont leur propre case, l'heure se règle au curseur **ou au clavier**,
   et une case **« Ciel atmosphérique »** peint le ciel de la vue carte d'après la position du

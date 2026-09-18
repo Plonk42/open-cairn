@@ -109,7 +109,8 @@ export function raiseCamera(map: MapLibreMap, deltaM: number): void {
     map.setCenterElevation(map.getCenterElevation() + deltaM);
 }
 
-function isTextEntry(target: EventTarget | null): boolean {
+/** Whether a key event belongs to a field the user is typing in. */
+export function isTextEntry(target: EventTarget | null): boolean {
     const el = target as HTMLElement | null;
     if (!el?.tagName) return false;
     return el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';

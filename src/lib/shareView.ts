@@ -6,6 +6,8 @@ import type { LngLatTuple } from './geo';
 import { formatSunDate, todaySunDatePart } from './sun';
 import {
     clampNumber,
+    VIEWPOINT_EYE_HEIGHT_M,
+    VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_FOV,
     VIEWPOINT_MAX_PITCH,
     VIEWPOINT_MIN_FOV,
@@ -16,7 +18,7 @@ import {
 
 /**
  * Eye, look direction and lens of the first-person mode: `[lng, lat, altitude,
- * bearing, pitch, fovDeg]`.
+ * bearing, pitch, fovDeg, heightM]`.
  *
  * The MapLibre camera this produces is NOT serialised: its centre sits 4 km away
  * at an altitude unrelated to the relief, and the recipient's canvas has another
@@ -24,7 +26,7 @@ import {
  * entirely. Only the standpoint is portable — `cameraForViewpoint` rebuilds the
  * rest from it.
  */
-type SerializedViewpoint = [number, number, number, number, number, number];
+type SerializedViewpoint = [number, number, number, number, number, number, number];
 
 /** Compact serialisable representation of the full app state. */
 interface SharePayload {
@@ -71,6 +73,13 @@ interface SerializedWaypoint {
 export interface SharedViewpoint {
     eye: Viewpoint;
     framing: ViewpointFraming;
+    /**
+     * Height the eye holds above the ground. Travels on its own because the
+     * recipient re-settles `eye.altitude` on the DEM it loads, which is not the
+     * one the sharer saw — the absolute altitude alone would be flattened back
+     * to the default on arrival.
+     */
+    heightM: number;
 }
 
 export interface SharedState {
@@ -119,6 +128,7 @@ function serializeViewpoint(vp: SharedViewpoint): SerializedViewpoint {
         round(vp.framing.bearing, 1),
         round(vp.framing.pitch, 1),
         round(vp.framing.fovDeg, 2),
+        round(vp.heightM, 1),
     ];
 }
 
@@ -128,10 +138,10 @@ function serializeViewpoint(vp: SharedViewpoint): SerializedViewpoint {
  * MapLibre refuses: there is no error boundary to catch the throw.
  */
 function deserializeViewpoint(vp: SerializedViewpoint | undefined): SharedViewpoint | null {
-    if (!Array.isArray(vp) || vp.length !== 6 || vp.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+    if (!Array.isArray(vp) || vp.length !== 7 || vp.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
         return null;
     }
-    const [lng, lat, altitude, bearing, pitch, fovDeg] = vp;
+    const [lng, lat, altitude, bearing, pitch, fovDeg, heightM] = vp;
     return {
         eye: { lng, lat, altitude },
         framing: {
@@ -139,6 +149,7 @@ function deserializeViewpoint(vp: SerializedViewpoint | undefined): SharedViewpo
             pitch: clampNumber(pitch, VIEWPOINT_MIN_PITCH, VIEWPOINT_MAX_PITCH),
             fovDeg: clampNumber(fovDeg, VIEWPOINT_MIN_FOV, VIEWPOINT_MAX_FOV),
         },
+        heightM: clampNumber(heightM, VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M),
     };
 }
 

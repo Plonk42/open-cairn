@@ -71,7 +71,7 @@ export function MobileActionsMenu({ view, exportSlot }: Readonly<{ view: AppView
             >
                 <OrbitTopBarButton />
                 <ViewpointTopBarButton needsTerrain={view === 'map'} />
-                <PeakLabelsTopBarButton withLabel />
+                {view === 'lidar' && <PeakLabelsTopBarButton withLabel />}
                 <ShowcaseGallery />
                 {exportSlot}
             </div>

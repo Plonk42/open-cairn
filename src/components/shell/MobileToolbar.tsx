@@ -9,10 +9,11 @@ export interface MobileTool {
     render: () => ReactNode;
     /** Optional tooltip / disabled hint. */
     title?: string;
+    disabled?: boolean;
 }
 
 function ToolButton({ tool, active, onSelect }: Readonly<{ tool: MobileTool; active: boolean; onSelect: () => void }>) {
-    const { label, Icon, title } = tool;
+    const { label, Icon, title, disabled } = tool;
     const tone = active
         ? 'bg-green-600/10 text-green-700 dark:bg-emerald-500/15 dark:text-emerald-300'
         : 'text-slate-500 hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/5';
@@ -20,10 +21,11 @@ function ToolButton({ tool, active, onSelect }: Readonly<{ tool: MobileTool; act
         <button
             type="button"
             onClick={onSelect}
+            disabled={disabled}
             title={title ?? label}
             aria-label={label}
             aria-pressed={active}
-            className={`flex min-w-[4.25rem] shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium leading-none transition ${tone}`}
+            className={`flex min-w-[4.25rem] shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium leading-none transition disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
         >
             {Icon && <Icon className="h-5 w-5" />}
             <span>{label}</span>
@@ -50,7 +52,9 @@ export function MobileToolbar({ tools, activeId, onSelect, leading, trailing }: 
     leading?: ReactNode;
     trailing?: ReactNode;
 }>) {
-    const active = tools.find((t) => t.id === activeId) ?? null;
+    // A sheet whose tool just lost its prerequisite folds itself away rather
+    // than staying open on controls that no longer do anything.
+    const active = tools.find((t) => t.id === activeId && !t.disabled) ?? null;
 
     return (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col">
@@ -74,7 +78,7 @@ export function MobileToolbar({ tools, activeId, onSelect, leading, trailing }: 
             <div className="scrollbar-slim safe-bottom pointer-events-auto flex items-stretch gap-1 overflow-x-auto border-t border-black/10 bg-white/95 px-1.5 py-1 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90">
                 {leading && <div className="flex shrink-0 items-center">{leading}</div>}
                 {tools.map((tool) => (
-                    <ToolButton key={tool.id} tool={tool} active={tool.id === activeId} onSelect={() => onSelect(tool.id)} />
+                    <ToolButton key={tool.id} tool={tool} active={tool.id === active?.id} onSelect={() => onSelect(tool.id)} />
                 ))}
                 {trailing && <div className="flex shrink-0 items-center gap-1.5">{trailing}</div>}
             </div>

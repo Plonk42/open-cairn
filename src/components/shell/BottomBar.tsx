@@ -45,11 +45,13 @@ export function BottomBar({ active, onDismiss, dataTutorial, children }: Readonl
  * A single bottom-bar pill + its anchored popover (shown above when active).
  * Theme-aware; the popover content is provided as `children`.
  */
-export function BottomBarPill({ label, Icon, active, onSelect, children }: Readonly<{
+export function BottomBarPill({ label, Icon, active, onSelect, disabled, title, children }: Readonly<{
     label: string;
     Icon?: (props: IconProps) => ReactElement;
     active: boolean;
     onSelect: () => void;
+    disabled?: boolean;
+    title?: string;
     children: ReactNode;
 }>): ReactElement {
     return (
@@ -61,27 +63,29 @@ export function BottomBarPill({ label, Icon, active, onSelect, children }: Reado
                     </div>
                 </div>
             )}
-            <BottomBarButton label={label} Icon={Icon} active={active} onSelect={onSelect} />
+            <BottomBarButton label={label} Icon={Icon} active={active} onSelect={onSelect} disabled={disabled} title={title} />
         </div>
     );
 }
 
 /** A plain bottom-bar pill button (no popover), sharing the pill styling. */
-export function BottomBarButton({ label, Icon, active, onSelect, title }: Readonly<{
+export function BottomBarButton({ label, Icon, active, onSelect, disabled, title }: Readonly<{
     label: string;
     Icon?: (props: IconProps) => ReactElement;
     active: boolean;
     onSelect: () => void;
+    disabled?: boolean;
     title?: string;
 }>): ReactElement {
     return (
         <button
             type="button"
             onClick={onSelect}
+            disabled={disabled}
             title={title ?? label}
             aria-label={label}
             aria-pressed={active}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition ${active
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${active
                 ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
                 : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
         >
