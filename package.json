@@ -11,7 +11,9 @@
         "lint": "tsc --noEmit",
         "test": "vitest",
         "test:run": "vitest run",
-        "lint:test": "tsc -p tsconfig.test.json --noEmit"
+        "lint:test": "tsc -p tsconfig.test.json --noEmit",
+        "peaks:build": "node tools/build-peaks.mjs",
+        "peaks:verify": "node tools/verify-peaks.mjs"
     },
     "dependencies": {
         "@deck.gl/core": "^9.3.2",
