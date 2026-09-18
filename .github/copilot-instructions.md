@@ -52,8 +52,13 @@ Topic → document:
 | Sun, moon, lighting | `docs/SUN_LIGHTING.md` |
 | UI shell, responsive, mobile | `docs/UI_SHELL_AND_RESPONSIVE.md` |
 | Improvement plan (task status) | `docs/ARCHITECTURE_REVIEW_PLAN.md` |
+| Things left aside / to revisit later | `docs/TODO.md` |
 
 `README.md` lists the features: update it when a feature is added, removed, or visibly renamed.
+
+Whenever a task leaves something aside ("later", "out of scope", a fix identified but not applied)
+or a discovery surfaces a defect/idea worth revisiting, append a `- [ ] ...` entry to
+`docs/TODO.md` in the same pass — do not just mention it in the chat reply and move on.
 
 ## Mobile is half the app
 
