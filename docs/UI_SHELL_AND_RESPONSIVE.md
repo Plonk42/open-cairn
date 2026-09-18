@@ -147,24 +147,28 @@ Ce qu'il faut savoir :
 - Les noms viennent de la **BD TOPO® IGN**, dont la couverture s'arrête à la frontière
   (plus une mince bande). Depuis le Brévent, le massif du Mont-Blanc est entièrement
   nommé ; le Gran Paradiso, non.
-- L'**altitude est la cote relevée de la BD CARTO®**, jointe par `cleabs` (voir
-  `docs/IGN_DATA_SOURCES.md`). Elle est juste au mètre — mais l'IGN n'en publie que pour
-  **un tiers environ** des sommets, et les autres sont affichés **sans altitude**. C'est
-  délibéré : en randonnée, une altitude fausse est pire que pas d'altitude, et aucun MNT
-  ne donne la bonne, le point du toponyme n'étant pas sur le sommet (le Néron y est
-  relevé 183 m trop bas).
+- La liste n'est **plus interrogée en ligne**. Elle est bâtie une fois par
+  [tools/build-peaks.mjs](../tools/build-peaks.mjs) et livrée avec l'app sous forme d'un
+  fichier de 25 798 sommets (380 ko gzippés), téléchargé une seule fois par session à la
+  première ouverture du mode. Plus de requête WFS sur le chemin d'une étiquette.
+- L'**altitude est celle que publie la meilleure source disponible** — OSM, puis la cote
+  BD CARTO®, puis GeoNames, dans cet ordre (voir `docs/IGN_DATA_SOURCES.md` pour la mesure
+  qui a fixé cet ordre). **52 %** des sommets en portent une ; les autres sont
+  affichés **sans altitude**. C'est délibéré : en randonnée, une altitude fausse est pire
+  que pas d'altitude, et aucun MNT ne donne la bonne, le point du toponyme n'étant pas sur
+  le sommet (le Néron y est relevé 183 m trop bas).
 - Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
-  **s'il porte une cote** : c'est la seule preuve qu'il désigne un point culminant
+  **s'il porte une altitude** : c'est la seule preuve qu'il désigne un point culminant
   (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).
-- Une cote **que le terrain contredit largement est jetée** : la BD CARTO® en rattache
-  quelques-unes au mauvais objet (la « Grande Lance de Domène », 2790 m, reçoit les 2596 m
-  de la *Petite* Lance). La cote reste une mesure exacte ; c'est son rattachement qui est
-  faux. Quand le sol se tient plus de 15 m **au-dessus** d'elle, on ne tranche pas laquelle
-  des deux sources a tort : on n'affiche rien. Le seuil est large à dessein, un MNT pouvant
-  lire quelques mètres trop haut (névé, pylône). Mesuré : 4 cotes sur 179 en Chartreuse.
+- Une altitude **que le terrain contredit est écartée à la génération**, contre le
+  RGE ALTI® 1 m — dix fois plus fin que le relief affiché. Elle ne l'est plus à
+  l'affichage : la question ne dépend pas du point de vue, et la trancher une fois sur une
+  meilleure donnée vaut mieux que la reprendre à chaque visée. Surtout, une valeur écartée
+  n'efface plus l'altitude — **la source suivante prend son tour**, ce que l'ancien
+  garde-fou ne savait pas faire.
 - Un sommet hors du relief déjà chargé se lit à l'altitude 0 et est **silencieusement
   écarté** plutôt que placé au niveau de la mer. Le test de visibilité travaille
-  entièrement sur le MNT, cote relevée ou pas : comparer un sommet relevé à une arête
+  entièrement sur le MNT, altitude publiée ou pas : comparer un sommet relevé à une arête
   issue du MNT biaiserait chaque verdict de l'écart entre les deux modèles.
 - Sur une crête dense, les noms sont **poussés vers la droite** pour ne pas se recouvrir ;
   celui qu'il faudrait trop éloigner de son sommet est **abandonné** — un trait de rappel
