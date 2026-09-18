@@ -138,9 +138,20 @@ Un bouton **« Noms des sommets »** apparaît dans la barre du haut — et dans
 disparaît en sortant du mode. Actif par défaut, son état est persisté.
 
 Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le nom, et son
-altitude quand l'IGN en publie une, sur une étiquette penchée à 58°, reliée par un trait
-de rappel au point exact du sommet, à la manière de PeakFinder. Une arête plus proche qui
-masque un sommet le fait disparaître de la liste.
+altitude quand l'IGN en publie une. Une arête plus proche qui masque un sommet le fait
+disparaître de la liste.
+
+Les noms ne suivent pas la ligne de crête : ils sont tous **accrochés à une même bande
+horizontale**, au-dessus du plus haut sommet à l'écran, et reliés à leur cime par un
+**trait strictement vertical** de longueur variable — la lecture de PeakFinder. C'est ce
+qui rend une crête chargée lisible : les noms ne s'entassent plus là où les sommets
+s'entassent, et ils ne recouvrent plus le relief.
+
+Conséquence directe : **la sélection des noms suit le zoom, en direct**. Ce qui s'imprime
+ne dépend que de l'écartement des sommets à l'écran, recalculé à chaque image ; resserrer
+le champ les écarte, la bande trouve de la place, et les noms mineurs apparaissent d'eux-
+mêmes. La visée, elle, ne dépend pas du champ de vision et reste payée une fois par
+position d'œil.
 
 Ce qu'il faut savoir :
 
@@ -159,9 +170,8 @@ Ce qu'il faut savoir :
 - Le **point visé par le trait de rappel n'est pas le toponyme brut** : la BD TOPO® pose le
   nom d'une crête là où l'étiquette se lit sur une carte, pas sur la cime. Quand la cote
   dépasse de plus de 40 m le sol sous le toponyme, le générateur remonte l'ancre au RGE
-  ALTI® jusqu'à la cote — 1 467 sommets, dont Rocher de Chalves déplacé de 625 m. Les
-  sommets **sans** cote ne peuvent pas l'être, faute de cible : le Néron reste ancré 183 m
-  trop bas.
+  ALTI® jusqu'à la cote — 1 076 sommets, dont Rocher de Chalves déplacé de 625 m et le
+  Néron de 618 m, jusque sur sa cime.
 - Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
   **s'il porte une altitude** : c'est la seule preuve qu'il désigne un point culminant
   (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).
@@ -420,6 +430,10 @@ Seule la troisième suit le geste, et c'est la seule qui le peut : les deux autr
 dépendent de *où l'on se tient*, pas de *où l'on regarde*. Tourner la tête ne
 redéclenche donc ni découpe ni visée.
 
+C'est aussi pourquoi **quels** sommets portent un nom se décide dans la troisième et non
+dans la deuxième : la visée répond à « qu'est-ce qui est visible », qui ne dépend pas du
+champ de vision ; le placement répond à « qu'est-ce qui tient », qui n'en dépend que.
+
 #### À quels sommets on paie un rayon
 
 Deux réglages décident, et la première version des deux était trop serrée — mesurée
@@ -452,13 +466,23 @@ sont toutes inclinées du même angle, ce sont des **bandes parallèles**, et de
 parallèles ne se touchent pas dès qu'elles sont assez écartées **en travers** de cette
 direction — une hauteur de ligne — quelle que soit la longueur des noms.
 
-> ⚠️ Mesurer cet écart **sur l'horizontale** est la première version, et elle est fausse :
-> elle n'est exacte que si les deux noms sont à la même hauteur. À −58°, un nom décalé de
-> 19 px à droite **et** de 30 px vers le haut n'est plus qu'à 0,2 px du précédent en
-> travers des bandes, c'est-à-dire imprimé dessus — constaté depuis Chamechaude. La règle
-> projette désormais chaque ancre sur la **normale** aux bandeaux ; à hauteur égale elle
-> redonne exactement les 19 px d'avant, et elle cesse d'écarter pour rien deux noms que
-> 300 px de hauteur séparent déjà.
+Toutes les ancres étant sur la même bande horizontale, cet écart en travers se réduit à
+leur **écart horizontal** multiplié par le sinus de l'angle : plus le texte est couché,
+plus il lui faut de place en largeur. À −32° c'est 30 px par nom, là où les −58°
+d'origine n'en demandaient que 19 — le prix de la hauteur qu'on ne consomme plus.
+
+Quand deux noms ne tiennent pas tous les deux, celui qui reste est celui que **le budget
+de rayons aurait marsé en premier** (`distance / portée(rang)`), et non celui qui se
+trouve le plus à gauche : une butte obscure pouvait auparavant évincer un sommet
+notoire pour 3 px.
+
+> ⚠️ La bande ne monte pas indéfiniment. Le texte s'élève depuis son ancre, donc une
+> bande trop haute est une bande dont **tous** les noms sont coupés par le bord — ce qui
+> arrive dès que la ligne d'horizon monte. Elle s'arrête donc à 110 px du haut
+> (`BAND_MIN_Y_PX`, la montée d'un nom long à −32°). Un sommet qui se retrouve **au-dessus**
+> de cette bande n'est alors **pas nommé du tout** : accrocher son nom en dessous de lui
+> inverserait la lecture de tous les traits de l'écran pour une seule étiquette. C'est à
+> l'utilisateur de relever la caméra.
 
 > La visée est branchée sur **`idle`**, ce qui ne marche que parce que la carte se
 > repose vraiment : voir « La carte qui repeint sans fin » juste au-dessus. Si un jour

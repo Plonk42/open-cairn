@@ -1,5 +1,15 @@
 # TODO
 
+- [ ] Les noms de sommets ancrés près du bord droit sont coupés : le texte part vers la
+      droite depuis son ancre et rien ne mesure sa longueur. PeakFinder les coupe aussi,
+      mais on pourrait les faire courir vers la gauche dans la marge droite — au prix de
+      l'invariant « toutes les étiquettes sont des bandes parallèles » dont dépend le
+      désencombrement.
+- [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
+      le champ ne peut faire apparaître que des sommets déjà marchés, jamais un sommet
+      qu'une portée par rang avait écarté. PeakFinder, lui, va chercher plus loin en
+      téléobjectif.
+
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.

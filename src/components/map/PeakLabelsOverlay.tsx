@@ -14,7 +14,9 @@
  *   - visibility is MARCHED once per eye position — up to ~900 rays, ~250 ms,
  *     paid when the eye lands and never again while you turn (`lib/peakSightings.ts`);
  *   - the labels are PLACED on every frame, which is pure arithmetic on
- *     directions that were solved once.
+ *     directions that were solved once. Which summits get NAMED is decided
+ *     here rather than in the march, so it follows the zoom as you turn the
+ *     wheel: the march answers what is visible, the placement what fits.
  *
  * Drawn as one SVG over the canvas, not as MapLibre markers: a marker is lifted
  * onto the terrain, and a summit 40 km away sits outside the loaded DEM, so it
@@ -22,10 +24,11 @@
  * dependency — the same reason `SkyLabelsOverlay` positions its hours that way.
  */
 
-import { loadPeaks as loadAllPeaks, peaksWithin, PEAKS_RADIUS_M, type Peak } from '@/lib/peaks';
+import { loadPeaks as loadAllPeaks, PEAKS_RADIUS_M, peaksWithin, type Peak } from '@/lib/peaks';
 import {
     LABEL_ANGLE_DEG,
     layoutPeakLabels,
+    reachFraction,
     sightPeaks,
     type PeakLabelSlot,
     type PeakSighting,
@@ -120,7 +123,12 @@ export function PeakLabelsOverlay() {
             const off = at.x < -CULL_MARGIN_PX || at.x > width + CULL_MARGIN_PX
                 || at.y < -CULL_MARGIN_PX || at.y > height + CULL_MARGIN_PX;
             if (off) continue;
-            slots.push({ key: node.sighting.peak.id, x: at.x, y: at.y });
+            slots.push({
+                key: node.sighting.peak.id,
+                x: at.x,
+                y: at.y,
+                priority: reachFraction(node.sighting.peak, node.sighting.distanceM),
+            });
             byKey.set(node.sighting.peak.id, node);
         }
         for (const placed of layoutPeakLabels(slots)) {

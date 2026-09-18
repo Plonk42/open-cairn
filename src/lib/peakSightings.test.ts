@@ -143,7 +143,8 @@ describe('sightPeaks', () => {
 });
 
 describe('layoutPeakLabels', () => {
-    const slot = (key: string, x: number, y = 300): PeakLabelSlot => ({ key, x, y });
+    const slot = (key: string, x: number, y = 300, priority = 0.5): PeakLabelSlot =>
+        ({ key, x, y, priority });
 
     const RAD = Math.PI / 180;
     /** Signed offset of a label's strip across its own direction, in pixels. */
@@ -152,53 +153,55 @@ describe('layoutPeakLabels', () => {
     /** The 12 px line box plus the halo the overlay paints under the glyphs. */
     const LINE_BOX_PX = 15.5;
 
-    it('leaves a sparse ridge exactly where it is', () => {
-        const placed = layoutPeakLabels([slot('a', 100), slot('b', 400)]);
-        expect(placed.map((p) => p.anchorX)).toEqual([100, 400]);
-        expect(placed.map((p) => p.tipX)).toEqual([100, 400]);
+    it('hangs every name from one band, clear of the highest summit on screen', () => {
+        const placed = layoutPeakLabels([slot('high', 100, 240), slot('low', 400, 520)]);
+        expect(placed.map((p) => p.anchorY)).toEqual([placed[0].anchorY, placed[0].anchorY]);
+        expect(placed[0].anchorY).toBeLessThan(240);
     });
 
-    it('leaves two names alone when only their height separates them', () => {
-        // Same x: 300 px apart vertically, the strips are nowhere near touching
-        // and the old horizontal-only rule pushed them apart for nothing.
-        const placed = layoutPeakLabels([slot('low', 200, 500), slot('high', 200, 200)]);
-        expect(placed.map((p) => p.anchorX)).toEqual([200, 200]);
+    it('says nothing rather than hang a name under its summit', () => {
+        // A skyline too high for the band to clear: the leaders would point down
+        // and reverse the reading of the whole panorama.
+        expect(layoutPeakLabels([slot('a', 100, 40), slot('b', 400, 60)])).toEqual([]);
     });
 
-    it('lifts every name above its own summit', () => {
-        const [placed] = layoutPeakLabels([slot('a', 100, 300)]);
-        expect(placed.anchorY).toBeLessThan(placed.tipY);
-        expect(placed.tipY).toBe(300);
+    it('draws a strictly vertical leader back to the summit', () => {
+        const placed = layoutPeakLabels([slot('a', 100, 300), slot('b', 400, 520)]);
+        for (const p of placed) expect(p.anchorX).toBe(p.tipX);
     });
 
-    it('spreads a crowded cluster rightwards without reordering it', () => {
-        const placed = layoutPeakLabels([slot('a', 100), slot('b', 103), slot('c', 106)]);
-        expect(placed.map((p) => p.key)).toEqual(['a', 'b', 'c']);
+    it('keeps the name that ranks first when two cannot both fit', () => {
+        const placed = layoutPeakLabels([
+            slot('minor', 100, 300, 0.9),
+            slot('notorious', 108, 300, 0.1),
+        ]);
+        expect(placed.map((p) => p.key)).toEqual(['notorious']);
+    });
+
+    it('finds room for a dropped name once zooming spreads the summits apart', () => {
+        const crowded = [slot('a', 100), slot('b', 112), slot('c', 124)];
+        // The same three summits under a field of view four times narrower.
+        const spread = crowded.map((s) => ({ ...s, x: 100 + (s.x - 100) * 4 }));
+        expect(layoutPeakLabels(crowded)).toHaveLength(1);
+        expect(layoutPeakLabels(spread)).toHaveLength(3);
+    });
+
+    it('never prints two names on top of one another', () => {
+        const slots: PeakLabelSlot[] = [];
+        for (let i = 0; i < 40; i++) slots.push(slot(`p${i}`, 200 + i * 7, 300 + (i % 5) * 40));
+        const placed = layoutPeakLabels(slots);
+        expect(placed.length).toBeLessThan(slots.length);
         for (let i = 1; i < placed.length; i++) {
             expect(lane(placed[i]) - lane(placed[i - 1])).toBeGreaterThanOrEqual(LINE_BOX_PX);
         }
-        // The leader still points back at the true summit.
-        expect(placed.map((p) => p.tipX)).toEqual([100, 103, 106]);
     });
 
-    it('separates two names the horizontal gap alone declared far enough apart', () => {
-        // 19 px right AND 30 px up: the strips run at -58°, so those two shifts
-        // cancel and the second name lands on the first. Seen from Chamechaude.
-        const placed = layoutPeakLabels([slot('near', 100, 300), slot('over', 119, 270)]);
-        expect(placed).toHaveLength(2);
-        expect(Math.abs(lane(placed[1]) - lane(placed[0]))).toBeGreaterThanOrEqual(LINE_BOX_PX);
-    });
-
-    it('drops the names it would have to drag too far from their summit', () => {
-        const slots: PeakLabelSlot[] = [];
-        for (let i = 0; i < 40; i++) slots.push(slot(`p${i}`, 200 + i));
-        const placed = layoutPeakLabels(slots);
-        expect(placed.length).toBeLessThan(slots.length);
-        for (const p of placed) expect(p.anchorX - p.tipX).toBeLessThanOrEqual(46);
-    });
-
-    it('sorts by screen position, whatever order the sightings arrive in', () => {
+    it('returns the names in screen order, whatever order the sightings arrive in', () => {
         const placed = layoutPeakLabels([slot('right', 400), slot('left', 100)]);
         expect(placed.map((p) => p.key)).toEqual(['left', 'right']);
+    });
+
+    it('survives an empty ridge', () => {
+        expect(layoutPeakLabels([])).toEqual([]);
     });
 });

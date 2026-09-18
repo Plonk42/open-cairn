@@ -28,10 +28,10 @@
  * Usage: node tools/build-peaks.mjs [--refetch]
  */
 
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { inflateRawSync } from 'node:zlib';
-import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { inflateRawSync } from 'node:zlib';
 
 const CACHE_DIR = fileURLToPath(new URL('./build-peaks-cache/', import.meta.url));
 const OUT = fileURLToPath(new URL('../src/lib/peaksData.json', import.meta.url));

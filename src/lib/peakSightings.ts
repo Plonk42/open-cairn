@@ -8,18 +8,17 @@
 //      that decides whether a nearer ridge stands in the way (`skyline.ts`);
 //   2. the layout — a screen-space pass that keeps a dense ridge legible.
 //
-// The layout rule comes from the shape of the label: the text runs at
-// {@link LABEL_ANGLE_DEG} from the horizontal, so two labels are parallel
-// strips. Parallel strips never touch as long as they are far enough apart
-// ACROSS that direction, whatever their lengths. That is why nothing here
-// measures text: the room a name needs does not depend on how long it is.
+// The split is also what makes the labelling react to the zoom without costing
+// anything. Whether a summit is VISIBLE is a fact about the terrain, so the
+// march is paid once per standpoint; whether it is worth NAMING is a fact about
+// how crowded the screen is, so it is decided in the layout, which runs every
+// frame. Narrow the field of view and the summits spread apart, the layout
+// finds room for names it had to drop, and they appear as you zoom.
 //
-// Measuring that gap on the horizontal axis alone — which is what this did
-// first — is only right when two names sit at the same height. It is not:
-// seen from Chamechaude, a name 19 px to the right and 30 px HIGHER is 0.2 px
-// away from the previous one across the strips, i.e. printed on top of it. The
-// separation is measured on the strips' own normal now, which also stops the
-// pass from shoving apart two names that are vertically far away anyway.
+// Nothing here measures text. The text runs at {@link LABEL_ANGLE_DEG} from the
+// horizontal, so two labels are parallel strips, and parallel strips never
+// touch as long as they are far enough apart ACROSS that direction — whatever
+// their lengths.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Peak } from '@/lib/peaks';
@@ -97,8 +96,11 @@ interface Candidate {
  * got a ray. A rank is an editorial judgement about how far a name carries;
  * measuring a summit against its own rank's reach turns it into one number, and
  * a nearby minor top then rightly outranks a notorious speck on the skyline.
+ *
+ * The layout ranks on it too, so the name that survives a crowded band is the
+ * same one the budget would have marched first.
  */
-function reachFraction(peak: Peak, distanceM: number): number {
+export function reachFraction(peak: Peak, distanceM: number): number {
     return distanceM / REACH_BY_IMPORTANCE_M[peak.importance];
 }
 
@@ -160,41 +162,45 @@ export function sightPeaks(
 // ── Screen-space layout ──────────────────────────────────────────────────────
 
 /** Degrees the text is rotated by, counter-clockwise on screen. */
-export const LABEL_ANGLE_DEG = -58;
+export const LABEL_ANGLE_DEG = -32;
 
-/** Rise from the summit to where its name starts. */
-const LEADER_PX = 18;
-
-/**
- * Unit normal to a label's own direction, pointing right and down. Projecting
- * an anchor on it gives the strip's signed offset from the origin: two labels
- * whose offsets differ by less than a line box are printed on top of one
- * another, however far apart they are on screen otherwise.
- */
-const LANE_NX = Math.sin(-LABEL_ANGLE_DEG * DEG);
-const LANE_NY = Math.cos(-LABEL_ANGLE_DEG * DEG);
+/** Clear air between the highest summit on screen and the band the names hang from. */
+const BAND_CLEARANCE_PX = 26;
 
 /**
- * Room one name needs ACROSS its own direction: the 12 px line box widened by
- * the 3.5 px halo the overlay paints under the glyphs. At equal height that is
- * the 19 px of horizontal room measured on the Drus / Aiguille Verte pair seen
- * from the Brévent, which touched at 15 px — the old rule was this one, read on
- * the only axis where the two agree.
+ * How close the band may come to the top of the canvas.
+ *
+ * The text rises from its anchor, so a band placed too high is a band whose
+ * names are all cut off — which is what happens as soon as the skyline climbs.
+ * The value is the rise of a long name at {@link LABEL_ANGLE_DEG}: about 190 px
+ * of glyphs for "Pointe de Gratte-Cul 1232 m", so a hundred of vertical room.
+ *
+ * A summit that ends up ABOVE the clamped band simply goes unnamed. Hanging its
+ * name under it instead would reverse the reading of every leader on screen for
+ * the sake of one label; raising the camera is the answer, and it costs the
+ * reader nothing to discover.
  */
-const MIN_LANE_GAP_PX = 16;
+const BAND_MIN_Y_PX = 110;
 
 /**
- * How far a name may be pushed off its summit before the leader line stops
- * being readable. Past it the name is dropped rather than moved: a line that
- * crosses three other summits to reach its own is worse than no label.
+ * Room one name needs along the band, and the 12 px line box widened by the
+ * 3.5 px halo it is derived from.
+ *
+ * Every anchor sits on the same y, so the offset across two parallel strips
+ * reduces to their horizontal gap times the sine of the angle — the pass no
+ * longer projects anything. The shallower the text, the more horizontal room a
+ * name needs: 30 px at -32°, where -58° only asked 19.
  */
-const MAX_SHIFT_PX = 46;
+const LINE_BOX_PX = 15.5;
+const MIN_ANCHOR_GAP_PX = LINE_BOX_PX / Math.sin(-LABEL_ANGLE_DEG * DEG);
 
 export interface PeakLabelSlot {
     key: string;
     /** Where the summit itself projects, in CSS pixels. */
     x: number;
     y: number;
+    /** Lower is printed first when two names cannot both fit. */
+    priority: number;
 }
 
 export interface PlacedPeakLabel {
@@ -206,30 +212,45 @@ export interface PlacedPeakLabel {
 }
 
 /**
- * Spread the names of a crowded ridge rightwards so no two strips overlap, and
- * drop the ones that no longer fit. Input order is irrelevant: the pass sorts
- * by the only quantity an overlap depends on, the offset across the strips.
+ * Hang every name from one horizontal band, joined to its summit by a vertical
+ * leader, and drop those the band has no room for.
+ *
+ * This is PeakFinder's reading of a panorama, and the reason it looks tidy on a
+ * crowded ridge: the names do not follow the skyline, so they neither cover the
+ * relief nor bunch up wherever the summits do. The leader carries the meaning
+ * instead, and being vertical it is unambiguous however long it gets.
+ *
+ * It also makes the selection follow the zoom for free. What gets printed
+ * depends only on how far apart the summits land on screen, which `place()`
+ * recomputes every frame: narrowing the field spreads them, the gap test stops
+ * failing, and the minor names appear on their own. The ray march that decided
+ * what is VISIBLE does not depend on the field of view and stays keyed on the
+ * eye, where it is paid once.
+ *
+ * Which name survives a collision is `priority`, not screen order — an obscure
+ * knoll used to be able to evict a notorious summit for standing slightly left
+ * of it.
  */
 export function layoutPeakLabels(slots: readonly PeakLabelSlot[]): PlacedPeakLabel[] {
-    const anchored = slots.map((slot) => {
-        const anchorY = slot.y - LEADER_PX;
-        return { slot, anchorY, lane: slot.x * LANE_NX + anchorY * LANE_NY };
-    });
-    anchored.sort((a, b) => a.lane - b.lane);
+    if (slots.length === 0) return [];
+    let bandY = Number.POSITIVE_INFINITY;
+    for (const slot of slots) bandY = Math.min(bandY, slot.y);
+    bandY = Math.max(BAND_MIN_Y_PX, bandY - BAND_CLEARANCE_PX);
+
+    const taken: number[] = [];
     const placed: PlacedPeakLabel[] = [];
-    let previousLane = Number.NEGATIVE_INFINITY;
-    for (const { slot, anchorY, lane } of anchored) {
-        // Pushing an anchor one pixel right moves it `LANE_NX` across the strips.
-        const shiftPx = Math.max(0, (previousLane + MIN_LANE_GAP_PX - lane) / LANE_NX);
-        if (shiftPx > MAX_SHIFT_PX) continue;
-        previousLane = lane + shiftPx * LANE_NX;
+    for (const slot of [...slots].sort((a, b) => a.priority - b.priority)) {
+        if (slot.y < bandY) continue;
+        if (taken.some((x) => Math.abs(x - slot.x) < MIN_ANCHOR_GAP_PX)) continue;
+        taken.push(slot.x);
         placed.push({
             key: slot.key,
             tipX: slot.x,
             tipY: slot.y,
-            anchorX: slot.x + shiftPx,
-            anchorY,
+            anchorX: slot.x,
+            anchorY: bandY,
         });
     }
+    placed.sort((a, b) => a.anchorX - b.anchorX);
     return placed;
 }
