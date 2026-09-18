@@ -292,12 +292,41 @@ celui qu'utilise le générateur.
 | RGE ALTI® 1 m au toponyme | 1863,46 m, et c'est bien le maximum local à 800 m | le MNT lit sous la valeur publiée ; sert de **contrôle**, pas de source |
 | `GEODESIE:data_geod` (repères géodésiques) | borne en granit, `cp1_coord3` = **1867,1 m**, précision < 50 cm, à 11 m du toponyme | juste ici, mais inexploitable en général |
 
-Le RGE ALTI® mérite une précision : il **est** utilisé par le générateur, mais comme
-juge et non comme source. Le point du toponyme est placé pour accrocher une étiquette,
-pas sur le sommet — relevé contre RGE ALTI® 1 m : Chamechaude −9 m, Grand Som −12 m,
-Mont Saint-Eynard −9 m, le Néron −183 m ; prendre le maximum local sur 400 m alentour
-n'en rattrape aucun. Il ne peut donc pas *fournir* une altitude, seulement en *réfuter*
-une.
+Le RGE ALTI® mérite une précision : il **est** utilisé par le générateur, mais jamais
+comme source d'altitude — comme **juge** de celles qu'on lui propose, et comme **arpenteur**
+pour replacer le point. Le toponyme est posé pour accrocher une étiquette sur une carte, pas
+sur le sommet : relevé contre RGE ALTI® 1 m, Chamechaude est à −9 m, le Grand Som à −12 m,
+le Mont Saint-Eynard à −9 m, le Néron à −183 m. Il ne peut donc pas *fournir* une altitude,
+seulement en *réfuter* une.
+
+#### Remonter les ancres sur leur sommet
+
+« Rocher de Chalves » est ancré **619 m au sud** de sa cime, sur un sol à 1689 m alors que
+son étiquette affiche 1845 m : le trait de rappel du panorama désignait une épaule. PeakFinder
+évite ça en calant chaque POI sur le nœud de MNT le plus haut du voisinage
+(`lookupHighestElevation`). `tools/build-peaks.mjs` fait de même, avec un avantage : **la cote
+publie la cible**, donc la marche sait où s'arrêter au lieu d'errer vers un voisin plus haut.
+
+- **Qui est recalé** : tout sommet dont la cote dépasse de plus de `ANCHOR_DRIFT_M` = **40 m**
+  le sol lu sous son toponyme. Ce critère en désigne **1 784** sur les 13 294 cotés ; aucun nom
+  n'est écrit en dur.
+- **Comment** : 8 sondes à 250 m, on saute sur la plus haute, on réduit le pas quand aucune ne
+  monte, on s'arrête à 5 m de la cote. Les sondes sont **arrondies à 6 décimales** — en pleine
+  précision, 200 points font une URL que le service refuse en HTTP 414.
+- **Garde-fou** : passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné et l'ancre
+  d'origine conservée. **1 467** ancres ont abouti (médiane 250 m, p90 520 m, max 1 580 m), les
+  317 autres sont restées en place.
+- **Résultat** : Rocher de Chalves atterrit à 625 m de son toponyme, sur un sol à 1842,9 m pour
+  une cote de 1845 — à 6 m du nœud OSM « Rochers de Chalves », que la marche n'a jamais
+  consulté. Les altitudes ne bougent pas (98,0 % à moins de 3 m avant comme après) et
+  l'appariement à la référence s'améliore légèrement (10 158 → 10 162 exacts).
+- ⚠️ **Une cote fausse déplace l'ancre sur le mauvais sommet.** Le Grand Manti porte 1850 m
+  là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 366 m du
+  bon point. C'est borné par les 2 km, mais réel.
+- ⚠️ **Un sommet sans cote ne peut pas être recalé**, faute de cible — et ce sont précisément
+  les plus mal placés : le Néron, le mont Saint-Eynard et le mont Rachais restent à 600 m –
+  1,7 km de leur cime. Leur cote manque *parce que* l'ancre est loin, et l'ancre reste loin
+  *parce que* la cote manque.
 
 Service d'altimétrie, tel qu'appelé par le générateur :
 

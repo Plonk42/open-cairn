@@ -287,26 +287,157 @@ function fetchGeoNames() {
     });
 }
 
+/** RGE ALTI® at an arbitrary list of points, in batches the service accepts. */
+async function sampleGround(points, label) {
+    const out = new Array(points.length);
+    for (let i = 0; i < points.length; i += ALTI_BATCH) {
+        const batch = points.slice(i, i + ALTI_BATCH);
+        const params = new URLSearchParams({
+            lon: batch.map((p) => p.lng).join('|'),
+            lat: batch.map((p) => p.lat).join('|'),
+            resource: 'ign_rge_alti_wld', delimiter: '|', zonly: 'true',
+        });
+        const data = await getJson(`${ALTI_URL}?${params}`);
+        batch.forEach((p, k) => {
+            const z = data.elevations[k];
+            if (typeof z === 'number' && z > -1000) out[i + k] = Math.round(z * 10) / 10;
+        });
+        process.stdout.write(`\r    ${label}: ${Math.min(i + ALTI_BATCH, points.length)}`
+            + ` / ${points.length} sampled`);
+    }
+    process.stdout.write('\n');
+    return out;
+}
+
 /** RGE ALTI® at each toponym, the yardstick every published height is held to. */
 function fetchGround(peaks) {
     return cached('rgealti', async () => {
+        const heights = await sampleGround(peaks, 'ground');
         const ground = {};
-        for (let i = 0; i < peaks.length; i += ALTI_BATCH) {
-            const batch = peaks.slice(i, i + ALTI_BATCH);
-            const params = new URLSearchParams({
-                lon: batch.map((p) => p.lng).join('|'),
-                lat: batch.map((p) => p.lat).join('|'),
-                resource: 'ign_rge_alti_wld', delimiter: '|', zonly: 'true',
-            });
-            const data = await getJson(`${ALTI_URL}?${params}`);
-            batch.forEach((p, k) => {
-                const z = data.elevations[k];
-                if (typeof z === 'number' && z > -1000) ground[p.id] = Math.round(z * 10) / 10;
-            });
-            process.stdout.write(`\r    ${Object.keys(ground).length} / ${peaks.length} sampled`);
-        }
-        process.stdout.write('\n');
+        peaks.forEach((p, i) => {
+            if (heights[i] !== undefined) ground[p.id] = heights[i];
+        });
         return ground;
+    });
+}
+
+// ── Re-anchoring ─────────────────────────────────────────────────────────────
+
+/**
+ * How far the ground may sit under a summit's own published height before the
+ * toponym is taken to be off the top.
+ */
+const ANCHOR_DRIFT_M = 40;
+
+/** Past this, the walk has left the summit it started on; the move is abandoned. */
+const MAX_ANCHOR_MOVE_M = 2_000;
+
+/** First step of the uphill walk, and the step under which it gives up. */
+const CLIMB_START_RADIUS_M = 250;
+const CLIMB_MIN_RADIUS_M = 40;
+
+/** Once the ground is this close to the published height, the top is reached. */
+const CLIMB_TARGET_SLACK_M = 5;
+
+/** Compass directions probed at each step. */
+const CLIMB_DIRECTIONS = 8;
+
+/** Enough for eight full steps of climb plus the three that shrink the radius. */
+const MAX_CLIMB_ROUNDS = 16;
+
+/**
+ * A probe near a point. Rounded to 6 decimals — 0.1 m, far finer than a 1 m
+ * DEM — because full-precision floats make each coordinate 20 characters and
+ * a batch of 200 then overruns the service's URI limit.
+ */
+function offsetPoint(lng, lat, eastM, northM) {
+    const round = (v) => Math.round(v * 1e6) / 1e6;
+    return {
+        lng: round(lng + eastM / (METRES_PER_DEG_LAT * Math.cos(lat * DEG))),
+        lat: round(lat + northM / METRES_PER_DEG_LAT),
+    };
+}
+
+function climbProbes(walkers) {
+    const probes = [];
+    for (const w of walkers) {
+        for (let i = 0; i < CLIMB_DIRECTIONS; i += 1) {
+            const angle = (2 * Math.PI * i) / CLIMB_DIRECTIONS;
+            probes.push(offsetPoint(w.lng, w.lat,
+                Math.sin(angle) * w.radiusM, Math.cos(angle) * w.radiusM));
+        }
+    }
+    return probes;
+}
+
+/** Step every walker once, and return those with somewhere left to go. */
+function climbStep(walkers, probes, heights) {
+    const live = [];
+    walkers.forEach((w, i) => {
+        let best;
+        for (let k = 0; k < CLIMB_DIRECTIONS; k += 1) {
+            const z = heights[i * CLIMB_DIRECTIONS + k];
+            if (z !== undefined && (best === undefined || z > best.z)) {
+                best = { z, at: probes[i * CLIMB_DIRECTIONS + k] };
+            }
+        }
+        if (best !== undefined && best.z > w.groundM) {
+            w.lng = best.at.lng;
+            w.lat = best.at.lat;
+            w.groundM = best.z;
+        } else {
+            w.radiusM /= 2;
+        }
+        w.driftM = distanceM(w.fromLng, w.fromLat, w.lng, w.lat);
+        const done = w.groundM >= w.targetM - CLIMB_TARGET_SLACK_M
+            || w.radiusM < CLIMB_MIN_RADIUS_M
+            || w.driftM > MAX_ANCHOR_MOVE_M;
+        if (!done) live.push(w);
+    });
+    return live;
+}
+
+/**
+ * Walk a toponym uphill until the ground under it matches the height its own
+ * label carries.
+ *
+ * BD TOPO® anchors a ridge name where it reads well on a map, not on the top:
+ * "Rocher de Chalves" sits 619 m south of its summit, on ground 156 m below the
+ * 1845 m it is printed with, so the leader line points at a shoulder. That is
+ * what the panorama showed, and what PeakFinder avoids by snapping every POI to
+ * the highest DEM node around it.
+ *
+ * The published height is what makes the walk safe to run offline: it says how
+ * far there is left to climb, so the walk has a target and stops at it rather
+ * than wandering onto a higher neighbour. A walk that strays past
+ * {@link MAX_ANCHOR_MOVE_M} is abandoned outright — better the old anchor than
+ * a name moved onto the wrong mountain. 1784 of the 13294 heighted summits
+ * qualify; the rest already stand within 40 m of their own ground.
+ */
+function reanchorAll(entries) {
+    return cached('anchors', async () => {
+        let walkers = entries
+            .filter((e) => e.m !== null && e.groundM !== undefined
+                && e.m - e.groundM > ANCHOR_DRIFT_M)
+            .map((e) => ({
+                id: e.peak.id, targetM: e.m, groundM: e.groundM,
+                fromLng: e.peak.lng, fromLat: e.peak.lat,
+                lng: e.peak.lng, lat: e.peak.lat,
+                radiusM: CLIMB_START_RADIUS_M, driftM: 0,
+            }));
+        const all = walkers;
+        console.log(`  ${walkers.length} anchors standing over ${ANCHOR_DRIFT_M} m`
+            + ' under their own height');
+        for (let round = 1; round <= MAX_CLIMB_ROUNDS && walkers.length > 0; round += 1) {
+            const probes = climbProbes(walkers);
+            walkers = climbStep(walkers, probes,
+                await sampleGround(probes, `climb ${round} (${walkers.length} left)`));
+        }
+        const moved = {};
+        for (const w of all) {
+            if (w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M) moved[w.id] = [w.lng, w.lat];
+        }
+        return moved;
     });
 }
 
@@ -384,7 +515,7 @@ function bump(counter, key) {
 function mergePeaks(sources) {
     const summitNatures = new Set(SUMMIT_NATURES);
     const stats = { chosen: {}, rejected: {}, heightless: 0, dropped: 0 };
-    const out = [];
+    const kept = [];
     for (const peak of sources.topo) {
         const offers = collectOffers(peak, sources);
         const groundM = sources.ground[peak.id];
@@ -402,10 +533,19 @@ function mergePeaks(sources) {
         // Without a height, a `Montagne` or a `Crête` is an area name whose point
         // sits in the middle of nothing one can aim at.
         if (!chosen && !summitNatures.has(peak.nature)) stats.dropped += 1;
-        else out.push([peak.name, peak.lng, peak.lat, peak.importance, chosen?.m ?? null]);
+        else kept.push({ peak, m: chosen?.m ?? null, groundM });
     }
+    return { kept, stats };
+}
+
+/** The shipped shape: one flat row per summit, sorted so the file diffs well. */
+function toRows(kept, anchors) {
+    const out = kept.map(({ peak, m }) => {
+        const [lng, lat] = anchors[peak.id] ?? [peak.lng, peak.lat];
+        return [peak.name, lng, lat, peak.importance, m];
+    });
     out.sort((a, b) => a[2] - b[2] || a[1] - b[1]);
-    return { out, stats };
+    return out;
 }
 
 async function main() {
@@ -420,7 +560,10 @@ async function main() {
     console.log('RGE ALTI® — ground under every toponym');
     const ground = await fetchGround(topo);
 
-    const { out, stats } = mergePeaks({ topo, carto, osm, geonames, ground });
+    const { kept, stats } = mergePeaks({ topo, carto, osm, geonames, ground });
+    console.log('RGE ALTI® — walking misplaced anchors uphill');
+    const anchors = await reanchorAll(kept);
+    const out = toRows(kept, anchors);
     writeFileSync(OUT, JSON.stringify(out) + '\n');
 
     const withHeight = out.filter((p) => p[4] !== null).length;
@@ -428,6 +571,7 @@ async function main() {
         + ` (${stats.dropped} area names dropped for want of a height)`);
     console.log('heights chosen:', stats.chosen, '— none:', stats.heightless);
     console.log('heights the ground contradicted:', stats.rejected);
+    console.log(`${Object.keys(anchors).length} anchors walked onto their top`);
     console.log(`${withHeight} of ${out.length} labelled with an altitude`
         + ` (${(100 * withHeight / out.length).toFixed(0)}%)`);
     console.log(`→ ${OUT} (${(readFileSync(OUT).length / 1e6).toFixed(2)} MB)`);

@@ -149,14 +149,19 @@ Ce qu'il faut savoir :
   nommé ; le Gran Paradiso, non.
 - La liste n'est **plus interrogée en ligne**. Elle est bâtie une fois par
   [tools/build-peaks.mjs](../tools/build-peaks.mjs) et livrée avec l'app sous forme d'un
-  fichier de 25 798 sommets (380 ko gzippés), téléchargé une seule fois par session à la
+  fichier de 25 798 sommets (391 ko gzippés), téléchargé une seule fois par session à la
   première ouverture du mode. Plus de requête WFS sur le chemin d'une étiquette.
 - L'**altitude est celle que publie la meilleure source disponible** — OSM, puis la cote
   BD CARTO®, puis GeoNames, dans cet ordre (voir `docs/IGN_DATA_SOURCES.md` pour la mesure
   qui a fixé cet ordre). **52 %** des sommets en portent une ; les autres sont
   affichés **sans altitude**. C'est délibéré : en randonnée, une altitude fausse est pire
-  que pas d'altitude, et aucun MNT ne donne la bonne, le point du toponyme n'étant pas sur
-  le sommet (le Néron y est relevé 183 m trop bas).
+  que pas d'altitude, et aucun MNT ne donne la bonne.
+- Le **point visé par le trait de rappel n'est pas le toponyme brut** : la BD TOPO® pose le
+  nom d'une crête là où l'étiquette se lit sur une carte, pas sur la cime. Quand la cote
+  dépasse de plus de 40 m le sol sous le toponyme, le générateur remonte l'ancre au RGE
+  ALTI® jusqu'à la cote — 1 467 sommets, dont Rocher de Chalves déplacé de 625 m. Les
+  sommets **sans** cote ne peuvent pas l'être, faute de cible : le Néron reste ancré 183 m
+  trop bas.
 - Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
   **s'il porte une altitude** : c'est la seule preuve qu'il désigne un point culminant
   (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).

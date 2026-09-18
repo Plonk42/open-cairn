@@ -49,7 +49,8 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   la liste. Noms issus de la BD TOPO® IGN (couverture française), **altitude publiée** par la
   meilleure source disponible — OSM, cote BD CARTO®, GeoNames — contrôlée contre le RGE ALTI®
   1 m et affichée seulement quand elle tient, jamais estimée. 25 798 sommets livrés avec l'app,
-  dont 52 % avec une altitude.
+  dont 52 % avec une altitude, et l'ancre remontée sur la cime quand le toponyme IGN est posé en
+  contrebas.
 - **Repérage photo par le soleil et la lune** — position solaire calculée pour la date, le lieu et
   l'heure (réfraction atmosphérique comprise), et **trajectoire de la journée dessinée dans le
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille
