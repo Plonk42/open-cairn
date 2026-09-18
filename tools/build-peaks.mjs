@@ -31,6 +31,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const CACHE_DIR = fileURLToPath(new URL('./build-peaks-cache/', import.meta.url));
 const OUT = fileURLToPath(new URL('../src/lib/peaksData.json', import.meta.url));
@@ -57,8 +58,25 @@ const CULMINATION_NATURES = ['Montagne', 'Rochers', 'Crête', 'Escarpement'];
 /** WFS page size. 33k features come down in nine pages of about a megabyte. */
 const WFS_PAGE = 4000;
 
-/** The elevation service answers GET only, and 414s past ~250 points. */
-const ALTI_BATCH = 200;
+/**
+ * The elevation service answers GET only, and 414s past ~250 points. It also
+ * has a trap: past 31 points it stops reading the DEM point by point and
+ * rasterises the request's bounding box instead, at a resolution that follows
+ * the box, silently. Asking for 200 summits scattered over France returned the
+ * Néron's 1297 m as 1131 m; the same point alone, or in a batch of 30 however
+ * spread out, reads 1297.17 m. Batches of 30 cost 1100 requests instead of 110
+ * and are exact. Sorting the points to keep each box small was measured worse:
+ * summits are too sparse, and a 0.1° box holds four of them.
+ */
+const ALTI_BATCH = 30;
+
+/**
+ * Requests in flight. Batches of 30 mean 1100 of them for the ground alone, and
+ * at 2.7 s each that is 49 minutes of waiting on latency rather than on data.
+ * Six at a time is what makes the small batch affordable; the service is public,
+ * so this stays modest.
+ */
+const ALTI_CONCURRENCY = 6;
 
 /**
  * How far the ground may stand above a published height before that height is
@@ -102,6 +120,23 @@ const MAX_SURVEY_OVERSHOOT_M = 400;
  */
 const MAX_NAME_MATCH_M = 600;
 
+/**
+ * How far a same-named point may sit and still be admitted once RGE ALTI® under
+ * the point itself has confirmed it, and by how much the two may disagree.
+ *
+ * Distance alone cannot separate a misplaced toponym from a homonym on another
+ * massif: over the 600 m to 1500 m band the two are mixed, and simply widening
+ * the radius buys coverage with no evidence. The ground under the record does
+ * separate them, because that band is bimodal — half of it stands within a few
+ * metres of the height it publishes, half is hundreds of metres off. Held
+ * against matches inside the radius, which are right, a 20 m tolerance keeps
+ * 88% of them; here it admits 112 summits out of 184 candidates. "le Néron"
+ * names a crest whose top is 618 m from its toponym — 18 m outside the radius,
+ * which is why it carried no height at all — and reads 0.8 m off.
+ */
+const FAR_NAME_MATCH_M = 1_500;
+const NODE_GROUND_TOLERANCE_M = 20;
+
 const METRES_PER_DEG_LAT = 111320;
 const DEG = Math.PI / 180;
 
@@ -122,17 +157,28 @@ const refetch = process.argv.includes('--refetch');
 
 // ── Plumbing ─────────────────────────────────────────────────────────────────
 
-/** Memoise a producer's JSON result on disk; `--refetch` ignores what is there. */
-async function cached(name, produce) {
+/**
+ * Memoise a producer's JSON result on disk; `--refetch` ignores what is there.
+ *
+ * A `signature` makes the entry depend on what it was derived from, kept in a
+ * sidecar so the raw download caches keep their format. The anchors are walked
+ * from the heights and the ground, and would otherwise survive a change to
+ * either and hand back positions computed from data that no longer exists.
+ */
+async function cached(name, produce, signature) {
     mkdirSync(CACHE_DIR, { recursive: true });
     const path = `${CACHE_DIR}${name}.json`;
-    if (!refetch && existsSync(path)) {
+    const sigPath = `${CACHE_DIR}${name}.sig`;
+    const fresh = signature === undefined
+        || (existsSync(sigPath) && readFileSync(sigPath, 'utf8') === signature);
+    if (!refetch && fresh && existsSync(path)) {
         const hit = JSON.parse(readFileSync(path, 'utf8'));
         console.log(`  ${name}: ${hit.length ?? Object.keys(hit).length} (cache)`);
         return hit;
     }
     const value = await produce();
     writeFileSync(path, JSON.stringify(value));
+    if (signature !== undefined) writeFileSync(sigPath, signature);
     return value;
 }
 
@@ -287,24 +333,33 @@ function fetchGeoNames() {
     });
 }
 
-/** RGE ALTI® at an arbitrary list of points, in batches the service accepts. */
+/** RGE ALTI® at an arbitrary list of points, in batches the service answers well. */
 async function sampleGround(points, label) {
     const out = new Array(points.length);
-    for (let i = 0; i < points.length; i += ALTI_BATCH) {
-        const batch = points.slice(i, i + ALTI_BATCH);
-        const params = new URLSearchParams({
-            lon: batch.map((p) => p.lng).join('|'),
-            lat: batch.map((p) => p.lat).join('|'),
-            resource: 'ign_rge_alti_wld', delimiter: '|', zonly: 'true',
-        });
-        const data = await getJson(`${ALTI_URL}?${params}`);
-        batch.forEach((p, k) => {
-            const z = data.elevations[k];
-            if (typeof z === 'number' && z > -1000) out[i + k] = Math.round(z * 10) / 10;
-        });
-        process.stdout.write(`\r    ${label}: ${Math.min(i + ALTI_BATCH, points.length)}`
-            + ` / ${points.length} sampled`);
-    }
+    const starts = [];
+    for (let i = 0; i < points.length; i += ALTI_BATCH) starts.push(i);
+    let next = 0;
+    let done = 0;
+    const worker = async () => {
+        while (next < starts.length) {
+            const start = starts[next];
+            next += 1;
+            const batch = points.slice(start, start + ALTI_BATCH);
+            const params = new URLSearchParams({
+                lon: batch.map((p) => p.lng).join('|'),
+                lat: batch.map((p) => p.lat).join('|'),
+                resource: 'ign_rge_alti_wld', delimiter: '|', zonly: 'true',
+            });
+            const data = await getJson(`${ALTI_URL}?${params}`);
+            batch.forEach((p, k) => {
+                const z = data.elevations[k];
+                if (typeof z === 'number' && z > -1000) out[start + k] = Math.round(z * 10) / 10;
+            });
+            done += batch.length;
+            process.stdout.write(`\r    ${label}: ${done} / ${points.length} sampled`);
+        }
+    };
+    await Promise.all(Array.from({ length: ALTI_CONCURRENCY }, worker));
     process.stdout.write('\n');
     return out;
 }
@@ -415,9 +470,13 @@ function climbStep(walkers, probes, heights) {
  * qualify; the rest already stand within 40 m of their own ground.
  */
 function reanchorAll(entries) {
+    const signature = createHash('sha256')
+        .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}\n`)
+        .update(entries.map((e) => `${e.peak.id}:${e.m}:${e.groundM}:${e.at ?? ''}`).join('\n'))
+        .digest('hex');
     return cached('anchors', async () => {
         let walkers = entries
-            .filter((e) => e.m !== null && e.groundM !== undefined
+            .filter((e) => e.m !== null && e.groundM !== undefined && e.at === undefined
                 && e.m - e.groundM > ANCHOR_DRIFT_M)
             .map((e) => ({
                 id: e.peak.id, targetM: e.m, groundM: e.groundM,
@@ -434,11 +493,18 @@ function reanchorAll(entries) {
                 await sampleGround(probes, `climb ${round} (${walkers.length} left)`));
         }
         const moved = {};
+        let stalled = 0;
         for (const w of all) {
+            // A walk that never got near its target found a shoulder, not the top:
+            // le Néron's crest is narrow enough to stall one 119 m short, and
+            // further from the summit than the toponym it started at.
+            if (w.targetM - w.groundM > ANCHOR_DRIFT_M) { stalled += 1; continue; }
             if (w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M) moved[w.id] = [w.lng, w.lat];
         }
+        console.log(`  ${stalled} walks stalled short of their height and kept`
+            + ' their old anchor');
         return moved;
-    });
+    }, signature);
 }
 
 // ── Merge ────────────────────────────────────────────────────────────────────
@@ -454,14 +520,44 @@ function nameIndex(records) {
 }
 
 /** The nearest same-named record within reach, or null. */
-function matchByName(index, peak) {
+function matchByName(index, peak, limitM = MAX_NAME_MATCH_M) {
     let best = null;
-    let bestD = MAX_NAME_MATCH_M;
+    let bestD = limitM;
     for (const r of index.get(normalise(peak.name)) ?? []) {
         const d = distanceM(peak.lng, peak.lat, r.lng, r.lat);
         if (d < bestD) { best = r; bestD = d; }
     }
-    return best;
+    return best === null ? null : { ...best, awayM: bestD };
+}
+
+/**
+ * Same-named points standing past {@link MAX_NAME_MATCH_M}, kept only when the
+ * ground under the point reads the height it publishes.
+ */
+function admitFarMatches(peaks, indexes) {
+    const signature = `m+at/${MAX_NAME_MATCH_M}/${FAR_NAME_MATCH_M}/${NODE_GROUND_TOLERANCE_M}`;
+    return cached('farmatches', async () => {
+        const candidates = [];
+        for (const peak of peaks) {
+            for (const [source, index] of Object.entries(indexes)) {
+                const hit = matchByName(index, peak, FAR_NAME_MATCH_M);
+                if (hit !== null && hit.awayM >= MAX_NAME_MATCH_M) {
+                    candidates.push({ id: peak.id, source, m: hit.m, lng: hit.lng, lat: hit.lat });
+                }
+            }
+        }
+        const heights = await sampleGround(candidates, 'far matches');
+        const admitted = {};
+        candidates.forEach((c, i) => {
+            const g = heights[i];
+            if (g === undefined || Math.abs(c.m - g) > NODE_GROUND_TOLERANCE_M) return;
+            admitted[c.id] ??= {};
+            admitted[c.id][c.source] = { m: c.m, at: [c.lng, c.lat] };
+        });
+        console.log(`  ${Object.keys(admitted).length} of ${candidates.length}`
+            + ' far matches stand on their own height');
+        return admitted;
+    }, signature);
 }
 
 /**
@@ -496,16 +592,26 @@ function plausible(m, groundM) {
     return groundM <= m + MAX_SURVEY_UNDERSHOOT_M && m <= groundM + MAX_SURVEY_OVERSHOOT_M;
 }
 
-/** Every published height anyone offers for one summit, by source. */
+/**
+ * Every published height anyone offers for one summit, by source, and where a
+ * far match proved itself — that point is the summit, measured, so it beats
+ * anything the uphill walk could find.
+ */
 function collectOffers(peak, sources) {
     const offers = {};
+    const provenAt = {};
+    for (const [source, hit] of Object.entries(sources.far[peak.id] ?? {})) {
+        offers[source] = hit.m;
+        provenAt[source] = hit.at;
+    }
+    // A match inside the radius needs no corroboration and outranks a far one.
     const cote = sources.carto[peak.id];
-    if (cote !== undefined) offers.bdcarto = cote;
+    if (cote !== undefined) { offers.bdcarto = cote; delete provenAt.bdcarto; }
     const osmHit = matchByName(sources.osm, peak);
-    if (osmHit) offers.osm = osmHit.m;
+    if (osmHit) { offers.osm = osmHit.m; delete provenAt.osm; }
     const gnHit = matchByName(sources.geonames, peak);
-    if (gnHit) offers.geonames = gnHit.m;
-    return offers;
+    if (gnHit) { offers.geonames = gnHit.m; delete provenAt.geonames; }
+    return { offers, provenAt };
 }
 
 function bump(counter, key) {
@@ -517,7 +623,7 @@ function mergePeaks(sources) {
     const stats = { chosen: {}, rejected: {}, heightless: 0, dropped: 0 };
     const kept = [];
     for (const peak of sources.topo) {
-        const offers = collectOffers(peak, sources);
+        const { offers, provenAt } = collectOffers(peak, sources);
         const groundM = sources.ground[peak.id];
         const chosen = chooseHeight(offers, groundM);
 
@@ -533,15 +639,15 @@ function mergePeaks(sources) {
         // Without a height, a `Montagne` or a `Crête` is an area name whose point
         // sits in the middle of nothing one can aim at.
         if (!chosen && !summitNatures.has(peak.nature)) stats.dropped += 1;
-        else kept.push({ peak, m: chosen?.m ?? null, groundM });
+        else kept.push({ peak, m: chosen?.m ?? null, groundM, at: chosen && provenAt[chosen.source] });
     }
     return { kept, stats };
 }
 
 /** The shipped shape: one flat row per summit, sorted so the file diffs well. */
 function toRows(kept, anchors) {
-    const out = kept.map(({ peak, m }) => {
-        const [lng, lat] = anchors[peak.id] ?? [peak.lng, peak.lat];
+    const out = kept.map(({ peak, m, at }) => {
+        const [lng, lat] = at ?? anchors[peak.id] ?? [peak.lng, peak.lat];
         return [peak.name, lng, lat, peak.importance, m];
     });
     out.sort((a, b) => a[2] - b[2] || a[1] - b[1]);
@@ -559,8 +665,10 @@ async function main() {
     const geonames = nameIndex(await fetchGeoNames());
     console.log('RGE ALTI® — ground under every toponym');
     const ground = await fetchGround(topo);
+    console.log('RGE ALTI® — same-named points past the match radius');
+    const far = await admitFarMatches(topo, { osm, geonames });
 
-    const { kept, stats } = mergePeaks({ topo, carto, osm, geonames, ground });
+    const { kept, stats } = mergePeaks({ topo, carto, osm, geonames, ground, far });
     console.log('RGE ALTI® — walking misplaced anchors uphill');
     const anchors = await reanchorAll(kept);
     const out = toRows(kept, anchors);

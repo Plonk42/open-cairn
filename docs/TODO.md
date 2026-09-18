@@ -1,14 +1,18 @@
 # TODO
 
-- [ ] Sommets sans cote : ils ne peuvent pas être recalés, faute de cible pour la marche,
-      et ce sont justement les plus mal ancrés (le Néron, le mont Saint-Eynard, le mont
-      Rachais, à 600 m – 1,7 km de leur cime). La cote manque *parce que* l'ancre est loin
-      du sommet — l'appariement par nom ne porte qu'à 600 m — et l'ancre reste loin *parce
-      que* la cote manque. Piste : recaler d'abord sur un maximum local non guidé, puis
-      rejouer l'appariement des altitudes depuis la nouvelle position.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
-      (Wikipédia dit 1818) et la marche s'est éloignée de 366 m du bon point. Rejeter le
+      (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.
+- [ ] La montée guidée converge vers le maximum local le plus proche : 225 marches calent
+      à plus de 40 m sous leur cible et gardent leur ancre d'origine. Sur une crête étroite
+      elle peut même s'éloigner du sommet. Piste : élargir le rayon de départ au lieu de le
+      réduire quand aucune sonde ne monte, ou sonder deux couronnes.
+- [ ] Mont Saint-Eynard et aiguilles de l'Argentière restent sans cote : leur homonyme est
+      au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
+- [ ] La signature de cache ne capture que des constantes et des données, pas le code : avoir
+      changé la *forme* de la valeur de `farmatches` sans toucher à la signature a fait relire
+      un cache incompatible en silence, et perdu 71 cotes sans aucune erreur. Un numéro de
+      forme est présent dans la signature de `farmatches`, mais rien ne l'impose ailleurs.
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.

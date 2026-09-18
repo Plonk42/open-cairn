@@ -233,8 +233,9 @@ Ce qu'il faut savoir des couches :
   Lac y sont, le Gran Paradiso non). Aucun sommet italien ou suisse profond n'est nommé.
 
 Volumétrie mesurée de l'extraction complète : 33 001 objets BD TOPO® (neuf pages, ~9 Mo,
-~15 s), 6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, 32 664 points
-RGE ALTI® (166 requêtes de 200, ~4 min). Sortie : **25 798 sommets, 380 ko gzippés**.
+~15 s), 6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, 32 777 points
+RGE ALTI® (1100 requêtes de 30, six en vol, ~7 min). Sortie : **25 830 sommets, 391 ko
+gzippés**.
 
 ##### Les autres sources d'altitude
 
@@ -276,10 +277,22 @@ celui qu'utilise le générateur.
   nom. Mais cette mesure précède le plafond de surhauteur, qui est ce qui écarte réellement
   les mauvais. Rayon balayé **avec** le garde-fou en place, la justesse et la couverture
   montent **ensemble** jusqu'à 600 m (97,6 → 98,0 % à moins de 3 m, 50 → 52 % de sommets
-  cotés, queue au-delà de 100 m de 12 à 9 cas) puis ne bougent plus. Élargir ne coûte donc
-  rien, et rapporte : la BD TOPO® ancre le nom d'une crête loin de son point haut — « le
-  Néron », « mont Saint-Eynard » et « mont Rachais » sont à 600 m – 1,7 km du sommet
-  qu'ils nomment.
+  cotés, queue au-delà de 100 m de 12 à 9 cas) puis ne bougent plus. Resserrer, en revanche,
+  **dégrade** : à 50 m on tombe à 96,74 % à moins de 3 m, et la queue au-delà de 100 m ne
+  bouge pas (9 à 12 quel que soit le rayon). Ces gros écarts ne sont donc pas causés par la
+  distance, et un rayon serré ne les vise pas — il ne jette que des appariements corrects,
+  parce que la BD TOPO® ancre *couramment* le nom d'une crête loin de son point haut.
+- Au-delà de 600 m, un appariement n'est plus accepté sur sa seule distance mais sur
+  **preuve** : `FAR_NAME_MATCH_M` = **1500 m**, à condition que le RGE ALTI® *sous le nœud
+  lui-même* lise la cote qu'il publie à `NODE_GROUND_TOLERANCE_M` = **20 m** près. Cette
+  bande est **bimodale**, et c'est ce qui rend le test possible : écart médian 6,7 m mais
+  p90 à 339 m — la moitié des candidats se tient à quelques mètres de sa propre cote (le
+  toponyme est simplement mal posé), l'autre désigne une montagne différente. Tenu contre
+  les appariements de moins de 100 m, réputés bons, ce test en garde 88 % ; il admet ici
+  **107 candidats sur 184**. Élargir bêtement le rayon à 800 m n'en aurait rapporté que 37,
+  sans preuve et avec un gros écart de plus.
+- Un nœud ainsi admis **donne aussi l'ancre** : sa position est mesurée, donc elle vaut mieux
+  que tout ce que la marche en montée pourrait trouver.
 - Licence OSM : **ODbL 1.0**. Un rendu à l'écran est une *Produced Work* — attribution
   suffisante ; un extrait redistribué est une *Derivative Database* et doit rester ODbL.
   `src/lib/peaksData.json` en contient, donc l'attribution OSM est due.
@@ -306,27 +319,33 @@ son étiquette affiche 1845 m : le trait de rappel du panorama désignait une é
 évite ça en calant chaque POI sur le nœud de MNT le plus haut du voisinage
 (`lookupHighestElevation`). `tools/build-peaks.mjs` fait de même, avec un avantage : **la cote
 publie la cible**, donc la marche sait où s'arrêter au lieu d'errer vers un voisin plus haut.
+Quand un appariement lointain a déjà prouvé sa position, elle est prise telle quelle et la
+marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherchée.
 
 - **Qui est recalé** : tout sommet dont la cote dépasse de plus de `ANCHOR_DRIFT_M` = **40 m**
-  le sol lu sous son toponyme. Ce critère en désigne **1 784** sur les 13 294 cotés ; aucun nom
-  n'est écrit en dur.
+  le sol lu sous son toponyme, et dont l'ancre n'est pas déjà connue par un appariement
+  lointain prouvé. Ce critère en désigne **1 301** ; aucun nom n'est écrit en dur.
 - **Comment** : 8 sondes à 250 m, on saute sur la plus haute, on réduit le pas quand aucune ne
   monte, on s'arrête à 5 m de la cote. Les sondes sont **arrondies à 6 décimales** — en pleine
-  précision, 200 points font une URL que le service refuse en HTTP 414.
-- **Garde-fou** : passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné et l'ancre
-  d'origine conservée. **1 467** ancres ont abouti (médiane 250 m, p90 520 m, max 1 580 m), les
-  317 autres sont restées en place.
+  précision, un lot fait une URL que le service refuse en HTTP 414.
+- **Deux garde-fous**. Passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné.
+  Et une marche qui **cale à plus de 40 m sous sa cible** a trouvé un ressaut, pas une cime :
+  elle garde aussi l'ancienne ancre. Le Néron a montré pourquoi — sur une crête étroite, la
+  montée guidée converge vers le maximum local le plus proche, et elle avait fini à 1178,8 m
+  pour une cible de 1298, en s'éloignant du sommet (743 m contre 618 au départ). **225**
+  marches sont ainsi abandonnées, **1 076** aboutissent.
 - **Résultat** : Rocher de Chalves atterrit à 625 m de son toponyme, sur un sol à 1842,9 m pour
   une cote de 1845 — à 6 m du nœud OSM « Rochers de Chalves », que la marche n'a jamais
-  consulté. Les altitudes ne bougent pas (98,0 % à moins de 3 m avant comme après) et
-  l'appariement à la référence s'améliore légèrement (10 158 → 10 162 exacts).
+  consulté. Les altitudes ne se dégradent pas (98,0 % à moins de 3 m) et l'appariement à la
+  référence s'améliore (10 158 → **10 210** exacts).
 - ⚠️ **Une cote fausse déplace l'ancre sur le mauvais sommet.** Le Grand Manti porte 1850 m
-  là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 366 m du
+  là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 355 m du
   bon point. C'est borné par les 2 km, mais réel.
-- ⚠️ **Un sommet sans cote ne peut pas être recalé**, faute de cible — et ce sont précisément
-  les plus mal placés : le Néron, le mont Saint-Eynard et le mont Rachais restent à 600 m –
-  1,7 km de leur cime. Leur cote manque *parce que* l'ancre est loin, et l'ancre reste loin
-  *parce que* la cote manque.
+- Le cercle vicieux des sommets sans cote — la cote manque *parce que* l'ancre est loin, et
+  l'ancre reste loin *parce que* la cote manque — est rompu par l'appariement lointain
+  prouvé, qui donne les deux d'un coup. Le Néron passe de « sans altitude » à **1298 m ancrés
+  à 0 m du sommet**, le mont Rachais à 1046 m (+1013 m) et le mont Outheran à 1686 m
+  (+1019 m). La contre-épreuve Wikipédia passe de **5 sommets sans cote à 2**.
 
 Service d'altimétrie, tel qu'appelé par le générateur :
 
@@ -336,9 +355,33 @@ GET https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json
   &resource=ign_rge_alti_wld&delimiter=|&zonly=true
 ```
 
-⚠️ **GET uniquement** : le service répond **500** à un POST identique, et **414** au-delà
-d'environ 250 points dans l'URL. Le générateur travaille par lots de **200**, ~1,5 s
-chacun.
+⚠️ **GET uniquement** : le service répond **500** à un POST form-encodé, et **414** au-delà
+d'environ 250 points dans l'URL. En POST JSON il accepte 5000 points, mais ça ne sert à rien
+ici — voir le piège ci-dessous.
+
+⚠️ **Au-delà de 31 points, le service cesse de lire le MNT point par point.** Il rastérise
+la boîte englobante de la requête, à une résolution qui suit cette boîte, **sans le dire** :
+pas d'erreur, pas d'avertissement, juste des valeurs lissées. Mesuré sur le Néron, dont le
+sol vaut 1297,17 m :
+
+| étendue du lot | ≤ 30 points | ≥ 32 points |
+|---|---|---|
+| 0,1° (~11 km) | 1297,17 | 1297,17 |
+| 0,25° (~28 km) | 1297,17 | 1294,71 |
+| 1° (~111 km) | 1297,17 | 1278,27 |
+| 2° (~222 km) | 1297,17 | 1240,99 |
+
+Le seuil en nombre de points est net entre **30 et 32**, et au-delà la valeur ne dépend plus
+que de l'étendue. Le générateur envoyait 200 toponymes éparpillés sur toute la France par
+requête : **13,3 % des sols étaient faux de plus de 10 m, jusqu'à 175 m**, et les Pyrénées
+étaient intactes uniquement parce que leurs toponymes tombaient dans un lot déjà groupé.
+
+Deux parades, une seule tenable. **Trier spatialement** pour garder des boîtes sous 0,1° a
+été mesuré *pire* : les sommets sont trop épars, une boîte de 0,1° en contient quatre, soit
+5951 requêtes. Des **lots de 30 sans tri** en font 1100 et sont exacts quelle que soit
+l'étendue. Le coût n'est pas le volume mais la latence — 1100 requêtes en série à 2,7 s font
+49 minutes — donc `ALTI_CONCURRENCY` en garde **6** en vol : la reconstruction retombe à
+2 min 30.
 
 La base géodésique mérite le détail, parce qu'elle a l'air d'être la solution :
 
