@@ -22,5 +22,11 @@ public/showcase/scene-*.json
 # Render sweeps are full-size captures, regenerated on demand.
 tools/render-sweep/out/
 
+# Raw source downloads for tools/build-peaks.mjs; only its output is versioned.
+tools/build-peaks-cache/
+
+# Third-party POI datasets used only as a yardstick, never redistributed.
+data/
+
 #concours IGN
 docs/concours/rendu/
