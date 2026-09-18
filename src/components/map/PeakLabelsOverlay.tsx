@@ -11,8 +11,8 @@
  *
  *   - the summit list is LOADED once per session (`lib/peaks.ts`, a file built
  *     offline by `tools/build-peaks.mjs`), then sliced to the eye's box;
- *   - visibility is MARCHED once per eye position — ~220 rays, ~130 ms, paid
- *     when the eye lands and never again while you turn (`lib/peakSightings.ts`);
+ *   - visibility is MARCHED once per eye position — up to ~900 rays, ~250 ms,
+ *     paid when the eye lands and never again while you turn (`lib/peakSightings.ts`);
  *   - the labels are PLACED on every frame, which is pure arithmetic on
  *     directions that were solved once.
  *

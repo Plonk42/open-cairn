@@ -66,13 +66,18 @@ describe('selectCandidates', () => {
         expect(selectCandidates(OBSERVER, [east])[0].azimuthDeg).toBeCloseTo(90, 3);
     });
 
-    it('spends the marching budget on the most notorious summits first', () => {
+    it('caps the marching budget', () => {
         const many: Peak[] = [];
-        for (let i = 0; i < 400; i++) many.push(peakNorth(`minor-${i}`, 5_000 + i, 4));
-        many.push(peakNorth('major', 5_000, 1));
-        const selected = selectCandidates(OBSERVER, many);
-        expect(selected.length).toBeLessThanOrEqual(220);
-        expect(selected[0].peak.id).toBe('major');
+        for (let i = 0; i < 2_000; i++) many.push(peakNorth(`minor-${i}`, 5_000 + i, 4));
+        expect(selectCandidates(OBSERVER, many)).toHaveLength(900);
+    });
+
+    it('spends the budget on a nearby minor summit before a distant notorious one', () => {
+        const selected = selectCandidates(OBSERVER, [
+            peakNorth('far-major', 50_000, 1),
+            peakNorth('near-minor', 2_000, 4),
+        ]);
+        expect(selected.map((c) => c.peak.id)).toEqual(['near-minor', 'far-major']);
     });
 });
 

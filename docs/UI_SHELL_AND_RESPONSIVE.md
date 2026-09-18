@@ -407,13 +407,34 @@ sur quel événement chacune est branchée :
 
 | Travail | Coût | Cadence |
 |---|---|---|
-| Requêtes WFS des sommets alentour (BD TOPO® + cotes BD CARTO®, en parallèle) | deux allers-retours réseau | une fois par **kilomètre** de déplacement de l'œil |
-| Visée : un rayon par sommet à travers le MNT | ~220 rayons, ~130 ms | une fois par **position** de l'œil, sur `idle` |
+| Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
+| Visée : un rayon par sommet à travers le MNT | jusqu'à **900 rayons à 0,35 ms**, soit ~150 ms mesurés depuis Chamechaude | une fois par **position** de l'œil, sur `idle` |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste, et c'est la seule qui le peut : les deux autres
 dépendent de *où l'on se tient*, pas de *où l'on regarde*. Tourner la tête ne
-redéclenche donc ni requête ni visée.
+redéclenche donc ni découpe ni visée.
+
+#### À quels sommets on paie un rayon
+
+Deux réglages décident, et la première version des deux était trop serrée — mesurée
+dans les 70° vers l'ouest depuis Chamechaude, elle laissait **3 noms** à l'écran là où
+**40 sommets** se détachent réellement de l'arête.
+
+- **La portée par rang** (`REACH_BY_IMPORTANCE_M`) dit jusqu'où le nom d'un rang de
+  notoriété IGN mérite d'être écrit : 60 km aux rangs 1 et 2, **40 km** au rang 3,
+  **20 km** au rang 4. Les 25 km et 8 km d'origine coupaient l'essentiel du panorama :
+  39 des 40 sommets visibles sont de rang 3 ou 4.
+- **L'ordre dans lequel le budget est dépensé** est la **part de sa portée** que le
+  sommet consomme, `distance / portée(rang)`, et non le rang puis la distance. Trier
+  par rang vide le budget dans l'horizon lointain : 198 rangs 2 marchés — les Rouies à
+  59,8 km comprise — pour 7 des 363 rangs 3 et **aucun** des 1 030 rangs 4, si bien que
+  Montvernet, à 3,4 km, n'obtenait jamais de rayon.
+
+Après correction, le même champ affiche **25 noms** au lieu de 3, et la liste recouvre
+celle de PeakFinder au même point de vue (Aiguille de Quaix, la Sure, la Buffe, Dent de
+Moirans, le Gey, Bec de Neurre…). Les 15 qui manquent encore sont ceux que la portée
+coupe volontairement, tous obscurs et à plus de 40 km.
 
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
 des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le

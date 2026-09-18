@@ -36,17 +36,29 @@ const DEG = Math.PI / 180;
 /**
  * How far each IGN notoriety rank is worth labelling, in metres.
  *
- * A rank-4 summit is a local point named for the hamlet below it: at 30 km it
- * is a bump nobody can check. A rank-1 is a name everyone in the valley knows.
- * Indexed by `importance`, so slot 0 is unused.
+ * A rank-4 summit is a local point named for the hamlet below it; a rank-1 is a
+ * name everyone in the valley knows. Indexed by `importance`, so slot 0 is
+ * unused.
+ *
+ * The first cut of this — 25 km for rank 3, 8 km for rank 4 — was far too tight
+ * to read a panorama with. Counted in the 70° looking west from Chamechaude, it
+ * left 3 names on screen where 40 summits stand clear of the ridge, and 39 of
+ * those 40 are ranks 3 and 4: the Aiguille de Quaix at 5.8 km, la Sure at 16,
+ * Dent de Moirans at 15, le Gey at 31. PeakFinder names every one of them.
+ * Rank 4 still stops well short of rank 3, which is what keeps the far end of
+ * the list free of the obscure ones the wider radius would otherwise drag in.
  */
-const REACH_BY_IMPORTANCE_M = [0, 60_000, 60_000, 25_000, 8_000];
+const REACH_BY_IMPORTANCE_M = [0, 60_000, 60_000, 40_000, 20_000];
 
 /**
- * Ceiling on the number of rays marched. Each is ~0.6 ms of DEM lookups and
- * they are all paid in one go when the eye lands, so this is the hitch budget.
+ * Ceiling on the number of rays marched, paid in one go when the eye lands.
+ *
+ * Measured in the browser on the Chamechaude standpoint, a ray costs 0.28 ms,
+ * not the 0.6 ms this budget was first sized on — so 900 of them cost about a
+ * quarter of a second, once, and cover every candidate within reach of all but
+ * the busiest standpoints.
  */
-const MAX_MARCHED = 220;
+const MAX_MARCHED = 900;
 
 /**
  * The march stops this fraction short of the summit. Without it the DEM sample
@@ -75,9 +87,24 @@ interface Candidate {
 }
 
 /**
+ * Share of its rank's reach a summit uses, which is what the budget is spent in
+ * order of.
+ *
+ * Ranking on the rank itself — every rank-2 before any rank-3, as this did at
+ * first — empties the budget into the far horizon: from Chamechaude it marched
+ * 198 rank-2 summits, les Rouies at 59.8 km among them, and reached 7 of the
+ * 363 rank-3 and none at all of the 1030 rank-4, so Montvernet at 3.4 km never
+ * got a ray. A rank is an editorial judgement about how far a name carries;
+ * measuring a summit against its own rank's reach turns it into one number, and
+ * a nearby minor top then rightly outranks a notorious speck on the skyline.
+ */
+function reachFraction(peak: Peak, distanceM: number): number {
+    return distanceM / REACH_BY_IMPORTANCE_M[peak.importance];
+}
+
+/**
  * Thin the raw summit list down to what is worth a ray: near enough for its
- * rank, and inside the marching budget. Sorted by rank first so the budget is
- * spent on the names that carry the panorama.
+ * rank, and inside the marching budget.
  */
 export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak[]): Candidate[] {
     const candidates: Candidate[] = [];
@@ -88,7 +115,8 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
         if (distanceM > reach || distanceM < 1) continue;
         candidates.push({ peak, distanceM, azimuthDeg });
     }
-    candidates.sort((a, b) => a.peak.importance - b.peak.importance || a.distanceM - b.distanceM);
+    candidates.sort((a, b) =>
+        reachFraction(a.peak, a.distanceM) - reachFraction(b.peak, b.distanceM));
     return candidates.slice(0, MAX_MARCHED);
 }
 
