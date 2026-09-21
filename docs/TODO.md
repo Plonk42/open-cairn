@@ -59,11 +59,10 @@
 - [ ] `tools/check-wikidata2.mjs` n'est pas versionné. Contrairement à `verify-peaks.mjs`, il
       ne dépend d'aucune donnée hors dépôt et pourrait tourner en CI. À nettoyer (`.sort` en
       expression, gabarit imbriqué) avant de le committer.
-- [ ] Passer à MapLibre GL JS v6 pour pouvoir régler `terrainSkirtLength: 'none'` sur la
-      création de la carte : l'option n'existe que depuis la v6 (`MapOptions`), le dépôt est
-      épinglé sur `^5.11.0` (5.24.0 installé) et `tsc` refuse la propriété. La ligne a été
-      retirée de `MapContainer.tsx` en attendant ; les jupes de terrain restent au réglage
-      `"auto"` par défaut de MapLibre.
+- [ ] Régler `terrainSkirtLength: 'none'` sur la création de la carte : le dépôt est passé à
+      MapLibre GL JS v6 (l'option existe depuis cette version, dans `MapOptions`), mais le
+      réglage n'a pas été ajouté à `MapContainer.tsx` dans le cadre de cette montée de version.
+      Les jupes de terrain restent au réglage `"auto"` par défaut de MapLibre.
 - [ ] Améliorer le détail du relief quand on zoome en *Point de vue* : le MNT ne semble pas
       gagner en finesse au rapprochement, contrairement à ce qu'on attendrait d'un vrai zoom.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/

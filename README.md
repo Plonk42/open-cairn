@@ -106,7 +106,7 @@ linéairement).
 | Build                | Vite 6                                            |
 | Langages             | TypeScript 5 · React 18                           |
 | UI                   | Tailwind CSS 3                                    |
-| Cartographie         | MapLibre GL JS 5.11                               |
+| Cartographie         | MapLibre GL JS 6                                  |
 | Rendu 3D additionnel | deck.gl 9 · WebGL 2 custom layers                 |
 | LiDAR                | `copc.js` + `laz-perf` (WASM) · `delaunator` · PoissonRecon (WASM) · `meshoptimizer` (LOD) |
 | État                 | Zustand 5 (avec persistance localStorage)         |

@@ -252,7 +252,7 @@ const mpu = mc.meterInMercatorCoordinateUnits();
 
 Le `u_matrix` est obtenu via `args.defaultProjectionData.mainMatrix`, ce qui garantit
 que les points restent calés à n'importe quel pitch / bearing / zoom — un piège fréquent
-pour les couches custom MapLibre 5.
+pour les couches custom MapLibre.
 
 ### Class mask 256 bits
 

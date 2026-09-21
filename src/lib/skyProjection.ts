@@ -28,9 +28,6 @@ export const SKYLINE_DEM_ZOOM = 13;
 
 /** The camera eye — the eye every hidden/visible split is computed from. */
 export function cameraObserver(map: MapLibreMap): SkylineObserver | null {
-    // v6 removed the public `map.transform`; `map.painter.transform` is the
-    // readonly transform the renderer itself uses and still exposes the
-    // camera helpers.
     const eye = map.painter.transform.getCameraLngLat();
     const altitudeM = map.painter.transform.getCameraAltitude();
     if (!eye || !Number.isFinite(altitudeM)) return null;
