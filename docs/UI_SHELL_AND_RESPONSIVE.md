@@ -416,38 +416,56 @@ on extrait systématiquement :
 Si vous ajoutez du JSX conditionnel, **préférez extraire un sous-composant** plutôt
 qu'empiler des `&&` / ternaires.
 
-### Le coût caché d'un `unproject` avec relief 3D
+### Le coût d'un `unproject` avec relief 3D
 
-Avec le MNT branché, `map.unproject()` ne fait plus une inversion de matrice : il
-passe par `Terrain.pointCoordinate`, qui redessine le terrain dans le *framebuffer*
-de coordonnées puis bloque sur `gl.readPixels`. Mesuré sur cette carte (relief 3D,
-pitch 85°), un `setBearing` coûte **0,2 ms** sans `unproject` et **~6 ms** avec. Le
-résultat est mis en cache tant que la transformation ne change pas — c'est-à-dire
-jamais pendant un geste.
+Avec le MNT branché, `map.unproject()` ne fait pas une simple inversion de matrice : il
+passe par `Terrain.pointCoordinate`, qui cherche l'intersection du rayon avec le
+relief. Le résultat est mis en cache tant que la transformation ne change pas —
+c'est-à-dire jamais pendant un geste.
 
-Deux consommateurs payaient ce prix à **chaque image** d'un glisser :
+Jusqu'en v5, cette recherche redessinait le terrain dans un *framebuffer* de
+coordonnées puis bloquait sur `gl.readPixels`, ce qui coûtait **~6–7 ms**. Depuis la
+**v6.6** c'est un lancer de rayon **CPU** sur le MNT : plus aucun `readPixels` dans le
+bundle (`grep -c readPixels node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs` → 0).
 
-- le **`ScaleControl` de MapLibre**, qui se recalcule sur `move` en désprojetant deux
-  points de l'écran. Il reste sur `move` — une échelle figée pendant le geste n'est pas
-  acceptable — mais son `_onMove` est enveloppé pour **masquer le relief** le temps du
-  calcul (`map.terrain` mis de côté puis restauré,
-  [MapContainer.tsx](../src/components/map/MapContainer.tsx)) : MapLibre retombe alors
-  sur l'inversion de matrice. C'est aussi plus juste : la barre veut la distance au sol
-  à plat, alors que deux points drapés sur une pente s'écartent avec le relief et font
-  sauter la valeur. L'enveloppe est posée **avant `addControl`**, qui est ce qui capture
-  l'écouteur ;
+Re-mesuré en v6.10 (Chrome, relief 3D, pitch 85°, z14 sur Grenoble, moyenne sur 500
+appels, `setBearing` entre chaque pour invalider le cache) :
+
+| Opération | v5 | v6.10 |
+|---|---|---|
+| `unproject` au centre, relief branché | ~6–7 ms | **0,069 ms** |
+| `unproject`, relief masqué (inversion de matrice) | ~0,003 ms | 0,003 ms |
+| `mousemove` sur le canvas, traité par MapLibre | ~7 ms | **0,17 ms** |
+| le même, avalé avant MapLibre | — | 0,081 ms |
+| `jumpTo` complet (le vrai coût d'un pas de rotation) | — | 0,39 ms |
+
+Deux contournements existaient pour ce prix ; **les deux ont été retirés**, parce qu'ils
+ne rapportent plus qu'une fraction de milliseconde :
+
+- le **`ScaleControl`** se recalcule sur `move` en désprojetant deux points de l'écran.
+  Son `_onMove` était enveloppé pour masquer le relief le temps du calcul. Mesuré à
+  nouveau : `setBearing` coûte 0,15 ms sans le contrôle et 0,35 ms avec, **que
+  l'enveloppe soit posée ou non** (0,38 vs 0,35 — dans le bruit). Elle reposait sur un
+  champ privé et sur la mutation de `map.terrain` : du risque pour rien ;
 - le **`mousemove` de MapLibre**, dont le constructeur `MapMouseEvent` désprojette le
-  pointeur *avant* de savoir si quelqu'un écoute — le coût est payé même sans
-  abonné. Le mode *Point de vue* l'absorbe pendant le glisser (voir ci-dessus).
+  pointeur *avant* de savoir si quelqu'un écoute. Le mode *Point de vue* l'avalait
+  pendant le glisser ; l'avaler économise **0,09 ms** sur un pas qui en coûte 0,48. En
+  prime, la lecture de coordonnées suit de nouveau le pointeur pendant la rotation au
+  lieu de rester figée.
 
-Mesure bout en bout d'un pas de rotation en *Point de vue* (médiane sur 30 pas,
-`pointermove` + `mousemove` + `jumpTo` complet) : **11 ms → 0,4 ms**. Un `setBearing`
-seul passe de 9,4 ms à 0,7 ms. Avant d'ajouter un abonné à `move` ou à `mousemove`,
-vérifiez qu'il ne désprojette pas.
-
-> **`idle` n'est pas un repli utilisable ici.** La première version reportait la barre
+> **`idle` n'est pas un repli utilisable ici.** Une première version reportait la barre
 > d'échelle sur `idle` — elle ne s'est plus jamais mise à jour, parce que la carte
 > n'était *jamais* au repos : voir « La carte qui repeint sans fin » ci-dessous.
+
+### Pas de contexte WebGL 2 = plus une page blanche
+
+MapLibre v6 a supprimé le chemin WebGL1 : le constructeur `Map` lève une
+`GPUInitializationError` quand le navigateur ne rend pas de contexte `webgl2`. Sans
+`ErrorBoundary` (tâche P0-2), ce jet viderait `#root` sans un mot. L'effet d'init de
+[MapContainer.tsx](../src/components/map/MapContainer.tsx) l'attrape donc, teste
+`instanceof maplibregl.GPUInitializationError`, et remplace le canvas par un message
+français ; toute autre erreur est relancée telle quelle.
+
 
 ### La carte qui repeint sans fin
 

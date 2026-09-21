@@ -688,6 +688,20 @@ function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
     return '';
 }
 
+/**
+ * MapLibre v6 dropped WebGL1 and its constructor throws when it cannot get a
+ * WebGL2 context. With no `ErrorBoundary` anywhere that throw just empties
+ * `#root`, so we catch it and put a message where the canvas would have been.
+ */
+function showGpuFallback(holder: HTMLDivElement, error: unknown): void {
+    console.error('MapLibre could not create a WebGL2 context', error);
+    holder.replaceChildren();
+    const panel = document.createElement('div');
+    panel.className = 'absolute inset-0 flex items-center justify-center bg-slate-900 p-6 text-center text-sm text-slate-200';
+    panel.textContent = "La carte a besoin de WebGL 2, que ce navigateur n'a pas pu activer. Vérifiez que l'accélération matérielle est activée, ou essayez un autre navigateur.";
+    holder.appendChild(panel);
+}
+
 export function MapContainer() {
     // A single map instance is shared across every view. `studio` is derived
     // from the URL view rather than a prop so the persistent map reacts to
@@ -746,36 +760,43 @@ export function MapContainer() {
         if (initialSlot && holder.parentElement !== initialSlot) initialSlot.appendChild(holder);
         const initial = useMapStore.getState();
         setIgnApiKey(initial.ignApiKey);
-        const map = new maplibregl.Map({
-            container: holder,
-            style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
-            center: [view.longitude, view.latitude],
-            zoom: view.zoom,
-            pitch: Math.min(view.pitch, MAP_MAX_PITCH),
-            bearing: view.bearing,
-            maxPitch: studio ? SKY_MAX_PITCH : MAP_MAX_PITCH,
-            canvasContextAttributes: {
-                antialias: true,
-                powerPreference: 'high-performance',
-                // Keep the rendered frame readable so the LiDAR Studio can grab
-                // showcase thumbnails / clean captures from the canvas.
-                preserveDrawingBuffer: true,
-            },
-            anisotropicFilterPitch: 0,
-            pixelRatio: pixelRatioForQuality(initial.renderQuality),
-            // Allow overzoom past the source maxzoom so users can keep
-            // diving in past z19 (MapLibre will reuse parent tiles).
-            maxZoom: 21,
-            // Keep camera center clamped to terrain surface so rotation/panning
-            // pivots naturally around the visible terrain center.
-            centerClampedToGround: true,
-            attributionControl: false,
-            hash: true,
-            // Disable MapLibre's default bearing-snap-to-north (7° threshold)
-            // so the bearing isn't force-aligned to 0 when the user ends a
-            // rotate gesture close to north.
-            bearingSnap: 0,
-        });
+        let map: maplibregl.Map;
+        try {
+            map = new maplibregl.Map({
+                container: holder,
+                style: buildMapStyle(mapStyleOptionsFrom(initial, studio)),
+                center: [view.longitude, view.latitude],
+                zoom: view.zoom,
+                pitch: Math.min(view.pitch, MAP_MAX_PITCH),
+                bearing: view.bearing,
+                maxPitch: studio ? SKY_MAX_PITCH : MAP_MAX_PITCH,
+                canvasContextAttributes: {
+                    antialias: true,
+                    powerPreference: 'high-performance',
+                    // Keep the rendered frame readable so the LiDAR Studio can grab
+                    // showcase thumbnails / clean captures from the canvas.
+                    preserveDrawingBuffer: true,
+                },
+                anisotropicFilterPitch: 0,
+                pixelRatio: pixelRatioForQuality(initial.renderQuality),
+                // Allow overzoom past the source maxzoom so users can keep
+                // diving in past z19 (MapLibre will reuse parent tiles).
+                maxZoom: 21,
+                // Keep camera center clamped to terrain surface so rotation/panning
+                // pivots naturally around the visible terrain center.
+                centerClampedToGround: true,
+                attributionControl: false,
+                hash: true,
+                // Disable MapLibre's default bearing-snap-to-north (7° threshold)
+                // so the bearing isn't force-aligned to 0 when the user ends a
+                // rotate gesture close to north.
+                bearingSnap: 0,
+            });
+        } catch (error) {
+            if (!(error instanceof maplibregl.GPUInitializationError)) throw error;
+            showGpuFallback(holder, error);
+            return;
+        }
         mapRef.current = map;
         useMapStore.getState().setMapInstance(map);
         if (import.meta.env.DEV) {
@@ -785,24 +806,7 @@ export function MapContainer() {
 
         // MapLibre prepends controls in the bottom-* corners (last-added shows at top),
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
-
-        // The scale bar re-measures itself on every `move` by unprojecting two
-        // screen points. With 3D terrain an unproject renders the coords
-        // framebuffer and blocks on `gl.readPixels`: a `setBearing` costs 0.2 ms
-        // with the control detached and 10 ms with it attached — most of a frame
-        // spent on a bar that only needs the flat ground distance across the
-        // screen. So hide the terrain from it and MapLibre falls back to a matrix
-        // inversion. Also steadier: over a slope, two draped points drift apart
-        // with the relief and the bar jumps. Wrapped before `addControl`, which is
-        // what captures the listener.
-        const scaleControl = new maplibregl.ScaleControl({ unit: 'metric' });
-        const measureScale = scaleControl._onMove;
-        scaleControl._onMove = () => {
-            const terrain = map.terrain;
-            map.terrain = undefined as unknown as typeof terrain;
-            try { measureScale(); } finally { map.terrain = terrain; }
-        };
-        map.addControl(scaleControl, 'bottom-left');
+        map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
         map.addControl(
             new maplibregl.NavigationControl({

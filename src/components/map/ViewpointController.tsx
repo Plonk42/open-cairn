@@ -247,18 +247,6 @@ export function ViewpointController(): null {
             apply();
         };
 
-        // MapLibre builds a `MapMouseEvent` for every `mousemove` reaching the
-        // canvas container, and that constructor unprojects the pointer eagerly.
-        // With 3D terrain an unproject renders the coords framebuffer and blocks
-        // on `gl.readPixels`: measured ~7 ms, paid on every drag frame on top of
-        // the camera update, for a ground coordinate that means nothing while the
-        // panorama turns. The listener sits on the canvas, one level below the
-        // container MapLibre listens on, and only swallows during a drag — so the
-        // coordinate readout still follows a plain hover.
-        const onMouseMove = (e: MouseEvent) => {
-            if (pointers.size > 0) e.stopPropagation();
-        };
-
         // MapLibre drops `touch-action: none` from the canvas when its touch
         // handlers are disabled, which hands the gesture back to the browser:
         // the first finger movement would scroll the page and cancel our pointer
@@ -270,7 +258,6 @@ export function ViewpointController(): null {
         canvas.addEventListener('pointermove', onPointerMove);
         canvas.addEventListener('pointerup', onPointerUp);
         canvas.addEventListener('pointercancel', onPointerUp);
-        canvas.addEventListener('mousemove', onMouseMove);
         canvas.addEventListener('wheel', onWheel, { passive: false });
         document.addEventListener('keydown', onKeyDown, true);
         map.on('idle', settleOnGround);
@@ -281,7 +268,6 @@ export function ViewpointController(): null {
             canvas.removeEventListener('pointermove', onPointerMove);
             canvas.removeEventListener('pointerup', onPointerUp);
             canvas.removeEventListener('pointercancel', onPointerUp);
-            canvas.removeEventListener('mousemove', onMouseMove);
             canvas.removeEventListener('wheel', onWheel);
             document.removeEventListener('keydown', onKeyDown, true);
             map.off('idle', settleOnGround);

@@ -63,6 +63,10 @@
       MapLibre GL JS v6 (l'option existe depuis cette version, dans `MapOptions`), mais le
       réglage n'a pas été ajouté à `MapContainer.tsx` dans le cadre de cette montée de version.
       Les jupes de terrain restent au réglage `"auto"` par défaut de MapLibre.
+- [ ] `@deck.gl/core`, `@deck.gl/layers` et `@deck.gl/mapbox` sont toujours déclarés dans
+      `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
+      la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
+      les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
 - [ ] Améliorer le détail du relief quand on zoome en *Point de vue* : le MNT ne semble pas
       gagner en finesse au rapprochement, contrairement à ce qu'on attendrait d'un vrai zoom.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
