@@ -3,8 +3,6 @@ import {
     BaseLayerSection,
     ContourSection,
     HillshadeSection,
-    PeakLabelsToggle,
-    SkyPathSection,
     Terrain3DSection,
 } from '@/components/ui/LayerSwitcher';
 import {
@@ -79,12 +77,6 @@ export interface RouteSettingSection {
     label: string;
     Icon: (props: IconProps) => ReactElement;
     render: () => ReactElement;
-    /**
-     * Section that only answers a question asked from a fixed eye. Outside the
-     * *Point de vue* mode the map is capped at `MAP_MAX_PITCH` (85°), so there is
-     * no sky on screen to draw a track across and no panorama to name.
-     */
-    requiresViewpoint?: boolean;
 }
 
 /**
@@ -121,19 +113,6 @@ export const ROUTE_SETTING_SECTIONS: ReadonlyArray<RouteSettingSection> = [
                 <Terrain3DSection />
                 <SectionDivider />
                 <TerrainDemSection />
-            </>
-        ),
-    },
-    {
-        id: 'panorama',
-        label: 'Panorama',
-        Icon: PanoramaIcon,
-        requiresViewpoint: true,
-        render: () => (
-            <>
-                <PeakLabelsToggle />
-                <SectionDivider />
-                <SkyPathSection />
             </>
         ),
     },

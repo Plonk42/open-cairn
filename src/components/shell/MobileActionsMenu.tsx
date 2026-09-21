@@ -1,5 +1,6 @@
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
-import { OrbitTopBarButton, PeakLabelsTopBarButton, ViewpointTopBarButton } from '@/components/shell/TopBarActions';
+import { OrbitTopBarButton, ViewpointTopBarButton } from '@/components/shell/TopBarActions';
+import { SectionDivider } from '@/components/shell/routeSections';
 import type { AppView } from '@/lib/useView';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -70,8 +71,8 @@ export function MobileActionsMenu({ view, exportSlot }: Readonly<{ view: AppView
                 className={`absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10 ${open ? '' : 'invisible opacity-0'}`}
             >
                 <OrbitTopBarButton />
-                <ViewpointTopBarButton needsTerrain={view === 'map'} />
-                {view === 'lidar' && <PeakLabelsTopBarButton withLabel />}
+                <ViewpointTopBarButton needsTerrain={view === 'map'} studio={view === 'lidar'} />
+                <SectionDivider />
                 <ShowcaseGallery />
                 {exportSlot}
             </div>

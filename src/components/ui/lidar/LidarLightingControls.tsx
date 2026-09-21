@@ -106,8 +106,8 @@ export function SunControls() {
  * Draws the day's track of one body in the sky. Lives inside the sun fieldset
  * because it tracks the same date picker; the sun's disc follows the
  * *effective* light, so a forced lighting shows up as a disc that has left its
- * track. The Itinéraire view offers the same switches in its « Panorama » pill —
- * same store flags.
+ * track. The Itinéraire view offers the same switches in its « Point de vue »
+ * button's *Panorama* popover — same store flags.
  */
 function SkyPathToggle({ label, title, checked, disabled, onChange }: Readonly<{
     label: string;

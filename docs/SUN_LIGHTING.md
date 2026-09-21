@@ -36,17 +36,20 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 
 Deux cases indépendantes, **« Trajectoire du soleil »** et **« Trajectoire de la
 lune »**, dessinent la course de chaque astre pour la date choisie. On les trouve
-sous le curseur d'heure du Studio et dans la pilule **Panorama** de la vue Itinéraire.
+sous le curseur d'heure du Studio et, côté Itinéraire, dans le popover que le bouton
+*Point de vue* ouvre une fois debout (il se relabellise alors *Panorama*).
 L'usage visé est le repérage photo : se placer où l'on veut être, regarder le sujet,
 et lire à quelle heure le soleil sera derrière. Ce sont **les mêmes drapeaux**
 (`skySunPath`, `skyMoonPath`) et le même sélecteur de date dans les deux vues :
 cocher d'un côté coche de l'autre.
 
-> **Côté Itinéraire, la pilule *Panorama* est grisée hors mode *Point de vue*.** Non
+> **Côté Itinéraire, ce popover n'existe que debout (mode *Point de vue*).** Non
 > par principe, mais parce que la vue est alors plafonnée à 85° de pitch
 > (`MAP_MAX_PITCH`) : aucune de ces cases n'a de ciel où s'afficher. Le Studio, lui,
-> garde ses cases toujours accessibles — sa date pilote aussi l'éclairage du nuage,
-> qui se voit caméra au ras du sol.
+> garde ses cases toujours accessibles dans sa pilule *Lumière* — sa date pilote aussi
+> l'éclairage du nuage, qui se voit caméra au ras du sol ; le popover *Panorama* n'y
+> ajoute donc que les noms des sommets, pour ne pas doubler les mêmes cases dans deux
+> endroits.
 
 > **Demande le relief 3D.** Le tracé est testé en profondeur contre le terrain et
 > les heures de lever/coucher sont lues sur sa ligne de crête. Sans terrain, rien
@@ -140,10 +143,10 @@ poser l'œil), et tant qu'il est actif l'édition de l'itinéraire est suspendue
 clic sert à se placer, pas à poser un point de passage. Voir
 [UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md#mode-point-de-vue).
 
-La case **« Ciel atmosphérique »** de la pilule **Panorama** peint le ciel de la vue
+La case **« Ciel atmosphérique »** du popover *Panorama* peint le ciel de la vue
 Itinéraire d'après la position du soleil à l'heure choisie, au lieu du bleu nuit
 neutre du style. Elle n'est jamais grisée pour elle-même (le ciel ne demande pas de
-MNT), mais elle suit la pilule qui l'héberge — donc en pratique le mode « Point de
+MNT), mais elle suit le popover qui l'héberge — donc en pratique le mode « Point de
 vue », seul endroit d'où l'on voit le ciel côté carte. Elle ne touche
 **que le ciel** : le fond de carte garde ses couleurs. Le rééclairage du fond reste
 réservé au Studio, où le mode photoréaliste (`lidarPhotoreal`) allume les deux d'un

@@ -27,8 +27,10 @@ Il n'y a **pas de sidebar** : les réglages sont dans des popovers ouverts par l
 *Avancé* — plus la pilule *Itinéraire* qui affiche ou masque le dock.
 
 En haut : l'en-tête (recherche de lieu, coordonnées du curseur, bascule de thème),
-le groupe d'actions partagé (*Orbite*, *Galerie*, *Exporter cette vue*, *Partager*,
-aide) et, à droite, le sélecteur de vue.
+le groupe d'actions partagé — scindé en deux pastilles de **même hauteur** : *caméra*
+(*Orbite*, *Point de vue* — qui devient *Panorama* une fois debout, voir plus bas)
+puis *import/export* (*Galerie*, *Exporter cette vue*, *Partager*, aide) — et, à
+droite, le sélecteur de vue.
 
 - Le **dock Itinéraire** (itinéraire courant + profil altimétrique) est ancré *sous* la
   carte : il réduit la carte au lieu de la recouvrir. Il a trois états :
@@ -66,9 +68,9 @@ Même chrome en haut, mais pas de dock : la barre du bas porte les réglages de 
 (*Fond*, *Opacité*, *Classes*, *Points*, *Shader*, *Végétation*, *Lumière*,
 *Ombres*, *EDL*), avec un bouton de capture flottant et un localisateur de nuage.
 
-Le groupe d'actions du haut gagne un bouton propre au Studio : *Caméra libre*
-(libère la collision caméra/terrain et branche les flèches haut/bas sur l'altitude).
-*Point de vue*, décrit ci-dessous, est offert dans les **deux** vues.
+Le groupe d'actions *caméra* du haut gagne un bouton propre au Studio : *Caméra
+libre* (libère la collision caméra/terrain et branche les flèches haut/bas sur
+l'altitude). *Point de vue*, décrit ci-dessous, est offert dans les **deux** vues.
 
 #### Mode « Point de vue »
 
@@ -78,6 +80,13 @@ Une fois actif, l'œil est posé **1,70 m au-dessus du sol** à l'endroit cliqu�
 n'en bouge plus : le glisser-déposer fait tourner le regard **sur place**, comme si
 l'on se tenait là et que l'on tournait la tête. C'est l'inverse de l'orbite, qui
 fait tourner la caméra *autour* d'un centre.
+
+Debout, le même bouton se relabellise **« Panorama »** (icône comprise) et le clic
+n'y libère plus la caméra directement : il ouvre le popover décrit dans « Noms des
+sommets » ci-dessous, qui porte lui-même le bouton « Quitter le point de vue ». Deux
+boutons côte à côte (« se placer » puis « regarder ce qu'il y a d'ici ») posaient la
+même question deux fois avec des mots différents ; un seul bouton qui change de nom
+et d'icône avec la question qu'il pose évite ce doublon.
 
 En vue *Itinéraire*, le bouton est **grisé tant que le relief 3D est éteint** : sans
 MNT il n'y a pas de sol où poser l'œil. Et tant que le mode est armé ou actif,
@@ -163,11 +172,14 @@ donc converge en une passe — les cinq mêmes points donnent **1,70 m** exactem
 
 #### Noms des sommets
 
-La case **« Noms des sommets »** ouvre la pilule **Panorama** de la barre du bas (vue
-Itinéraire), en tête, juste au-dessus des trajectoires. Dans le **Studio**, dont la barre
-du bas n'a pas de pilule *Panorama*, elle reste le bouton de la barre du haut — et le
-menu `⋯` sur mobile — qui n'apparaît **que quand on est debout**. Actif par défaut, son
-état est persisté.
+La case **« Noms des sommets »** vit dans le popover que le bouton *Point de vue*
+ouvre une fois debout (il porte alors le nom *Panorama*) — en haut sur ordinateur,
+dans le menu `⋯` sur mobile — commun aux deux vues. Debout est le seul état où le
+bouton ouvre ce popover ; éteint ou armé, un clic agit sur la position comme décrit
+plus haut, il n'y a donc rien à griser. Côté Itinéraire le popover ouvre aussi les
+trajectoires du ciel (voir plus bas) ; côté Studio elles vivent déjà dans la pilule
+*Lumière* de la barre du bas (mêmes drapeaux), donc le popover n'y répète que les
+noms des sommets. Actif par défaut, son état est persisté.
 
 Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le nom, et son
 altitude quand l'IGN en publie une. Une arête plus proche qui masque un sommet le fait
@@ -230,18 +242,16 @@ Ce qu'il faut savoir :
 La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaque
 outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 
-- vue *Itinéraire* — 6 outils : *Itinéraire* (panneau d'édition + profil) puis les
-  cinq mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Panorama*,
-  *Avancé*), *Panorama* étant grisé hors mode *Point de vue* comme sur desktop ; si on
-  quitte le mode la feuille ouverte se replie d'elle-même ;
+- vue *Itinéraire* — 5 outils : *Itinéraire* (panneau d'édition + profil) puis les
+  quatre mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Avancé*) ;
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
-d'actions (`⋯`) qui regroupe **orbite**, **point de vue**, galerie, export et partage
-(plus **noms des sommets** dans le Studio seulement — côté carte la case vit dans la
-feuille *Panorama*). C'est le **seul** accès mobile à ces actions : le
-groupe `TopBarActions` du desktop n'est pas monté sous 768 px, donc tout bouton
-ajouté là-bas doit être repris ici sous peine de ne pas exister sur téléphone.
+d'actions (`⋯`) qui regroupe **orbite** et **point de vue** (qui devient *panorama*
+une fois debout : noms des sommets et, côté Itinéraire, trajectoires du ciel),
+galerie, export et partage. C'est le **seul** accès mobile à ces actions : le groupe
+`TopBarActions` du desktop n'est pas monté sous 768 px, donc tout bouton ajouté
+là-bas doit être repris ici sous peine de ne pas exister sur téléphone.
 Armer le mode *Point de vue* **referme le menu** de lui-même : le geste suivant est
 un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 
@@ -282,7 +292,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé (orbite, caméra libre, point de vue, noms des sommets — Studio seul —, galerie, `exportSlot`, aide) |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé, scindé en deux pastilles de même hauteur : caméra (orbite, caméra libre, point de vue/panorama) et import/export (galerie, `exportSlot`, aide) |
 | [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
 | [src/components/map/PeakLabelsOverlay.tsx](../src/components/map/PeakLabelsOverlay.tsx) | Surcouche SVG des noms de sommets : les trois cadences (requête / visée / placement) |
 | [src/lib/peaks.ts](../src/lib/peaks.ts) | Requêtes WFS BD TOPO® + BD CARTO® des sommets nommés et de leurs cotes |
@@ -291,18 +301,18 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
 | [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
-| [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 5 sections de la vue carte |
+| [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |
 | [src/components/shell/RouteBottomBar.tsx](../src/components/shell/RouteBottomBar.tsx) | Barre de pilules desktop + bascule du dock |
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
-| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, sommets — Studio seul —, galerie, export, partage) |
+| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue/panorama, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
 | [src/components/lidar/StudioBottomBar.tsx](../src/components/lidar/StudioBottomBar.tsx) | Barre de pilules du Studio (desktop) |
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, *Panorama* (`PeakLabelsToggle` + `SkyPathSection` : 4 cases + date/heure) |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, plus `PeakLabelsToggle` et `SkyPathSection` (4 cases + date/heure) consommées par le popover *Panorama* du bouton *Point de vue* |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la pilule *Avancé* (rendu, clés d'API) |
 | [src/components/ui/SavedRoutesPanel.tsx](../src/components/ui/SavedRoutesPanel.tsx) | `PreviewThumb` — vignette d'itinéraire réutilisée par la galerie |
 
@@ -347,16 +357,14 @@ la barre de pilules desktop et la barre d'outils mobile.
 | `fond`    | Fond       | `MapBackgroundSection`                   |
 | `courbes` | Courbes    | `ContourSection`                         |
 | `terrain` | Terrain    | `Terrain3DSection` + `TerrainDemSection` |
-| `panorama` | Panorama  | `PeakLabelsToggle`, puis `SkyPathSection` (trajectoires soleil / lune, ciel atmosphérique, portions cachées, `SunDateControl`) |
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
 
-Une section peut porter `requiresViewpoint`, et *Panorama* est la seule : hors mode
-*Point de vue* la carte est plafonnée à `MAP_MAX_PITCH` (85°), donc **il n'y a pas de
-ciel à l'écran** pour y tracer une course d'astre, ni de panorama à nommer. Les deux
-chromes lisent ce drapeau et grisent la pilule / l'onglet ; `viewpoint` étant dans le
-store, la bascule est immédiate. C'est aussi ce qui a décidé du nom : *Panorama* décrit
-ce qu'on y lit, là où *Point de vue* aurait doublé le libellé du bouton qui arme le
-mode — une pilule grisée portant le nom du bouton à presser se lit comme une panne.
+*Panorama* (`PeakLabelsToggle` + `SkyPathSection` : trajectoires soleil / lune, ciel
+atmosphérique, portions cachées, `SunDateControl`) n'est **pas** une de ces sections :
+c'est un bouton du groupe caméra de la barre du haut, commun aux deux vues (voir
+« Noms des sommets » plus haut) — hors mode *Point de vue* la carte est plafonnée à
+`MAP_MAX_PITCH` (85°), donc il n'y a **pas de ciel à l'écran** pour y tracer une course
+d'astre, ni de panorama à nommer ; le bouton reste visible mais grisé.
 
 Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend
 `BottomPanelContent` — le même contenu que le dock desktop.

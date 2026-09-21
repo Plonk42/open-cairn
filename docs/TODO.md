@@ -1,11 +1,5 @@
 # TODO
 
-- [ ] La case **« Noms des sommets »** vit désormais dans la pilule *Panorama* côté carte,
-      mais reste un bouton de la barre du haut côté Studio — la barre du bas du Studio est
-      bâtie sur `STUDIO_RENDER_SETTINGS`, qui n'a pas de section *Panorama* où la loger.
-      Deux emplacements pour un même drapeau : à unifier si le Studio gagne un jour une
-      section « lecture du paysage ».
-
 - [ ] Monter l'œil en *Point de vue* est **clavier seulement** (flèches haut/bas) : sur
       téléphone on reste cloué à 1,70 m, c'est-à-dire précisément au cadrage que le relief
       proche bouche le plus souvent. Il manque un jumeau tactile — glissement à deux doigts
@@ -65,5 +59,11 @@
 - [ ] `tools/check-wikidata2.mjs` n'est pas versionné. Contrairement à `verify-peaks.mjs`, il
       ne dépend d'aucune donnée hors dépôt et pourrait tourner en CI. À nettoyer (`.sort` en
       expression, gabarit imbriqué) avant de le committer.
-
-
+- [ ] Passer à MapLibre GL JS v6 pour pouvoir régler `terrainSkirtLength: 'none'` sur la
+      création de la carte : l'option n'existe que depuis la v6 (`MapOptions`), le dépôt est
+      épinglé sur `^5.11.0` (5.24.0 installé) et `tsc` refuse la propriété. La ligne a été
+      retirée de `MapContainer.tsx` en attendant ; les jupes de terrain restent au réglage
+      `"auto"` par défaut de MapLibre.
+- [ ] Améliorer le détail du relief quand on zoome en *Point de vue* : le MNT ne semble pas
+      gagner en finesse au rapprochement, contrairement à ce qu'on attendrait d'un vrai zoom.
+- [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/

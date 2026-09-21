@@ -17,7 +17,6 @@ export function RouteBottomBar() {
     const bottomOpen = useMapStore((s) => s.bottomOpen);
     const setBottomOpen = useMapStore((s) => s.setBottomOpen);
     const setBottomCollapsed = useMapStore((s) => s.setBottomCollapsed);
-    const standing = useMapStore((s) => s.viewpoint !== null);
 
     const togglePopover = (id: Exclude<Popover, null>) =>
         setPopover((cur) => (cur === id ? null : id));
@@ -32,22 +31,17 @@ export function RouteBottomBar() {
 
     return (
         <BottomBar active={popover !== null} onDismiss={() => setPopover(null)}>
-            {ROUTE_SETTING_SECTIONS.map((pill) => {
-                const locked = Boolean(pill.requiresViewpoint) && !standing;
-                return (
-                    <BottomBarPill
-                        key={pill.id}
-                        label={pill.label}
-                        Icon={pill.Icon}
-                        active={popover === pill.id && !locked}
-                        disabled={locked}
-                        title={locked ? 'Posez-vous au sol (Point de vue) pour nommer les sommets et lire les trajectoires.' : pill.label}
-                        onSelect={() => togglePopover(pill.id)}
-                    >
-                        {pill.render()}
-                    </BottomBarPill>
-                );
-            })}
+            {ROUTE_SETTING_SECTIONS.map((pill) => (
+                <BottomBarPill
+                    key={pill.id}
+                    label={pill.label}
+                    Icon={pill.Icon}
+                    active={popover === pill.id}
+                    onSelect={() => togglePopover(pill.id)}
+                >
+                    {pill.render()}
+                </BottomBarPill>
+            ))}
             <div className="mx-0.5 h-6 w-px bg-black/10 dark:bg-white/15" />
             <BottomBarButton
                 label="Itinéraire"

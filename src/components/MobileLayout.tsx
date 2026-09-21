@@ -6,7 +6,6 @@ import { MobileTopBar } from '@/components/shell/MobileTopBar';
 import { RouteExportButton } from '@/components/shell/RouteExportButton';
 import { RouteShareButton } from '@/components/shell/RouteShareButton';
 import { ROUTE_SETTING_SECTIONS, RouteIcon } from '@/components/shell/routeSections';
-import { useMapStore } from '@/stores/mapStore';
 import { useState } from 'react';
 
 /**
@@ -18,15 +17,10 @@ import { useState } from 'react';
  */
 export function MobileLayout() {
     const [activeTool, setActiveTool] = useState<string | null>(null);
-    const standing = useMapStore((s) => s.viewpoint !== null);
 
     const tools: MobileTool[] = [
         { id: 'route', label: 'Itinéraire', Icon: RouteIcon, render: () => <BottomPanelContent /> },
-        ...ROUTE_SETTING_SECTIONS.map((s) => ({
-            ...s,
-            disabled: Boolean(s.requiresViewpoint) && !standing,
-            title: s.requiresViewpoint && !standing ? 'Posez-vous au sol (Point de vue) pour nommer les sommets et lire les trajectoires.' : undefined,
-        })),
+        ...ROUTE_SETTING_SECTIONS,
     ];
 
     const handleSelect = (id: string) => {

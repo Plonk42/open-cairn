@@ -57,8 +57,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   ciel** : plein là où le ciel est dégagé, pointillé là où le relief la masque, disque à sa taille
   angulaire réelle, **graduations horaires** légendées en travers du tracé, et **heures de lever
   et de coucher sur l'horizon réel** écrites là où la trajectoire croise la crête. De quoi lire à
-  quelle heure le soleil sera derrière un sommet donné. Disponible dans les deux vues (pilule
-  *Panorama* côté carte, réservée au mode *Point de vue*), sur le relief 3D.
+  quelle heure le soleil sera derrière un sommet donné. Disponible dans les deux vues
+  (popover *Panorama* du bouton *Point de vue*, une fois debout), sur le
+  relief 3D.
   La **lune** est tracée sur le même principe, avec sa **phase** et sa corne brillante tournée vers
   le soleil ; les deux astres ont leur propre case, l'heure se règle au curseur **ou au clavier**,
   et une case **« Ciel atmosphérique »** peint le ciel de la vue carte d'après la position du
