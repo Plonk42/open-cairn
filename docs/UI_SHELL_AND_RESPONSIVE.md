@@ -606,6 +606,34 @@ dégager. À 250 m les mêmes 10 m de bruit du MNT ne font plus que 2,3°. Le pr
 payé que si l'œil est à moins de 250 m d'un sommet nommé, c'est-à-dire debout dessus :
 295 sommets sur 25 830 ont un voisin aussi proche, là où 500 m en coûterait déjà 1 454.
 
+#### Où la pointe se pose : la géométrie de l'image, pas celle du monde
+
+Une amorce doit tomber sur le sommet **tel qu'il est dessiné**, et le relief dessiné
+n'est pas le relief réel : en projection mercator, le terrain de MapLibre est un **plan**
+et ignore la courbure de la Terre.
+
+`apparentAngleDeg` (`skyline.ts`), lui, la modélise, réfraction comprise — c'est ce qu'il
+faut pour le soleil et la lune. Appliqué à la visée d'un sommet, il retranchait donc un
+abaissement que le rendu n'applique pas : **738 m à 104 km**, soit 0,41°, soit **27 px**
+dans un champ de 9,6°. La pointe du Mont Blanc se posait sur son flanc. L'azimut était
+faux de la même manière, jusqu'à 9 px : un grand cercle est une courbe en mercator.
+
+La direction de visée est donc construite **dans l'espace du rendu** (`renderDirection`) :
+écarts en mercator, altitude mise à l'échelle comme le moteur le fait — un mètre
+d'altitude vaut un mètre de northing à une latitude de référence. MapLibre prend celle du
+centre de la carte ; prendre celle de l'œil garde la visée indépendante de la caméra et
+coûte 0,01 px.
+
+Vérifié contre `Map.project` sur les 271 sommets du panorama de Chamechaude : **0,72 px**
+au pire au-delà de 20 km, x compris, et 0,17 px sur le Mont Blanc. Appeler `Map.project`
+directement aurait donné le même résultat sans calcul, mais **44 ms par image** pour ce
+lot contre 0,2 ms — le placement tourne à chaque image.
+
+La marche d'occultation, elle, reste physique : savoir si une arête masque réellement un
+sommet est une question sur le **monde**, savoir où son nom se pose est une question sur
+l'**image**, et l'image est un plan. L'écart que cela laisse est noté dans
+[docs/TODO.md](TODO.md).
+
 Le désencombrement ne mesure aucun texte, et c'est volontaire : comme les étiquettes
 sont toutes inclinées du même angle, ce sont des **bandes parallèles**, et deux bandes
 parallèles ne se touchent pas dès qu'elles sont assez écartées **en travers** de cette

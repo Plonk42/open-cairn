@@ -38,7 +38,22 @@
       360° — hors budget — mais **210** dans un secteur de 37°. Prix à payer : un cap et un
       champ dans `observerKey`, un filtre d'azimut dans `selectCandidates`, et une nouvelle
       marche à chaque arrêt de rotation, là où tourner la tête est gratuit aujourd'hui.
-
+- [ ] La marche d'occultation modélise la courbure de la Terre alors que le terrain
+      mercator est un **plan** : un sommet lointain y est donc plus bas qu'à l'écran, et
+      peut être déclaré masqué alors que le rendu le dessine. L'écart est l'abaissement
+      différentiel entre le sommet et l'arête qui le masque : 0,41° à 104 km contre 0,27° à
+      70 km, soit ~0,14° de biais contre le lointain. Le placement, lui, est passé dans
+      l'espace du rendu (`renderDirection`). Corriger la marche demanderait un angle plat
+      dans `sightPeaks`, ce qui la découplerait de `skyline.ts`, partagé avec le soleil et la
+      lune où la courbure est juste.
+- [ ] Le MNT lu à `SKYLINE_DEM_ZOOM = 13` sous-estime lourdement les cimes proches
+      perchées sur une falaise : Dent de Crolles à 5,8 km lue **1 521 m** pour 2 062 m cotés,
+      Pravouta 1 523 m pour 1 760 m, Charmant Som 1 416 m pour 1 867 m. Un pas de 19 m sur une
+      paroi verticale suffit. Conséquence visible : l'amorce de ces sommets-là tombe 120 à
+      200 px **sous** la cime dessinée (mesuré contre `Map.project`, qui lit au zoom courant),
+      et la marche sous-occulte les crêtes proches. Piste : échantillonner la cime au zoom du
+      rendu, au prix de deux altitudes différentes pour le même sommet — celle de la marche et
+      celle du placement.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.

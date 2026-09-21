@@ -119,7 +119,10 @@ const MIN_SIGHT_DISTANCE_M = 250;
 export interface PeakSighting {
     peak: Peak;
     distanceM: number;
-    /** Unit ENU direction towards the summit (x=east, y=north, z=up). */
+    /**
+     * Unit ENU direction towards the summit (x=east, y=north, z=up), in the
+     * flat world the renderer draws — see {@link renderDirection}.
+     */
     dir: [number, number, number];
 }
 
@@ -182,6 +185,50 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
     return candidates.slice(0, MAX_MARCHED);
 }
 
+/** Length of the equator in metres, the unit MapLibre scales its world from. */
+const EQUATOR_M = 40_075_016.686;
+
+/** Mercator northing of a latitude, in world units — 0 at the top of the map, 1 at the bottom. */
+function mercatorY(latDeg: number): number {
+    return (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG) / 2))) / 360;
+}
+
+/**
+ * Unit direction from the eye to a summit, in the flat world MapLibre DRAWS.
+ *
+ * Deliberately not the direction {@link apparentAngleDeg} gives. A mercator
+ * terrain is a plane, so the renderer knows nothing of the Earth's curvature,
+ * while `apparentAngleDeg` subtracts it: 738 m at 104 km, which is 0.41°, which
+ * through a 9.6° lens is 27 px — the leader tip landed on the Mont Blanc's
+ * flank instead of its summit, measured against `Map.project`. The azimuth was
+ * off too, by up to 9 px, a great circle being a curve in mercator.
+ *
+ * So the march stays physical and the projection does not: whether a ridge
+ * really hides a summit is a question about the world, where its name goes is a
+ * question about the picture, and the picture is a plane.
+ *
+ * The vertical scale is folded in the way the renderer folds it — one metre of
+ * altitude is one metre of northing at a reference latitude. MapLibre takes the
+ * map centre's; taking the eye's instead keeps the sighting free of the camera
+ * and was worth 0.01 px. Checked against `Map.project` over the 271 summits of
+ * the Chamechaude panorama: 0.7 px worst case past 20 km, x included. Calling
+ * `Map.project` itself would have cost 44 ms a frame for that set, against
+ * 0.2 ms for this.
+ */
+function renderDirection(
+    observer: SkylineObserver,
+    lng: number,
+    lat: number,
+    groundM: number,
+): [number, number, number] {
+    const scale = EQUATOR_M * Math.cos(observer.lat * DEG);
+    const east = ((lng - observer.lng) / 360) * scale;
+    const north = (mercatorY(observer.lat) - mercatorY(lat)) * scale;
+    const up = groundM - observer.altitudeM;
+    const length = Math.hypot(east, north, up) || 1;
+    return [east / length, north / length, up / length];
+}
+
 /**
  * Keep the summits that stand clear of everything between them and the eye.
  *
@@ -207,13 +254,10 @@ export function sightPeaks(
         const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, distanceM);
         const ridgeDeg = ridgeAngleBefore(observer, azimuthDeg, distanceM * SELF_CLEARANCE, sample);
         if (elevationDeg < ridgeDeg + CLEARANCE_TOLERANCE_DEG) continue;
-        const az = azimuthDeg * DEG;
-        const el = elevationDeg * DEG;
-        const ce = Math.cos(el);
         out.push({
             peak,
             distanceM,
-            dir: [ce * Math.sin(az), ce * Math.cos(az), Math.sin(el)],
+            dir: renderDirection(observer, peak.lng, peak.lat, groundM),
         });
     }
     return out;
