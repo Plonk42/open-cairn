@@ -28,8 +28,12 @@
 
 import peaksUrl from '@/lib/peaksData.json?url';
 
-/** Beyond this the haze wins and a name cannot be checked against anything. */
-export const PEAKS_RADIUS_M = 60_000;
+/**
+ * Box the summit list is sliced to. It only has to cover the longest reach in
+ * `REACH_BY_IMPORTANCE_M` — cutting closer would silently override the rank
+ * table, which is where the editorial judgement belongs.
+ */
+export const PEAKS_RADIUS_M = 150_000;
 
 const METRES_PER_DEG_LAT = 111320;
 const DEG = Math.PI / 180;

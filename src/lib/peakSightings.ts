@@ -8,12 +8,18 @@
 //      that decides whether a nearer ridge stands in the way (`skyline.ts`);
 //   2. the layout — a screen-space pass that keeps a dense ridge legible.
 //
-// The split is also what makes the labelling react to the zoom without costing
-// anything. Whether a summit is VISIBLE is a fact about the terrain, so the
-// march is paid once per standpoint; whether it is worth NAMING is a fact about
-// how crowded the screen is, so it is decided in the layout, which runs every
-// frame. Narrow the field of view and the summits spread apart, the layout
-// finds room for names it had to drop, and they appear as you zoom.
+// The split is also what keeps the labelling free while the lens moves. Whether
+// a summit is VISIBLE is a fact about the terrain, so the march is paid once per
+// standpoint; whether it is worth NAMING is a fact about how crowded the screen
+// is, so it is decided in the layout, which runs every frame.
+//
+// What the split does NOT do is uncover names as the lens narrows, which this
+// comment claimed for a while. Measured across the whole lens range from a
+// 2070 m standpoint, the count only ever falls — 23 names at 60° down to 8 at 8°
+// — because the layout's gap rule only bites at wide angle: an 8° frame holds
+// 3.5 % of the circle, and all 8 of the ~8 summits standing in it are already
+// named. What starves a telephoto frame is how far the march was allowed to
+// reach, below.
 //
 // Nothing here measures text. The text runs at {@link LABEL_ANGLE_DEG} from the
 // horizontal, so two labels are parallel strips, and parallel strips never
@@ -46,16 +52,37 @@ const DEG = Math.PI / 180;
  * Dent de Moirans at 15, le Gey at 31. PeakFinder names every one of them.
  * Rank 4 still stops well short of rank 3, which is what keeps the far end of
  * the list free of the obscure ones the wider radius would otherwise drag in.
+ *
+ * The FAR end was set by the haze, and the haze was the wrong judge — the lens
+ * is. At 8° the frame holds 3.5 % of the circle, so the 60 km first given to
+ * ranks 1 and 2 left 9 candidates standing in it out of the 432 the whole
+ * circle offered, while PeakFinder names summits past 200 km. Taking rank 1 to
+ * 150 km and rank 2 to 100 km leaves the circle at 831 candidates, still inside
+ * {@link MAX_MARCHED}: the reach was the binding constraint, never the cost.
+ * Measured from a 2067 m standpoint above Belledonne, at 8° and pitch 89° over
+ * twelve azimuths, it takes the sightings from 128 to 228 — 66 of them past
+ * 60 km — and the names actually printed from 48 to 85.
+ *
+ * Ranks 3 and 4 deliberately stay put, and that cut is editorial rather than
+ * budgetary: a rank-4 top is a name borrowed from the hamlet below it, and it
+ * says nothing at 100 km.
  */
-const REACH_BY_IMPORTANCE_M = [0, 60_000, 60_000, 40_000, 20_000];
+const REACH_BY_IMPORTANCE_M = [0, 150_000, 100_000, 40_000, 20_000];
 
 /**
  * Ceiling on the number of rays marched, paid in one go when the eye lands.
  *
  * Measured in the browser on the Chamechaude standpoint, a ray costs 0.28 ms,
  * not the 0.6 ms this budget was first sized on — so 900 of them cost about a
- * quarter of a second, once, and cover every candidate within reach of all but
- * the busiest standpoints.
+ * quarter of a second, once. A ray is also barely longer since the reach grew:
+ * the march steps geometrically, so 150 km costs 380 samples against 334 for
+ * 60 km.
+ *
+ * It is no longer roomy, though: over Belledonne the circle now offers 831 of
+ * them, and the march measured 139 ms there. Reaching further means giving up
+ * marching the whole circle and spending the budget inside the visible wedge
+ * instead — which buys a lot, an 8° frame holding 3.5 % of the circle, but has
+ * to re-march on every turn of the head, where today turning is free.
  */
 const MAX_MARCHED = 900;
 
@@ -220,12 +247,11 @@ export interface PlacedPeakLabel {
  * relief nor bunch up wherever the summits do. The leader carries the meaning
  * instead, and being vertical it is unambiguous however long it gets.
  *
- * It also makes the selection follow the zoom for free. What gets printed
- * depends only on how far apart the summits land on screen, which `place()`
- * recomputes every frame: narrowing the field spreads them, the gap test stops
- * failing, and the minor names appear on their own. The ray march that decided
- * what is VISIBLE does not depend on the field of view and stays keyed on the
- * eye, where it is paid once.
+ * It also used to be sold as making the selection follow the zoom for free:
+ * narrowing the field spreads the summits, the gap test stops failing, and the
+ * minor names appear on their own. Measured, the count only falls as the lens
+ * narrows — the gap test is not what binds at 8°, {@link BAND_MIN_Y_PX} is, and
+ * what it drops is the whole top of the skyline.
  *
  * Which name survives a collision is `priority`, not screen order — an obscure
  * knoll used to be able to evict a notorious summit for standing slightly left

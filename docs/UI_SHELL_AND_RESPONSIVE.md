@@ -541,7 +541,7 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le MNT | jusqu'à **900 rayons à 0,35 ms**, soit ~150 ms mesurés depuis Chamechaude | une fois par **position** de l'œil, sur `idle` |
+| Visée : un rayon par sommet à travers le MNT | jusqu'à **900 rayons à 0,28 ms**, soit **139 ms** mesurés depuis Belledonne avec 831 rayons | une fois par **position** de l'œil, sur `idle` |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste, et c'est la seule qui le peut : les deux autres
@@ -559,9 +559,9 @@ dans les 70° vers l'ouest depuis Chamechaude, elle laissait **3 noms** à l'éc
 **40 sommets** se détachent réellement de l'arête.
 
 - **La portée par rang** (`REACH_BY_IMPORTANCE_M`) dit jusqu'où le nom d'un rang de
-  notoriété IGN mérite d'être écrit : 60 km aux rangs 1 et 2, **40 km** au rang 3,
-  **20 km** au rang 4. Les 25 km et 8 km d'origine coupaient l'essentiel du panorama :
-  39 des 40 sommets visibles sont de rang 3 ou 4.
+  notoriété IGN mérite d'être écrit : **150 km** au rang 1, **100 km** au rang 2,
+  **40 km** au rang 3, **20 km** au rang 4. Les 25 km et 8 km d'origine coupaient
+  l'essentiel du panorama : 39 des 40 sommets visibles sont de rang 3 ou 4.
 - **L'ordre dans lequel le budget est dépensé** est la **part de sa portée** que le
   sommet consomme, `distance / portée(rang)`, et non le rang puis la distance. Trier
   par rang vide le budget dans l'horizon lointain : 198 rangs 2 marchés — les Rouies à
@@ -572,6 +572,23 @@ Après correction, le même champ affiche **25 noms** au lieu de 3, et la liste 
 celle de PeakFinder au même point de vue (Aiguille de Quaix, la Sure, la Buffe, Dent de
 Moirans, le Gey, Bec de Neurre…). Les 15 qui manquent encore sont ceux que la portée
 coupe volontairement, tous obscurs et à plus de 40 km.
+
+Le bout lointain de la table, lui, était réglé sur la brume — 60 km aux rangs 1 et 2 —
+alors que **c'est la focale qui décide**. À 8° le champ ne tient que 3,5 % du tour
+d'horizon : les 432 candidats du cercle entier n'en laissaient que **9** dans l'image,
+quand PeakFinder nomme des sommets au-delà de 200 km. Porter le rang 1 à 150 km et le
+rang 2 à 100 km amène le cercle à **831 candidats**, encore sous les 900 rayons du
+budget — la portée était la contrainte, jamais le coût. Mesuré depuis un point de vue à
+2 067 m sur Belledonne, à 8° et pitch 89°, sur douze azimuts :
+
+| | portée 60 km | portée 150/100 km |
+|---|---|---|
+| candidats marchés (tour complet) | 432 | **831** |
+| sommets visés | 128 | **228** dont 66 au-delà de 60 km |
+| noms réellement écrits | 48 | **85** |
+
+Les rangs 3 et 4 ne bougent pas avec eux, et cette coupe-là est **éditoriale** et non
+budgétaire : un rang 4 est un nom emprunté au hameau du dessous, il ne dit rien à 100 km.
 
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
 des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le
