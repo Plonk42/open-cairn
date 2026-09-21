@@ -11,7 +11,7 @@ import { useView } from '@/lib/useView';
 import { useMapStore, type MapState } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
 import type { SkySpecification } from 'maplibre-gl';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { lidarCloudLayerId } from './lidarLayerId';

@@ -9,7 +9,7 @@ import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import type { LoadedLidarCloud } from '@/stores/slices/lidarSlice';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
 import { StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';

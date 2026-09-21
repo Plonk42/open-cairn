@@ -1,7 +1,7 @@
 import { COORD_FORMAT_LABELS, formatCoordByMode, type CoordFormat } from '@/lib/coordinateFormat';
 import { useMapStore } from '@/stores/mapStore';
 import { useRouteStore } from '@/stores/routeStore';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
 
 interface CursorCoordinatesProps {

@@ -1,6 +1,6 @@
 import { COORD_FORMAT_LABELS, formatCoordByMode, type CoordFormat } from '@/lib/coordinateFormat';
 import { useMapStore } from '@/stores/mapStore';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 
 const LONG_PRESS_MS = 500;

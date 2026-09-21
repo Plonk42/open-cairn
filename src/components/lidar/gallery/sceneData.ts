@@ -7,7 +7,7 @@ import {
     type ShowcaseScene,
 } from '@/lib/showcaseScene';
 import { useMapStore } from '@/stores/mapStore';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 
 const INDEX_URL = `${import.meta.env.BASE_URL}showcase/index.json`;
 

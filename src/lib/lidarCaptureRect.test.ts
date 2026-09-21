@@ -2,7 +2,7 @@ import {
     clampRectToArea, LIDAR_RECT_MIN_SIDE_M, rectAreaHa, rectCornersLngLat,
     rectEnclosingRadiusM, rectFromDrag, rectOnScreen, type CaptureRect,
 } from '@/lib/lidarCaptureRect';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { describe, expect, it } from 'vitest';
 
 /** A rectangle anchored somewhere in the Vercors, for the clamping tests. */

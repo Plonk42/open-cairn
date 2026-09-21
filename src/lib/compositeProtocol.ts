@@ -7,7 +7,7 @@
  *   composite://<baseKey>/<shadowKind>/<blendMode>/<intensityPercent>/<detailScale>/{z}/{x}/{y}
  */
 
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignWmtsUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
 
 let registered = false;

@@ -13,7 +13,7 @@
  */
 import { rectFromDrag, type CaptureRect } from '@/lib/lidarCaptureRect';
 import { useMapStore } from '@/stores/mapStore';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { useEffect, type RefObject } from 'react';
 
 /** Below this drag distance (px) the gesture is a click, not a rectangle. */

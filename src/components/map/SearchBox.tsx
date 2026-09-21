@@ -1,7 +1,7 @@
 import { parseCoordinates, type ParsedCoordinate } from '@/lib/coordinates';
 import { ignAutocomplete, ignSearch, type IgnSuggestion } from '@/lib/ignGeocoding';
 import { useMapStore } from '@/stores/mapStore';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface SearchBoxProps {

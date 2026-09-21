@@ -7,7 +7,7 @@
  * These helpers turn that into ground geometry — both for drawing the preview
  * polygon and for measuring a drag.
  */
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 
 /** Hard cap on the capture rectangle's ground area (m²). A 5000 × 5000 m zone
  *  (= 2500 ha) is the largest allowed, in every mode: what a capture can

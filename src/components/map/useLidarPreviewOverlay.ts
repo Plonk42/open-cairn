@@ -1,6 +1,6 @@
 import { rectPreviewGeoJson } from '@/lib/lidarCaptureRect';
 import { useMapStore } from '@/stores/mapStore';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { useEffect, type RefObject } from 'react';
 import { applyWhenStyleReady } from './styleReady';
 
