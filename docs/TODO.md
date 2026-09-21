@@ -31,9 +31,22 @@
       l'invariant « toutes les étiquettes sont des bandes parallèles » dont dépend le
       désencombrement.
 - [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
-      le champ ne peut faire apparaître que des sommets déjà marchés, jamais un sommet
-      qu'une portée par rang avait écarté. PeakFinder, lui, va chercher plus loin en
-      téléobjectif.
+      le champ ne peut faire apparaître que des sommets déjà marchés. La portée des rangs 1
+      et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
+      Belledonne) ; aller plus loin demande de ne plus marcher tout le cercle mais le seul
+      secteur regardé. Chiffré : une table `[0, 200, 150, 60, 20]` donne 1 322 candidats sur
+      360° — hors budget — mais **210** dans un secteur de 37°. Prix à payer : un cap et un
+      champ dans `observerKey`, un filtre d'azimut dans `selectCandidates`, et une nouvelle
+      marche à chaque arrêt de rotation, là où tourner la tête est gratuit aujourd'hui.
+
+- [ ] En téléobjectif, `BAND_MIN_Y_PX` (110 px) jette tout le haut de la ligne d'horizon :
+      mesuré à 8° et pitch 85°, **7 sommets sur 11** présents à l'écran sont écartés parce
+      qu'ils se projettent au-dessus de la bande, laquelle ne peut pas monter plus haut sans
+      couper le texte qui s'élève depuis son ancre. Ce n'est pas le désencombrement qui
+      lie à cette focale, c'est ça. Deux pistes : déduire la marge du texte réellement à
+      l'écran plutôt que du plus long nom de France (gain faible, ~20 px), ou accepter une
+      **seconde bande basse** aux amorces montantes quand il ne reste plus de ciel — ce qui
+      casse l'invariant « toutes les amorces descendent ».
 
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
@@ -67,6 +80,4 @@
       `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
       la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
       les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
-- [ ] Améliorer le détail du relief quand on zoome en *Point de vue* : le MNT ne semble pas
-      gagner en finesse au rapprochement, contrairement à ce qu'on attendrait d'un vrai zoom.
-- [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
+- [ ] `panoramaDetail.ts` s'accroche \u00e0 des champs priv\u00e9s de MapLibre \u2014 `rttSize` (assign\u00e9\n      uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne\n      suffit pas), `_meshCache`, `_renderableTilesKeys`. Une mont\u00e9e de version peut les\n      renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait\n      simplement \u00e0 rendre en qualit\u00e9 par d\u00e9faut. Piste : une assertion de d\u00e9veloppement au\n      moment du patch.\n- [ ] Entrer en *Point de vue* \u00e0 focale serr\u00e9e fait passer le parc de tuiles de maillage de\n      22 \u00e0 123 d'un coup, avec un \u00e0-coup de ~210 ms pendant que les RTT sont refaites.\n      Piste : \u00e9taler le changement de `meshSize` sur quelques images, ou ne vider\n      `_meshCache` que progressivement.\n- [ ] Rendu \u00ab pur 3D \u00e0 la PeakFinder \u00bb : masquer les couches de fond dans la RTT et ne\n      garder que l'ombrage donnerait la lecture g\u00e9om\u00e9trique demand\u00e9e pour presque rien.\n      L'alternative \u2014 normales par tuile et nuanceur \u00e9clair\u00e9 d\u00e9di\u00e9, comme `LidarWebGLLayer`\n      \u2014 est nettement plus lourde.\n- [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
