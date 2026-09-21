@@ -165,10 +165,13 @@ export function ViewpointController(): null {
          * by centimetres from looping.
          */
         const settleOnGround = () => {
-            const at = map.transform.getCameraLngLat();
+            // v6 removed the public `map.transform`; `map.painter.transform` is
+            // the readonly transform the renderer itself uses and still exposes
+            // the camera helpers.
+            const at = map.painter.transform.getCameraLngLat();
             const ground = map.queryTerrainElevation([at.lng, at.lat]);
             if (typeof ground !== 'number' || !Number.isFinite(ground)) return;
-            const error = ground + eyeHeightM - map.transform.getCameraAltitude();
+            const error = ground + eyeHeightM - map.painter.transform.getCameraAltitude();
             if (Math.abs(error) < 0.2) return;
             eye.altitude += error;
             apply();
