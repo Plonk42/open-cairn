@@ -1,3 +1,5 @@
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { setWorkerUrl } from 'maplibre-gl';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Root } from './Root';
@@ -6,6 +8,11 @@ import { useMapStore } from './stores/mapStore';
 import { gateKeyedBaseLayer } from './stores/mapStyleView';
 import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
 import './styles/index.css';
+
+// v6 ships as ES modules only: `import.meta.url` doesn't reliably resolve to
+// the worker file inside Vite's module graph, so it must be pointed at the
+// bundled worker chunk once, before the first `Map` is created.
+setWorkerUrl(maplibreWorkerUrl);
 
 // Restore shared state BEFORE React renders so that stores are populated
 // before MapContainer reads the initial view.
