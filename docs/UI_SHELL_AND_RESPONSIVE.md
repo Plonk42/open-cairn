@@ -596,6 +596,16 @@ rayon dans le couloir voisin. Et la marche s'arrête **1,5 % avant** le sommet
 (`SELF_CLEARANCE`) : sinon l'échantillon pris un pas avant la cime — sur sa propre
 pente, à peine plus bas — compte comme un obstacle et masque tout le panorama.
 
+À l'autre bout, un sommet à moins de **250 m** (`MIN_SIGHT_DISTANCE_M`) n'est pas une
+visée, c'est le sol sous les pieds. L'œil se pose 1,70 m au-dessus du MNT au point
+cliqué, qui n'est jamais exactement la cime enregistrée : debout sur Chamechaude, la
+ligne « Chamechaude » est à 34 m et le MNT y lit 10 m de plus, soit **16° d'élévation**.
+Une amorce pointant le ciel — et, comme la bande s'accroche au sommet le plus haut de
+l'écran, **toute la bande tirée 340 px au-dessus de la crête** qu'elle est censée
+dégager. À 250 m les mêmes 10 m de bruit du MNT ne font plus que 2,3°. Le prix n'est
+payé que si l'œil est à moins de 250 m d'un sommet nommé, c'est-à-dire debout dessus :
+295 sommets sur 25 830 ont un voisin aussi proche, là où 500 m en coûterait déjà 1 454.
+
 Le désencombrement ne mesure aucun texte, et c'est volontaire : comme les étiquettes
 sont toutes inclinées du même angle, ce sont des **bandes parallèles**, et deux bandes
 parallèles ne se touchent pas dès qu'elles sont assez écartées **en travers** de cette

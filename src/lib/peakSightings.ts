@@ -99,6 +99,23 @@ const CLEARANCE_TOLERANCE_DEG = 0.02;
 /** A summit whose DEM reads at sea level is outside the loaded terrain. */
 const MIN_GROUND_M = 1;
 
+/**
+ * Nearer than this, a summit is the ground underfoot rather than a sighting.
+ *
+ * The mode puts the eye 1.70 m above the DEM at the picked spot, which is never
+ * exactly the recorded top: standing on Chamechaude the summit row sits 34 m
+ * away and the DEM reads 10 m higher there, so its apparent elevation is **16°**
+ * — a leader pointing at empty sky, and a label band dragged 340 px above the
+ * skyline it is supposed to clear, because the band hangs off the highest slot
+ * on screen. At 250 m the same 10 m of DEM noise is 2.3°, under the slope noise
+ * of a real ridge.
+ *
+ * The price is paid only when the eye is within 250 m of a named top, i.e. when
+ * standing on one: 295 of the 25 830 summits have a neighbour that close, and
+ * 500 m would already cost 1 454.
+ */
+const MIN_SIGHT_DISTANCE_M = 250;
+
 export interface PeakSighting {
     peak: Peak;
     distanceM: number;
@@ -157,7 +174,7 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
         const reach = REACH_BY_IMPORTANCE_M[peak.importance] ?? 0;
         if (reach === 0) continue;
         const { azimuthDeg, distanceM } = sightingFrom(observer, peak.lng, peak.lat);
-        if (distanceM > reach || distanceM < 1) continue;
+        if (distanceM > reach || distanceM < MIN_SIGHT_DISTANCE_M) continue;
         candidates.push({ peak, distanceM, azimuthDeg });
     }
     candidates.sort((a, b) =>
