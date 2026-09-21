@@ -123,12 +123,28 @@ interface Candidate {
  * got a ray. A rank is an editorial judgement about how far a name carries;
  * measuring a summit against its own rank's reach turns it into one number, and
  * a nearby minor top then rightly outranks a notorious speck on the skyline.
- *
- * The layout ranks on it too, so the name that survives a crowded band is the
- * same one the budget would have marched first.
  */
 export function reachFraction(peak: Peak, distanceM: number): number {
     return distanceM / REACH_BY_IMPORTANCE_M[peak.importance];
+}
+
+/**
+ * Which of two names the band keeps when it has room for only one.
+ *
+ * The layout used to rank on {@link reachFraction} alone, on the argument that
+ * the name which survives should be the one the budget would have marched
+ * first. Those are two different questions, and answering them with one number
+ * printed `Dent du Corbeau` over `Mont Blanc`: 2286 m at 58 km uses 0.58 of a
+ * rank-2 reach where 4806 m at 104 km uses 0.69 of a rank-1 reach, the two land
+ * 16 px apart, and the nearer one takes the slot. Deciding what to march is a
+ * question about COST, and there the far speck rightly loses; deciding what to
+ * print is a question about NOTORIETY, and there it rightly wins.
+ *
+ * So rank comes first and the fraction only separates equals — it stays below 1
+ * by construction, so a rank never bleeds into the next.
+ */
+export function labelPriority(peak: Peak, distanceM: number): number {
+    return peak.importance + Math.min(1, reachFraction(peak, distanceM));
 }
 
 /**
@@ -255,7 +271,8 @@ export interface PlacedPeakLabel {
  *
  * Which name survives a collision is `priority`, not screen order — an obscure
  * knoll used to be able to evict a notorious summit for standing slightly left
- * of it.
+ * of it. See {@link labelPriority} for what that order is, and for the summit
+ * it was getting wrong.
  */
 export function layoutPeakLabels(slots: readonly PeakLabelSlot[]): PlacedPeakLabel[] {
     if (slots.length === 0) return [];

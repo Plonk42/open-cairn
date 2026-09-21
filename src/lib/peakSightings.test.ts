@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Peak } from './peaks';
 import {
     LABEL_ANGLE_DEG,
+    labelPriority,
     layoutPeakLabels,
     selectCandidates,
     sightPeaks,
@@ -139,6 +140,23 @@ describe('sightPeaks', () => {
         expect(x).toBeCloseTo(Math.cos(27 * (Math.PI / 180)), 2);
         expect(z).toBeCloseTo(Math.sin(27 * (Math.PI / 180)), 2);
         expect(Math.hypot(x, y, z)).toBeCloseTo(1, 6);
+    });
+});
+
+describe('labelPriority', () => {
+    it('keeps the Mont Blanc over the knoll that used to evict it', () => {
+        // From Chamechaude the two land 16 px apart, and the fraction alone put
+        // the Dent du Corbeau first: 0.58 of a rank-2 reach against 0.69 of a
+        // rank-1 one.
+        const montBlanc = { ...peakNorth('Mont Blanc', 1, 1), importance: 1 };
+        const corbeau = { ...peakNorth('Dent du Corbeau', 1, 2), importance: 2 };
+        expect(labelPriority(montBlanc, 104_000)).toBeLessThan(labelPriority(corbeau, 58_000));
+    });
+
+    it('separates equals by how far they reach for their rank', () => {
+        const near = peakNorth('near', 1, 2);
+        const far = peakNorth('far', 1, 2);
+        expect(labelPriority(near, 20_000)).toBeLessThan(labelPriority(far, 90_000));
     });
 });
 

@@ -27,8 +27,8 @@
 import { loadPeaks as loadAllPeaks, PEAKS_RADIUS_M, peaksWithin, type Peak } from '@/lib/peaks';
 import {
     LABEL_ANGLE_DEG,
+    labelPriority,
     layoutPeakLabels,
-    reachFraction,
     sightPeaks,
     type PeakLabelSlot,
     type PeakSighting,
@@ -127,7 +127,7 @@ export function PeakLabelsOverlay() {
                 key: node.sighting.peak.id,
                 x: at.x,
                 y: at.y,
-                priority: reachFraction(node.sighting.peak, node.sighting.distanceM),
+                priority: labelPriority(node.sighting.peak, node.sighting.distanceM),
             });
             byKey.set(node.sighting.peak.id, node);
         }

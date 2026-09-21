@@ -39,15 +39,6 @@
       champ dans `observerKey`, un filtre d'azimut dans `selectCandidates`, et une nouvelle
       marche à chaque arrêt de rotation, là où tourner la tête est gratuit aujourd'hui.
 
-- [ ] En téléobjectif, `BAND_MIN_Y_PX` (110 px) jette tout le haut de la ligne d'horizon :
-      mesuré à 8° et pitch 85°, **7 sommets sur 11** présents à l'écran sont écartés parce
-      qu'ils se projettent au-dessus de la bande, laquelle ne peut pas monter plus haut sans
-      couper le texte qui s'élève depuis son ancre. Ce n'est pas le désencombrement qui
-      lie à cette focale, c'est ça. Deux pistes : déduire la marge du texte réellement à
-      l'écran plutôt que du plus long nom de France (gain faible, ~20 px), ou accepter une
-      **seconde bande basse** aux amorces montantes quand il ne reste plus de ciel — ce qui
-      casse l'invariant « toutes les amorces descendent ».
-
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.

@@ -606,10 +606,18 @@ leur **écart horizontal** multiplié par le sinus de l'angle : plus le texte es
 plus il lui faut de place en largeur. À −32° c'est 30 px par nom, là où les −58°
 d'origine n'en demandaient que 19 — le prix de la hauteur qu'on ne consomme plus.
 
-Quand deux noms ne tiennent pas tous les deux, celui qui reste est celui que **le budget
-de rayons aurait marsé en premier** (`distance / portée(rang)`), et non celui qui se
-trouve le plus à gauche : une butte obscure pouvait auparavant évincer un sommet
-notoire pour 3 px.
+Quand deux noms ne tiennent pas tous les deux, celui qui reste est **le plus notoire**
+(`labelPriority` = rang IGN, puis `distance / portée(rang)` pour départager les égaux),
+et non celui qui se trouve le plus à gauche : une butte obscure pouvait auparavant
+évincer un sommet notoire pour 3 px.
+
+Trier sur la seule fraction de portée — ce que faisait la mise en page, au motif que le
+nom survivant devait être celui que le budget de rayons aurait marché en premier — écrit
+**`Dent du Corbeau` par-dessus `Mont Blanc`** : depuis Chamechaude, 2 286 m à 58 km usent
+0,58 d'une portée de rang 2, 4 806 m à 104 km en usent 0,69 d'une portée de rang 1, et les
+deux tombent à 16 px l'un de l'autre. Ce sont deux questions différentes : choisir quoi
+marcher est une question de **coût**, et le lointain y perd à raison ; choisir quoi écrire
+est une question de **notoriété**, et il y gagne à raison.
 
 > ⚠️ La bande ne monte pas indéfiniment. Le texte s'élève depuis son ancre, donc une
 > bande trop haute est une bande dont **tous** les noms sont coupés par le bord — ce qui
