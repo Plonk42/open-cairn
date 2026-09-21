@@ -9,9 +9,11 @@
  *     two-finger pinch) that changes the field of view instead of the zoom.
  *
  * The wheel does NOT zoom here, and that is not a shortcut: with the eye and the
- * field of view fixed, the rendered image does not depend on the zoom at all
- * (see `viewpointCamera.ts`), so a zoom gesture would be a no-op on screen. The
- * only meaningful magnification from a fixed standpoint is a longer lens.
+ * field of view fixed, the projected image does not depend on the zoom (see
+ * `viewpointCamera.ts`), so a zoom gesture would move nothing on screen. The
+ * only meaningful magnification from a fixed standpoint is a longer lens — and
+ * narrowing the lens is what raises the zoom, hence the tile detail, which
+ * `panoramaDetail.ts` then has to keep MapLibre from giving back.
  *
  * The look direction lives in a ref, not in the store: it changes on every
  * pointer move and re-rendering the map subtree 60×/s is exactly what made the
@@ -19,6 +21,7 @@
  */
 
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
+import { applyPanoramaDetail } from '@/lib/panoramaDetail';
 import {
     cameraForViewpoint,
     eyeHeightAfterStep,
@@ -113,6 +116,9 @@ export function ViewpointController(): null {
         // a restored look above the horizon would stay clamped at 85°.
         map.setMaxPitch(VIEWPOINT_MAX_PITCH);
         const restoreGestures = suspendMapGestures(map);
+        // Only this mode looks at the far field through a long lens, and only
+        // here is the ground texture worth trading for mesh resolution.
+        const restoreDetail = applyPanoramaDetail(map);
 
         // A share link opens straight onto its author's framing; otherwise we
         // face whichever way the map already did, just below the horizon.
@@ -273,6 +279,7 @@ export function ViewpointController(): null {
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;
+            restoreDetail();
             restoreGestures();
             map.setVerticalFieldOfView(initialFov);
             map.setCenterClampedToGround(wasClampedToGround);

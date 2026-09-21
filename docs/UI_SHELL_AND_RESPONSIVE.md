@@ -170,6 +170,50 @@ donc converge en une passe — les cinq mêmes points donnent **1,70 m** exactem
 > +20 m la fait disparaître. 1,70 m est simplement sous le plancher de bruit de la
 > représentation du terrain.
 
+#### Le pavage du mode : du maillage plutôt que de la texture
+
+MapLibre choisit un zoom **par tuile**, avec une pénalité d'incidence rasante dont le
+poids **augmente quand le champ se referme** (son `pitchTileLoadingBehavior` passe de
+~1,0 à 37° de champ à ~2,7 à 8°). Prendre le téléobjectif *dégradait* donc ce qu'il
+vise. Mesuré depuis un œil à 2 070 m sur Belledonne, en passant de 60° à 8° :
+
+| | champ 60° | champ 8° |
+|---|---|---|
+| maille la plus fine au-delà de 40 km | 213 m | 420 m |
+| fond raster servi au-delà de 10 km | z11 | z9 (108 m/px pour ~6 m/px demandés) |
+
+Le mode remplace cette règle par une **pure loi en 1/distance**, plafonnée au zoom du
+centre — c'est ce plafond qui remplace la pénalité : aucune tuile n'obtient plus de
+détail que le centre, donc une vue quasi horizontale ne peut pas faire exploser le
+compte. La garde de MapLibre, elle, dégénère exactement là où ce mode vit : à 91° de
+pitch et 8° de champ, ses paramètres par défaut réclament **86 831 tuiles de maillage**.
+
+Mais chaque tuile de terrain porte une **texture drapée** (*render-to-texture*) coûtant
+`rttSize² × 4` octets, soit **16,8 Mo** au `qualityFactor = 2` de MapLibre. C'est ce qui
+a fait perdre le contexte WebGL pendant la mise au point : 359 tuiles à ce prix ≈ 6 Go.
+
+Les deux réglages vont donc ensemble — on divise le drapé par quatre (512² = 1 Mo par
+tuile) et on dépense ce qu'il libère en géométrie (`meshSize` 256, biais +2 sur le
+terrain, −2 sur le fond). Mesuré au même point à 8° de champ :
+
+| | MapLibre par défaut | mode panorama |
+|---|---|---|
+| maille 0–40 km | 213–430 m | **7 m** |
+| maille au-delà de 40 km | 420 m | **13 m** |
+| tuiles de maillage | 22 | 123 |
+| **VRAM drapée** | **352 Mo** | **123 Mo** |
+
+Soit un relief lointain 30 à 60 fois plus fin **pour moins de mémoire qu'avant** : le
+drapé était simplement le mauvais endroit où dépenser, un panorama se lisant par ses
+lignes de crête et non par sa texture de sol. La contrepartie assumée est que le sol
+**proche** est moins net, mais à incidence rasante il ne vaut que quelques pixels.
+
+Tout est posé en entrant dans le mode et **rendu en sortant** par
+[src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts), y compris le vidage des deux
+caches (le drapé garde sa texture 2048² et le maillage ses 128 quads, aucun des deux
+n'étant indexé par sa taille). Le réglage est **réappliqué sur `styledata`** : changer
+de fond ou d'ombrage reconstruit le style, donc les sources et le terrain.
+
 #### Noms des sommets
 
 La case **« Noms des sommets »** vit dans le popover que le bouton *Point de vue*
@@ -273,9 +317,10 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
-- En forte focale, la couverture raster de MapLibre se rétrécit avec le zoom induit :
-  au-delà d'une dizaine de kilomètres le relief lointain tombe en silhouette sombre
-  (`areTilesLoaded()` vaut pourtant `true`).
+- Le sol **proche** est volontairement moins texturé qu'ailleurs dans l'application :
+  le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
+  plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un
+  premier plan y perd.
 
 ---
 
@@ -299,6 +344,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
 | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
+| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé, et restauration |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
 | [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
 | [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |

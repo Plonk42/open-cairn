@@ -20,9 +20,11 @@
 // precisely in that band, and every jump re-picks the tile LOD under the view.
 //
 // Holding the distance CONSTANT instead makes the zoom constant, so the relief
-// keeps its detail level while you turn. It costs nothing: with the eye and the
-// field of view fixed, the rendered image does not depend on where along the
-// view ray the center sits.
+// keeps its detail level while you turn. It is nearly free: with the eye and
+// the field of view fixed, the PROJECTION does not depend on where along the
+// view ray the center sits. The tile LOD does, though — the zoom is exactly
+// what MapLibre hands to `calculateTileZoom` as the centre zoom, which is why
+// `panoramaDetail.ts` has to re-open that decision.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Eye of a first-person viewpoint. */
