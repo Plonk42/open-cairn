@@ -193,7 +193,7 @@ Mais chaque tuile de terrain porte une **texture drapée** (*render-to-texture*)
 a fait perdre le contexte WebGL pendant la mise au point : 359 tuiles à ce prix ≈ 6 Go.
 
 Les deux réglages vont donc ensemble — on divise le drapé par quatre (512² = 1 Mo par
-tuile) et on dépense ce qu'il libère en géométrie (`meshSize` 256, biais +2 sur le
+tuile) et on dépense ce qu'il libère en géométrie (`meshSize` 252, biais +2 sur le
 terrain, −2 sur le fond). Mesuré au même point à 8° de champ :
 
 | | MapLibre par défaut | mode panorama |
@@ -213,6 +213,15 @@ Tout est posé en entrant dans le mode et **rendu en sortant** par
 caches (le drapé garde sa texture 2048² et le maillage ses 128 quads, aucun des deux
 n'étant indexé par sa taille). Le réglage est **réappliqué sur `styledata`** : changer
 de fond ou d'ombrage reconstruit le style, donc les sources et le terrain.
+
+`meshSize` est plafonné à **252**, pas 256 : MapLibre range les indices du maillage de
+terrain (grille + les quatre bourrelets qui masquent la couture entre tuiles de zoom
+différent) dans un `Uint16` fixe, sans repli en 32 bits. `(meshSize+1) × (meshSize+7)`
+sommets — 67 591 à 256, au-delà des 65 536 adressables — fait déborder les index des
+bourrelets, qui bouclent modulo 65 536 et pointent vers de mauvais sommets : la couture
+que le bourrelet est censé cacher devient une bande blanche visible, pile à la limite
+zoom-terrain/zoom-fond que corrige le biais `PANORAMA_SOURCE_BIAS`. 252 sommets
+(65 527) reste sous la limite.
 
 #### Noms des sommets
 

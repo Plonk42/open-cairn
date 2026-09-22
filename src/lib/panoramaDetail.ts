@@ -32,8 +32,17 @@ type TerrainLike = MapLibreMap['terrain'];
 /** Drape side as a multiple of the 1024 px terrain tile; MapLibre defaults to 2. */
 export const PANORAMA_QUALITY_FACTOR = 0.5;
 
-/** Quads per side of the terrain mesh; MapLibre defaults to 128. */
-export const PANORAMA_MESH_SIZE = 256;
+/**
+ * Quads per side of the terrain mesh; MapLibre defaults to 128.
+ *
+ * Capped at 252, not 256: MapLibre's terrain mesh (`Terrain.getTerrainMesh`) packs
+ * indices into a fixed `Uint16` buffer, and the grid plus its four skirts add up to
+ * `(meshSize+1) * (meshSize+7)` vertices — 256 gives 67 591, over the 65 536 limit.
+ * The overflowing indices wrap modulo 65 536 and corrupt the skirts, which is what
+ * hides the seam between neighbouring tiles at different zoom: the seam then shows
+ * as a white gap cut clean through the terrain. 252 gives 65 527, just under.
+ */
+export const PANORAMA_MESH_SIZE = 252;
 
 /**
  * Zoom levels added to the inverse-distance rule, per source. The terrain is
