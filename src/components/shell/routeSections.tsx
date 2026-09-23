@@ -1,4 +1,4 @@
-import type { IconProps } from '@/components/icons/LidarIcons';
+import { PinIcon, type IconProps } from '@/components/icons/LidarIcons';
 import {
     BaseLayerSection,
     ContourSection,
@@ -11,6 +11,7 @@ import {
     ShadingBlendSection,
     TerrainDemSection,
 } from '@/components/ui/SettingsPanel';
+import { useMapStore } from '@/stores/mapStore';
 import type { ReactElement } from 'react';
 
 /** Thin divider between two stacked sections inside a single pill/sheet. */
@@ -22,14 +23,6 @@ export function LayersIcon({ className }: IconProps): ReactElement {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.2" className={className} aria-hidden="true">
             <path d="M2.5 9.5l7.5 4 7.5-4M2.5 13l7.5 4 7.5-4M10 2L2.5 6 10 10l7.5-4L10 2z" strokeLinejoin="round" />
-        </svg>
-    );
-}
-
-export function ContourIcon({ className }: IconProps): ReactElement {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.2" className={className} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2 12c2-3 5-4 8-4s6 1 8 4M4 15c2-2 4-3 6-3s4 1 6 3M7 8.5c1-1 2-1.5 3-1.5s2 .5 3 1.5" />
         </svg>
     );
 }
@@ -71,7 +64,7 @@ export function RouteIcon({ className }: IconProps): ReactElement {
     );
 }
 
-/** One collapsible map-styling section (a pill on desktop, a sheet tab on mobile). */
+/** One collapsible map-styling section (an accordion section on desktop, a sheet tab on mobile). */
 export interface RouteSettingSection {
     id: string;
     label: string;
@@ -80,30 +73,75 @@ export interface RouteSettingSection {
 }
 
 /**
- * Everything that makes up the map background: the basemap picker plus the
- * LiDAR HD hillshade and its blend mode. Shared verbatim by the Itinéraire
- * « Fond » pill and the LiDAR Studio bottom bar.
+ * Meta-setting heading the « Fond »: whether it is shared by both views. It
+ * governs the settings below rather than being one of them, hence its own look
+ * (amber, dashed) instead of the green of ordinary controls.
+ */
+function FondPinToggle(): ReactElement {
+    const pinned = useMapStore((s) => s.mapStylePinned);
+    const setPinned = useMapStore((s) => s.setMapStylePinned);
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={pinned}
+            onClick={() => setPinned(!pinned)}
+            title={pinned
+                ? 'Le fond est commun à l\'Itinéraire et au Studio. Cliquer pour que chaque vue garde le sien.'
+                : 'Chaque vue garde son propre fond. Cliquer pour partager celui-ci avec l\'autre vue.'}
+            className={`mb-3 flex w-full items-center gap-2 rounded-lg border border-dashed px-2.5 py-2 text-left text-xs transition ${pinned
+                ? 'border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200'
+                : 'border-slate-300 text-slate-500 hover:bg-black/[0.03] dark:border-slate-600 dark:text-slate-400 dark:hover:bg-white/5'}`}
+        >
+            <PinIcon className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+                {pinned ? 'Épinglé : même fond dans les deux vues' : 'Épingler : même fond dans les deux vues'}
+            </span>
+            <span className={`relative h-4 w-7 shrink-0 rounded-full transition ${pinned ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${pinned ? 'left-3.5' : 'left-0.5'}`} />
+            </span>
+        </button>
+    );
+}
+
+/** Header cue that the « Fond » is pinned, visible while its section is folded. */
+export function FondPinnedBadge(): ReactElement | null {
+    const pinned = useMapStore((s) => s.mapStylePinned);
+    if (!pinned) return null;
+    return (
+        <span title="Fond épinglé : commun aux deux vues" className="text-amber-500">
+            <PinIcon className="h-4 w-4" />
+        </span>
+    );
+}
+
+/**
+ * Everything that makes up the map background: the basemap picker, the LiDAR
+ * HD hillshade and its blend mode, and the contour lines. Shared verbatim by the
+ * Itinéraire and Studio « Fond » sections — the one section both views have.
  */
 export function MapBackgroundSection(): ReactElement {
     return (
         <>
+            <FondPinToggle />
             <BaseLayerSection />
             <SectionDivider />
             <HillshadeSection />
             <SectionDivider />
             <ShadingBlendSection />
+            <SectionDivider />
+            <ContourSection />
         </>
     );
 }
 
 /**
  * Shared map-styling sections, composed identically into the desktop
- * `RouteBottomBar` (one popover pill each) and the mobile toolbar (one sheet
+ * `RouteSidePanel` (one accordion section each) and the mobile toolbar (one sheet
  * each) so the two shells stay a single source of truth.
  */
 export const ROUTE_SETTING_SECTIONS: ReadonlyArray<RouteSettingSection> = [
     { id: 'fond', label: 'Fond', Icon: LayersIcon, render: () => <MapBackgroundSection /> },
-    { id: 'courbes', label: 'Courbes', Icon: ContourIcon, render: () => <ContourSection /> },
     {
         id: 'terrain',
         label: 'Terrain',

@@ -55,6 +55,29 @@ export const LIDAR_STYLE_DEFAULTS: MapStyleSettings = {
 };
 
 /**
+ * The « Fond » section's settings — the only per-view ones both views expose
+ * (the Studio forces its terrain), hence the ones the pin shares.
+ */
+export const FOND_KEYS = [
+    'baseLayer',
+    'toponymsEnabled',
+    'hillshadeEnabled',
+    'hillshadeSource',
+    'hillshadeBlend',
+    'hillshadeIntensity',
+    'contourLinesEnabled',
+    'contourLinesOpacity',
+] as const satisfies ReadonlyArray<keyof MapStyleSettings>;
+
+export function pickFond(style: Partial<MapStyleSettings>): Partial<MapStyleSettings> {
+    return Object.fromEntries(FOND_KEYS.filter((k) => k in style).map((k) => [k, style[k]]));
+}
+
+export function otherView(view: AppView): AppView {
+    return view === 'map' ? 'lidar' : 'map';
+}
+
+/**
  * SCAN 25 and Plan IGN HD are IGN private WMTS layers, gated by an API key each
  * user configures locally. Without a key every tile answers 401 (and the
  * composite protocol, which needs that tile, throws) so the map renders empty:
@@ -93,14 +116,19 @@ type StyleSet = (partial: (state: MapState) => Partial<MapState>) => void;
 /**
  * Write a style patch to BOTH the active flat store fields (which every map
  * consumer reads) AND the current view's copy in `mapStyleByView`, so the
- * change is remembered when the user switches back to that view.
+ * change is remembered when the user switches back to that view. While the
+ * « Fond » is pinned, its keys also go to the other view's copy.
  */
 export function patchActiveStyle(set: StyleSet, patch: Partial<MapStyleSettings>): void {
-    set((s) => ({
-        ...patch,
-        mapStyleByView: {
+    set((s) => {
+        const byView = {
             ...s.mapStyleByView,
             [s.appView]: { ...s.mapStyleByView[s.appView], ...patch },
-        },
-    }));
+        };
+        if (s.mapStylePinned) {
+            const other = otherView(s.appView);
+            byView[other] = { ...byView[other], ...pickFond(patch) };
+        }
+        return { ...patch, mapStyleByView: byView };
+    });
 }

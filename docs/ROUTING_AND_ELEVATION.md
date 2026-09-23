@@ -7,7 +7,7 @@
 1. Cliquez sur la carte pour poser un **premier waypoint**.
 2. Chaque clic suivant ajoute un waypoint et calcule un nouveau **segment** depuis le
    précédent.
-3. Le panneau bas s'ouvre automatiquement à la pose du premier point.
+3. Le panneau bas, réduit par défaut, se déplie à la pose du premier point.
 
 Vous pouvez :
 
@@ -31,13 +31,16 @@ Vous pouvez basculer le mode au global, ou par segment via le menu segment.
 
 ### Profil altimétrique
 
-Le profil s'affiche dans le dock ancré sous la carte dès qu'un itinéraire dépasse
-2 waypoints. Le dock réduit la carte au lieu de la recouvrir, et se replie en une
-simple barre de résumé (chevron) ou se ferme complètement (croix) :
+Le profil s'affiche dans le dock dès qu'un itinéraire dépasse 2 waypoints. Déployé, le dock
+est ancré sous la carte, qu'il réduit au lieu de la recouvrir ; réduit, c'est une barre de
+résumé posée sur le bas de la carte, pleine largeur (chevron pour passer de l'un à l'autre) :
 
-- **Réduit** : la barre de résumé garde le bouton *Survol 3D* et une ligne de
-  progression sans axe vertical — pentes colorées, pastilles de waypoints numérotées et
-  altitudes quand la largeur le permet.
+- **Barre du dock** (dans les deux états) : statistiques, statut du calcul et toute la
+  barre d'outils — *Lecture / Édition*, *Guidé / Libre*, inverser, *Survol 3D*, import /
+  export GPX, sauvegarder, effacer. Déployé, le dock n'ajoute que le profil et la liste
+  des points de passage.
+- **Réduit** : la barre ajoute une ligne de progression sans axe vertical — pentes
+  colorées, pastilles de waypoints numérotées et altitudes quand la largeur le permet.
 
 - **Lecture / Édition** : deux boutons explicites. En *Lecture*, le clic sur la carte
   ne modifie pas l'itinéraire ; en *Édition*, il ajoute un point.

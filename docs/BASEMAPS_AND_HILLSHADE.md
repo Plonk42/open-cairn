@@ -45,7 +45,8 @@ La typographie IGN (texte sombre à halo blanc) est calibrée pour un fond de pl
 est excellente sur le Plan HD et sur l'ombrage LiDAR, plus inégale sur une photo aérienne
 selon la luminosité locale.
 
-Le réglage est mémorisé par vue (Itinéraire / Studio LiDAR) et voyage dans les liens de
+Le réglage est mémorisé par vue (Itinéraire / Studio LiDAR), sauf si le *Fond* est épinglé
+(voir `UI_SHELL_AND_RESPONSIVE.md`), et voyage dans les liens de
 partage. Sur SCAN 25, Plan IGN et OSM la case n'est pas proposée : ces fonds impriment déjà
 leurs propres noms, la surcouche les doublerait.
 
@@ -95,7 +96,8 @@ le relief.
 
 ### Courbes de niveau
 
-Une option *Courbes de niveau* superpose les courbes IGN officielles. L'opacité est réglable.
+Un curseur *Courbes de niveau*, en bas de la section *Fond* des deux vues, superpose les
+courbes IGN officielles : 0 les masque (`off`), toute autre valeur les affiche à cette opacité.
 Disponible jusqu'au zoom 18.
 
 ### Limitations connues

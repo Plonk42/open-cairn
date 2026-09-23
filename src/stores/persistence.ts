@@ -14,11 +14,15 @@ export type PersistedSettings = {
     view?: MapView;
     /** Per-view map-style bundle (Itinéraire vs LiDAR Studio). */
     mapStyleByView?: Record<AppView, MapStyleSettings>;
+    /** « Fond » shared by both views (`mapStyleByView` copies kept in sync). */
+    mapStylePinned?: boolean;
     uiTheme?: UiTheme;
     studioTutorialSeen?: boolean;
-    /** Desktop LiDAR Studio side panel: folded away, and which sections are open. */
-    studioPanelCollapsed?: boolean;
+    /** Desktop side panel folded to its title bar, shared by both views. */
+    sidePanelCollapsed?: boolean;
+    /** Open sections of the desktop side panel, per view. */
     studioPanelSections?: string[];
+    routePanelSections?: string[];
     /** Desktop top-bar groups folded to a single button. */
     topBarCameraCollapsed?: boolean;
     topBarSceneCollapsed?: boolean;

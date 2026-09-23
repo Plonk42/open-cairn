@@ -47,15 +47,17 @@ Champs principaux :
   baseLayer, hillshadeEnabled, hillshadeSource, hillshadeBlend, hillshadeIntensity
   toponymsEnabled                   // surcouche de toponymes IGN, sur les fonds sans texte
   terrainEnabled, terrainExaggeration, contourLinesEnabled, contourLinesOpacity
+  mapStylePinned                    // « Fond » commun aux deux vues (copies de mapStyleByView synchronisées)
   renderQuality, tileCacheSize, ignApiKey?, ignDemApiKey?, uiTheme
   skySunPath, skyMoonPath           // trajectoires dans le ciel, communes aux deux vues
   skyHiddenPath                     // dessiner ou non leur moitié masquée par le relief
   atmosphericSky                    // vue Itinéraire : ciel piloté par le soleil
   peakLabels                        // nommer les sommets visibles — n'a d'effet qu'en Point de vue
 
-  // Chrome du Studio desktop (l'accordéon de droite)
-  studioPanelCollapsed              // panneau replié en onglet
-  studioPanelSections: string[]     // ids des sections dépliées, plusieurs à la fois
+  // Chrome desktop, l'accordéon de droite de chaque vue
+  sidePanelCollapsed                // panneau replié sur sa barre de titre, commun aux deux vues
+  studioPanelSections: string[]     // Studio : ids des sections dépliées, plusieurs à la fois
+  routePanelSections: string[]      // Itinéraire : idem (défaut : Fond ouvert)
 
   // Barre du haut desktop, les deux vues (défaut : replié)
   topBarCameraCollapsed             // groupe caméra réduit à un bouton

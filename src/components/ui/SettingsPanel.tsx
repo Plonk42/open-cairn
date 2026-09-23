@@ -197,8 +197,8 @@ export function ApiKeysSection() {
 
 /**
  * Full "Réglages" panel — composes every settings section with dividers. Used
- * by the mobile bottom sheet; the desktop bottom bar splits these sections
- * across individual pills instead.
+ * by the mobile bottom sheet; the desktop side panel splits these sections
+ * across individual accordion sections instead.
  */
 export function SettingsPanel() {
     return (

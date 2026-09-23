@@ -15,6 +15,12 @@ export type UiTheme = 'light' | 'dark';
 
 /** Sections a first-time visitor finds open in the Studio side panel. */
 export const DEFAULT_STUDIO_PANEL_SECTIONS: readonly string[] = ['capture', 'fond'];
+export const DEFAULT_ROUTE_PANEL_SECTIONS: readonly string[] = ['fond'];
+
+/** A stale entry could hold anything; keep only strings so a panel never calls `.includes` on a non-array. */
+function persistedSections(value: unknown, fallback: readonly string[]): readonly string[] {
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : fallback;
+}
 
 export interface SettingsSlice {
     /** Raster and canvas quality used for pitched 3D views. */
@@ -34,16 +40,20 @@ export interface SettingsSlice {
     setStudioTutorialSeen: (v: boolean) => void;
 
     /**
-     * Desktop LiDAR Studio side panel, folded away to free the viewport. Lives
-     * in the store rather than in the component: switching to the map view
-     * unmounts `LidarStudio` entirely, which would reset a `useState`.
+     * Desktop side panel folded to its title bar. One flag for both views, so
+     * the view switch it carries stays put across a switch; in the store
+     * because a view switch unmounts the panel.
      */
-    studioPanelCollapsed: boolean;
-    setStudioPanelCollapsed: (v: boolean) => void;
+    sidePanelCollapsed: boolean;
+    setSidePanelCollapsed: (v: boolean) => void;
 
     /** Ids of the side-panel sections currently expanded (several at a time). */
     studioPanelSections: readonly string[];
     setStudioPanelSections: (v: readonly string[]) => void;
+
+    /** Desktop Itinéraire side panel: which sections are open. */
+    routePanelSections: readonly string[];
+    setRoutePanelSections: (v: readonly string[]) => void;
 
     /** Desktop top-bar groups folded to a single button (camera, scene). */
     topBarCameraCollapsed: boolean;
@@ -168,15 +178,14 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     studioTutorialSeen: persisted.studioTutorialSeen ?? false,
     setStudioTutorialSeen: (studioTutorialSeen) => set({ studioTutorialSeen }),
 
-    studioPanelCollapsed: persisted.studioPanelCollapsed ?? false,
-    setStudioPanelCollapsed: (studioPanelCollapsed) => set({ studioPanelCollapsed }),
+    sidePanelCollapsed: persisted.sidePanelCollapsed ?? false,
+    setSidePanelCollapsed: (sidePanelCollapsed) => set({ sidePanelCollapsed }),
 
-    // A stale entry could hold anything; keep only strings so the panel never
-    // calls `.includes` on a non-array (one throw empties the page).
-    studioPanelSections: Array.isArray(persisted.studioPanelSections)
-        ? persisted.studioPanelSections.filter((id) => typeof id === 'string')
-        : DEFAULT_STUDIO_PANEL_SECTIONS,
+    studioPanelSections: persistedSections(persisted.studioPanelSections, DEFAULT_STUDIO_PANEL_SECTIONS),
     setStudioPanelSections: (studioPanelSections) => set({ studioPanelSections }),
+
+    routePanelSections: persistedSections(persisted.routePanelSections, DEFAULT_ROUTE_PANEL_SECTIONS),
+    setRoutePanelSections: (routePanelSections) => set({ routePanelSections }),
 
     topBarCameraCollapsed: persisted.topBarCameraCollapsed ?? true,
     setTopBarCameraCollapsed: (topBarCameraCollapsed) => set({ topBarCameraCollapsed }),
@@ -240,8 +249,9 @@ export function selectSettingsPersisted(
     PersistedSettings,
     | 'uiTheme'
     | 'studioTutorialSeen'
-    | 'studioPanelCollapsed'
+    | 'sidePanelCollapsed'
     | 'studioPanelSections'
+    | 'routePanelSections'
     | 'topBarCameraCollapsed'
     | 'topBarSceneCollapsed'
     | 'skySunPath'
@@ -257,8 +267,9 @@ export function selectSettingsPersisted(
     return {
         uiTheme: s.uiTheme,
         studioTutorialSeen: s.studioTutorialSeen,
-        studioPanelCollapsed: s.studioPanelCollapsed,
+        sidePanelCollapsed: s.sidePanelCollapsed,
         studioPanelSections: [...s.studioPanelSections],
+        routePanelSections: [...s.routePanelSections],
         topBarCameraCollapsed: s.topBarCameraCollapsed,
         topBarSceneCollapsed: s.topBarSceneCollapsed,
         skySunPath: s.skySunPath,

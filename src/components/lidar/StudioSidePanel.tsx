@@ -1,21 +1,13 @@
 import { CollapseAllIcon, PanelRightIcon, ResetIcon } from '@/components/icons/LidarIcons';
 import { StudioCloudList, useCloudsOnScreen } from '@/components/lidar/StudioClouds';
 import { STUDIO_RENDER_SETTINGS } from '@/components/lidar/StudioRenderSettings';
+import { FondPinnedBadge } from '@/components/shell/routeSections';
 import {
-    SidePanel, SidePanelGroupLabel, SidePanelHandle, SidePanelIconButton, SidePanelSection,
+    DockedSidePanel, SidePanel, SidePanelGroupLabel, SidePanelIconButton, SidePanelSection,
 } from '@/components/shell/SidePanel';
 import { useMapStore } from '@/stores/mapStore';
 import { useCallback, useEffect, type ReactElement } from 'react';
 import { STUDIO_REVEAL_EVENT } from './tutorial/steps';
-
-/** Panel width, the gap it keeps from the viewport edges, and the room it
- *  leaves the top bar below which it starts. */
-const STUDIO_PANEL_WIDTH_PX = 344;
-const STUDIO_PANEL_MARGIN_PX = 12;
-const PANEL_TOP_PX = 60;
-
-/** Horizontal strip the panel occupies, margins included. */
-export const STUDIO_PANEL_STRIP_PX = STUDIO_PANEL_WIDTH_PX + 2 * STUDIO_PANEL_MARGIN_PX;
 
 const CLOUDS_SECTION = 'clouds';
 
@@ -35,23 +27,6 @@ function LocateIcon({ className }: Readonly<{ className?: string }>) {
             <path strokeLinecap="round" d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18" />
         </svg>
     );
-}
-
-/**
- * Keeps the map's usable area clear of the panel. The capture rectangle is
- * placed at the *padded* screen centre, so without this it would be born half
- * under the panel — and every `easeTo` would frame its target behind it.
- */
-function useMapRightPadding(rightPx: number): void {
-    const map = useMapStore((s) => s.mapInstance);
-    useEffect(() => {
-        map?.setPadding({ top: 0, right: rightPx, bottom: 0, left: 0 });
-    }, [map, rightPx]);
-    // The map outlives this panel (it is shared with the Itinéraire view), so
-    // hand it back unpadded on the way out.
-    useEffect(() => () => {
-        useMapStore.getState().mapInstance?.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
-    }, []);
 }
 
 /**
@@ -120,11 +95,12 @@ function CloudsBadge({ total, offScreen }: Readonly<{ total: number; offScreen: 
  * Mobile keeps its own chrome (`StudioMobileShell`) untouched.
  */
 export function StudioSidePanel(): ReactElement {
-    const collapsed = useMapStore((s) => s.studioPanelCollapsed);
-    const setCollapsed = useMapStore((s) => s.setStudioPanelCollapsed);
+    const collapsed = useMapStore((s) => s.sidePanelCollapsed);
+    const setCollapsed = useMapStore((s) => s.setSidePanelCollapsed);
     const sections = useMapStore((s) => s.studioPanelSections);
     const setSections = useMapStore((s) => s.setStudioPanelSections);
     const resetRenderSettings = useMapStore((s) => s.resetLidarRenderSettings);
+    const resetMapStyle = useMapStore((s) => s.resetMapStyle);
     const clouds = useMapStore((s) => s.lidarClouds);
     const onScreenById = useCloudsOnScreen(clouds);
 
@@ -144,31 +120,15 @@ export function StudioSidePanel(): ReactElement {
     }, []);
 
     useTutorialReveal(setSectionOpen, setCollapsed);
-    useMapRightPadding(collapsed ? 0 : STUDIO_PANEL_STRIP_PX);
-
-    if (collapsed) {
-        return (
-            <div className="absolute right-3 top-16 z-30">
-                <SidePanelHandle label="Afficher le panneau de réglages" onClick={() => setCollapsed(false)}>
-                    <PanelRightIcon className="h-5 w-5" />
-                </SidePanelHandle>
-            </div>
-        );
-    }
 
     const offScreen = clouds.filter((c) => onScreenById[c.id] === false).length;
 
     return (
-        <div
-            className="pointer-events-none absolute bottom-0 right-0 top-0 z-30 flex"
-            style={{ padding: STUDIO_PANEL_MARGIN_PX, paddingTop: PANEL_TOP_PX }}
-        >
+        <DockedSidePanel collapsed={collapsed} onExpand={() => setCollapsed(false)} bottomInsetPx={0}>
             <SidePanel
-                title="Studio LiDAR"
-                widthPx={STUDIO_PANEL_WIDTH_PX}
                 actions={
                     <>
-                        <SidePanelIconButton label="Réinitialiser tous les réglages de rendu" onClick={() => resetRenderSettings()}>
+                        <SidePanelIconButton label="Réinitialiser tous les réglages de rendu" onClick={() => { resetRenderSettings(); resetMapStyle(); }}>
                             <ResetIcon className="h-4 w-4" />
                         </SidePanelIconButton>
                         <SidePanelIconButton label="Tout replier" onClick={() => setSections([])}>
@@ -200,12 +160,13 @@ export function StudioSidePanel(): ReactElement {
                             Icon={setting.Icon}
                             open={sections.includes(setting.id)}
                             onToggle={() => toggle(setting.id)}
+                            badge={setting.id === 'fond' ? <FondPinnedBadge /> : undefined}
                         >
                             {setting.render()}
                         </SidePanelSection>
                     ))}
                 </div>
             </SidePanel>
-        </div>
+        </DockedSidePanel>
     );
 }

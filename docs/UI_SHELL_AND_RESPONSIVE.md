@@ -2,35 +2,84 @@
 
 L'application a **deux vues** de premier niveau, choisies par `?view=` : la vue
 *Itinéraire* (`?view=map`, par défaut) et le *Studio LiDAR* (`?view=lidar`). Les
-deux partagent la même carte MapLibre et la même coquille (barre du haut, barre
-du bas, chrome mobile) ; ce document décrit cette coquille.
+deux partagent la même carte MapLibre et la même coquille (barre du haut, panneau
+latéral, chrome mobile) ; ce document décrit cette coquille.
 
 ## Pour les utilisateurs
 
 ### Sur ordinateur — vue Itinéraire
 
 ```
-┌────────────────────────────────────────────────────┐
-│ En-tête (recherche, coordonnées) · Actions   Vue ▾ │
-│                                                    │
-│                     Carte                          │
-│                                                    │
-│        [Fond] [Courbes] [Terrain] [Avancé]         │
-│                       [Itinéraire]                 │
-├────────────────────────────────────────────────────┤
-│ Dock Itinéraire & profil (sous la carte, 3 états)   │
-└────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────┬───────────────────┐
+│ En-tête · Actions                        │[Itin.|Studio] ≡ ▯│
+│                                          ├───────────────────┤
+│                 Carte                    │ ▾ Fond          │
+│                                          │ ▸ Terrain …     │
+│                                          │                 │
+│      [barre du mode Point de vue]        │                 │
+├──────────────────────────────────────────┴───────────────────┤
+│ Dock Itinéraire & profil (sous la carte, réduit ou déployé)   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Il n'y a **pas de sidebar** : les réglages sont dans des popovers ouverts par la
-**barre de pilules flottante** en bas de la carte — *Fond*, *Courbes*, *Terrain*,
-*Avancé* — plus la pilule *Itinéraire* qui affiche ou masque le dock.
+Les réglages vivent dans le **même accordéon ancré à droite que le Studio**
+(`RouteSidePanel`, sur les primitives de `SidePanel.tsx`) : les sections *Fond*,
+*Terrain*, *Avancé* — celles-là mêmes que le mobile
+montre en feuilles (`ROUTE_SETTING_SECTIONS`). Mêmes règles que le Studio : plusieurs
+sections ouvertes à la fois, carte décalée (`map.setPadding({ right: 368 })`), état
+mémorisé (`sidePanelCollapsed`, commun aux deux vues, `routePanelSections`, *Fond* ouvert au premier
+passage), repli sur sa seule barre de titre. Il est posé dans la zone de la carte, donc au-dessus du dock
+et jamais dessus. Il remplace la barre de pilules du bas, qui disputait le bas de la
+carte à la barre du mode *Point de vue* : celle-ci y est désormais seule.
 
-En haut : l'en-tête (recherche de lieu, coordonnées du curseur, bascule de thème),
-le groupe d'actions partagé — scindé en deux pastilles de **même hauteur** : *caméra*
+**Le titre du panneau est le sélecteur de vue** (`ViewSwitch`, deux segments *Itinéraire* /
+*Studio LiDAR*, la vue courante en vert), comme le « meta mode » de *Terrain Viewer*. Le
+panneau **monte jusqu'en haut de l'écran** (marge de 12 px) : les barres du haut s'arrêtent
+à sa bande (`right: SIDE_PANEL_STRIP_PX − 12`), replié ou non, et passent à la ligne
+(`flex-wrap`) quand la place manque — vers 820 px, les pastilles descendent sous la boîte
+d'en-tête. Replié, le panneau se réduit à une carte `[Itinéraire | Studio LiDAR] [▯]` en
+haut à droite, pour que le sélecteur reste à portée ; l'état de repli étant commun aux
+deux vues, le sélecteur ne bouge pas quand on change de vue. Le mobile, qui n'a pas de
+panneau, garde ce même `ViewSwitch` dans sa barre du haut.
+
+L'en-tête porte, comme celui du Studio, *Réinitialiser*, *Tout replier* et *Masquer le
+panneau*. *Réinitialiser* (`resetMapStyle`) remet **le jeu de style de la vue courante**
+(`MAP_STYLE_DEFAULTS` : fond, toponymes, ombrage LiDAR, fusion, courbes, relief 3D,
+exagération, source du MNT) à ses valeurs par défaut, sans toucher à la copie du Studio
+(sauf pour le *Fond* s'il est épinglé, voir plus bas). La
+section *Avancé* n'est pas concernée : les clés IGN ne se réinitialisent évidemment pas, et
+la qualité de rendu et le cache de tuiles sont communs aux deux vues. Sans clé IGN, le fond
+par défaut (SCAN 25) retombe sur Plan IGN (`gateKeyedBaseLayer`). Sur mobile, le même
+bouton *Réinit.* ferme la barre d'outils, comme dans le Studio.
+
+**Le *Fond* est la seule section commune aux deux vues** (`MapBackgroundSection` : fond de
+carte, toponymes, ombrage LiDAR HD, mode de fusion, courbes de niveau). C'est aussi
+exactement la part de `mapStyleByView` qui peut différer d'une vue à l'autre : le Studio
+force le relief 3D et l'exagération à 1× et n'expose pas de section *Terrain*. Les
+courbes y ont rejoint le reste — elles avaient une section à un seul curseur dans
+l'Itinéraire et un second curseur, codé autrement, dans l'*Opacité* du Studio.
+
+En tête du *Fond*, un **méta-réglage** « Épingler : même fond dans les deux vues »
+(`mapStylePinned`, persisté) décide si ce fond est partagé. Il gouverne les réglages en
+dessous au lieu d'en être un, d'où son allure à part : bandeau à bord pointillé, ambre et
+non vert, interrupteur plutôt que case, et une punaise ambre dans l'en-tête de la section
+pour que l'état se voie section repliée. Sémantique :
+
+- **épingler** recopie le *Fond* de la vue courante dans l'autre (ce qu'on voit gagne) ;
+- **tant qu'il est épinglé**, `patchActiveStyle` écrit les clés du *Fond* (`FOND_KEYS`)
+  dans les deux copies — les clés de terrain restent propres à chaque vue ; un partage
+  d'URL ou une ambiance de vitrine appliqués passent par les mêmes setters, donc
+  valent aussi pour les deux vues ;
+- **désépingler** laisse les deux copies telles quelles : rien de l'ancien fond ne revient.
+
+Désépinglé par défaut : le Studio démarre sur l'orthophoto (`LIDAR_STYLE_DEFAULTS`), sur
+laquelle le nuage se lit mieux.
+
+En haut : l'en-tête (recherche de lieu, coordonnées du curseur, bascule de thème)
+puis le groupe d'actions partagé — scindé en deux pastilles de **même hauteur** : *caméra*
 (*Orbite*, *Point de vue*) puis *import/export* (*Galerie*, *Exporter cette vue*,
-*Partager*, aide) — et, à droite, le sélecteur de vue. Pendant le mode *Point de vue*,
-sa **barre de mode** s'ajoute au centre, sous l'en-tête (voir plus bas).
+*Partager*, aide). Pendant le mode *Point de vue*,
+sa **barre de mode** s'ajoute en bas au centre de la carte (voir plus bas).
 
 Les deux pastilles sont **repliées par défaut** en un seul bouton (icône + chevron,
 56 px contre ~390 px déplié pour la caméra) ; l'état est mémorisé
@@ -44,16 +93,34 @@ non mis en page (`display: none`) comme absent, sinon il verrouillerait un recta
 nul avant le dépliage. Le mobile n'est pas concerné : il compose ces boutons dans son
 menu `⋯`.
 
-- Le **dock Itinéraire** (itinéraire courant + profil altimétrique) est ancré *sous* la
-  carte : il réduit la carte au lieu de la recouvrir. Il a trois états :
-  - **fermé** — la carte occupe toute la hauteur ;
-  - **réduit** — une barre de résumé d'environ 40 px (distance, D+, D−), une ligne de
-    progression colorée et le bouton *Survol 3D* ;
-  - **déployé** — la barre de résumé + le profil et les outils d'édition.
-  Sa barre de titre porte un chevron (réduire / déplier) et une croix (fermer, sans
-  perdre l'itinéraire) ; la pilule *Itinéraire* de la barre du bas le rouvre. Il
-  s'ouvre automatiquement au premier waypoint, et sa hauteur se règle en glissant le
-  bord supérieur.
+- Le **dock Itinéraire** (itinéraire courant + profil altimétrique) est **toujours là**,
+  dans l'un de deux états :
+  - **réduit** — une barre de 40 px **posée sur le bas de la carte**, pleine largeur, collée
+    en bas, sans arrondi (rien ne trahit qu'elle recouvre la carte) : distance, D+, D−,
+    statut du calcul, une ligne de progression colorée, puis **toute la barre d'outils** ;
+  - **déployé** — ancré *sous* la carte, qu'il réduit au lieu de la recouvrir pour que le
+    terrain sous l'itinéraire reste lisible : la même barre (sans la ligne de progression)
+    + le profil altimétrique et la liste des points de passage.
+
+  Réduit, le dock ne prend donc **rien au viewport** : la carte a la même taille que dans
+  le Studio, et elle ne saute plus au changement de vue (mesuré : 1291 × 637 dans les deux
+  vues). En contrepartie, ce qui est ancré en bas de la carte s'écarte de
+  `REDUCED_DOCK_HEIGHT_PX` (41 px, bordure comprise) : les contrôles MapLibre du coin
+  bas-gauche (variable CSS `--dock-clearance` sur la zone carte), le bas du panneau de
+  droite (`bottomInsetPx` de `DockedSidePanel`) et la barre du mode *Point de vue*. Ces
+  trois-là bougent donc de 41 px au changement de vue ; la carte, non.
+  La barre d'outils — *Lecture / Édition*, *Guidé / Libre*, inverser, survol 3D, import /
+  export GPX, sauvegarder, effacer — est la même dans les deux états ; le chevron (réduire /
+  déplier) la termine, calé à droite même sans itinéraire. Les deux pilules portent une
+  icône (œil / crayon, et les glyphes ⤳ / ⟋ de la liste des points) : déployé, icône +
+  libellé ; réduit, l'icône seule (le libellé passe en `aria-label` et en tête de l'info-bulle),
+  ce qui rend ≈ 100 px à la ligne de progression. Mesuré en réduit : ≈ 550 px de contenu
+  fixe, soit ≈ 890 px de ligne à 1437 px de large, mais peu vers 800 px — la ligne s'y écrase
+  (elle ne déborde pas). Il n'y a plus de croix : réduit, il ne masque qu'un bandeau de
+  41 px au bas de la carte et garde à portée la
+  bascule qui décide de ce que fait un clic sur la carte. Réduit au démarrage
+  (`bottomCollapsed`), il se déplie au premier waypoint, et sa hauteur se règle en
+  glissant le bord supérieur.
 
   La ligne de l'état réduit ([RouteProgressLine.tsx](../src/components/shell/RouteProgressLine.tsx))
   remplace le profil altimétrique sans coûter un pixel de hauteur. N'ayant pas d'axe
@@ -76,7 +143,7 @@ menu `⋯`.
 
 ### Sur ordinateur — Studio LiDAR
 
-Le Studio n'a **ni barre du bas ni dock** : ses réglages vivent dans un
+Le Studio n'a **pas de dock** : ses réglages vivent dans le même
 **accordéon ancré à droite** (`StudioSidePanel`), construit sur les primitives
 génériques de `SidePanel.tsx`. La **capture** en reste dehors : elle garde son
 gros **bouton rond vert** flottant en bas (`StudioCaptureButton`), partagé avec
@@ -90,9 +157,9 @@ ouvert ; pour capturer, on replie le panneau.
 
 ```
 ┌──────────────────────────────────────────┬───────────────────┐
-│ open-cairn  [📷 ›][▭ ›]                  │ … │ Itinéraire ▸  │   ← StudioTopBar
+│ open-cairn  [📷 ›][▭ ›]                  │[Itin.|Studio]⟳⌃▯ │   ← StudioTopBar | en-tête
 │                                          ├───────────────────┤
-│                                          │ Studio LiDAR ⟳ ⌃ ▯│   ← en-tête
+│                                          │                   │
 │                 carte                    │ ▸ Nuages      ③   │
 │           (padding droit = 368 px)       │ ──── RENDU ────   │
 │                                          │ ▾ Fond            │
@@ -102,8 +169,8 @@ ouvert ; pour capturer, on replie le panneau.
           panneau déplié : pas de bouton de capture
 
 ┌─────────────────────────────────────────────────────────────┐
-│ open-cairn  [📷 ›][▭ ›]                            Itinéraire ▸  │
-│                                                          [▯]  │   ← SidePanelHandle
+│ open-cairn  [📷 ›][▭ ›]                  [Itinéraire|Studio] [▯] │   ← panneau replié
+│                                                                │
 │                           carte                                │
 │                                                         ╭───╮  │
 │                                                         │ ◉ │  │   ← StudioCaptureButton
@@ -116,7 +183,7 @@ permet d'entendre le tutoriel. Son menu s'ouvre **au-dessus** de lui ; sur
 ordinateur le bouton sert aussi à le refermer, sur mobile il s'efface pour lui
 laisser la place.
 
-Ce que cela change par rapport à l'ancienne barre de pilules :
+Ce que cela change par rapport à l'ancienne barre de pilules (vraie pour les deux vues) :
 
 - **Plusieurs sections peuvent rester ouvertes en même temps.** Les pilules
   étaient exclusives : régler l'éclairage en regardant l'effet sur les classes
@@ -134,26 +201,29 @@ Ce que cela change par rapport à l'ancienne barre de pilules :
   `map.getPadding()` — c'est ce qui décalait les étiquettes de sommets de
   184 px (= 368 / 2) en *Point de vue* panneau ouvert (voir
   [src/lib/skyProjection.ts](../src/lib/skyProjection.ts)).
-- **L'état du panneau est persistant** (`studioPanelCollapsed`,
+- **L'état du panneau est persistant** (`sidePanelCollapsed`,
   `studioPanelSections`) : `LidarStudio` est entièrement démonté à chaque
   bascule de vue, donc il ne peut pas vivre dans un `useState`.
-- **Replié**, le panneau laisse un onglet 10 × 10 en haut à droite
-  (`SidePanelHandle`) et la barre du haut récupère la largeur.
+- **Replié**, le panneau se réduit à une carte `[Itinéraire | Studio LiDAR] [▯]` en haut
+  à droite. L'état de repli est **un seul drapeau pour les deux vues** : sinon le sélecteur
+  sautait du bord gauche du panneau au bord droit de l'écran à chaque changement de vue.
 
-Les trois boutons de l'en-tête sont : *Réinitialiser tous les réglages de rendu*,
+Les trois boutons de l'en-tête sont : *Réinitialiser tous les réglages de rendu*
+(`resetLidarRenderSettings` puis `resetMapStyle`, donc *Fond* compris),
 *Tout replier*, *Masquer le panneau*.
 
 Le panneau ne contient donc **que le rendu** (plus la liste des nuages, qui est
 son sujet). La barre du haut reste celle de l'Itinéraire, `TopBarActions` au
 complet : boîte d'en-tête, groupe *caméra* (*Orbite*, *Caméra libre*, *Point de
-vue*), groupe *scène* (Galerie / Exporter cette vue / Aide) et `ViewSwitch`.
+vue*), groupe *scène* (Galerie / Exporter cette vue / Aide). Le sélecteur de vue est le
+titre du panneau.
 Un mode de caméra n'est pas un réglage d'apparence, et on le change **pendant**
 qu'on lit le panneau.
 
-> La barre du haut n'a pas à s'écarter du panneau : celui-ci commence à
-> `y = 60` alors que le `ViewSwitch` s'arrête à `y = 42`. Les deux se croisent
-> en x, jamais en y. À 1317 px, les trois blocs finissent à 300 / 946 / 1305 px
-> pour une boîte de contenu de 1305 px — ça tient sans réserver de place.
+> La barre du haut s'arrête à la bande du panneau (368 px) même panneau replié : la
+> carte repliée occupe le coin, et une barre qui changerait de largeur au repli
+> ferait sauter ses pastilles d'une ligne à l'autre. À 1291 px, pastille caméra du
+> Studio dépliée comprise, tout tient sur une ligne.
 
 Les sections de l'accordéon sont volontairement **hautes** (~48 px, libellé de
 15 px) et leur filet séparateur est **en retrait** des bords du panneau : une
@@ -231,9 +301,9 @@ suspend l'édition, il doit donc se voir là où l'on regarde, avec une sortie �
 clic — pas dans un groupe de la barre du haut replié par défaut. **En bas**, parce que
 le haut de l'image est où pendent les noms de sommets (la bande et ses textes montent
 jusqu'à ~10 px du bord) : posée en haut, elle les recouvrait ; le bas est le premier plan,
-la partie la moins lue d'un panorama. Sur ordinateur elle se pose juste au-dessus de la
-barre de pilules (*Itinéraire*) ou du bord (Studio, centrée sur la carte visible à gauche
-de `STUDIO_PANEL_STRIP_PX`) ; le menu *Ciel* et le rappel des gestes s'ouvrent vers le
+la partie la moins lue d'un panorama. Sur ordinateur elle se pose au-dessus de la
+mention des sources, centrée sur la carte visible à gauche du panneau
+(`SIDE_PANEL_STRIP_PX`), dans les deux vues ; le menu *Ciel* et le rappel des gestes s'ouvrent vers le
 haut. Sur mobile elle passe par le slot `above` de `MobileToolbar`, sur deux lignes
 (titre, *Changer de lieu*, ✕ ; puis hauteur, *Sommets*, *Ciel*), s'efface quand une
 feuille est ouverte, et le Studio masque son bouton de capture le temps du mode. Le menu
@@ -443,11 +513,12 @@ Ce qu'il faut savoir :
 
 ### Sur mobile (< 768 px)
 
-La barre de pilules est remplacée par une **barre d'outils** en bas, dont chaque
+Le panneau latéral est remplacé par une **barre d'outils** en bas, dont chaque
 outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 
-- vue *Itinéraire* — 5 outils : *Itinéraire* (panneau d'édition + profil) puis les
-  quatre mêmes sections que le desktop (*Fond*, *Courbes*, *Terrain*, *Avancé*) ;
+- vue *Itinéraire* — 4 outils : *Itinéraire* (panneau d'édition + profil) puis les
+  trois mêmes sections que le desktop (*Fond*, *Terrain*, *Avancé*), plus *Réinit.* —
+  le tout tient sans défiler à 390 px ;
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
@@ -507,24 +578,23 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé, et restauration |
-| [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
-| [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` — n'est plus utilisé que par l'Itinéraire |
+| [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* : titre du panneau desktop, pilule de la barre du haut sur mobile |
+| [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives de l'accordéon à droite, partagées par les deux vues : géométrie (`SIDE_PANEL_STRIP_PX`), `DockedSidePanel` (panneau ou sa seule barre de titre, padding de la carte), `SidePanel` (titre = sélecteur de vue), `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton` |
+| [src/components/shell/RouteSidePanel.tsx](../src/components/shell/RouteSidePanel.tsx) | Panneau desktop de l'Itinéraire : sections de carte |
 | [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |
-| [src/components/shell/RouteBottomBar.tsx](../src/components/shell/RouteBottomBar.tsx) | Barre de pilules desktop + bascule du dock |
-| [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
+| [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états réduit/déployé, barre de titre portant la barre d'outils de l'itinéraire, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
 | [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
 | [src/components/lidar/StudioSidePanel.tsx](../src/components/lidar/StudioSidePanel.tsx) | Accordéon de droite du Studio desktop (nuages, rendu) |
-| [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives génériques du panneau : `SidePanel`, `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton`, `SidePanelHandle` |
 | [src/components/lidar/StudioClouds.tsx](../src/components/lidar/StudioClouds.tsx) | Liste des nuages (`StudioCloudList`, panneau) et localisateur flottant (`StudioCloudLocator`, mobile) |
 | [src/components/lidar/StudioCaptureButton.tsx](../src/components/lidar/StudioCaptureButton.tsx) | Bouton rond vert de capture + son menu — **desktop et mobile** |
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, plus `SkyPathSection` (4 cases + date/heure) consommée par le menu *Ciel* de `ViewpointModeBar` |
-| [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la pilule *Avancé* (rendu, clés d'API) |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond* (fond, ombrage, courbes), *Terrain*, plus `SkyPathSection` (4 cases + date/heure) consommée par le menu *Ciel* de `ViewpointModeBar` |
+| [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la section *Avancé* (rendu, clés d'API) |
 | [src/components/ui/SavedRoutesPanel.tsx](../src/components/ui/SavedRoutesPanel.tsx) | `PreviewThumb` — vignette d'itinéraire réutilisée par la galerie |
 
 ### Détection mobile
@@ -554,7 +624,7 @@ flowchart LR
     Which -->|lidar| Studio[LidarStudio.tsx]
     App --> Hook[useIsMobile&#40;&#41;]
     Studio --> Hook
-    Hook -->|false, map| Desktop[Barre de pilules<br/>+ dock Itinéraire]
+    Hook -->|false, map| Desktop[RouteSidePanel<br/>accordéon à droite + dock]
     Hook -->|false, lidar| Panel[StudioSidePanel<br/>accordéon à droite]
     Hook -->|true| Mobile[MobileToolbar<br/>feuilles]
 ```
@@ -562,12 +632,11 @@ flowchart LR
 ### Sections — vue Itinéraire
 
 Définies une seule fois dans `ROUTE_SETTING_SECTIONS`, consommées à l'identique par
-la barre de pilules desktop et la barre d'outils mobile.
+le panneau latéral desktop et la barre d'outils mobile.
 
 | `id`      | Libellé    | Contenu                                  |
 |-----------|------------|------------------------------------------|
-| `fond`    | Fond       | `MapBackgroundSection`                   |
-| `courbes` | Courbes    | `ContourSection`                         |
+| `fond`    | Fond       | `MapBackgroundSection` (épingle, fond, ombrage, fusion, courbes) — aussi la section *Fond* du Studio |
 | `terrain` | Terrain    | `Terrain3DSection` + `TerrainDemSection` |
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
 
@@ -578,7 +647,9 @@ hors de ce mode la carte est plafonnée à `MAP_MAX_PITCH` (85°), donc il n'y a
 l'écran** pour y tracer une course d'astre, ni de panorama à nommer.
 
 Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend
-`BottomPanelContent` — le même contenu que le dock desktop.
+`BottomPanelContent` — le même contenu que le dock desktop, plus la barre d'outils que le
+desktop porte dans la barre du dock (`RoutePanel` la rend en tête quand `useIsMobile()`,
+en boutons tactiles de 36 px).
 
 ### Réglages — Studio
 
@@ -627,7 +698,7 @@ on extrait systématiquement :
 - les registres de sections (`ROUTE_SETTING_SECTIONS`, `STUDIO_RENDER_SETTINGS`),
   partagés entre desktop et mobile ;
 - les briques de chrome dans `src/components/shell/` (`AppHeaderBox`,
-  `TopBarActions`, `RouteBottomBar`, `RouteDock`…) ;
+  `TopBarActions`, `RouteSidePanel`, `RouteDock`…) ;
 - la coquille mobile entière dans un composant séparé (`MobileLayout`,
   `StudioMobileShell`), plutôt qu'un `isMobile ? … : …` inline.
 

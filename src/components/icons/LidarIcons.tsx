@@ -210,3 +210,12 @@ export function EyeOffIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
         </svg>
     );
 }
+
+/** Push pin — a setting shared by both views rather than kept per view. */
+export function PinIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className={className} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 2.75h6M8 2.75v4.5L5.5 10.5v1.25h9V10.5L12 7.25v-4.5M10 11.75v5.5" />
+        </svg>
+    );
+}

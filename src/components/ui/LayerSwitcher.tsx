@@ -121,36 +121,40 @@ export function HillshadeSection() {
     );
 }
 
-/** Contour lines opacity (0 % disables the layer, à la Studio). */
+/** Contour lines: a single slider, 0 hides the layer. */
 export function ContourSection() {
-    const contourLinesOpacity = useMapStore((s) => s.contourLinesOpacity);
-    const setContourLinesOpacity = useMapStore((s) => s.setContourLinesOpacity);
-    const setContourLinesEnabled = useMapStore((s) => s.setContourLinesEnabled);
+    const enabled = useMapStore((s) => s.contourLinesEnabled);
+    const setEnabled = useMapStore((s) => s.setContourLinesEnabled);
+    const opacity = useMapStore((s) => s.contourLinesOpacity);
+    const setOpacity = useMapStore((s) => s.setContourLinesOpacity);
+    const value = enabled ? opacity : 0;
 
-    const applyOpacity = (v: number) => {
-        setContourLinesOpacity(v);
-        // Opacity is the single control: any value above 0 turns the layer on,
-        // 0 turns it off — no separate enable checkbox (mirrors the Studio).
-        setContourLinesEnabled(v > 0);
+    const onChange = (v: number) => {
+        if (v <= 0) {
+            setEnabled(false);
+            return;
+        }
+        setOpacity(v);
+        if (!enabled) setEnabled(true);
     };
 
     return (
         <div>
             <label className="block">
                 <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Opacité courbes de niveau</span>
+                    <span>Courbes de niveau</span>
                     <span className="font-mono text-xs text-slate-400">
-                        {Math.round(contourLinesOpacity * 100)}%
+                        {value <= 0 ? 'off' : `${Math.round(value * 100)}%`}
                     </span>
                 </div>
                 <input
-                    aria-label="Opacité courbes de niveau"
+                    aria-label="Opacité des courbes de niveau"
                     type="range"
                     min={0}
                     max={1}
                     step={0.05}
-                    value={contourLinesOpacity}
-                    onChange={(e) => applyOpacity(Number(e.target.value))}
+                    value={value}
+                    onChange={(e) => onChange(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>
@@ -291,25 +295,6 @@ export function SkyPathSection({ studio = false }: Readonly<{ studio?: boolean }
                 onChange={setHiddenPath}
             />
             <SunDateControl disabled={!tracksOn && !skyOn} />
-        </div>
-    );
-}
-
-/**
- * Full "Couches" panel — composes every layer section with dividers. Used by
- * the mobile bottom sheet; the desktop bottom bar splits these sections across
- * individual pills instead.
- */
-export function LayerSwitcher() {
-    return (
-        <div className="space-y-4">
-            <BaseLayerSection />
-            <div className="h-px bg-gray-200 dark:bg-slate-700" />
-            <HillshadeSection />
-            <div className="h-px bg-gray-200 dark:bg-slate-700" />
-            <ContourSection />
-            <div className="h-px bg-gray-200 dark:bg-slate-700" />
-            <Terrain3DSection />
         </div>
     );
 }

@@ -679,7 +679,7 @@ export interface LidarSlice {
     toggleLidarCloudVisible: (id: string) => void;
     /** Remove every loaded cloud/mesh. */
     clearAllLidarClouds: () => void;
-    /** Reset every LiDAR render setting (opacity, classes, shader, lighting, shadows, EDL, contours…) to its default. Does not unload the cloud. */
+    /** Reset every LiDAR render setting (opacity, classes, shader, lighting, shadows, EDL…) to its default. Does not unload the cloud. */
     resetLidarRenderSettings: () => void;
 }
 
@@ -1290,9 +1290,6 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
                 // A forced lighting has no "default": it is re-synced to the
                 // real sun of the current date rather than to a constant.
                 ...sunStateFor(get(), get().lidarSunDate),
-                // Contour lines belong to terrainSlice but are part of the render reset.
-                contourLinesEnabled: false,
-                contourLinesOpacity: 0.4,
             });
         },
     };

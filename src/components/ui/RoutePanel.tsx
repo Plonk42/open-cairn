@@ -45,46 +45,64 @@ async function buildDefaultRouteName(
     return 'Itinéraire';
 }
 
+/** Lecture / Édition: whether a click on the map drops a waypoint. Also in the dock's summary bar. */
+export function RouteEditToggle({ compact = false }: Readonly<{ compact?: boolean }>) {
+    const active = useRouteStore((s) => s.active);
+    const setActive = useRouteStore((s) => s.setActive);
+    return (
+        <SegmentedControl<'read' | 'edit'>
+            value={active ? 'edit' : 'read'}
+            onChange={(v) => setActive(v === 'edit')}
+            iconOnly={compact}
+            options={[
+                {
+                    value: 'read',
+                    label: 'Lecture',
+                    title: 'Lecture — le clic sur la carte ne modifie pas l\'itinéraire',
+                    icon: (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                            <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                            <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                    ),
+                },
+                {
+                    value: 'edit',
+                    label: 'Édition',
+                    title: 'Édition — le clic sur la carte ajoute un point',
+                    icon: (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                            <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+                        </svg>
+                    ),
+                },
+            ]}
+        />
+    );
+}
+
 export function RoutePanel() {
     const [waypointsOpen, setWaypointsOpen] = useState(true);
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const dragNodeRef = useRef<HTMLDivElement | null>(null);
     const isMobile = useIsMobile();
-    const active = useRouteStore((s) => s.active);
-    // Editing is suspended while the eye is planted on the ground, so the
-    // "click to drop a point" hint would be a lie (see `routeEditingSuspended`).
-    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
     const uiTheme = useMapStore((s) => s.uiTheme);
-    const setActive = useRouteStore((s) => s.setActive);
-    const mode = useRouteStore((s) => s.mode);
-    const setMode = useRouteStore((s) => s.setMode);
     const colorElevationBySlope = useRouteStore((s) => s.colorElevationBySlope);
     const setColorElevationBySlope = useRouteStore((s) => s.setColorElevationBySlope);
     const waypoints = useRouteStore((s) => s.waypoints);
     const routeSegments = useRouteStore((s) => s.routeSegments);
     const profile = useRouteStore((s) => s.profile);
-    const stats = useRouteStore((s) => s.stats);
-    const status = useRouteStore((s) => s.status);
-    const statusMessage = useRouteStore((s) => s.statusMessage);
     const hoverDistance = useRouteStore((s) => s.hoverDistance);
     const selectionRange = useRouteStore((s) => s.selectionRange);
     const setHoverDistance = useRouteStore((s) => s.setHoverDistance);
     const setSelectionRange = useRouteStore((s) => s.setSelectionRange);
-    const clearRoute = useRouteStore((s) => s.clearRoute);
     const removeWaypoint = useRouteStore((s) => s.removeWaypoint);
     const reorderWaypoint = useRouteStore((s) => s.reorderWaypoint);
     const setWaypointSegmentMode = useRouteStore((s) => s.setWaypointSegmentMode);
     const renameWaypoint = useRouteStore((s) => s.renameWaypoint);
-    const restoreWaypoints = useRouteStore((s) => s.restoreWaypoints);
-    const reverseRoute = useRouteStore((s) => s.reverseRoute);
-    const routeCoordinates = useRouteStore((s) => s.routeCoordinates);
     const [editingNameId, setEditingNameId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
-    const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-    const [saveNameDraft, setSaveNameDraft] = useState('');
-    const loadedRouteId = useRouteStore((s) => s.loadedRouteId);
-    const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
     // Both feed ElevationChart's build effect: a new array identity there tears
     // down and rebuilds the whole Chart.js instance, which the flyover would
     // otherwise trigger on every frame through setHoverDistance.
@@ -149,148 +167,21 @@ export function RoutePanel() {
 
     return (
         <div className={isMobile ? 'flex flex-col gap-3 px-1 py-1' : 'flex h-full flex-col px-3 py-2'}>
-            {/* Header bar: mode toggle + stats */}
-            <div className="flex flex-wrap items-center gap-2">
-                {/* Read vs edit — both states are spelled out so the current
-                    one, and what the other would do, are never a guess. */}
-                <SegmentedControl<'read' | 'edit'>
-                    value={active ? 'edit' : 'read'}
-                    onChange={(v) => setActive(v === 'edit')}
-                    options={[
-                        { value: 'read', label: 'Lecture', title: 'Le clic sur la carte ne modifie pas l\'itinéraire' },
-                        { value: 'edit', label: 'Édition', title: 'Le clic sur la carte ajoute un point' },
-                    ]}
-                />
-
-                {/* Mode selector */}
-                <SegmentedControl<RouteMode>
-                    value={mode}
-                    onChange={setMode}
-                    options={[
-                        { value: 'auto', label: 'Guidé', title: 'Les segments suivent les chemins existants (calcul IGN)' },
-                        { value: 'free', label: 'Libre', title: 'Les segments sont des lignes droites entre les points' },
-                    ]}
-                />
-
-                {/* Stats */}
-                <div className="flex items-center gap-2.5 text-xs text-slate-500">
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">{formatDistance(stats.distance)}</span>
-                    <span className="text-green-600">+{formatElevation(stats.ascent)}</span>
-                    <span className="text-blue-500">-{formatElevation(stats.descent)}</span>
-                </div>
-
-                <div className={`ml-auto flex items-center ${isMobile ? 'gap-2' : 'gap-1.5'}`}>
-                    {/* Reverse */}
-                    <button
-                        type="button"
-                        onClick={reverseRoute}
-                        disabled={waypoints.length < 2}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Inverser l'itinéraire"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 00.04 1.06l2.1 1.95H6.75a.75.75 0 000 1.5h8.59l-2.1 1.95a.75.75 0 101.02 1.1l3.5-3.25a.75.75 0 000-1.1l-3.5-3.25a.75.75 0 00-1.06.04zm-6.4 8a.75.75 0 00-1.06-.04l-3.5 3.25a.75.75 0 000 1.1l3.5 3.25a.75.75 0 101.02-1.1l-2.1-1.95h8.59a.75.75 0 000-1.5H4.66l2.1-1.95a.75.75 0 00.04-1.06z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                    {/* Flyover 3D */}
-                    <FlyoverButton size={isMobile ? 'md' : 'sm'} />
-                    {/* Import GPX */}
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            // Open the file chooser FIRST (on the raw click) so the
-                            // browser's transient user activation isn't consumed by the
-                            // replace confirm() — otherwise input.click() is blocked and
-                            // fails on the first attempt.
-                            const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
-                            const result = await importGpxFile(maxWp);
-                            if (!result || result.waypoints.length === 0) return;
-                            if (useRouteStore.getState().waypoints.length > 0
-                                && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
-                            if (result.segments) {
-                                useRouteStore.getState().importRoute(result.waypoints, result.segments);
-                            } else {
-                                restoreWaypoints(result.waypoints);
-                            }
-                            useRouteStore.getState().setMarkers(result.markers);
-                            // Center map on imported waypoints
-                            const coords = result.waypoints.map((wp) => wp.coordinate);
-                            const lngs = coords.map((c) => c[0]);
-                            const lats = coords.map((c) => c[1]);
-                            useMapStore.getState().fitBounds([
-                                Math.min(...lngs), Math.min(...lats),
-                                Math.max(...lngs), Math.max(...lats),
-                            ]);
-                        }}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Importer un GPX"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M9.25 13.25a.75.75 0 001.5 0V4.636l2.955 3.129a.75.75 0 001.09-1.03l-4.25-4.5a.75.75 0 00-1.09 0l-4.25 4.5a.75.75 0 101.09 1.03L9.25 4.636v8.614z" />
-                            <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
-                        </svg>
-                    </button>
-                    {/* Export GPX */}
-                    <button
-                        type="button"
-                        onClick={() => exportGpx(waypoints, routeCoordinates)}
-                        disabled={routeCoordinates.length < 2}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Exporter en GPX"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
-                            <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
-                        </svg>
-                    </button>
-                    {/* Save */}
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            const existing = loadedRouteId ? getSavedRouteById(loadedRouteId) : null;
-                            const defaultName = existing ? existing.name : await buildDefaultRouteName(waypoints, profile);
-                            setSaveNameDraft(defaultName);
-                            setSaveDialogOpen(true);
-                        }}
-                        disabled={waypoints.length < 2}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-emerald-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Sauvegarder l'itinéraire"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
-                        </svg>
-                    </button>
-                    {/* Clear */}
-                    <button
-                        type="button"
-                        onClick={clearRoute}
-                        disabled={waypoints.length === 0}
-                        className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
-                        title="Effacer l'itinéraire"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                </div>
-
-                {/* Status message — falls back to a hint on what edit mode does. */}
-                {statusMessage && (
-                    <div className={`text-xs ${status === 'error' ? 'text-rose-500' : 'text-slate-400'}`}>
-                        {status === 'loading' ? 'Calcul...' : statusMessage}
+            {/* No dock on a phone: the toolbar the dock's bar carries on desktop lives here. */}
+            {isMobile && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <RouteEditToggle />
+                    <RouteModeToggle />
+                    <RouteStats />
+                    <div className="ml-auto">
+                        <RouteActions touch />
                     </div>
-                )}
-                {!statusMessage && active && waypoints.length === 0 && (
-                    <div className="text-xs text-slate-400">
-                        {viewpointOn
-                            ? 'Édition suspendue pendant le mode « Point de vue ».'
-                            : 'Cliquez sur la carte pour poser un point.'}
-                    </div>
-                )}
-            </div>
+                    <RouteStatus />
+                </div>
+            )}
 
             {/* Content: chart + collapsible waypoints */}
-            <div className={isMobile ? 'flex flex-col gap-2' : 'mt-2 flex min-h-0 flex-1'}>
+            <div className={isMobile ? 'flex flex-col gap-2' : 'flex min-h-0 flex-1'}>
                 {/* Elevation chart (fills remaining space) */}
                 <div className={`relative ${isMobile ? 'h-40 w-full' : 'min-w-0 flex-1'}`}>
                     <button
@@ -548,6 +439,188 @@ export function RoutePanel() {
                 </div>
             )}
 
+        </div>
+    );
+}
+
+/** Guidé / Libre: how the next segments are drawn. Same glyphs as the waypoint list's segment buttons. */
+export function RouteModeToggle({ compact = false }: Readonly<{ compact?: boolean }>) {
+    const mode = useRouteStore((s) => s.mode);
+    const setMode = useRouteStore((s) => s.setMode);
+    return (
+        <SegmentedControl<RouteMode>
+            value={mode}
+            onChange={setMode}
+            iconOnly={compact}
+            options={[
+                {
+                    value: 'auto',
+                    label: 'Guidé',
+                    title: 'Guidé — les segments suivent les chemins existants (calcul IGN)',
+                    icon: <span className="w-4 text-center text-sm leading-4" aria-hidden="true">⤳</span>,
+                },
+                {
+                    value: 'free',
+                    label: 'Libre',
+                    title: 'Libre — les segments sont des lignes droites entre les points',
+                    icon: <span className="w-4 text-center text-sm leading-4" aria-hidden="true">⟋</span>,
+                },
+            ]}
+        />
+    );
+}
+
+/** Distance, ascent and descent of the current route. */
+export function RouteStats() {
+    const stats = useRouteStore((s) => s.stats);
+    return (
+        <span className="flex items-center gap-2.5 text-xs text-slate-500">
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{formatDistance(stats.distance)}</span>
+            <span className="text-green-600">+{formatElevation(stats.ascent)}</span>
+            <span className="text-blue-500">-{formatElevation(stats.descent)}</span>
+        </span>
+    );
+}
+
+/** Routing status, falling back to a hint on what edit mode does. */
+export function RouteStatus() {
+    const status = useRouteStore((s) => s.status);
+    const statusMessage = useRouteStore((s) => s.statusMessage);
+    const active = useRouteStore((s) => s.active);
+    const waypoints = useRouteStore((s) => s.waypoints);
+    // Editing is suspended while the eye is planted on the ground, so the
+    // "click to drop a point" hint would be a lie (see `routeEditingSuspended`).
+    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
+    return (
+        <>
+            {statusMessage && (
+                <div className={`text-xs ${status === 'error' ? 'text-rose-500' : 'text-slate-400'}`}>
+                    {status === 'loading' ? 'Calcul...' : statusMessage}
+                </div>
+            )}
+            {!statusMessage && active && waypoints.length === 0 && (
+                <div className="text-xs text-slate-400">
+                    {viewpointOn
+                        ? 'Édition suspendue pendant le mode « Point de vue ».'
+                        : 'Cliquez sur la carte pour poser un point.'}
+                </div>
+            )}
+        </>
+    );
+}
+
+/** Reverse, flyover, GPX in and out, save, clear — and the save dialog they open. */
+export function RouteActions({ touch }: Readonly<{ touch: boolean }>) {
+    const isMobile = touch;
+    const waypoints = useRouteStore((s) => s.waypoints);
+    const routeSegments = useRouteStore((s) => s.routeSegments);
+    const profile = useRouteStore((s) => s.profile);
+    const stats = useRouteStore((s) => s.stats);
+    const clearRoute = useRouteStore((s) => s.clearRoute);
+    const restoreWaypoints = useRouteStore((s) => s.restoreWaypoints);
+    const reverseRoute = useRouteStore((s) => s.reverseRoute);
+    const routeCoordinates = useRouteStore((s) => s.routeCoordinates);
+    const loadedRouteId = useRouteStore((s) => s.loadedRouteId);
+    const setLoadedRouteId = useRouteStore((s) => s.setLoadedRouteId);
+    const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+    const [saveNameDraft, setSaveNameDraft] = useState('');
+    return (
+        <>
+            <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1.5'}`}>
+                {/* Reverse */}
+                <button
+                    type="button"
+                    onClick={reverseRoute}
+                    disabled={waypoints.length < 2}
+                    className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                    title="Inverser l'itinéraire"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 00.04 1.06l2.1 1.95H6.75a.75.75 0 000 1.5h8.59l-2.1 1.95a.75.75 0 101.02 1.1l3.5-3.25a.75.75 0 000-1.1l-3.5-3.25a.75.75 0 00-1.06.04zm-6.4 8a.75.75 0 00-1.06-.04l-3.5 3.25a.75.75 0 000 1.1l3.5 3.25a.75.75 0 101.02-1.1l-2.1-1.95h8.59a.75.75 0 000-1.5H4.66l2.1-1.95a.75.75 0 00.04-1.06z" clipRule="evenodd" />
+                    </svg>
+                </button>
+                {/* Flyover 3D */}
+                <FlyoverButton size={isMobile ? 'md' : 'sm'} />
+                {/* Import GPX */}
+                <button
+                    type="button"
+                    onClick={async () => {
+                        // Open the file chooser FIRST (on the raw click) so the
+                        // browser's transient user activation isn't consumed by the
+                        // replace confirm() — otherwise input.click() is blocked and
+                        // fails on the first attempt.
+                        const maxWp = useRouteStore.getState().gpxImportWaypoints + 2;
+                        const result = await importGpxFile(maxWp);
+                        if (!result || result.waypoints.length === 0) return;
+                        if (useRouteStore.getState().waypoints.length > 0
+                            && !globalThis.confirm('L\'itinéraire actuel sera remplacé. Continuer ?')) return;
+                        if (result.segments) {
+                            useRouteStore.getState().importRoute(result.waypoints, result.segments);
+                        } else {
+                            restoreWaypoints(result.waypoints);
+                        }
+                        useRouteStore.getState().setMarkers(result.markers);
+                        // Center map on imported waypoints
+                        const coords = result.waypoints.map((wp) => wp.coordinate);
+                        const lngs = coords.map((c) => c[0]);
+                        const lats = coords.map((c) => c[1]);
+                        useMapStore.getState().fitBounds([
+                            Math.min(...lngs), Math.min(...lats),
+                            Math.max(...lngs), Math.max(...lats),
+                        ]);
+                    }}
+                    className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                    title="Importer un GPX"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M9.25 13.25a.75.75 0 001.5 0V4.636l2.955 3.129a.75.75 0 001.09-1.03l-4.25-4.5a.75.75 0 00-1.09 0l-4.25 4.5a.75.75 0 101.09 1.03L9.25 4.636v8.614z" />
+                        <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                    </svg>
+                </button>
+                {/* Export GPX */}
+                <button
+                    type="button"
+                    onClick={() => exportGpx(waypoints, routeCoordinates)}
+                    disabled={routeCoordinates.length < 2}
+                    className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-sky-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-sky-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                    title="Exporter en GPX"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+                        <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+                    </svg>
+                </button>
+                {/* Save */}
+                <button
+                    type="button"
+                    onClick={async () => {
+                        const existing = loadedRouteId ? getSavedRouteById(loadedRouteId) : null;
+                        const defaultName = existing ? existing.name : await buildDefaultRouteName(waypoints, profile);
+                        setSaveNameDraft(defaultName);
+                        setSaveDialogOpen(true);
+                    }}
+                    disabled={waypoints.length < 2}
+                    className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-emerald-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                    title="Sauvegarder l'itinéraire"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M5 2.75A2.75 2.75 0 017.75 0h4.5A2.75 2.75 0 0115 2.75V18.5a.75.75 0 01-1.18.614L10 16.367 6.18 19.114A.75.75 0 015 18.5V2.75z" />
+                    </svg>
+                </button>
+                {/* Clear */}
+                <button
+                    type="button"
+                    onClick={clearRoute}
+                    disabled={waypoints.length === 0}
+                    className={`flex items-center justify-center rounded-md text-slate-400 ring-1 ring-gray-200 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30 dark:ring-slate-600 dark:hover:bg-rose-900/30 ${isMobile ? 'h-9 w-9' : 'h-7 w-7'}`}
+                    title="Effacer l'itinéraire"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+
             {/* Save dialog */}
             {saveDialogOpen && (
                 <SaveRouteDialog
@@ -568,7 +641,7 @@ export function RoutePanel() {
                     onCancel={() => setSaveDialogOpen(false)}
                 />
             )}
-        </div>
+        </>
     );
 }
 

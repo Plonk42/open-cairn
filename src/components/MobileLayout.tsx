@@ -1,3 +1,4 @@
+import { ResetSettingsButton } from '@/components/lidar/StudioRenderSettings';
 import { MapSlot } from '@/components/map/MapSlot';
 import { BottomPanelContent } from '@/components/panels/PanelTabs';
 import { MobileActionsMenu } from '@/components/shell/MobileActionsMenu';
@@ -7,14 +8,15 @@ import { RouteExportButton } from '@/components/shell/RouteExportButton';
 import { RouteShareButton } from '@/components/shell/RouteShareButton';
 import { ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
 import { ROUTE_SETTING_SECTIONS, RouteIcon } from '@/components/shell/routeSections';
+import { useMapStore } from '@/stores/mapStore';
 import { useState } from 'react';
 
 /**
  * Itinéraire (`?view=map`) mobile shell. Mirrors the desktop layout with the
  * shared mobile chrome — the compact top bar (badge + view switch + search +
  * actions menu) and the generic bottom toolbar. The route editing panel and
- * the map-styling sections are reused verbatim from the desktop
- * `RouteBottomBar` registry, presented as bottom sheets instead of popovers.
+ * the map-styling sections are reused verbatim from the desktop side panel
+ * (`ROUTE_SETTING_SECTIONS`), presented as bottom sheets instead of accordion sections.
  */
 export function MobileLayout() {
     const [activeTool, setActiveTool] = useState<string | null>(null);
@@ -36,6 +38,12 @@ export function MobileLayout() {
                 tools={tools}
                 activeId={activeTool}
                 onSelect={handleSelect}
+                trailing={(
+                    <ResetSettingsButton
+                        label="Réinitialiser les réglages de la carte (fond, terrain)"
+                        onReset={() => useMapStore.getState().resetMapStyle()}
+                    />
+                )}
                 above={<div className="flex justify-center px-2 pb-2"><ViewpointModeBar /></div>}
             />
         </div>

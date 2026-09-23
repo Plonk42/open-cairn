@@ -21,6 +21,18 @@ techniques vivent dans le document de chaque sujet.
 
 ## Studio LiDAR
 
+- **Les deux vues desktop règlent la carte dans le même accordéon à droite** : l'Itinéraire
+  a abandonné sa barre de pilules du bas, qui était le seul autre vocabulaire, et le bas de la
+  carte est laissé à la barre du mode *Point de vue*.
+- **Sur desktop, le titre de cet accordéon est le sélecteur de vue** (les deux segments
+  *Itinéraire* / *Studio LiDAR*, la vue courante en vert — pas un titre « Vue ⇄ » à bascule,
+  essayé et rejeté : on veut voir les deux valeurs), comme le « meta mode » de *Terrain
+  Viewer*. Le panneau monte jusqu'en haut de l'écran ; replié, il garde cette barre de titre,
+  et l'état de repli est commun aux deux vues. Le mobile garde sa pilule.
+- **Le *Fond* (fond, ombrage, fusion, courbes) est la seule section commune aux deux vues**, et
+  un méta-réglage « Épingler », visuellement à part, la partage entre elles (désactivé par
+  défaut ; épingler recopie la vue courante, désépingler ne restaure rien). Les deux
+  « Réinitialiser » couvrent tout leur panneau sauf *Avancé*.
 - **Le bouton de capture reste le gros rond vert en bas**, hors du panneau de rendu : on ne cadre
   jamais une zone en même temps qu'on règle le rendu de la précédente. Sur desktop il est masqué
   quand le panneau est ouvert.

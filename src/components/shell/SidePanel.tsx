@@ -1,27 +1,88 @@
-import { ChevronDownIcon, type IconProps } from '@/components/icons/LidarIcons';
-import type { ReactElement, ReactNode } from 'react';
+import { ChevronDownIcon, PanelRightIcon, type IconProps } from '@/components/icons/LidarIcons';
+import { ViewSwitch } from '@/components/shell/ViewSwitch';
+import { useMapStore } from '@/stores/mapStore';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
+
+/** Panel width, and the gap it keeps from the viewport edges. */
+export const SIDE_PANEL_WIDTH_PX = 344;
+export const SIDE_PANEL_MARGIN_PX = 12;
+
+/** Horizontal strip the panel occupies, margins included. The top bars stop
+ *  short of it, folded or not, so the panel can rise to the top. */
+export const SIDE_PANEL_STRIP_PX = SIDE_PANEL_WIDTH_PX + 2 * SIDE_PANEL_MARGIN_PX;
+
+/**
+ * Keeps the map's usable area clear of the panel: every `easeTo` / `fitBounds`
+ * frames the padded centre, and the Studio's capture rectangle is born there.
+ */
+export function useMapRightPadding(rightPx: number): void {
+    const map = useMapStore((s) => s.mapInstance);
+    useEffect(() => {
+        map?.setPadding({ top: 0, right: rightPx, bottom: 0, left: 0 });
+    }, [map, rightPx]);
+    // The map outlives either view's panel, so hand it back unpadded on the way out.
+    useEffect(() => () => {
+        useMapStore.getState().mapInstance?.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
+    }, []);
+}
+
+/**
+ * The panel docked right of the map, or — folded — its header alone, so the
+ * view switch it carries stays reachable. Positioned against the map area, so
+ * it never covers what sits below it (the route dock).
+ */
+export function DockedSidePanel({ collapsed, onExpand, bottomInsetPx, children }: Readonly<{
+    collapsed: boolean;
+    onExpand: () => void;
+    /** Room left at the bottom for what floats there (the reduced route dock). */
+    bottomInsetPx: number;
+    children: ReactNode;
+}>): ReactElement {
+    useMapRightPadding(collapsed ? 0 : SIDE_PANEL_STRIP_PX);
+    if (collapsed) {
+        return (
+            <div
+                className="pointer-events-auto absolute z-30 flex items-center gap-1 rounded-2xl border border-black/5 bg-white/95 py-2 pl-3 pr-2 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10"
+                style={{ top: SIDE_PANEL_MARGIN_PX, right: SIDE_PANEL_MARGIN_PX }}
+            >
+                <ViewSwitch />
+                <SidePanelIconButton label="Afficher le panneau de réglages" onClick={onExpand}>
+                    <PanelRightIcon className="h-4 w-4" />
+                </SidePanelIconButton>
+            </div>
+        );
+    }
+    return (
+        <div
+            className="pointer-events-none absolute bottom-0 right-0 top-0 z-30 flex"
+            style={{ padding: SIDE_PANEL_MARGIN_PX, paddingBottom: SIDE_PANEL_MARGIN_PX + bottomInsetPx }}
+        >
+            {children}
+        </div>
+    );
+}
 
 /**
  * Generic right-hand accordion panel: a full-height floating card holding a
  * title bar and a scrollable stack of collapsible sections. Several sections
  * can stay open at once — it is an accordion in the "stacked disclosures"
- * sense, not a one-at-a-time tab strip.
+ * sense, not a one-at-a-time tab strip. Its title is the view switch.
  *
- * Theme-aware (light default + `dark:` variants), like `BottomBar`.
+ * Theme-aware (light default + `dark:` variants).
  */
-export function SidePanel({ title, actions, widthPx, children }: Readonly<{
-    title: string;
+export function SidePanel({ actions, children }: Readonly<{
     actions?: ReactNode;
-    widthPx: number;
     children: ReactNode;
 }>): ReactElement {
     return (
         <aside
-            style={{ width: widthPx }}
+            style={{ width: SIDE_PANEL_WIDTH_PX }}
             className="pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white/95 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10"
         >
-            <header className="flex shrink-0 items-center gap-0.5 border-b border-black/5 px-3 py-2 dark:border-white/10">
-                <h2 className="mr-auto truncate text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
+            <header className="flex shrink-0 items-center gap-0.5 border-b border-black/5 py-2 pl-3 pr-2 dark:border-white/10">
+                <div className="mr-auto">
+                    <ViewSwitch />
+                </div>
                 {actions}
             </header>
             <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
@@ -90,24 +151,5 @@ export function SidePanelGroupLabel({ label }: Readonly<{ label: string }>): Rea
             <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">{label}</span>
             <span className="h-px flex-1 bg-black/10 dark:bg-white/10" aria-hidden="true" />
         </div>
-    );
-}
-
-/** The tab left behind when the panel is folded away. */
-export function SidePanelHandle({ label, onClick, children }: Readonly<{
-    label: string;
-    onClick: () => void;
-    children: ReactNode;
-}>): ReactElement {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            title={label}
-            aria-label={label}
-            className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/5 bg-white/95 text-slate-600 shadow-2xl ring-1 ring-black/5 backdrop-blur-md transition hover:bg-white dark:border-white/10 dark:bg-slate-950/90 dark:text-slate-200 dark:ring-white/10 dark:hover:bg-slate-900"
-        >
-            {children}
-        </button>
     );
 }

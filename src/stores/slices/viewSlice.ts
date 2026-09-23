@@ -4,10 +4,15 @@ import type * as maplibregl from 'maplibre-gl';
 import type { StateCreator } from 'zustand';
 import type { MapState } from '../mapStore';
 import {
+    gateKeyedBaseLayer,
     initialActiveStyle,
     initialAppView,
     initialMapStyleByView,
+    LIDAR_STYLE_DEFAULTS,
+    MAP_STYLE_DEFAULTS,
+    otherView,
     patchActiveStyle,
+    pickFond,
     type MapStyleSettings,
 } from '../mapStyleView';
 import { persisted, type PersistedSettings } from '../persistence';
@@ -35,19 +40,10 @@ export interface ViewSlice {
     setView: (view: Partial<MapView>) => void;
 
     /**
-     * Whether the docked route/elevation panel is present at all. Lives in the
-     * store (not component state) so it survives `App` unmounting when the user
-     * switches to the LiDAR Studio and back — otherwise the panel would always
-     * re-open on return.
-     */
-    bottomOpen: boolean;
-    setBottomOpen: (v: boolean) => void;
-
     /**
-     * Whether the dock is reduced to its summary bar (route stats only, no
-     * chart). Distinct from `bottomOpen`: collapsing keeps the route context
-     * visible in ~40 px, closing removes the dock entirely and gives the
-     * height back to the map.
+     * Whether the docked route/elevation panel is reduced to its summary bar
+     * (route stats only, no chart). The dock itself is always there: reduced,
+     * it keeps the route context and the Lecture / Édition switch in ~40 px.
      */
     bottomCollapsed: boolean;
     setBottomCollapsed: (v: boolean) => void;
@@ -61,6 +57,15 @@ export interface ViewSlice {
     setAppView: (view: AppView) => void;
     /** Per-view map-style bundle (Itinéraire vs LiDAR Studio). */
     mapStyleByView: Record<AppView, MapStyleSettings>;
+    /** Put the active view's map style (fond, terrain) back to its defaults — both views' Fond while pinned. */
+    resetMapStyle: () => void;
+    /**
+     * Meta-setting: the « Fond » is shared by both views instead of one copy
+     * each. Pinning copies the current view's Fond into the other one;
+     * unpinning leaves both copies as they are.
+     */
+    mapStylePinned: boolean;
+    setMapStylePinned: (v: boolean) => void;
 
     baseLayer: BaseLayerId;
     setBaseLayer: (id: BaseLayerId) => void;
@@ -91,16 +96,38 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
     view: persisted.view ?? DEFAULT_VIEW,
     setView: (view) => set((s) => ({ view: { ...s.view, ...view } })),
 
-    bottomOpen: false,
-    setBottomOpen: (bottomOpen) => set({ bottomOpen }),
-
-    bottomCollapsed: false,
+    // Reduced until the first waypoint unfolds it (`RouteDock`).
+    bottomCollapsed: true,
     setBottomCollapsed: (bottomCollapsed) => set({ bottomCollapsed }),
 
     appView: initialAppView,
     setAppView: (view) =>
         set((s) => (view === s.appView ? {} : { appView: view, ...s.mapStyleByView[view] })),
     mapStyleByView: initialMapStyleByView,
+    resetMapStyle: () => {
+        const defaults = get().appView === 'lidar' ? LIDAR_STYLE_DEFAULTS : MAP_STYLE_DEFAULTS;
+        patchActiveStyle(set, {
+            ...defaults,
+            baseLayer: gateKeyedBaseLayer(defaults.baseLayer, get().ignApiKey),
+        });
+    },
+    mapStylePinned: persisted.mapStylePinned ?? false,
+    setMapStylePinned: (mapStylePinned) => {
+        if (!mapStylePinned) {
+            set({ mapStylePinned });
+            return;
+        }
+        set((s) => {
+            const other = otherView(s.appView);
+            return {
+                mapStylePinned,
+                mapStyleByView: {
+                    ...s.mapStyleByView,
+                    [other]: { ...s.mapStyleByView[other], ...pickFond(s.mapStyleByView[s.appView]) },
+                },
+            };
+        });
+    },
 
     baseLayer: initialActiveStyle.baseLayer,
     setBaseLayer: (baseLayer) => patchActiveStyle(set, { baseLayer }),
@@ -124,9 +151,10 @@ export const createViewSlice: StateCreator<MapState, [], [], ViewSlice> = (set, 
 });
 
 /** Persisted keys owned by the view slice. */
-export function selectViewPersisted(s: ViewSlice): Pick<PersistedSettings, 'view' | 'mapStyleByView'> {
+export function selectViewPersisted(s: ViewSlice): Pick<PersistedSettings, 'view' | 'mapStyleByView' | 'mapStylePinned'> {
     return {
         view: s.view,
         mapStyleByView: s.mapStyleByView,
+        mapStylePinned: s.mapStylePinned,
     };
 }

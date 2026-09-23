@@ -15,12 +15,8 @@
       état persisté) ; sous 768 px `StudioMobileShell` garde ses *bottom sheets*
       exclusives. Les deux chromes ont donc divergé un peu plus. À trancher : soit un
       panneau plein écran repliable sur téléphone, soit assumer la divergence et l'écrire
-      dans `UI_SHELL_AND_RESPONSIVE.md` comme un choix (c'est l'état actuel).
-
-- [ ] **`BottomBar.tsx` n'a plus qu'un consommateur** (`RouteBottomBar`, vue Itinéraire)
-      depuis la suppression de `StudioBottomBar`. Si l'Itinéraire passe lui aussi à un
-      panneau latéral, ces primitives disparaissent ; sinon, il faudra assumer deux
-      vocabulaires visuels (pilules en bas / accordéon à droite) dans la même application.
+      dans `UI_SHELL_AND_RESPONSIVE.md` comme un choix (c'est l'état actuel). L'Itinéraire
+      desktop a suivi le même chemin (`RouteSidePanel`) : la question vaut pour les deux vues.
 
 - [ ] La barre du mode *Point de vue* n'a pas été vue à **390 px** : le navigateur de
       VS Code revient à 274 px CSS après `setViewportSize`. À 274 px la seconde rangée passe
@@ -103,3 +99,7 @@
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
       — est nettement plus lourde.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
+- [ ] Dock Itinéraire réduit entre 768 et ~900 px : la barre d'outils (≈ 550 px fixes,
+      pilules en icônes seules) écrase la ligne de progression à une centaine de pixels.
+      Piste : masquer la ligne sous `lg`, ou replier les 6 icônes d'action dans un menu
+      `⋯` à ces largeurs.

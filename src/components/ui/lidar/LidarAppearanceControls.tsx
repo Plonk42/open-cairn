@@ -106,20 +106,6 @@ export function OpacityControls() {
     const ignApiKey = useMapStore((s) => s.ignApiKey);
     const basemapOpacity = useMapStore((s) => s.lidarCloudBasemapOpacity);
     const setBasemapOpacity = useMapStore((s) => s.setLidarCloudBasemapOpacity);
-    const contourEnabled = useMapStore((s) => s.contourLinesEnabled);
-    const setContourEnabled = useMapStore((s) => s.setContourLinesEnabled);
-    const contourOpacity = useMapStore((s) => s.contourLinesOpacity);
-    const setContourOpacity = useMapStore((s) => s.setContourLinesOpacity);
-    // A single slider drives the contour lines: 0 = off, >0 = on at that opacity.
-    const contourValue = contourEnabled ? contourOpacity : 0;
-    const onContourChange = (v: number) => {
-        if (v <= 0) {
-            setContourEnabled(false);
-        } else {
-            if (!contourEnabled) setContourEnabled(true);
-            setContourOpacity(v);
-        }
-    };
 
     return (
         <div className="space-y-3">
@@ -134,23 +120,6 @@ export function OpacityControls() {
                     type="range" min={0} max={1} step={0.05}
                     value={basemapOpacity}
                     onChange={(e) => setBasemapOpacity(Number(e.target.value))}
-                    className="mt-1 w-full accent-green-600"
-                />
-            </label>
-
-            {/* Courbes de niveau — slider 0 = masquées */}
-            <label className="block">
-                <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
-                    <span>Courbes de niveau</span>
-                    <span className="font-mono text-xs text-slate-400">
-                        {contourValue <= 0 ? 'off' : `${Math.round(contourValue * 100)}%`}
-                    </span>
-                </div>
-                <input
-                    aria-label="Opacité des courbes de niveau"
-                    type="range" min={0} max={1} step={0.05}
-                    value={contourValue}
-                    onChange={(e) => onContourChange(Number(e.target.value))}
                     className="mt-1 w-full accent-green-600"
                 />
             </label>

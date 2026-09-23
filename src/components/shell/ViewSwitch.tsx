@@ -6,10 +6,9 @@ const VIEWS: ReadonlyArray<{ id: AppView; label: string }> = [
 ];
 
 /**
- * Shared segmented control switching the top-level app view
- * (Itinéraire ↔ Studio LiDAR) via `useView().setView`. Theme-aware (light
- * default + `dark:` variants); wrap in a `dark` element to force the dark look
- * (as the LiDAR Studio does).
+ * Segmented control switching the top-level app view (Itinéraire ↔ Studio
+ * LiDAR) via `useView().setView`: the side panel's title on desktop, a pill in
+ * the top bar on mobile. Theme-aware (light default + `dark:` variants).
  */
 export function ViewSwitch() {
     const { view, setView } = useView();

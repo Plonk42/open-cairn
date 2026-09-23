@@ -3,9 +3,9 @@ import { AppHeaderBox } from '@/components/shell/AppHeaderBox';
 import { MobileActionsMenu } from '@/components/shell/MobileActionsMenu';
 import { MobileToolbar } from '@/components/shell/MobileToolbar';
 import { MobileTopBar } from '@/components/shell/MobileTopBar';
+import { SIDE_PANEL_MARGIN_PX, SIDE_PANEL_STRIP_PX } from '@/components/shell/SidePanel';
 import { TopBarActions } from '@/components/shell/TopBarActions';
 import { ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
-import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import type * as maplibregl from 'maplibre-gl';
@@ -14,7 +14,7 @@ import { ShowcaseExport } from './ShowcaseExport';
 import { StudioCaptureButton } from './StudioCaptureButton';
 import { StudioCloudLocator } from './StudioClouds';
 import { ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
-import { STUDIO_PANEL_STRIP_PX, StudioSidePanel } from './StudioSidePanel';
+import { StudioSidePanel } from './StudioSidePanel';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -49,12 +49,15 @@ function useStudioCameraIntro() {
 
 /**
  * Desktop top bar. Same composition as the Itinéraire view: header box, camera
- * and scene action groups, view switch. It doesn't step aside for the side
- * panel — the panel starts below it (`PANEL_TOP_PX`), so the two never overlap.
+ * and scene action groups. It stops short of the side panel's strip, folded or
+ * not — the panel rises to the top and carries the view switch.
  */
 function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
     return (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-start gap-3 px-3 py-2.5">
+        <div
+            className="pointer-events-none absolute left-0 top-0 z-40 flex flex-wrap items-start gap-3 px-3 py-2.5"
+            style={{ right: SIDE_PANEL_STRIP_PX - SIDE_PANEL_MARGIN_PX }}
+        >
             {/* Shared app header box (logo + name + search + coordinates). */}
             <div className="pointer-events-auto">
                 <AppHeaderBox />
@@ -62,11 +65,6 @@ function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
 
             {/* Caméra + galerie / export de scène / aide. */}
             <TopBarActions view="lidar" exportSlot={<ShowcaseExport />} onHelp={onHelp} />
-
-            {/* View switch (replaces the old "Quitter le studio" button). */}
-            <div data-tutorial="exit" className="pointer-events-auto ml-auto">
-                <ViewSwitch />
-            </div>
         </div>
     );
 }
@@ -99,7 +97,15 @@ function StudioMobileShell() {
                 tools={STUDIO_RENDER_SETTINGS}
                 activeId={activeId}
                 onSelect={handleSelect}
-                trailing={<ResetSettingsButton />}
+                trailing={(
+                    <ResetSettingsButton
+                        label="Réinitialiser tous les réglages de rendu"
+                        onReset={() => {
+                            useMapStore.getState().resetLidarRenderSettings();
+                            useMapStore.getState().resetMapStyle();
+                        }}
+                    />
+                )}
                 above={<div className="flex justify-center px-2 pb-2"><ViewpointModeBar /></div>}
             />
         </div>
@@ -119,7 +125,7 @@ export function LidarStudio() {
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const tutorialSeen = useMapStore((s) => s.studioTutorialSeen);
     const setTutorialSeen = useMapStore((s) => s.setStudioTutorialSeen);
-    const panelCollapsed = useMapStore((s) => s.studioPanelCollapsed);
+    const panelCollapsed = useMapStore((s) => s.sidePanelCollapsed);
     const hasData = shaded !== null || mesh !== null;
     const isMobile = useIsMobile();
 
@@ -154,7 +160,7 @@ export function LidarStudio() {
             {/* Centred on the map area the panel leaves visible, above the attribution. */}
             <div
                 className="pointer-events-none absolute bottom-12 left-0 z-30 flex justify-center px-3"
-                style={{ right: panelCollapsed ? 0 : STUDIO_PANEL_STRIP_PX }}
+                style={{ right: panelCollapsed ? 0 : SIDE_PANEL_STRIP_PX }}
             >
                 <ViewpointModeBar />
             </div>

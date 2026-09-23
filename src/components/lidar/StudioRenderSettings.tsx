@@ -20,7 +20,6 @@ import {
 } from '@/components/ui/lidar/LidarAppearanceControls';
 import { LidarEffectsControls } from '@/components/ui/lidar/LidarEffectsControls';
 import { BoundShadowControls, SunControls } from '@/components/ui/lidar/LidarLightingControls';
-import { useMapStore } from '@/stores/mapStore';
 import type { ReactElement, ReactNode } from 'react';
 
 export type StudioRenderSettingId =
@@ -55,15 +54,14 @@ export const STUDIO_RENDER_SETTINGS: ReadonlyArray<StudioRenderSetting> = [
     { id: 'edl', label: 'EDL', Icon: EffectsIcon, render: () => <LidarEffectsControls /> },
 ];
 
-/** Resets every LiDAR render setting (opacity, classes, shader, lighting…) to defaults. */
-export function ResetSettingsButton(): ReactElement {
-    const reset = useMapStore((s) => s.resetLidarRenderSettings);
+/** Compact « Réinit. » button closing a mobile toolbar. */
+export function ResetSettingsButton({ label, onReset }: Readonly<{ label: string; onReset: () => void }>): ReactElement {
     return (
         <button
             type="button"
-            onClick={() => reset()}
-            title="Réinitialiser tous les réglages de rendu"
-            aria-label="Réinitialiser tous les réglages de rendu"
+            onClick={onReset}
+            title={label}
+            aria-label={label}
             className="inline-flex items-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
         >
             <ResetIcon className="h-4 w-4" />
