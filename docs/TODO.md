@@ -9,22 +9,13 @@
 - [ ] `settleOnGround` (`ViewpointController`) lit le sol sous l'œil par
       `queryTerrainElevation`, qui retombe sur la même lecture du cache quand l'œil est
       sous le cadre — non vérifié si la hauteur d'œil s'en trouve faussée.
-
-- [ ] **L'accordéon du Studio n'a pas de jumeau mobile.** Le desktop a basculé sur
-      `StudioSidePanel` (sections dépliables simultanément, padding carte à droite,
-      état persisté) ; sous 768 px `StudioMobileShell` garde ses *bottom sheets*
-      exclusives. Les deux chromes ont donc divergé un peu plus. À trancher : soit un
-      panneau plein écran repliable sur téléphone, soit assumer la divergence et l'écrire
-      dans `UI_SHELL_AND_RESPONSIVE.md` comme un choix (c'est l'état actuel). L'Itinéraire
-      desktop a suivi le même chemin (`RouteSidePanel`) : la question vaut pour les deux vues.
-
-- [ ] La barre du mode *Point de vue* n'a pas été vue à **390 px** : le navigateur de
-      VS Code revient à 274 px CSS après `setViewportSize`. À 274 px la seconde rangée passe
-      sur deux lignes ; à 390 px chaque rangée devrait tenir sur une ligne (calcul, pas mesure).
+- [ ] **L'Itinéraire mobile garde ses *bottom sheets*** alors que le desktop est passé à
+      l'accordéon (`RouteSidePanel`). Pour le Studio, la divergence est tranchée
+      (`DECISIONS.md` : il garde ses feuilles) ; pour l'Itinéraire, c'est l'état de fait,
+      pas encore un choix écrit.
 - [ ] *Changer de lieu* recule sur une vue d'ensemble centrée sur l'ancien lieu, mais rien
       ne marque cet ancien lieu sur la carte : un repère (le temps du choix) aiderait à se
       situer.
-
 - [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
       désactivation de notre part : `_elevateCameraIfInsideTerrain` (maplibre-gl 5.11) est
       bien la méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,
@@ -42,9 +33,11 @@
       tuiles de terrain de MapLibre, vues de l'intérieur du versant à incidence rasante.
       L'œil est pourtant bien au-dessus du sol (1,70 m garanti désormais) ; c'est le relief
       des 20 m alentour qui le dépasse (mesuré : +8,44 m à 20 m sur un versant des Aiguilles
-      Rouges). Deux pistes : monter l'œil à ~15 m, ou accrocher le clic au **point haut local**
-      dans un rayon de quelques centaines de mètres, comme PeakFinder — le sol tombe alors
-      immédiatement et le problème disparaît sans tricher sur la hauteur.
+      Rouges). Trois pistes : `terrainSkirtLength: 'none'` à la création de la carte (option
+      de MapLibre v6, sur laquelle le dépôt est passé sans l'ajouter à `MapContainer.tsx` :
+      les jupes restent en `"auto"`), monter l'œil à ~15 m, ou accrocher le clic au **point
+      haut local** dans un rayon de quelques centaines de mètres, comme PeakFinder — le sol
+      tombe alors immédiatement et le problème disparaît sans tricher sur la hauteur.
 - [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
       le champ ne peut faire apparaître que des sommets déjà marchés. La portée des rangs 1
       et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
@@ -76,10 +69,6 @@
 - [ ] `tools/check-wikidata2.mjs` n'est pas versionné. Contrairement à `verify-peaks.mjs`, il
       ne dépend d'aucune donnée hors dépôt et pourrait tourner en CI. À nettoyer (`.sort` en
       expression, gabarit imbriqué) avant de le committer.
-- [ ] Régler `terrainSkirtLength: 'none'` sur la création de la carte : le dépôt est passé à
-      MapLibre GL JS v6 (l'option existe depuis cette version, dans `MapOptions`), mais le
-      réglage n'a pas été ajouté à `MapContainer.tsx` dans le cadre de cette montée de version.
-      Les jupes de terrain restent au réglage `"auto"` par défaut de MapLibre.
 - [ ] `@deck.gl/core`, `@deck.gl/layers` et `@deck.gl/mapbox` sont toujours déclarés dans
       `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
       la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
@@ -99,7 +88,3 @@
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
       — est nettement plus lourde.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
-- [ ] Dock Itinéraire réduit entre 768 et ~900 px : la barre d'outils (≈ 550 px fixes,
-      pilules en icônes seules) écrase la ligne de progression à une centaine de pixels.
-      Piste : masquer la ligne sous `lg`, ou replier les 6 icônes d'action dans un menu
-      `⋯` à ces largeurs.

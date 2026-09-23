@@ -38,8 +38,8 @@ techniques vivent dans le document de chaque sujet.
   quand le panneau est ouvert.
 - **Les modes de caméra restent dans la barre du haut**, pas dans le panneau : ils se changent
   pendant qu'on lit le panneau, et les deux ne se recouvrent pas verticalement.
-- **Le Studio mobile garde ses bottom sheets** (divergence avec le panneau desktop, notée dans
-  `TODO.md`).
+- **Le Studio mobile garde ses bottom sheets** : divergence assumée avec l'accordéon desktop
+  (limitation listée dans `UI_SHELL_AND_RESPONSIVE.md`).
 - **« Partager » n'existe que dans la vue Itinéraire** : un lien ne transporte aucun nuage. Les noms
   de sommets restent hors du lien.
 - **Reportés** : glisser la zone de capture pour la recentrer, poignée de rotation du cap.

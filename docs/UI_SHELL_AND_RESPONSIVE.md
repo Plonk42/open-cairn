@@ -533,9 +533,10 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 
 ### Limitations
 
-- **L'accordéon du Studio n'a pas de jumeau mobile** : sous 768 px, le Studio
-  garde ses *bottom sheets* (`StudioMobileShell`). Les deux chromes divergent
-  donc davantage qu'avant — voir [TODO.md](TODO.md).
+- **L'accordéon de droite n'a pas de jumeau mobile** : sous 768 px, les deux vues
+  gardent leurs *bottom sheets* (`MobileLayout`, `StudioMobileShell`). C'est un choix
+  pour le Studio (`DECISIONS.md`), un état de fait pour l'Itinéraire — voir
+  [TODO.md](TODO.md).
 - **Pas de mode paysage** dédié sur mobile : si le téléphone est en paysage et large
   comme une tablette, on bascule en layout desktop, ce qui peut laisser peu de place à
   la carte.
