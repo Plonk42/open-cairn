@@ -1,10 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const rawGet = vi.fn<(begin: number, end: number) => Promise<Uint8Array>>();
-
-vi.mock('copc', () => ({ Getter: { create: () => rawGet } }));
 // The throttle is exercised by the real pipeline, not here: stubbing it keeps
-// the backoff `sleep` as the only timer the fake clock has to drive.
+// the backoff `sleep` and the idle deadline as the only timers to drive.
 vi.mock('./rateLimiter', () => ({
     acquireGlobal: vi.fn(async () => { }),
     releaseGlobal: vi.fn(),
@@ -13,13 +10,38 @@ vi.mock('./rateLimiter', () => ({
 
 const { createRangeGetter } = await import('./rangeGetter');
 
-/** A `fetch` that drops the connection, as IGN does under load. */
-async function connectionDropped(): Promise<Uint8Array> {
-    throw new TypeError('Failed to fetch');
+const TILE_URL = 'https://example.test/t.copc.laz';
+
+/** A body served chunk by chunk; `hang` keeps it open until the request is aborted. */
+function body(chunks: number[], signal: AbortSignal, hang = false): ReadableStream<Uint8Array> {
+    let i = 0;
+    return new ReadableStream<Uint8Array>({
+        pull(ctl) {
+            if (i < chunks.length) ctl.enqueue(new Uint8Array(chunks[i++]));
+            else if (!hang) ctl.close();
+            else return new Promise<void>(() => signal.addEventListener('abort', () => ctl.error(signal.reason)));
+        },
+    });
 }
 
-/** Run `p` while draining the exponential backoff sleeps it schedules. */
-async function withBackoff<T>(p: Promise<T>): Promise<T> {
+type Reply = (signal: AbortSignal) => Promise<Response>;
+
+const partial = (chunks: number[], hang = false): Reply =>
+    async (signal) => ({ status: 206, body: body(chunks, signal, hang) }) as unknown as Response;
+
+/** Stub `fetch` with one reply per call, in order. */
+function stubFetch(...replies: Reply[]) {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+        const reply = replies.shift();
+        if (!reply) throw new Error('unexpected fetch');
+        return reply(init.signal as AbortSignal);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+}
+
+/** Run `p` while draining the backoff sleeps and idle deadlines it schedules. */
+async function withTimers<T>(p: Promise<T>): Promise<T> {
     vi.useFakeTimers();
     // Settle into a thunk right away: a rejection parked behind the fake clock
     // would otherwise surface as an unhandled rejection.
@@ -28,7 +50,7 @@ async function withBackoff<T>(p: Promise<T>): Promise<T> {
         (err: unknown) => () => { throw err; },
     );
     try {
-        for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(120_000);
+        for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(60_000);
         return (await settled)();
     } finally {
         vi.useRealTimers();
@@ -36,44 +58,55 @@ async function withBackoff<T>(p: Promise<T>): Promise<T> {
 }
 
 describe('createRangeGetter', () => {
-    beforeEach(() => rawGet.mockReset());
+    afterEach(() => vi.unstubAllGlobals());
 
     it('retries a rejected fetch instead of aborting the capture', async () => {
-        rawGet
-            .mockImplementationOnce(connectionDropped)
-            .mockImplementationOnce(() => Promise.resolve(new Uint8Array(100)));
-
-        const { get, stats } = createRangeGetter('https://example.test/t.copc.laz');
-        const buf = await withBackoff(get(0, 100));
+        const fetchMock = stubFetch(
+            async () => { throw new TypeError('Failed to fetch'); },
+            partial([100]),
+        );
+        const { get, stats } = createRangeGetter(TILE_URL);
+        const buf = await withTimers(get(0, 100));
 
         expect(buf.byteLength).toBe(100);
-        expect(rawGet).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(stats).toEqual({ ranges: 1, bytes: 100 });
     });
 
     it('does not retry a body that is merely a few bytes short', async () => {
-        rawGet.mockImplementation(() => Promise.resolve(new Uint8Array(99)));
-
-        const { get } = createRangeGetter('https://example.test/t.copc.laz');
-        const err = await withBackoff(get(0, 100)).catch((e: Error) => e);
+        const fetchMock = stubFetch(partial([99]));
+        const { get } = createRangeGetter(TILE_URL);
+        const err = await withTimers(get(0, 100)).catch((e: Error) => e);
 
         expect((err as Error).message).toMatch(/plage de 100 octets/);
-        expect(rawGet).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('retries a connection that stays open without answering', async () => {
-        rawGet
-            // Answers only past the deadline, as a connection IGN left open does.
-            .mockImplementationOnce(() => new Promise<Uint8Array>((resolve) => {
-                setTimeout(() => resolve(new Uint8Array(100)), 130_000);
-            }))
-            .mockImplementationOnce(() => Promise.resolve(new Uint8Array(100)));
-
-        const { get, stats } = createRangeGetter('https://example.test/t.copc.laz');
-        const buf = await withBackoff(get(0, 100));
+    it('reports bytes as they stream in, and takes back those of a stalled attempt', async () => {
+        const fetchMock = stubFetch(partial([40], true), partial([60, 40]));
+        const reported: number[] = [];
+        const { get } = createRangeGetter(TILE_URL);
+        const buf = await withTimers(get(0, 100, (n) => reported.push(n)));
 
         expect(buf.byteLength).toBe(100);
-        expect(rawGet).toHaveBeenCalledTimes(2);
-        expect(stats).toEqual({ ranges: 1, bytes: 100 });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(reported).toEqual([40, -40, 60, 40]);
+    });
+
+    it('retries a whole-file 200 without reading past its first bytes', async () => {
+        let pulled = 0;
+        const whole: Reply = async () => ({
+            status: 200,
+            body: new ReadableStream<Uint8Array>({
+                pull(ctl) { pulled++; ctl.enqueue(new Uint8Array(1024)); },
+            }),
+        }) as unknown as Response;
+        const fetchMock = stubFetch(whole, partial([100]));
+        const { get } = createRangeGetter(TILE_URL);
+        const buf = await withTimers(get(0, 100));
+
+        expect(buf.byteLength).toBe(100);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(pulled).toBeLessThanOrEqual(2);
     });
 });

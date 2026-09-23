@@ -57,7 +57,9 @@ export interface ExtractParams {
      */
     needScan?: boolean;
     signal?: AbortSignal;
-    /** Called with the size of every range read, as it lands. */
+    /** Called once, after the hierarchy walk, with the point-data bytes about to be fetched. */
+    onPlannedBytes?: (bytes: number) => void;
+    /** Called as point-data bytes land (negative when a failed attempt is taken back). */
     onBytes?: (bytes: number) => void;
 }
 
@@ -277,7 +279,7 @@ function collectNodePoints(ctx: CollectCtx): { kept: number; keptExempt: number;
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
     const rect = params.rect ?? null;
-    const { get, stats } = createRangeGetter(tileUrl, params.onBytes);
+    const { get, stats } = createRangeGetter(tileUrl);
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();
     const tCreate = performance.now();
@@ -306,6 +308,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     // The WFS bbox is padded (WGS84 AABB of the rotated L93 box), so it can
     // return a tile whose data lies entirely outside the query box.
     if (nodes.length === 0) {
+        params.onPlannedBytes?.(0);
         return {
             positions: new Float32Array(0),
             classifications: new Uint8Array(0),
@@ -347,6 +350,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),
         'coalesced', sorted.length, '→', groups.length, 'ranges',
         `(overhead ${((totalGroupBytes / Math.max(1, totalNodeBytes) - 1) * 100).toFixed(1)}%)`);
+    params.onPlannedBytes?.(totalGroupBytes);
 
     // Pre-fetch every group concurrently (subject to acquireGlobal). Slice
     // out the per-node buffers into a Map so the decompress step below
@@ -354,7 +358,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     const tFetch = performance.now();
     const nodeBuffers = new Map<string, Uint8Array>();
     await Promise.all(groups.map(async (g) => {
-        const buf = await get(g.begin, g.end);
+        const buf = await get(g.begin, g.end, params.onBytes);
         for (const it of g.items) {
             const start = it.node.pointDataOffset - g.begin;
             nodeBuffers.set(it.key, buf.subarray(start, start + it.node.pointDataLength));

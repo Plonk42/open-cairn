@@ -54,10 +54,14 @@ Dans le panneau **LiDAR** :
 5. **Capturer** : une barre de progression suit les étapes
    (recherche de dalles → téléchargement → décodage → normales / mesh /
    reconstruction Poisson). Pendant le téléchargement, la ligne de détail
-   compte les dalles terminées **et les mégaoctets reçus** (`1/4 dalles ·
-   3,2 Mo reçus`, rafraîchi quatre fois par seconde) : une dalle peut prendre
-   plusieurs minutes, et c'est le compteur d'octets qui distingue un
-   téléchargement lent d'un téléchargement bloqué.
+   compte les dalles terminées **et les mégaoctets reçus sur le total**
+   (`1/4 dalles · 3,2 / 25,0 Mo`, rafraîchi quatre fois par seconde), et la
+   barre avance à l'octet. Le total est **exact** : après la lecture de la
+   hiérarchie COPC (quelques ko par dalle), on connaît à l'octet près les plages
+   qui vont être demandées. Tant que toutes les dalles n'ont pas lu la leur,
+   la ligne affiche `3,2 Mo reçus`. C'est le compteur d'octets qui distingue un
+   téléchargement lent d'un téléchargement bloqué : une dalle peut prendre
+   plusieurs minutes.
 
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).
@@ -377,7 +381,7 @@ EVLR. On HTTP-Range-fetch uniquement les nœuds qui intersectent notre bbox.
 
 ```mermaid
 flowchart TD
-    T([tileUrl, x0, y0,<br/>radius, stride, targetSpacing,<br/>classFilter]) --> G[Getter.create url<br/>+ semaphore + retry]
+    T([tileUrl, x0, y0,<br/>radius, stride, targetSpacing,<br/>classFilter]) --> G[createRangeGetter url<br/>+ semaphore + retry]
     G --> H[Copc.create<br/>reads LAS header + COPC VLR]
     H --> LVL[copcMaxLevel<br/>root spacing → max depth]
     LVL --> WALK[collectIntersectingNodes<br/>BFS over hierarchy pages<br/>skips nodes deeper than max]
@@ -399,10 +403,12 @@ connexion. Le wrapper `get` gère les deux de façon transparente :
 flowchart LR
     REQ([get begin, end]) --> SEM{inflight &lt; MAX_INFLIGHT_GLOBAL ?<br/>4 aujourd'hui}
     SEM -->|no| WAIT[await queue slot]
-    SEM -->|yes| FETCH[rawGet via copc.js]
+    SEM -->|yes| FETCH[fetch Range,<br/>corps lu en flux]
     WAIT --> FETCH
-    FETCH -->|fetch rejette| DROP[Connexion coupée :<br/>got = 0, message conservé]
-    FETCH -->|réponse| CHK{byteLength == expected ?}
+    FETCH -->|fetch rejette,<br/>ou 60 s sans octet| DROP[Connexion coupée :<br/>got = 0, message conservé]
+    FETCH -->|statut ≠ 206| REF[Premiers octets lus,<br/>reste abandonné]
+    REF --> BACK
+    FETCH -->|206| CHK{byteLength == expected ?}
     CHK -->|yes| OK([return buffer])
     CHK -->|no| DEC[Décodage du corps en UTF-8<br/>429 / 503 / 'too many' ?]
     DROP --> BACK
@@ -420,6 +426,14 @@ flowchart LR
 - Chaque reprise appelle `noteRateLimit`, ce qui gare aussi les requêtes des
   autres dalles pendant la fenêtre — le sémaphore et la fenêtre glissante sont
   au scope module, donc réellement globaux à la capture.
+- Le corps est lu **en flux** par nos soins plutôt que par `Getter.create` de
+  `copc`, pour trois raisons : chaque morceau reçu alimente la progression
+  (une plage fusionnée peut faire 16 Mo) ; le délai porte sur l'**inactivité**
+  — 60 s sans un octet — et non sur la durée totale, qu'une grosse plage sous
+  un IGN saturé dépasse légitimement ; et une réponse 200 (la dalle entière,
+  ~200 Mo) est abandonnée après ses premiers octets au lieu d'être téléchargée
+  pour rien. Les octets d'une tentative ratée sont décomptés de la progression,
+  qui ne dépasse donc jamais le total.
 
 ### Finalisation par mode
 
@@ -624,15 +638,14 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 
   | Appel | Délai | En cas de dépassement |
   |---|---|---|
-  | *Range-request* COPC ([rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts)) | 120 s | Reprise comme une connexion coupée (5 tentatives, backoff 1/2/4/8 s), puis erreur affichée |
+  | *Range-request* COPC ([rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts)) | 60 s **sans octet reçu** | Reprise comme une connexion coupée (5 tentatives, backoff 1/2/4/8 s), puis erreur affichée |
   | WFS des dalles ([wfs.ts](../src/lib/lidarBrowser/wfs.ts)) | 30 s | Erreur affichée, capture interrompue |
   | WFS BD Forêt ([bdforet.ts](../src/lib/lidarBrowser/bdforet.ts)) | 60 s | Typage de la végétation sauté, capture poursuivie |
   | Tuile de mosaïque, drapage et CoSIA ([orthoTexture.ts](../src/lib/lidarBrowser/orthoTexture.ts)) | 30 s | Tuile laissée vide |
 
-  Les délais sont portés par `withTimeout` ([deadline.ts](../src/lib/lidarBrowser/deadline.ts)),
-  sauf celui des *range-requests* : `copc` n'accepte pas de `signal`, la
-  requête abandonnée continue donc en arrière-plan et c'est la promesse qui
-  est mise en concurrence avec un minuteur.
+  Les délais des appels WFS et des tuiles sont portés par `withTimeout`
+  ([deadline.ts](../src/lib/lidarBrowser/deadline.ts)) ; celui des
+  *range-requests* est réarmé à chaque morceau reçu.
 - **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
   kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
   exploitable.
@@ -643,7 +656,7 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 |-------------------------------------------------|--------------------------------------------------------------------------|
 | Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT_GLOBAL` dans [rateLimiter.ts](../src/lib/lidarBrowser/rateLimiter.ts) |
 | Capture qui s'arrête sur `Failed to fetch`      | L'IGN a coupé la connexion 5 fois de suite sur la même plage ; chercher `[lidarBrowser] retry` en console pour confirmer que la reprise a bien joué |
-| Capture qui n'avance plus, sans erreur          | Regarder le compteur « Mo reçus » : s'il est figé, une connexion IGN est en suspens et atteindra son délai (`aucune réponse après 120 s` en console). S'il avance, IGN est seulement lent |
+| Capture qui n'avance plus, sans erreur          | Regarder le compteur de mégaoctets : s'il est figé, une connexion IGN est en suspens et atteindra son délai (`aucune donnée reçue depuis 60 s` en console). S'il avance, IGN est seulement lent |
 | Paliers de qualité qui ne bougent jamais        | La sonde a échoué : chercher `pyramid probe failed` en console, la table nationale sert alors de repli |
 | Toast *« Aucune dalle LiDAR HD »*               | Bbox WFS ; vérifier l'ordre lng,lat dans `wfs.ts`                        |
 | Points qui dérivent au pitch / pan              | Matrice du shader `LidarWebGLLayer` ; vérifier l'usage de `mainMatrix`   |

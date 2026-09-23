@@ -15,35 +15,34 @@
  * Worse than a dropped connection is one that stays open and never answers:
  * `fetch` neither resolves nor rejects, the range keeps one of the four global
  * in-flight slots for good, and four of them freeze the whole capture with no
- * error, no log and a progress bar that never moves. Hence the deadline below.
+ * error, no log and a progress bar that never moves.
+ *
+ * So the body is read here as a stream rather than through `Getter.create`:
+ * the deadline is on inactivity (a coalesced range can be 16 MB, which takes
+ * minutes on a saturated IGN without being stalled), every chunk is reported
+ * as it lands, and a non-partial answer is dropped after its first bytes
+ * instead of pulling a whole tile.
  */
-import { Getter } from 'copc';
 import { acquireGlobal, noteRateLimit, releaseGlobal } from './rateLimiter';
 
 const MAX_ATTEMPTS = 5;
 
-// Generous on purpose: a ~1 MB COPC chunk still needs ~40 s when IGN is
-// saturated and the four slots share ~100 ko/s. Only a real hang exceeds it.
-const RANGE_TIMEOUT_MS = 120_000;
+const RANGE_IDLE_TIMEOUT_MS = 60_000;
 
 /** Byte-range reader handed to the `copc` package. */
-export type RangeGet = ReturnType<typeof Getter.create>;
+export type RangeGet = (begin: number, end: number) => Promise<Uint8Array>;
+
+/** {@link RangeGet} that can also report the bytes of this one read as they land. */
+export type TrackedRangeGet = (
+    begin: number, end: number, onBytes?: (bytes: number) => void,
+) => Promise<Uint8Array>;
 
 /** Bytes and range count fetched so far, for the pipeline's stage logs. */
 export interface RangeStats { ranges: number; bytes: number }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+type Outcome = { buf: Uint8Array } | { snippet: string; got: number };
 
-/** Reject once `ms` has passed; `p` itself can't be aborted through `copc`. */
-function withDeadline(p: Promise<Uint8Array>, ms: number): Promise<Uint8Array> {
-    return new Promise<Uint8Array>((resolve, reject) => {
-        const timer = setTimeout(
-            () => reject(new Error(`aucune réponse après ${Math.round(ms / 1000)} s`)),
-            ms,
-        );
-        p.then(resolve, reject).finally(() => clearTimeout(timer));
-    });
-}
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function isRetriable(snippet: string, got: number, expected: number): boolean {
     return /429|503|too many|throttl|unavailable/i.test(snippet) || got < expected / 8;
@@ -60,17 +59,72 @@ function snippetOf(buf: Uint8Array): string {
     }
 }
 
+/** Copy a streamed body into `buf`; returns the byte count, which exceeds `buf` on overflow. */
+async function drainInto(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    buf: Uint8Array,
+    onChunk: (bytes: number) => void,
+): Promise<number> {
+    let off = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return off;
+        if (off + value.byteLength > buf.byteLength) {
+            await reader.cancel();
+            return off + value.byteLength;
+        }
+        buf.set(value, off);
+        off += value.byteLength;
+        onChunk(value.byteLength);
+    }
+}
+
+/** Why a non-206 answer was refused: a 200 is the whole ~200 MB tile, never read past its head. */
+async function refusal(res: Response, ctl: AbortController): Promise<Outcome> {
+    const head = res.body ? (await res.body.getReader().read()).value : undefined;
+    ctl.abort();
+    const text = head ? snippetOf(head) : '';
+    return { snippet: `HTTP ${res.status} ${text}`.trim(), got: 0 };
+}
+
+/** Stream `[begin, end)` of `url`, aborting once no byte has arrived for {@link RANGE_IDLE_TIMEOUT_MS}. */
+async function streamRange(
+    url: string, begin: number, end: number, onChunk: (bytes: number) => void,
+): Promise<Outcome> {
+    const ctl = new AbortController();
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+        clearTimeout(idle);
+        idle = setTimeout(
+            () => ctl.abort(new Error(`aucune donnée reçue depuis ${RANGE_IDLE_TIMEOUT_MS / 1000} s`)),
+            RANGE_IDLE_TIMEOUT_MS,
+        );
+    };
+    arm();
+    try {
+        const res = await fetch(url, {
+            headers: { Range: `bytes=${begin}-${end - 1}` },
+            signal: ctl.signal,
+        });
+        if (res.status !== 206 || !res.body) return await refusal(res, ctl);
+        const buf = new Uint8Array(end - begin);
+        const got = await drainInto(res.body.getReader(), buf, (n) => { arm(); onChunk(n); });
+        return got === buf.byteLength ? { buf } : { snippet: snippetOf(buf.subarray(0, got)), got };
+    } finally {
+        clearTimeout(idle);
+    }
+}
+
 /** One throttled range read: the payload, or why it should be tried again. */
 async function attemptRange(
-    rawGet: RangeGet,
+    url: string,
     begin: number,
     end: number,
-): Promise<{ buf: Uint8Array } | { snippet: string; got: number }> {
+    onChunk: (bytes: number) => void,
+): Promise<Outcome> {
     await acquireGlobal();
     try {
-        const buf = await withDeadline(rawGet(begin, end), RANGE_TIMEOUT_MS);
-        if (buf.byteLength === end - begin) return { buf };
-        return { snippet: snippetOf(buf), got: buf.byteLength };
+        return await streamRange(url, begin, end, onChunk);
     } catch (err) {
         // `fetch` rejects outright when IGN drops the connection under load
         // (HTTP/2 GOAWAY, reset): a hiccup to back off from, not a decoding
@@ -83,22 +137,25 @@ async function attemptRange(
 
 export function createRangeGetter(
     tileUrl: string,
-    onBytes?: (bytes: number) => void,
-): { get: RangeGet; stats: RangeStats } {
-    const rawGet = Getter.create(tileUrl);
+): { get: TrackedRangeGet; stats: RangeStats } {
     const stats: RangeStats = { ranges: 0, bytes: 0 };
     const tileName = tileUrl.split('/').pop() ?? tileUrl;
-    const get: typeof rawGet = async (begin: number, end: number) => {
+    const get: TrackedRangeGet = async (begin, end, onBytes) => {
         const expected = end - begin;
         let lastSnippet = '';
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            const outcome = await attemptRange(rawGet, begin, end);
+            let received = 0;
+            const outcome = await attemptRange(tileUrl, begin, end, (n) => {
+                received += n;
+                onBytes?.(n);
+            });
             if ('buf' in outcome) {
                 stats.bytes += outcome.buf.byteLength;
                 stats.ranges++;
-                onBytes?.(outcome.buf.byteLength);
                 return outcome.buf;
             }
+            // A failed attempt's bytes will be fetched again: take them back.
+            if (received > 0) onBytes?.(-received);
             lastSnippet = outcome.snippet;
             if (!isRetriable(lastSnippet, outcome.got, expected) || attempt === MAX_ATTEMPTS - 1) break;
             const delay = 1000 * (2 ** attempt);

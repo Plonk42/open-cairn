@@ -107,27 +107,34 @@ const BYTES_REPORT_INTERVAL_MS = 250;
 /**
  * Progress of the tile stage, counted in bytes as well as in finished tiles:
  * a tile can take minutes, and a byte count that stops moving is the only way
- * to tell a stalled download from a slow one.
+ * to tell a stalled download from a slow one. The total is known exactly once
+ * every tile has walked its hierarchy, which takes a few kB and seconds.
  */
 function tileProgress(tileCount: number, onProgress: ProgressCallback): {
+    plan: (bytes: number) => void;
     addBytes: (bytes: number) => void;
     tileDone: () => void;
 } {
     const plural = tileCount > 1 ? 's' : '';
+    const mb = (bytes: number) => (bytes / 1_048_576).toFixed(1).replace('.', ',');
     let done = 0;
+    let planned = 0;
+    let total = 0;
     let bytes = 0;
     let lastReport = 0;
     const report = () => {
         lastReport = performance.now();
-        const mb = (bytes / 1_048_576).toFixed(1).replace('.', ',');
+        const known = planned === tileCount && total > 0;
         onProgress({
             stage: 'tiles',
             message: STAGE_LABELS.tiles,
-            detail: `${done}/${tileCount} dalle${plural} · ${mb} Mo reçus`,
-            progress: done / tileCount,
+            detail: `${done}/${tileCount} dalle${plural} · `
+                + (known ? `${mb(bytes)} / ${mb(total)} Mo` : `${mb(bytes)} Mo reçus`),
+            progress: known ? bytes / total : done / tileCount,
         });
     };
     return {
+        plan: (n) => { planned++; total += n; report(); },
         addBytes: (n) => {
             bytes += n;
             if (performance.now() - lastReport >= BYTES_REPORT_INTERVAL_MS) report();
@@ -343,6 +350,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
             rect: rectCrop,
             needScan,
             signal: params.signal,
+            onPlannedBytes: tileReport.plan,
             onBytes: tileReport.addBytes,
         });
         tileReport.tileDone();
