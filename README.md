@@ -22,11 +22,14 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   IGN sur le fond choisi, via un protocole MapLibre custom `composite://`
 - **Relief 3D** — terrain MapLibre alimenté par le MNT IGN (TerrainRGB) ou Mapterhorn (MNT LiDAR HD), exagération réglable
 - **Recherche & géocodage** — autocomplétion adresse / lieu-dit / POI via les services IGN sans clé
-- **Itinéraires** — pose de waypoints à la carte, segments en mode *guidé* (API Navigation IGN piéton) ou *libre* (ligne droite)
+- **Itinéraires** — pose de waypoints à la carte, segments en mode *guidé* (API Navigation IGN piéton) ou *libre* (ligne droite) ;
+  sur ordinateur, un **dock** toujours présent sous la carte porte toute la barre d'outils
+  (*Lecture / Édition*, *Guidé / Libre*, inverser, survol, GPX, sauvegarde) — réduit, c'est une
+  barre posée sur le bas de la carte avec une ligne de progression colorée par la pente
 - **Profil altimétrique interactif** — Chart.js avec coloration par pente, survol synchronisé, sélection drag
 - **Survol 3D** — animation caméra le long de l'itinéraire (look-ahead, lissage, cap)
 - **Itinéraires sauvegardés** — localStorage avec aperçu polyline + thumbnail
-- **Import / export GPX** — preserves la géométrie originale des traces, affiche les `<wpt>` comme marqueurs nommés
+- **Import / export GPX** — préserve la géométrie originale des traces, affiche les `<wpt>` comme marqueurs nommés
 - **Vue partageable** — URL hash encodant tout l'état de l'application
 - **Nuages LiDAR HD** — zone de capture **dessinée à la souris** sur la carte et ancrée au sol,
   avec un curseur **Qualité** unique qui accorde résolution, profondeur d'octree et densité sol,
@@ -35,16 +38,21 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   pente. Trois modes de reconstruction : `shaded` (points bruts), `delaunay` (mesh 2.5D, avec
   variante sol lissé), `poisson` (reconstruction de surface WASM). Niveau de détail (LOD) adaptatif
   à la distance pour les gros nuages.
+- **Un panneau de réglages pour les deux vues** — sur ordinateur, un accordéon ancré à droite
+  dont le **titre est le sélecteur de vue** (*Itinéraire* / *Studio LiDAR*) ; replié, il ne garde
+  que ce titre. Sa section **Fond** (fond de carte, ombrage LiDAR, fusion, courbes de niveau) est
+  commune aux deux vues, et une **épingle** la partage entre elles au lieu d'en garder une copie
+  par vue
 - **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
   nuage. Sur ordinateur, la capture garde son **gros bouton rond** en bas, les modes de caméra
-  restent dans la barre du haut, et les réglages sont pilotés depuis un **panneau accordéon ancré
+  restent dans la barre du haut, et les réglages vivent dans le **panneau accordéon ancré
   à droite** (nuages chargés puis les neuf réglages de rendu), dont plusieurs sections
   peuvent rester ouvertes en même temps et dont l'état est mémorisé : réglages de rendu
   (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
   automatique, galerie de « vues » (scènes caméra + réglages)
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
 - **Mode « Point de vue »** — disponible dans les **deux vues**, sur ordinateur comme sur mobile :
-  on clique (ou on touche) l'endroit où l'on se tiendrait, la caméra y **descend en vol**, l'œil se pose 1,70 m au-dessus du sol et
+  on clique (ou on touche) l'endroit où l'on se tiendrait, la caméra y **descend en vol**, l'œil se pose 1,70 m au-dessus du point le plus haut à moins de 50 m du clic et
   la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale ; flèches
   haut/bas ou boutons ▲/▼ = hauteur de l'œil, pour se dégager d'un relief proche). Une **barre de
   mode** en bas de la carte porte les réglages du point de vue, *Changer de lieu* et *Quitter*
@@ -75,8 +83,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
 - **Occupation du sol mesurée** — la palette `terrain` du rendu LiDAR arbitre sol nu / pelouse /
   forêt sur la couche CoSIA de l'IGN (classe cuite par sommet à la capture) au lieu de la deviner
   à partir de la pente et de l'altitude ; celles-ci ne tranchent plus que là où rien n'a été mesuré
-- **Responsive** — layout dédié desktop (sidebar + panneau bas) et mobile (tabs) pour la vue carte
-  classique ; le Studio LiDAR est desktop uniquement
+- **Responsive** — deux chromes distincts : sur ordinateur, panneau accordéon à droite (et dock
+  d'itinéraire en bas dans la vue Itinéraire) ; sous 768 px, barre d'outils en bas dont chaque
+  outil ouvre une feuille, dans les deux vues (Studio LiDAR compris)
 
 ---
 
@@ -98,8 +107,8 @@ contrôle de types, utiliser `npm run build` (ou `npx tsc -b`) et
 `npm run lint:test`.
 
 Aucune clé d'API n'est requise pour les fonctionnalités de base — la quasi-totalité de la
-Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut être saisie dans
-*Réglages* pour les couches privées (SCAN 25, Plan IGN HD, MNT haute résolution interpolé
+Géoplateforme IGN est désormais en accès libre. Une clé optionnelle peut être saisie dans la
+section *Avancé* du panneau pour les couches privées (SCAN 25, Plan IGN HD, MNT haute résolution interpolé
 linéairement).
 
 ---
@@ -112,7 +121,7 @@ linéairement).
 | Langages             | TypeScript 5 · React 18                           |
 | UI                   | Tailwind CSS 3                                    |
 | Cartographie         | MapLibre GL JS 6                                  |
-| Rendu 3D additionnel | deck.gl 9 · WebGL 2 custom layers                 |
+| Rendu 3D additionnel | WebGL 2 custom layers                             |
 | LiDAR                | `copc.js` + `laz-perf` (WASM) · `delaunator` · PoissonRecon (WASM) · `meshoptimizer` (LOD) |
 | État                 | Zustand 5 (avec persistance localStorage)         |
 | Graphiques           | Chart.js 4                                        |
@@ -127,10 +136,10 @@ linéairement).
 flowchart TB
     User([Utilisateur]) --> Root[Root.tsx<br/>?view= switch]
     Root --> MapC[MapContainer<br/>MapLibre GL, persistant]
-    Root --> App[App.tsx<br/>?view=map · shell + tabs]
+    Root --> App[App.tsx<br/>?view=map · panneau droit + dock]
     Root --> Studio[LidarStudio<br/>?view=lidar · plein écran]
 
-    App --> Panels[Panels UI<br/>Layers · Route · LiDAR · Settings]
+    App --> Panels[RouteSidePanel · RouteDock<br/>Fond · Terrain · Avancé · itinéraire]
     Studio --> Gallery[ShowcaseGallery / ShowcaseExport<br/>scènes locales + public/showcase/]
 
     MapC --> Style[mapStyle.ts<br/>style spec par vue]
@@ -188,31 +197,35 @@ Documentation détaillée par fonctionnalité, organisée en **sections utilisat
 ### LiDAR HD
 
 - [docs/LIDAR_PIPELINE.md](docs/LIDAR_PIPELINE.md) — Pipeline complet : WFS → COPC → normales → mesh,
-  cache IndexedDB, frontière Web Worker (déjà existant, mis à jour)
+  cache IndexedDB, frontière Web Worker
 - [docs/LIDAR_RENDERING.md](docs/LIDAR_RENDERING.md) — Rendu WebGL 2 du nuage : shaders,
   Eye-Dome Lighting, masque de classification, projection Mercator depuis offsets mètres
 - [docs/SUN_LIGHTING.md](docs/SUN_LIGHTING.md) — Position solaire NOAA, intensité et tint
   appliqués au LiDAR
 - [docs/POISSON_WASM.md](docs/POISSON_WASM.md) — Portage WebAssembly de PoissonRecon (builds
   wasm64 / wasm32 avec repli automatique), patches amont, toolchain
+- [docs/ROCK_AND_CLIFF_DETAIL.md](docs/ROCK_AND_CLIFF_DETAIL.md) — Rocher et falaises : palettes,
+  micro-relief, pourquoi c'est lisse et quoi faire
+- [docs/RELIEFMAPS_ARCHITECTURE.md](docs/RELIEFMAPS_ARCHITECTURE.md) — Analyse du rendu de terrain
+  de Relief Maps, pour comparaison
 
 ### Architecture & UI
 
-- [docs/UI_SHELL_AND_RESPONSIVE.md](docs/UI_SHELL_AND_RESPONSIVE.md) — App shell, tabs,
-  layout desktop / mobile, panneau bas redimensionnable
+- [docs/UI_SHELL_AND_RESPONSIVE.md](docs/UI_SHELL_AND_RESPONSIVE.md) — Coquille UI : panneau
+  accordéon à droite et sélecteur de vue, dock d'itinéraire, mode *Point de vue*, chrome mobile
 - [docs/STATE_AND_PERSISTENCE.md](docs/STATE_AND_PERSISTENCE.md) — Stores Zustand, clés
   localStorage, schéma persisté
+- [docs/DECISIONS.md](docs/DECISIONS.md) — Choix tranchés par le mainteneur, à ne pas rouvrir sans
+  fait nouveau
+- [docs/TODO.md](docs/TODO.md) — Ce qui a été laissé de côté ou reste à revoir
+- [docs/ARCHITECTURE_REVIEW_PLAN.md](docs/ARCHITECTURE_REVIEW_PLAN.md) — Plan d'amélioration
+  (état des tâches)
 
 ---
 
 ## 🤝 Contribution
 
-Le projet est en alpha. Les contributions sont bienvenues, en particulier sur :
-
-- amélioration des artefacts de mesh sur les falaises (cf. limitations dans
-  [LIDAR_PIPELINE.md](docs/LIDAR_PIPELINE.md))
-- accessibilité du panneau d'altimétrie (clavier, lecteur d'écran)
-- support multi-langue (actuellement français uniquement)
+Le projet est en alpha. Les contributions sont bienvenues.
 
 Lancer la validation de type : `npm run build` (ou `npx tsc -b`) et `npm run lint:test`
 (`npm run lint` seul ne vérifie rien, voir plus haut). La complexité cognitive de `App.tsx` est

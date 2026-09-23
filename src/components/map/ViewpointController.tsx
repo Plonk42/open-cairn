@@ -21,7 +21,7 @@
  */
 
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
-import { applyPanoramaDetail } from '@/lib/panoramaDetail';
+import { applyPanoramaDetail, applyViewpointNearPlane } from '@/lib/panoramaDetail';
 import {
     cameraForViewpoint,
     centerDistanceForZoom,
@@ -31,6 +31,7 @@ import {
     flightDurationMs,
     fovAfterPinch,
     fovAfterWheel,
+    highestGroundNearby,
     interpolatePose,
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
@@ -177,8 +178,9 @@ export function ViewpointController(): null {
         canvas.style.cursor = 'crosshair';
 
         const onClick = (e: { lngLat: { lng: number; lat: number } }) => {
-            const ground = map.queryTerrainElevation(e.lngLat);
-            if (typeof ground !== 'number' || !Number.isFinite(ground)) {
+            // A standpoint on a slope has the hillside right under the eye.
+            const standpoint = highestGroundNearby(e.lngLat, (lng, lat) => map.queryTerrainElevation([lng, lat]));
+            if (!standpoint) {
                 // The clicked point is on screen, so its DEM tile is normally
                 // loaded; bail out rather than plant the eye at sea level.
                 console.warn('Viewpoint: no terrain elevation under the click');
@@ -186,9 +188,9 @@ export function ViewpointController(): null {
                 return;
             }
             useMapStore.getState().setViewpoint({
-                lng: e.lngLat.lng,
-                lat: e.lngLat.lat,
-                altitude: ground + VIEWPOINT_EYE_HEIGHT_M,
+                lng: standpoint.lng,
+                lat: standpoint.lat,
+                altitude: standpoint.ground + VIEWPOINT_EYE_HEIGHT_M,
             });
         };
 
@@ -228,6 +230,7 @@ export function ViewpointController(): null {
         // Only this mode looks at the far field through a long lens, and only
         // here is the ground texture worth trading for mesh resolution.
         const restoreDetail = applyPanoramaDetail(map);
+        const restoreNearPlane = applyViewpointNearPlane(map);
 
         // A share link opens straight onto its author's framing; otherwise we
         // face whichever way the map already did, just below the horizon.
@@ -294,8 +297,8 @@ export function ViewpointController(): null {
         };
 
         // Up/down arrows lift the standpoint, the one thing the mode otherwise
-        // holds fixed — because at 1.70 m the drawn terrain a few metres ahead
-        // often stands higher than the eye. MapLibre's own arrow panning is
+        // holds fixed — because a slope can keep rising past the snap radius
+        // and fill the frame. MapLibre's own arrow panning is
         // already suspended here; the capture phase also keeps the page from
         // scrolling under the map.
         const onKeyDown = (e: KeyboardEvent) => {
@@ -417,6 +420,7 @@ export function ViewpointController(): null {
             const land = () => {
                 exitFlightRef.current = null;
                 restoreDetail();
+                restoreNearPlane();
                 restoreGestures();
                 map.setVerticalFieldOfView(initialFov);
                 map.setCenterClampedToGround(wasClampedToGround);

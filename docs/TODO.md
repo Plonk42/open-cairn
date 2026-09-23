@@ -1,5 +1,19 @@
 # TODO
 
+- [ ] **Boucle de chargement du MNT en *Point de vue* à focale serrée** : 133 tuiles MNT
+      dans le cadre contre un cache hors-vue de 60 (MapLibre le dimensionne sur la taille
+      du canvas, pas sur le pavage du mode). Une tuile évincée perd son altitude, sa boîte
+      retombe sur `[0, élévation du centre]` — et le centre est 4 km en l'air quand on
+      regarde au-dessus de l'horizon (962 m mesuré) — donc elle redevient « visible », est
+      rechargée, puis ré-évincée : ~250 requêtes/s sans fin, `idle` ne vient jamais, les
+      noms de sommets ne se rafraîchissent plus. Vérifié : cache porté à 600 → 0 requête,
+      `idle` en 225 ms. À dimensionner sur le nombre de tuiles dessinées (≈ 1 Mo par tuile).
+- [ ] Les noms de sommets attendent `idle`, donc le fond composite et le re-rendu des
+      drapés que MapLibre fait **une tuile par image** : ~3 s après une rotation à 60°
+      alors que le MNT est complet en 0,7 s. Ils n'ont besoin que du MNT dessiné.
+- [ ] Le fond `lidar-neutral` compose ses tuiles sur le fil principal
+      (`renderNeutralLidarRelief` → `getImageData`) : 650 ms sur 2,5 s de profil pendant
+      une rotation. Candidat à un worker (`OffscreenCanvas`).
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
@@ -29,15 +43,14 @@
       déjà le faire, cf. `setTerrainCameraCollision`), avec une marge réelle, un maximum sur
       quelques sondes autour de l'œil, et une correction qui ne touche qu'au zoom pour ne pas
       manger le cadrage demandé.
-- [ ] En *Point de vue* le bas de l'écran se remplit de rayures verticales — les jupes des
-      tuiles de terrain de MapLibre, vues de l'intérieur du versant à incidence rasante.
-      L'œil est pourtant bien au-dessus du sol (1,70 m garanti désormais) ; c'est le relief
-      des 20 m alentour qui le dépasse (mesuré : +8,44 m à 20 m sur un versant des Aiguilles
-      Rouges). Trois pistes : `terrainSkirtLength: 'none'` à la création de la carte (option
-      de MapLibre v6, sur laquelle le dépôt est passé sans l'ajouter à `MapContainer.tsx` :
-      les jupes restent en `"auto"`), monter l'œil à ~15 m, ou accrocher le clic au **point
-      haut local** dans un rayon de quelques centaines de mètres, comme PeakFinder — le sol
-      tombe alors immédiatement et le problème disparaît sans tricher sur la hauteur.
+- [ ] Le recalage du point de station au point haut à 50 m lit `queryTerrainElevation` au
+      zoom du clic : depuis une vue d'ensemble (z12–13), le MNT est grossier et le « point
+      haut » est souvent juste le bord amont du disque. Sur un long versant, le disque ne
+      contient de toute façon aucun sommet (mesuré : +34 m sur une pente à 60 %, le sol
+      remplit encore le cadre). Pistes : sonder au zoom du MNT le plus fin chargé, ou
+      élargir le rayon quand le maximum tombe sur le bord.
+- [ ] Le recalage peut franchir une barre : au pied de Chamechaude il monte de 117 m pour
+      50 m. Voulu pour un panorama, mais surprenant si l'on visait le pied de la falaise.
 - [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
       le champ ne peut faire apparaître que des sommets déjà marchés. La portée des rangs 1
       et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
@@ -75,7 +88,9 @@
       les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
 - [ ] `panoramaDetail.ts` s'accroche à des champs privés de MapLibre — `rttSize` (assigné
       uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne
-      suffit pas), `_meshCache`, `_renderableTilesKeys`. Une montée de version peut les
+      suffit pas), `_meshCache`, `_renderableTilesKeys`, et sur le *transform*
+      `_calculateNearFarZ`, `calculateFogMatrix`, `_calcMatrices`, `_helper._nearZ` /
+      `_pixelPerMeter`. Une montée de version peut les
       renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait
       simplement à rendre en qualité par défaut. Piste : une assertion de développement au
       moment du patch.

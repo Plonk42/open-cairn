@@ -276,3 +276,22 @@ export function ViewpointModeBar() {
         </div>
     );
 }
+
+/** Right edge of MapLibre's bottom-left control column (attribution included), plus a gap. */
+const MAP_CONTROLS_GUTTER_PX = 176;
+
+/**
+ * Desktop placement of the bar: 12 px above the bottom of the visible map area,
+ * centred on it — unless centring would put it over the bottom-left map
+ * controls, in which case the left spacer holds its minimum and the bar slides
+ * right.
+ */
+export function DesktopViewpointBarSlot({ bottomPx, rightPx }: Readonly<{ bottomPx: number; rightPx: number }>) {
+    return (
+        <div className="pointer-events-none absolute left-0 z-30 flex items-end" style={{ bottom: bottomPx + 12, right: rightPx }}>
+            <span className="flex-1" style={{ minWidth: MAP_CONTROLS_GUTTER_PX }} />
+            <ViewpointModeBar />
+            <span className="min-w-3 flex-1" />
+        </div>
+    );
+}

@@ -5,7 +5,7 @@ import { MobileToolbar } from '@/components/shell/MobileToolbar';
 import { MobileTopBar } from '@/components/shell/MobileTopBar';
 import { SIDE_PANEL_MARGIN_PX, SIDE_PANEL_STRIP_PX } from '@/components/shell/SidePanel';
 import { TopBarActions } from '@/components/shell/TopBarActions';
-import { ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
+import { DesktopViewpointBarSlot, ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
 import type * as maplibregl from 'maplibre-gl';
@@ -157,13 +157,7 @@ export function LidarStudio() {
 
             <StudioSidePanel />
 
-            {/* Centred on the map area the panel leaves visible, above the attribution. */}
-            <div
-                className="pointer-events-none absolute bottom-12 left-0 z-30 flex justify-center px-3"
-                style={{ right: panelCollapsed ? 0 : SIDE_PANEL_STRIP_PX }}
-            >
-                <ViewpointModeBar />
-            </div>
+            <DesktopViewpointBarSlot bottomPx={0} rightPx={panelCollapsed ? 0 : SIDE_PANEL_STRIP_PX} />
 
             {/* Capturing and tuning the render are never done together. */}
             <StudioCaptureButton anchor={{ bottom: 16, right: 16 }} hidden={!panelCollapsed} />

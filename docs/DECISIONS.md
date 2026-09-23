@@ -18,6 +18,9 @@ techniques vivent dans le document de chaque sujet.
   réglages et sa sortie — le haut est où pendent les noms de sommets ; le bouton reste pour
   l'instant dans le groupe caméra.
   → `UI_SHELL_AND_RESPONSIVE.md`
+- **Le point de station est le point le plus haut à moins de 50 m du clic**, comme PeakFinder :
+  l'œil ne se pose plus sur l'endroit exact cliqué. Un lien de partage, lui, n'est pas recalé.
+  → `UI_SHELL_AND_RESPONSIVE.md`
 
 ## Studio LiDAR
 

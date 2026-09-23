@@ -74,10 +74,8 @@ export interface ViewpointCamera {
 export const VIEWPOINT_EYE_HEIGHT_M = 1.7;
 
 /**
- * Ceiling for the arrow keys. Well past what the mode is for, but standing at
- * 1.70 m the drawn terrain a few metres ahead often rises above the eye, and
- * getting clear of it takes tens of metres, not two (see
- * `docs/UI_SHELL_AND_RESPONSIVE.md`).
+ * Ceiling for the arrow keys. Well past what the mode is for, but a slope that keeps
+ * rising past the snap radius can take tens of metres to clear.
  */
 export const VIEWPOINT_MAX_EYE_HEIGHT_M = 3000;
 
@@ -95,6 +93,50 @@ const VIEWPOINT_EYE_FAST_FACTOR = 10;
 export function eyeHeightAfterStep(heightM: number, up: boolean, fast: boolean): number {
     const step = VIEWPOINT_EYE_STEP_M * (fast ? VIEWPOINT_EYE_FAST_FACTOR : 1);
     return clampNumber(heightM + (up ? step : -step), VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M);
+}
+
+/** A picked standpoint moves to the highest ground within this radius, like PeakFinder. */
+export const VIEWPOINT_SNAP_RADIUS_M = 50;
+/** Ring spacing of the search, about one DEM cell at z14. */
+const SNAP_STEP_M = 10;
+/**
+ * Samples this close to the top all count as the top, and the nearest wins: flat
+ * ground does not send the eye 50 m away for centimetres, and nothing in the disc
+ * stands higher than `eye height − tolerance` above the eye's feet.
+ */
+const SNAP_TOLERANCE_M = 0.5;
+
+/** A spot on the ground and its DEM height. */
+export interface GroundPoint {
+    lng: number;
+    lat: number;
+    ground: number;
+}
+
+/**
+ * The highest ground within {@link VIEWPOINT_SNAP_RADIUS_M} of `click`, sampled on
+ * rings {@link SNAP_STEP_M} apart; `null` when `groundAt` knows none of it.
+ */
+export function highestGroundNearby(
+    click: Readonly<{ lng: number; lat: number }>,
+    groundAt: (lng: number, lat: number) => number | null,
+): GroundPoint | null {
+    const cosLat = Math.max(Math.cos(toRad(click.lat)), 1e-6);
+    // Ring by ring outwards, so the first sample near the top is also the nearest.
+    const samples: GroundPoint[] = [];
+    for (let radius = 0; radius <= VIEWPOINT_SNAP_RADIUS_M; radius += SNAP_STEP_M) {
+        const count = radius === 0 ? 1 : Math.ceil((2 * Math.PI * radius) / SNAP_STEP_M);
+        for (let k = 0; k < count; k++) {
+            const azimuth = (2 * Math.PI * k) / count;
+            const lng = click.lng + (radius * Math.sin(azimuth)) / (METERS_PER_DEGREE_LAT * cosLat);
+            const lat = click.lat + (radius * Math.cos(azimuth)) / METERS_PER_DEGREE_LAT;
+            const ground = groundAt(lng, lat);
+            if (ground !== null && Number.isFinite(ground)) samples.push({ lng, lat, ground });
+        }
+    }
+    if (samples.length === 0) return null;
+    const top = Math.max(...samples.map((s) => s.ground));
+    return samples.find((s) => s.ground >= top - SNAP_TOLERANCE_M) ?? null;
 }
 
 /**

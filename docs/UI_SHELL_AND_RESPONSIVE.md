@@ -251,12 +251,19 @@ ci-dessous, est offert dans les **deux** vues.
 Le bouton *Point de vue* est une bascule, comme *Orbite* : un clic **arme** le mode
 (le curseur passe en croix, le clic suivant sur la carte choisit le lieu), un second
 clic en sort. Son libellé ne change jamais. Une fois actif, l'œil est posé **1,70 m
-au-dessus du sol** à l'endroit cliqué et n'en bouge plus : le glisser-déposer fait
+au-dessus du point le plus haut à moins de 50 m** de l'endroit cliqué (voir « Le point de
+station » plus bas) et n'en bouge plus : le glisser-déposer fait
 tourner le regard **sur place**, comme si l'on se tenait là et que l'on tournait la
 tête. C'est l'inverse de l'orbite, qui fait tourner la caméra *autour* d'un centre.
 
 Tant que le mode est armé ou actif, une **barre de mode** (`ViewpointModeBar`) est
-posée **en bas au centre** de la carte :
+posée **en bas au centre** de la carte, à 12 px du bas de la zone visible (du dock réduit
+dans l'Itinéraire, du bord de l'écran dans le Studio) — son bas s'aligne sur celui du
+panneau de droite. Sur ordinateur, `DesktopViewpointBarSlot` la centre entre deux
+espaceurs `flex-1`, dont celui de gauche ne descend pas sous 176 px : la colonne des
+contrôles MapLibre (attribution comprise) finit à 163 px. Centrée tant que la place le
+permet, la barre glisse donc vers la droite au lieu de recouvrir l'attribution quand la
+carte visible est étroite (panneau ouvert à 1291 px : 49 px de décalage).
 
 - **armé** : « Cliquez sur la carte pour vous placer » (« Touchez … » sur mobile) et
   *Annuler* ;
@@ -337,9 +344,8 @@ synchronisation du curseur d'itinéraire s'abstient.
   par deux) : l'image suit le geste, comme un pincement de photo.
 - **Flèches haut / bas**, ou boutons **▲/▼** de la barre = **hauteur de l'œil
   au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 1,70 m et 3 000 m. Le point
-  de vue, lui, ne bouge pas : seule l'altitude change. C'est le remède au relief qui
-  passe devant l'œil (voir « Ce que 1,70 m ne garantit pas » plus bas) — se dégager
-  demande une quinzaine de mètres, pas deux. La liaison clavier est posée en phase de
+  de vue, lui, ne bouge pas : seule l'altitude change. Elles servent à se dégager d'un
+  versant qui continue de monter au-delà des 50 m du point de station. La liaison clavier est posée en phase de
   **capture** sur `document`, comme `bindAltitudeKeys`, et ignore les frappes dans un
   champ de saisie. Flèches et boutons écrivent tous deux `viewpointHeightM`, auquel le
   contrôleur est abonné ; les boutons sont le seul moyen de monter l'œil au doigt.
@@ -380,18 +386,57 @@ cinq points de vue, l'œil arrivait entre **0,73 m et 2,08 m** au-dessus du sol 
 donc converge en une passe — les cinq mêmes points donnent **1,70 m** exactement.
 
 > **Ce que 1,70 m ne garantit pas.** Être au-dessus du sol *selon le MNT* ne veut pas
-> dire être au-dessus du sol *dessiné*. `queryTerrainElevation` interpole le raster en
-> bilinéaire, alors que MapLibre dessine une grille de triangles qui ne coïncide avec
-> lui qu'aux sommets du maillage — quelque 13 m de côté à z14. Mesuré sur un versant des
-> Aiguilles Rouges : l'œil à 2,43 m au-dessus de sa propre empreinte, mais **33 m de
-> dénivelé dans les 40 m alentour** et un point à 20 m qui culmine **8,44 m au-dessus de
-> l'œil**. À incidence rasante on regarde alors l'intérieur du versant, et MapLibre
-> affiche les **jupes** de ses tuiles (les rideaux verticaux qui masquent les fissures
-> entre tuiles de zooms voisins), texturées par une seule colonne de texels : d'où les
-> rayures verticales qui remplissent le bas de l'écran. Remonter d'un ou deux mètres n'y
-> change rien — mesuré : +2 m est invisible, +10 m réduit la bande au tiers inférieur,
-> +20 m la fait disparaître. 1,70 m est simplement sous le plancher de bruit de la
-> représentation du terrain.
+> dire être au-dessus du sol *dessiné* : `queryTerrainElevation` interpole le raster en
+> bilinéaire, alors que MapLibre dessine une grille de triangles qui ne coïncide avec lui
+> qu'aux sommets du maillage. Le point de station (ci-dessous) garde pour cela une marge sur
+> le relief alentour.
+
+#### Le point de station : le point haut à 50 m
+
+Au clic, `highestGroundNearby` ([viewpointCamera.ts](../src/lib/viewpointCamera.ts))
+sonde le MNT sur des anneaux espacés de 10 m jusqu'à **50 m** (98 sondes
+`queryTerrainElevation`, une fois par clic) et pose l'œil sur le point le plus haut, comme
+PeakFinder : sur un versant, le sol tombe alors devant l'œil au lieu de lui monter au
+visage. Parmi les sondes à moins de **0,5 m** du maximum, la plus proche du clic l'emporte :
+sur un replat, l'œil ne part pas à 50 m pour quelques centimètres, et aucune sonde du disque
+ne dépasse les pieds de l'observateur de plus de 0,5 m — il reste 1,20 m de dégagement.
+
+Un lien de partage n'est **pas** recalé : son `vp` est déjà un point de station.
+
+Mesuré : au pied de la barre de Chamechaude, l'œil monte de 117 m pour 50 m de
+déplacement et ouvre sur le panorama ; sur une pente à 60 % au-dessus de Chamrousse, il
+gagne 34 m mais le versant continue au-delà du disque et remplit encore le cadre face à la
+pente (voir *Limitations*).
+
+#### Le plan de coupe proche
+
+MapLibre place son plan de coupe proche à `height / 50` px. Dans ce mode le zoom est calé
+sur un centre à 4 km, et ce plan vaut donc **`160 · tan(fov/2)` mètres** : 53 m à 37° de
+champ, 92 m à 60°, 11 m à 8°. Tout le sol plus proche était découpé, et par le trou on voyait
+l'intérieur des **jupes** des tuiles (les rideaux verticaux qui masquent les fissures entre
+tuiles de zooms voisins, d'où les rayures verticales), les faces arrière du versant et le
+fond. L'œil, lui, était bien à 1,70 m au-dessus du MNT. C'est aussi ce qu'expliquait l'ancien
+constat « +2 m ne change rien, +20 m fait disparaître la bande » : monter repoussait
+simplement le sol au-delà des 53 m.
+
+`applyViewpointNearPlane` ([panoramaDetail.ts](../src/lib/panoramaDetail.ts)) ramène ce
+plan à **0,5 m** pendant tout le mode, vols compris, et le rend à l'atterrissage de la
+sortie. Le tampon de profondeur (24 bits) le supporte : depuis Chamechaude, crêtes à 100 km
+comprises, l'image est identique au pixel près (0,009 % de pixels différents) ; à 0,05 m
+les jupes scintillent dès 30 km.
+
+Abaisser ce plan a révélé un défaut du nuanceur de terrain de MapLibre : il divise sa
+profondeur de brouillard **par sommet** (`z / w`), ce qui donne une valeur absurde pour un
+sommet situé derrière l'œil. Le plan par défaut découpait tous les triangles qui en ont
+un ; à 0,5 m ils sont dessinés, et le sol à nos pieds virait au **blanc pur** (le mélange
+de brouillard extrapolé bien au-delà de 1). Les tuiles qui contiennent l'œil, à 2 % de
+marge près, reçoivent donc une matrice de brouillard neutre. Elles n'en portaient pas :
+le brouillard ne commence qu'au double de la distance œil–niveau de la mer, soit des
+dizaines de kilomètres en montagne.
+
+Les deux remplacements (`_calculateNearFarZ`, `calculateFogMatrix`) sont posés sur
+l'instance du *transform* du peintre et reposés sur `styledata`, au cas où un style
+rechargé en fournirait un neuf.
 
 #### Le pavage du mode : du maillage plutôt que de la texture
 
@@ -547,9 +592,10 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   **lien de partage** émis depuis le mode rouvre directement dessus — même point de
   station, même direction, même focale, même hauteur d'œil (cf.
   [SHARE_VIEW.md](SHARE_VIEW.md)).
-- À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
-  rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
-  **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
+- Sur un long versant, même recalé au point haut à 50 m, le terrain proche remplit le cadre
+  face à la pente et l'ortho, vue en incidence rasante, se réduit à un lissé : le mode rend
+  une vraie image depuis un **sommet ou une arête**, beaucoup moins depuis un versant ou un
+  fond de vallée.
 - Le sol **proche** est volontairement moins texturé qu'ailleurs dans l'application :
   le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
   plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un
@@ -578,7 +624,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
 | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
-| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé, et restauration |
+| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé ; plan de coupe proche à 0,5 m et brouillard neutre autour de l'œil ; restauration |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* : titre du panneau desktop, pilule de la barre du haut sur mobile |
 | [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives de l'accordéon à droite, partagées par les deux vues : géométrie (`SIDE_PANEL_STRIP_PX`), `DockedSidePanel` (panneau ou sa seule barre de titre, padding de la carte), `SidePanel` (titre = sélecteur de vue), `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton` |
 | [src/components/shell/RouteSidePanel.tsx](../src/components/shell/RouteSidePanel.tsx) | Panneau desktop de l'Itinéraire : sections de carte |
@@ -854,8 +900,8 @@ rayon dans le couloir voisin. Et la marche s'arrête **1,5 % avant** le sommet
 pente, à peine plus bas — compte comme un obstacle et masque tout le panorama.
 
 À l'autre bout, un sommet à moins de **250 m** (`MIN_SIGHT_DISTANCE_M`) n'est pas une
-visée, c'est le sol sous les pieds. L'œil se pose 1,70 m au-dessus du MNT au point
-cliqué, qui n'est jamais exactement la cime enregistrée : debout sur Chamechaude, la
+visée, c'est le sol sous les pieds. L'œil se pose 1,70 m au-dessus du MNT au point de
+station, qui n'est jamais exactement la cime enregistrée : debout sur Chamechaude, la
 ligne « Chamechaude » est à 34 m et le MNT y lit 10 m de plus, soit **16° d'élévation**.
 Une amorce pointant le ciel — et, comme la bande s'accroche au sommet le plus haut de
 l'écran, **toute la bande tirée 340 px au-dessus de la crête** qu'elle est censée

@@ -9,6 +9,7 @@ import {
     focalEquivalentMm,
     fovAfterPinch,
     fovAfterWheel,
+    highestGroundNearby,
     horizontalFovDeg,
     interpolatePose,
     lookAfterDrag,
@@ -225,5 +226,41 @@ describe('flight helpers', () => {
         const far = { lng: EYE.lng + 1, lat: EYE.lat, altitude: EYE.altitude };
         expect(flightDurationMs(EYE, far)).toBeGreaterThan(flightDurationMs(EYE, EYE));
         expect(flightDurationMs(EYE, far)).toBeLessThanOrEqual(2500);
+    });
+});
+
+describe('highestGroundNearby', () => {
+    const CLICK = { lng: EYE.lng, lat: EYE.lat };
+    const cosLat = Math.cos((CLICK.lat * Math.PI) / 180);
+    /** Metres east and north of the click. */
+    const offset = (lng: number, lat: number) => ({
+        east: (lng - CLICK.lng) * METERS_PER_DEGREE_LAT * cosLat,
+        north: (lat - CLICK.lat) * METERS_PER_DEGREE_LAT,
+    });
+
+    it('stays on the click when the ground is flat within the tolerance', () => {
+        const spot = highestGroundNearby(CLICK, (lng) => 1000 + 0.2 * Math.sin(lng * 1e5));
+        expect(spot).toMatchObject(CLICK);
+    });
+
+    it('climbs a slope to the edge of the disc', () => {
+        const spot = highestGroundNearby(CLICK, (lng, lat) => 1000 + 0.4 * offset(lng, lat).east);
+        // Anything within the 0.5 m tolerance of the top counts: 48.75 m east and up.
+        expect(offset(spot!.lng, spot!.lat).east).toBeGreaterThan(48.7);
+        expect(spot!.ground).toBeGreaterThan(1019.5);
+    });
+
+    it('finds a knoll off to one side', () => {
+        const knoll = (lng: number, lat: number) => {
+            const { east, north } = offset(lng, lat);
+            return 1000 + 8 * Math.exp(-(east ** 2 + (north - 30) ** 2) / 200);
+        };
+        const spot = highestGroundNearby(CLICK, knoll)!;
+        expect(offset(spot.lng, spot.lat).north).toBeCloseTo(30, 0);
+        expect(Math.abs(offset(spot.lng, spot.lat).east)).toBeLessThan(1);
+    });
+
+    it('gives up when no sample has a height', () => {
+        expect(highestGroundNearby(CLICK, () => null)).toBeNull();
     });
 });

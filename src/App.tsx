@@ -8,7 +8,7 @@ import { RouteShareButton } from './components/shell/RouteShareButton';
 import { RouteSidePanel } from './components/shell/RouteSidePanel';
 import { SIDE_PANEL_MARGIN_PX, SIDE_PANEL_STRIP_PX } from './components/shell/SidePanel';
 import { TopBarActions } from './components/shell/TopBarActions';
-import { ViewpointModeBar } from './components/shell/ViewpointModeBar';
+import { DesktopViewpointBarSlot } from './components/shell/ViewpointModeBar';
 import { useIsMobile } from './lib/useIsMobile';
 import { useMapStore } from './stores/mapStore';
 
@@ -49,14 +49,8 @@ export function App() {
 
                 <RouteSidePanel bottomInsetPx={bottomClearance} />
 
-                {/* The one thing at the bottom of the map: summit names hang from the top.
-                    Centred on the map the panel leaves visible, above the attribution. */}
-                <div
-                    className="pointer-events-none absolute left-0 z-10 flex justify-center px-3"
-                    style={{ bottom: 48 + bottomClearance, right: panelCollapsed ? 0 : SIDE_PANEL_STRIP_PX }}
-                >
-                    <ViewpointModeBar />
-                </div>
+                {/* The one thing at the bottom of the map: summit names hang from the top. */}
+                <DesktopViewpointBarSlot bottomPx={bottomClearance} rightPx={panelCollapsed ? 0 : SIDE_PANEL_STRIP_PX} />
             </div>
 
             {/* Docked route/elevation panel. */}

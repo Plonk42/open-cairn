@@ -160,3 +160,93 @@ export function applyPanoramaDetail(map: MapLibreMap): () => void {
         map.triggerRepaint();
     };
 }
+
+/**
+ * Near clipping plane of the viewpoint mode, in metres. MapLibre's `height / 50` px is
+ * `160 · tan(fov/2)` m with the eye 4 km from the centre — 53 m at 37° — which clipped
+ * the ground at the observer's feet. 0.5 m leaves ridges 100 km off pixel-identical;
+ * 0.05 m makes the tile skirts z-fight from 30 km.
+ */
+export const VIEWPOINT_NEAR_PLANE_M = 0.5;
+
+/** A terrain tile as MapLibre hands it to `calculateFogMatrix`. */
+interface UnwrappedTile {
+    wrap: number;
+    canonical: { x: number; y: number; z: number };
+}
+
+/** The private members of MapLibre's `MercatorTransform` the near plane goes through. */
+interface NearPlaneTransform {
+    _calculateNearFarZ(...args: unknown[]): void;
+    _calcMatrices(): void;
+    calculateFogMatrix(tile: UnwrappedTile): Float32Array;
+    getCameraLngLat(): { lng: number; lat: number };
+    _helper: { _nearZ: number; _pixelPerMeter: number };
+}
+
+/** Puts every vertex at fog depth −1, under any `fog-ground-blend`. */
+const NO_FOG_MATRIX = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -3, 1]);
+
+/** Tile fraction around the eye whose triangles can straddle it: a few mesh cells. */
+const STRADDLE_MARGIN = 0.02;
+
+function eyeNearTile(eye: { lng: number; lat: number }, tile: UnwrappedTile): boolean {
+    const scale = 2 ** tile.canonical.z;
+    const x = ((eye.lng + 180) / 360 - tile.wrap) * scale - tile.canonical.x;
+    const sinLat = Math.sin((eye.lat * Math.PI) / 180);
+    const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale - tile.canonical.y;
+    return x > -STRADDLE_MARGIN && x < 1 + STRADDLE_MARGIN && y > -STRADDLE_MARGIN && y < 1 + STRADDLE_MARGIN;
+}
+
+/**
+ * The terrain shader divides its fog depth per vertex, which is garbage for a vertex
+ * behind the eye; the default near plane clipped every triangle that has one, ours
+ * does not, and the ground at the observer's feet blew up to white. The fog only
+ * starts past twice the eye-to-sea-level distance, so the tiles around the eye lose
+ * next to nothing by going without.
+ */
+function patchTransform(transform: NearPlaneTransform): void {
+    const proto = Object.getPrototypeOf(transform) as NearPlaneTransform;
+    transform._calculateNearFarZ = function (this: NearPlaneTransform, ...args: unknown[]) {
+        proto._calculateNearFarZ.apply(this, args);
+        this._helper._nearZ = Math.min(this._helper._nearZ, VIEWPOINT_NEAR_PLANE_M * this._helper._pixelPerMeter);
+    };
+    transform.calculateFogMatrix = function (this: NearPlaneTransform, tile: UnwrappedTile) {
+        return eyeNearTile(this.getCameraLngLat(), tile) ? NO_FOG_MATRIX : proto.calculateFogMatrix.call(this, tile);
+    };
+    transform._calcMatrices();
+}
+
+function unpatchTransform(transform: NearPlaneTransform): void {
+    const own = transform as Partial<NearPlaneTransform>;
+    delete own._calculateNearFarZ;
+    delete own.calculateFogMatrix;
+    transform._calcMatrices();
+}
+
+/**
+ * Pulls the near clipping plane in to {@link VIEWPOINT_NEAR_PLANE_M} until the
+ * returned function is called. Re-applied on `styledata`: loading a style migrates
+ * the projection, which hands the painter a fresh transform.
+ */
+export function applyViewpointNearPlane(map: MapLibreMap): () => void {
+    let patched: NearPlaneTransform | null = null;
+
+    const apply = () => {
+        const transform = map.painter.transform as unknown as NearPlaneTransform;
+        if (transform === patched) return;
+        patchTransform(transform);
+        patched = transform;
+        map.triggerRepaint();
+    };
+
+    apply();
+    map.on('styledata', apply);
+
+    return () => {
+        map.off('styledata', apply);
+        if (patched) unpatchTransform(patched);
+        patched = null;
+        map.triggerRepaint();
+    };
+}
