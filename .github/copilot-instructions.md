@@ -53,6 +53,10 @@ Topic → document:
 | UI shell, responsive, mobile | `docs/UI_SHELL_AND_RESPONSIVE.md` |
 | Improvement plan (task status) | `docs/ARCHITECTURE_REVIEW_PLAN.md` |
 | Things left aside / to revisit later | `docs/TODO.md` |
+| Choices the maintainer settled | `docs/DECISIONS.md` |
+
+Read `docs/DECISIONS.md` before proposing to change a behaviour or a layout: do not reopen a
+settled choice without a new fact, and record there any new choice the user settles.
 
 `README.md` lists the features: update it when a feature is added, removed, or visibly renamed.
 
@@ -122,7 +126,26 @@ works — or that it changes nothing:
   click through `page.evaluate`.
 
 Measure before concluding: several shader parameters were "invisible" only because their physical
-value was ~3 % of display value.
+value was ~3 % of display value. Never answer a rendering bug report without reproducing it in the
+browser first. The `verify-in-browser` skill holds the recipes.
+
+## Diagnosing
+
+Mistakes that recurred on this codebase:
+
+- a constant in an absolute unit (metres, tiles) is right at one capture size only — express it in
+  the unit of the computation (octree cell, texture pixel) and keep the absolute value as a floor;
+- an analytic law that contradicts a measured table already in the repo is wrong — reread the table;
+- a threshold calibrated alone goes stale when a filter is added downstream — re-sweep it after
+  each new guard, on labelled data rather than hand-picked examples;
+- an integer derived by `Math.round` from a continuous quantity makes a sawtooth in everything
+  downstream — bypass the derivation where it is meaningless rather than change the rounding;
+- "nothing moves and no error": look for what can never finish (orphan promise, request without
+  timeout) before looking for slowness;
+- a `200 OK` can still be wrong for a given request shape — check a known value alone *and* in a
+  batch before trusting a sampling;
+- a measurement made to confirm a hypothesis proves nothing; when a diagnosis falls, remove what it
+  motivated instead of keeping it "just in case".
 
 ## One throw is a white page
 
@@ -144,6 +167,10 @@ throw in a passive effect or in a WebGL layer's `onAdd` empties `#root` with no 
   comment — a recurring GLSL breakage.
 - Never write a source file through shell redirection: VS Code's shell integration leaks OSC escape
   bytes into the first line and corrupts it silently.
+- Removing an item from the middle of an ordered Markdown list renumbers the following ones, and
+  option numbers are referenced elsewhere — break the list with an HTML comment instead.
+- Never `git add -A`: the tree often holds unrelated work in progress. Stage named files, or
+  `git commit -m … -- <paths>`.
 
 Adding a LiDAR render setting touches six files in a fixed order — the checklist lives in
 `docs/STATE_AND_PERSISTENCE.md`.
