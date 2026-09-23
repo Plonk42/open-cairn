@@ -1,4 +1,3 @@
-import { EyeIcon, EyeOffIcon, PopoverCloseIcon } from '@/components/icons/LidarIcons';
 import { MapSlot } from '@/components/map/MapSlot';
 import { AppHeaderBox } from '@/components/shell/AppHeaderBox';
 import { MobileActionsMenu } from '@/components/shell/MobileActionsMenu';
@@ -8,12 +7,13 @@ import { TopBarActions } from '@/components/shell/TopBarActions';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
-import type { LoadedLidarCloud } from '@/stores/slices/lidarSlice';
 import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
 import { ShowcaseExport } from './ShowcaseExport';
-import { StudioBottomBar, StudioCaptureButton } from './StudioBottomBar';
+import { StudioCaptureButton } from './StudioCaptureButton';
+import { StudioCloudLocator } from './StudioClouds';
 import { ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
+import { StudioSidePanel } from './StudioSidePanel';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -46,15 +46,20 @@ function useStudioCameraIntro() {
     }, []);
 }
 
+/**
+ * Desktop top bar. Same composition as the Itinéraire view: header box, camera
+ * and scene action groups, view switch. It doesn't step aside for the side
+ * panel — the panel starts below it (`PANEL_TOP_PX`), so the two never overlap.
+ */
 function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
     return (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-3 px-3 py-2.5">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-start gap-3 px-3 py-2.5">
             {/* Shared app header box (logo + name + search + coordinates). */}
             <div className="pointer-events-auto">
                 <AppHeaderBox />
             </div>
 
-            {/* Shared action group: Orbite + galleries + full scene export + aide. */}
+            {/* Caméra + galerie / export de scène / aide. */}
             <TopBarActions view="lidar" exportSlot={<ShowcaseExport />} onHelp={onHelp} />
 
             {/* View switch (replaces the old "Quitter le studio" button). */}
@@ -65,336 +70,12 @@ function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
     );
 }
 
-/** Compact human count, e.g. 2461016 → "2.5 M", 129399 → "129 k". */
-function formatCloudCount(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
-    if (n >= 1_000) return `${Math.round(n / 1_000)} k`;
-    return String(n);
-}
-
-function cloudStatsLabel(points: number | null, triangles: number | null): string {
-    const parts: string[] = [];
-    if (triangles) parts.push(`${formatCloudCount(triangles)} tri`);
-    if (points) parts.push(`${formatCloudCount(points)} pts`);
-    return parts.join(' · ');
-}
-
-/** Metres-per-degree of latitude, used to convert the cloud radius to a lng/lat footprint. */
-const METERS_PER_DEGREE_LAT = 111_319.491;
-
-const EQUATOR_METERS = 40_075_016.686;
-/** MapLibre's zoom is defined on 512 px tiles: `worldSize = 512 · 2^zoom`. */
-const TILE_SIZE = 512;
-
-/**
- * Approximate lng/lat bounding box of the cloud's footprint (a radius-metre
- * square around its centre), used for the on-screen test below.
- */
-function cloudFootprintBounds(lng: number, lat: number, radius: number): [[number, number], [number, number]] {
-    const dLat = radius / METERS_PER_DEGREE_LAT;
-    const dLng = radius / (METERS_PER_DEGREE_LAT * Math.cos((lat * Math.PI) / 180));
-    return [
-        [lng - dLng, lat - dLat],
-        [lng + dLng, lat + dLat],
-    ];
-}
-
-/**
- * True when the cloud's footprint (not just its centre point) overlaps the
- * visible map bounds. A point-only test (`bounds.contains([lng,lat])`) was
- * tried first but is inconsistent with what's actually rendered: a cloud can
- * have a large radius, so its centre can drift off-screen while its edge
- * (still drawn — the WebGL layer culls on the full bbox, not the centre) is
- * still visible, and vice-versa. Testing footprint-vs-viewport intersection
- * matches the layer's own bbox-based frustum cull far more closely.
- */
-function isCloudOnScreen(map: maplibregl.Map, lng: number, lat: number, radius: number): boolean {
-    // `map.project()` can't be used here: with 3D terrain forced on, it projects
-    // the point at elevation 0 (sea level) — for ground sitting ~1800 m up that
-    // lands far off-screen even when centered. The 2D geographic bounds ignore
-    // elevation and give a reliable (slightly conservative) visibility test.
-    return map.getBounds().intersects(cloudFootprintBounds(lng, lat, radius));
-}
-
-/** Recenter + frame the loaded cloud so its diameter fills ~60% of the view. */
-function frameCloud(map: maplibregl.Map, lng: number, lat: number, radius: number): void {
-    const minDim = Math.min(map.getCanvas().clientWidth, map.getCanvas().clientHeight);
-    const targetMpp = (2 * radius) / (0.6 * minDim);
-    const worldMeters = EQUATOR_METERS * Math.cos((lat * Math.PI) / 180);
-    const zoom = Math.log2(worldMeters / (TILE_SIZE * targetMpp));
-    // With 3D terrain forced on, easeTo carries over the *start* center
-    // elevation and never recomputes it for the destination, so the camera
-    // target ends up above/below the relief and the cloud isn't framed. Pre-
-    // seeding the destination's center elevation before the move makes the
-    // flight land synced to the relief (same fix as the showcase gallery).
-    if (map.getTerrain()) {
-        const elevation = map.queryTerrainElevation([lng, lat]);
-        if (typeof elevation === 'number' && Number.isFinite(elevation)) {
-            map.setCenterElevation(elevation);
-        }
-    }
-    map.easeTo({
-        center: [lng, lat],
-        zoom: Math.min(map.getMaxZoom(), Math.max(12, zoom)),
-        duration: 900,
-        easing: (t) => t * (2 - t),
-    });
-}
-
-function LocateIcon({ className }: Readonly<{ className?: string }>) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className={className} aria-hidden="true">
-            <circle cx="10" cy="10" r="4" />
-            <path strokeLinecap="round" d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18" />
-        </svg>
-    );
-}
-
-function TrashIcon({ className }: Readonly<{ className?: string }>) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className={className} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 5h13M8 5V3.5h4V5M5 5l.7 10.5a1.5 1.5 0 0 0 1.5 1.4h5.6a1.5 1.5 0 0 0 1.5-1.4L15 5M8.5 8.5v5M11.5 8.5v5" />
-        </svg>
-    );
-}
-
-/** Loaded shaded-cloud or mesh footprint (centre + radius), or null if empty. */
-function cloudFootprint(cloud: LoadedLidarCloud): { lng: number; lat: number; radius: number } | null {
-    const source = cloud.mesh ?? cloud.shaded;
-    if (!source) return null;
-    return { lng: source.centerLng, lat: source.centerLat, radius: source.radius };
-}
-
-/** One row of the expanded multi-cloud list: recenter / show-hide / delete. */
-function CloudListRow({ cloud, onScreen }: Readonly<{ cloud: LoadedLidarCloud; onScreen: boolean }>) {
-    const footprint = cloudFootprint(cloud);
-    const pointCount = cloud.shaded?.pointCount ?? null;
-    const triangleCount = cloud.mesh?.triangleCount ?? null;
-
-    const handleRecenter = () => {
-        const map = useMapStore.getState().mapInstance;
-        if (map && footprint) frameCloud(map, footprint.lng, footprint.lat, footprint.radius);
-    };
-
-    return (
-        <div className="flex items-center gap-1 rounded-lg px-1 py-1 hover:bg-white/5">
-            <button
-                type="button"
-                onClick={handleRecenter}
-                title={onScreen ? 'Recadrer sur ce nuage' : 'Ce nuage est hors champ — cliquer pour le recadrer'}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            >
-                <LocateIcon className={`h-3.5 w-3.5 shrink-0 ${onScreen ? 'text-slate-400' : 'text-amber-400'}`} />
-                <span className="truncate text-slate-200">{cloudStatsLabel(pointCount, triangleCount) || 'Nuage'}</span>
-            </button>
-            <button
-                type="button"
-                onClick={() => useMapStore.getState().toggleLidarCloudVisible(cloud.id)}
-                title={cloud.visible ? 'Cacher ce nuage' : 'Afficher ce nuage'}
-                aria-label={cloud.visible ? 'Cacher ce nuage' : 'Afficher ce nuage'}
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-                {cloud.visible ? <EyeIcon className="h-4 w-4" /> : <EyeOffIcon className="h-4 w-4 text-slate-500" />}
-            </button>
-            <button
-                type="button"
-                onClick={() => useMapStore.getState().removeLidarCloud(cloud.id)}
-                title="Supprimer ce nuage"
-                aria-label="Supprimer ce nuage"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-                <TrashIcon className="h-3.5 w-3.5" />
-            </button>
-        </div>
-    );
-}
-
-/** Single-cloud pill: today's familiar compact layout (recenter + delete). */
-function SingleCloudPill({ cloud, onScreen, anchorClassName }: Readonly<{ cloud: LoadedLidarCloud; onScreen: boolean; anchorClassName: string }>) {
-    const footprint = cloudFootprint(cloud);
-    const pointCount = cloud.shaded?.pointCount ?? null;
-    const triangleCount = cloud.mesh?.triangleCount ?? null;
-    if (!footprint) return null;
-
-    const handleRecenter = () => {
-        const map = useMapStore.getState().mapInstance;
-        if (map) frameCloud(map, footprint.lng, footprint.lat, footprint.radius);
-    };
-
-    return (
-        <div className={`pointer-events-none absolute z-30 flex justify-end ${anchorClassName}`}>
-            <div
-                className={`pointer-events-auto inline-flex items-center gap-1 rounded-full py-1 pl-1 pr-1 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${onScreen
-                    ? 'bg-slate-950/80 text-slate-200 ring-white/15'
-                    : 'animate-pulse bg-amber-500/90 text-amber-950 ring-amber-300'}`}
-            >
-                <button
-                    type="button"
-                    onClick={handleRecenter}
-                    title={onScreen ? 'Recadrer sur le nuage LiDAR' : 'Le nuage est hors champ — cliquer pour le recadrer'}
-                    className={`inline-flex items-center gap-2 rounded-full px-2 py-0.5 transition ${onScreen ? 'hover:bg-white/10' : 'hover:bg-amber-400'}`}
-                >
-                    <LocateIcon className="h-4 w-4" />
-                    <span>{onScreen ? 'Nuage LiDAR' : 'Nuage hors champ'}</span>
-                    {(pointCount || triangleCount) ? (
-                        <span className={onScreen ? 'text-slate-400' : 'text-amber-900/80'}>
-                            {cloudStatsLabel(pointCount, triangleCount)}
-                        </span>
-                    ) : null}
-                </button>
-                <span className={`h-4 w-px ${onScreen ? 'bg-white/15' : 'bg-amber-900/30'}`} aria-hidden="true" />
-                <button
-                    type="button"
-                    onClick={() => useMapStore.getState().removeLidarCloud(cloud.id)}
-                    title="Effacer le nuage LiDAR"
-                    aria-label="Effacer le nuage LiDAR"
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition ${onScreen ? 'text-slate-300 hover:bg-white/10 hover:text-white' : 'text-amber-900 hover:bg-amber-400'}`}
-                >
-                    <TrashIcon className="h-4 w-4" />
-                </button>
-            </div>
-        </div>
-    );
-}
-
-/** Fit the map over the union of every visible cloud's footprint. */
-function frameAllClouds(clouds: readonly LoadedLidarCloud[]): void {
-    const map = useMapStore.getState().mapInstance;
-    if (!map) return;
-    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-    let any = false;
-    for (const cloud of clouds) {
-        if (!cloud.visible) continue;
-        const footprint = cloudFootprint(cloud);
-        if (!footprint) continue;
-        const [[loLng, loLat], [hiLng, hiLat]] = cloudFootprintBounds(footprint.lng, footprint.lat, footprint.radius);
-        minLng = Math.min(minLng, loLng); minLat = Math.min(minLat, loLat);
-        maxLng = Math.max(maxLng, hiLng); maxLat = Math.max(maxLat, hiLat);
-        any = true;
-    }
-    if (any) map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 900 });
-}
-
-/** Expanded panel content of the multi-cloud pill: header + rows + footer actions. */
-function CloudListPanel({
-    clouds, onScreenById, onCollapse,
-}: Readonly<{ clouds: readonly LoadedLidarCloud[]; onScreenById: Record<string, boolean>; onCollapse: () => void }>) {
-    return (
-        <div className="pointer-events-auto w-64 max-w-[80vw] rounded-2xl bg-slate-950/90 p-2 text-xs shadow-2xl ring-1 ring-white/15 backdrop-blur-md">
-            <div className="flex items-center justify-between px-1 pb-1.5">
-                <span className="font-semibold text-white">{clouds.length} nuages LiDAR</span>
-                <button
-                    type="button"
-                    onClick={onCollapse}
-                    aria-label="Réduire"
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-white/10 hover:text-white"
-                >
-                    <PopoverCloseIcon className="h-3 w-3" />
-                </button>
-            </div>
-            {clouds.length > 6 && (
-                <p className="px-1 pb-1.5 text-[10px] text-amber-300">
-                    Beaucoup de nuages chargés — la performance peut en pâtir.
-                </p>
-            )}
-            <div className="max-h-64 space-y-0.5 overflow-y-auto">
-                {clouds.map((cloud) => (
-                    <CloudListRow key={cloud.id} cloud={cloud} onScreen={onScreenById[cloud.id] ?? true} />
-                ))}
-            </div>
-            <div className="mt-1.5 flex items-center gap-1.5 border-t border-white/10 pt-1.5">
-                <button
-                    type="button"
-                    onClick={() => frameAllClouds(clouds)}
-                    className="flex-1 rounded-md px-2 py-1 text-center text-slate-300 transition hover:bg-white/10 hover:text-white"
-                >
-                    Tout recentrer
-                </button>
-                <button
-                    type="button"
-                    onClick={() => useMapStore.getState().clearAllLidarClouds()}
-                    className="flex-1 rounded-md px-2 py-1 text-center text-slate-300 transition hover:bg-white/10 hover:text-white"
-                >
-                    Tout effacer
-                </button>
-            </div>
-        </div>
-    );
-}
-
-/** Multi-cloud pill: count badge that expands into the full list. */
-function MultiCloudPill({
-    clouds, onScreenById, anchorClassName,
-}: Readonly<{ clouds: readonly LoadedLidarCloud[]; onScreenById: Record<string, boolean>; anchorClassName: string }>) {
-    const [expanded, setExpanded] = useState(false);
-    const anyOnScreen = clouds.some((c) => onScreenById[c.id]);
-
-    return (
-        <div className={`pointer-events-none absolute z-30 flex flex-col items-end gap-2 ${anchorClassName}`}>
-            {expanded && (
-                <CloudListPanel clouds={clouds} onScreenById={onScreenById} onCollapse={() => setExpanded(false)} />
-            )}
-            <button
-                type="button"
-                onClick={() => setExpanded((e) => !e)}
-                title={anyOnScreen ? 'Nuages LiDAR chargés' : 'Nuages LiDAR hors champ'}
-                className={`pointer-events-auto inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-lg ring-1 backdrop-blur-md transition ${anyOnScreen
-                    ? 'bg-slate-950/80 text-slate-200 ring-white/15 hover:bg-slate-900/80'
-                    : 'animate-pulse bg-amber-500/90 text-amber-950 ring-amber-300 hover:bg-amber-400'}`}
-            >
-                <LocateIcon className="h-4 w-4" />
-                <span>{clouds.length} nuages{anyOnScreen ? '' : ' hors champ'}</span>
-            </button>
-        </div>
-    );
-}
-
-/**
- * Floating affordance that makes loaded LiDAR clouds discoverable. With
- * frustum culling, an off-screen cloud is no longer drawn — so without a cue
- * the user can't tell anything is loaded. With a single cloud loaded this
- * keeps the familiar compact pill (recenter + delete); once a second cloud is
- * loaded it collapses into a count badge that expands into the full list
- * (recenter / show-hide / delete per cloud, plus "tout recentrer"/"tout
- * effacer").
- */
-function StudioCloudLocator({ anchorClassName = 'bottom-20 right-4' }: Readonly<{ anchorClassName?: string }>) {
-    const clouds = useMapStore((s) => s.lidarClouds);
-    const [onScreenById, setOnScreenById] = useState<Record<string, boolean>>({});
-
-    useEffect(() => {
-        const map = useMapStore.getState().mapInstance;
-        if (!map || clouds.length === 0) return;
-        const update = () => {
-            const next: Record<string, boolean> = {};
-            for (const cloud of clouds) {
-                const footprint = cloudFootprint(cloud);
-                if (footprint) next[cloud.id] = isCloudOnScreen(map, footprint.lng, footprint.lat, footprint.radius);
-            }
-            setOnScreenById(next);
-        };
-        update();
-        map.on('move', update);
-        map.on('moveend', update);
-        return () => {
-            map.off('move', update);
-            map.off('moveend', update);
-        };
-    }, [clouds]);
-
-    if (clouds.length === 0) return null;
-    if (clouds.length === 1) {
-        return <SingleCloudPill cloud={clouds[0]} onScreen={onScreenById[clouds[0].id] ?? true} anchorClassName={anchorClassName} />;
-    }
-    return <MultiCloudPill clouds={clouds} onScreenById={onScreenById} anchorClassName={anchorClassName} />;
-}
-
 /**
  * Mobile LiDAR Studio shell. Same persistent map + cloud state as the desktop
  * studio, presented with the shared mobile chrome: the compact top bar (with a
  * `⋯` menu holding the galleries + scene export) and the generic bottom toolbar
- * of render-setting sheets. Capture keeps the desktop floating FAB — raised
- * above the toolbar — with the cloud locator stacked just above it.
+ * of render-setting sheets. Capture keeps its floating FAB — raised above the
+ * toolbar — with the cloud locator stacked just above it.
  */
 function StudioMobileShell() {
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -409,7 +90,7 @@ function StudioMobileShell() {
             {activeId === null && (
                 <>
                     <StudioCloudLocator anchorClassName="bottom-36 right-4" />
-                    <StudioCaptureButton anchorClassName="bottom-20 right-4" />
+                    <StudioCaptureButton anchor={{ bottom: 80, right: 16 }} />
                 </>
             )}
             <MobileToolbar
@@ -425,7 +106,9 @@ function StudioMobileShell() {
 /**
  * Dedicated full-screen LiDAR Studio shell (`?view=lidar`). Reuses the shared
  * MapContainer + mapStore so the 3D cloud state carries over from the classic
- * map view, and composes the extracted control bricks into a retractable dock.
+ * map view. On desktop the settings live in one right-hand accordion
+ * (`StudioSidePanel`) and capture keeps its own green button at the bottom;
+ * the map keeps the whole remaining width.
  */
 export function LidarStudio() {
     const shaded = useMapStore((s) => s.lidarShaded);
@@ -433,6 +116,7 @@ export function LidarStudio() {
     const loading = useMapStore((s) => s.lidarCloudLoading);
     const tutorialSeen = useMapStore((s) => s.studioTutorialSeen);
     const setTutorialSeen = useMapStore((s) => s.setStudioTutorialSeen);
+    const panelCollapsed = useMapStore((s) => s.studioPanelCollapsed);
     const hasData = shaded !== null || mesh !== null;
     const isMobile = useIsMobile();
 
@@ -462,11 +146,10 @@ export function LidarStudio() {
 
             <StudioTopBar onHelp={() => setTutorialOpen(true)} />
 
-            <StudioCloudLocator />
+            <StudioSidePanel />
 
-            <StudioBottomBar />
-
-            <StudioCaptureButton />
+            {/* Capturing and tuning the render are never done together. */}
+            <StudioCaptureButton anchor={{ bottom: 16, right: 16 }} hidden={!panelCollapsed} />
 
             <StudioTutorial open={tutorialOpen} onClose={closeTutorial} />
         </div>

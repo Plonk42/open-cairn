@@ -11,7 +11,7 @@ import {
     RouteGalleryBody,
     TabButton,
 } from '@/components/lidar/gallery/tiles';
-import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/StudioTutorial';
+import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/steps';
 import type { CaptureRecord } from '@/lib/captureParams';
 import { importGpxFile } from '@/lib/gpx';
 import { rectEnclosingRadiusM } from '@/lib/lidarCaptureRect';

@@ -204,9 +204,9 @@ export function Terrain3DSection() {
  * Sun and moon sky tracks. Shown in both views, so the hint is written once
  * here and reused by the Studio's own compact checkboxes.
  */
-export const SKY_PATH_HINT = 'Dessine la course de l’astre dans le ciel pour la date choisie, le disque à sa taille réelle et les heures pleines graduées. Les portions cachées par le relief sont en pointillé. Demande le terrain 3D.';
+const SKY_PATH_HINT = 'Dessine la course de l’astre dans le ciel pour la date choisie, le disque à sa taille réelle et les heures pleines graduées. Les portions cachées par le relief sont en pointillé. Demande le terrain 3D.';
 
-export const HIDDEN_PATH_HINT = 'Prolonge la trajectoire en pointillé derrière le relief, là où l’astre est masqué. Décochez pour ne garder que la portion réellement visible depuis ce point.';
+const HIDDEN_PATH_HINT = 'Prolonge la trajectoire en pointillé derrière le relief, là où l’astre est masqué. Décochez pour ne garder que la portion réellement visible depuis ce point.';
 
 const ATMOSPHERIC_SKY_HINT = 'Peint le ciel d’après la position du soleil à l’heure choisie, au lieu du bleu nuit neutre. Visible surtout quand la carte est inclinée vers le haut.';
 
@@ -257,9 +257,10 @@ export function PeakLabelsToggle() {
  * Sky-track toggles + the date/time picker they read. The tracks are drawn
  * against the 3D terrain (hidden-line pass, skyline times), so they are
  * disabled when the relief is off — the atmospheric sky is not, it needs no
- * terrain.
+ * terrain. The Studio forces the terrain on, and has its own sky switch
+ * (photoreal render), so it gets neither the terrain guard nor that row.
  */
-export function SkyPathSection() {
+export function SkyPathSection({ studio = false }: Readonly<{ studio?: boolean }>) {
     const sunPath = useMapStore((s) => s.skySunPath);
     const setSunPath = useMapStore((s) => s.setSkySunPath);
     const moonPath = useMapStore((s) => s.skyMoonPath);
@@ -268,10 +269,11 @@ export function SkyPathSection() {
     const setHiddenPath = useMapStore((s) => s.setSkyHiddenPath);
     const atmosphericSky = useMapStore((s) => s.atmosphericSky);
     const setAtmosphericSky = useMapStore((s) => s.setAtmosphericSky);
-    const terrainEnabled = useMapStore((s) => s.terrainEnabled);
+    const terrainEnabled = useMapStore((s) => s.terrainEnabled) || studio;
 
     const noTerrain = 'Activez le terrain 3D pour afficher les trajectoires.';
     const tracksOn = terrainEnabled && (sunPath || moonPath);
+    const skyOn = atmosphericSky && !studio;
 
     return (
         <div className="space-y-2">
@@ -289,12 +291,14 @@ export function SkyPathSection() {
                 disabled={!terrainEnabled}
                 onChange={setMoonPath}
             />
-            <SkyToggle
-                label="Ciel atmosphérique"
-                title={ATMOSPHERIC_SKY_HINT}
-                checked={atmosphericSky}
-                onChange={setAtmosphericSky}
-            />
+            {!studio && (
+                <SkyToggle
+                    label="Ciel atmosphérique"
+                    title={ATMOSPHERIC_SKY_HINT}
+                    checked={atmosphericSky}
+                    onChange={setAtmosphericSky}
+                />
+            )}
             {/* Greyed rather than unmounted: the panel is anchored by its
                 bottom edge, so hiding a row makes it jump under the cursor. */}
             <SkyToggle
@@ -304,7 +308,7 @@ export function SkyPathSection() {
                 disabled={!tracksOn}
                 onChange={setHiddenPath}
             />
-            <SunDateControl disabled={!tracksOn && !atmosphericSky} />
+            <SunDateControl disabled={!tracksOn && !skyOn} />
         </div>
     );
 }

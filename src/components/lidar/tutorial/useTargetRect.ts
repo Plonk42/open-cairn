@@ -23,7 +23,8 @@ export function useTargetRect(selector: string | null, tick = 0): DOMRect | null
         let attempts = 0;
         const measure = () => {
             const el = document.querySelector(selector);
-            if (el) {
+            // A folded control is in the DOM but not laid out (`display: none`).
+            if (el && el.getClientRects().length > 0) {
                 setRect(el.getBoundingClientRect());
                 return;
             }

@@ -35,21 +35,23 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 ### Trajectoire dans le ciel
 
 Deux cases indépendantes, **« Trajectoire du soleil »** et **« Trajectoire de la
-lune »**, dessinent la course de chaque astre pour la date choisie. On les trouve
-sous le curseur d'heure du Studio et, côté Itinéraire, dans le popover que le bouton
-*Point de vue* ouvre une fois debout (il se relabellise alors *Panorama*).
+lune »**, dessinent la course de chaque astre pour la date choisie. On les trouve,
+dans les deux vues, dans le popover que le bouton *Point de vue* ouvre une fois
+debout (il se relabellise alors *Panorama*) — et **nulle part ailleurs**.
 L'usage visé est le repérage photo : se placer où l'on veut être, regarder le sujet,
 et lire à quelle heure le soleil sera derrière. Ce sont **les mêmes drapeaux**
 (`skySunPath`, `skyMoonPath`) et le même sélecteur de date dans les deux vues :
 cocher d'un côté coche de l'autre.
 
-> **Côté Itinéraire, ce popover n'existe que debout (mode *Point de vue*).** Non
-> par principe, mais parce que la vue est alors plafonnée à 85° de pitch
-> (`MAP_MAX_PITCH`) : aucune de ces cases n'a de ciel où s'afficher. Le Studio, lui,
-> garde ses cases toujours accessibles dans sa pilule *Lumière* — sa date pilote aussi
-> l'éclairage du nuage, qui se voit caméra au ras du sol ; le popover *Panorama* n'y
-> ajoute donc que les noms des sommets, pour ne pas doubler les mêmes cases dans deux
-> endroits.
+> **Ce popover n'existe que debout (mode *Point de vue*).** Hors de ce mode la vue
+> de l'Itinéraire est plafonnée à 85° de pitch (`MAP_MAX_PITCH`) : pas de ciel où
+> tracer quoi que ce soit. Le Studio, lui, peut lever les yeux en *Caméra libre* :
+> les trajectoires cochées depuis *Panorama* y restent dessinées, mais il faut
+> repasser par le point de vue pour les décocher. Elles ont quitté la section
+> *Lumière* du Studio, où elles dépendaient d'« Éclairage soleil » : il fallait
+> changer l'éclairage du nuage pour poser une question de repérage. Dans le Studio,
+> le sélecteur de date de *Panorama* déplace aussi l'éclairage du nuage si
+> « Éclairage soleil » est actif — c'est la même date.
 
 > **Demande le relief 3D.** Le tracé est testé en profondeur contre le terrain et
 > les heures de lever/coucher sont lues sur sa ligne de crête. Sans terrain, rien

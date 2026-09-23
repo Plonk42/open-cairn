@@ -13,6 +13,9 @@ export const RENDER_QUALITY_LABELS: Record<RenderQuality, string> = {
 
 export type UiTheme = 'light' | 'dark';
 
+/** Sections a first-time visitor finds open in the Studio side panel. */
+export const DEFAULT_STUDIO_PANEL_SECTIONS: readonly string[] = ['capture', 'fond'];
+
 export interface SettingsSlice {
     /** Raster and canvas quality used for pitched 3D views. */
     renderQuality: RenderQuality;
@@ -29,6 +32,24 @@ export interface SettingsSlice {
     /** Whether the user has seen (finished or skipped) the LiDAR Studio onboarding tutorial. */
     studioTutorialSeen: boolean;
     setStudioTutorialSeen: (v: boolean) => void;
+
+    /**
+     * Desktop LiDAR Studio side panel, folded away to free the viewport. Lives
+     * in the store rather than in the component: switching to the map view
+     * unmounts `LidarStudio` entirely, which would reset a `useState`.
+     */
+    studioPanelCollapsed: boolean;
+    setStudioPanelCollapsed: (v: boolean) => void;
+
+    /** Ids of the side-panel sections currently expanded (several at a time). */
+    studioPanelSections: readonly string[];
+    setStudioPanelSections: (v: readonly string[]) => void;
+
+    /** Desktop top-bar groups folded to a single button (camera, scene). */
+    topBarCameraCollapsed: boolean;
+    setTopBarCameraCollapsed: (v: boolean) => void;
+    topBarSceneCollapsed: boolean;
+    setTopBarSceneCollapsed: (v: boolean) => void;
 
     /**
      * Draw the sun's track across the sky for the selected day, with the disc at
@@ -139,6 +160,21 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     studioTutorialSeen: persisted.studioTutorialSeen ?? false,
     setStudioTutorialSeen: (studioTutorialSeen) => set({ studioTutorialSeen }),
 
+    studioPanelCollapsed: persisted.studioPanelCollapsed ?? false,
+    setStudioPanelCollapsed: (studioPanelCollapsed) => set({ studioPanelCollapsed }),
+
+    // A stale entry could hold anything; keep only strings so the panel never
+    // calls `.includes` on a non-array (one throw empties the page).
+    studioPanelSections: Array.isArray(persisted.studioPanelSections)
+        ? persisted.studioPanelSections.filter((id) => typeof id === 'string')
+        : DEFAULT_STUDIO_PANEL_SECTIONS,
+    setStudioPanelSections: (studioPanelSections) => set({ studioPanelSections }),
+
+    topBarCameraCollapsed: persisted.topBarCameraCollapsed ?? true,
+    setTopBarCameraCollapsed: (topBarCameraCollapsed) => set({ topBarCameraCollapsed }),
+    topBarSceneCollapsed: persisted.topBarSceneCollapsed ?? true,
+    setTopBarSceneCollapsed: (topBarSceneCollapsed) => set({ topBarSceneCollapsed }),
+
     skySunPath: persisted.skySunPath ?? false,
     setSkySunPath: (skySunPath) => set({ skySunPath }),
 
@@ -189,6 +225,10 @@ export function selectSettingsPersisted(
     PersistedSettings,
     | 'uiTheme'
     | 'studioTutorialSeen'
+    | 'studioPanelCollapsed'
+    | 'studioPanelSections'
+    | 'topBarCameraCollapsed'
+    | 'topBarSceneCollapsed'
     | 'skySunPath'
     | 'skyMoonPath'
     | 'skyHiddenPath'
@@ -202,6 +242,10 @@ export function selectSettingsPersisted(
     return {
         uiTheme: s.uiTheme,
         studioTutorialSeen: s.studioTutorialSeen,
+        studioPanelCollapsed: s.studioPanelCollapsed,
+        studioPanelSections: [...s.studioPanelSections],
+        topBarCameraCollapsed: s.topBarCameraCollapsed,
+        topBarSceneCollapsed: s.topBarSceneCollapsed,
         skySunPath: s.skySunPath,
         skyMoonPath: s.skyMoonPath,
         skyHiddenPath: s.skyHiddenPath,

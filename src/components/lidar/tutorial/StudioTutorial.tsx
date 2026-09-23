@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SpotlightMask } from './SpotlightMask';
 import { TutorialCard } from './TutorialCard';
-import { STUDIO_TUTORIAL_STEPS, type TutorialStep } from './steps';
+import { STUDIO_REVEAL_EVENT, STUDIO_TUTORIAL_STEPS, type TutorialStep } from './steps';
 import { useTargetRect } from './useTargetRect';
 
 /** Keeps only steps whose target is currently in the DOM (anchor-less and reveal steps always pass). */
@@ -11,9 +11,6 @@ function visibleSteps(): TutorialStep[] {
         (s) => s.selector === null || s.reveal !== undefined || document.querySelector(s.selector) !== null,
     );
 }
-
-/** Name of the event the studio listens to so a step can open/close a surface (e.g. the Capture menu). */
-export const STUDIO_REVEAL_EVENT = 'open-cairn-studio-reveal';
 
 export interface StudioTutorialProps {
     open: boolean;

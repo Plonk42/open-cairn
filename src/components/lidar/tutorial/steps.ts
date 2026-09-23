@@ -7,10 +7,11 @@
  * hard-codes a feature.
  *
  * Targets are referenced by a `data-tutorial="<id>"` attribute placed on the
- * real UI element (see `StudioBottomBar`, `ShowcaseGallery`, `ShowcaseExport`,
- * `LidarStudio`). Using DOM anchors instead of React refs keeps the tutorial
- * fully decoupled: a button can move to another component without touching this
- * file, and a step whose target is absent from the DOM is simply skipped.
+ * real UI element (see `StudioSidePanel`, `StudioCaptureButton`,
+ * `ShowcaseGallery`, `ShowcaseExport`, `LidarStudio`). Using DOM anchors
+ * instead of React refs keeps the tutorial fully decoupled: a button can move
+ * to another component without touching this file, and a step whose target is
+ * absent from the DOM is simply skipped.
  */
 
 /** Where the tooltip card sits relative to its highlighted target. */
@@ -21,11 +22,21 @@ export type TutorialGesture = 'drag-orbit';
 
 /**
  * A surface the tutorial must reveal before the step can anchor to it (e.g. a
- * menu whose contents only exist in the DOM while it is open). The studio
- * listens for the `open-cairn-studio-reveal` event and opens/closes the
- * matching surface. Steps without a `reveal` leave every surface closed.
+ * panel section whose contents only exist in the DOM while it is open, or one
+ * that has to be scrolled into view). The studio listens for the
+ * `open-cairn-studio-reveal` event and unfolds the matching surface. Steps
+ * without a `reveal` leave every surface as the user left it.
  */
-export type TutorialReveal = 'capture';
+export type TutorialReveal = 'capture' | 'render' | 'camera' | 'scene';
+
+/**
+ * Name of the event the studio listens to so a step can reveal the surface it
+ * needs. Its `detail` is the `TutorialReveal` of the current step, or `null`
+ * when leaving it. Lives here rather than in the overlay component so the
+ * surfaces that react to it (`StudioCaptureButton`, `StudioSidePanel`) don't
+ * have to import the tutorial UI.
+ */
+export const STUDIO_REVEAL_EVENT = 'open-cairn-studio-reveal';
 
 export interface TutorialStep {
     /** Stable id (also used as React key). */
@@ -79,8 +90,9 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         id: 'capture',
         selector: '[data-tutorial="capture"]',
         title: '1 · Dessiner une zone',
-        body: 'Ouvrez ce bouton : le mode dessin est actif aussitôt, glissez sur la carte pour tracer le rectangle à capturer. Un nouveau glissement remplace le précédent. Le curseur « Qualité » règle le compromis détail / temps de calcul.',
+        body: 'Le gros bouton vert ouvre la capture : le mode dessin est actif aussitôt, glissez sur la carte pour tracer le rectangle à capturer. Un nouveau glissement remplace le précédent. Le curseur « Qualité » règle le compromis détail / temps de calcul.',
         placement: 'left',
+        reveal: 'capture',
     },
     {
         id: 'capture-modes',
@@ -99,8 +111,9 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         id: 'render-settings',
         selector: '[data-tutorial="render-settings"]',
         title: '3 · Sculpter le rendu',
-        body: 'Ajustez l’apparence, la lumière, les ombres et l’effet de profondeur. C’est ici que le relief prend tout son volume.',
-        placement: 'top',
+        body: 'Ajustez l’apparence, la lumière, les ombres et l’effet de profondeur. Plusieurs sections peuvent rester dépliées en même temps — c’est ici que le relief prend tout son volume.',
+        placement: 'left',
+        reveal: 'render',
     },
     {
         id: 'orbit',
@@ -109,6 +122,7 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         body: 'Activez l’orbite pour faire tourner la vue automatiquement — idéal pour révéler le relief de façon cinématique. Vous pouvez aussi faire pivoter à la souris (clic droit / glisser).',
         placement: 'bottom',
         gesture: 'drag-orbit',
+        reveal: 'camera',
     },
     {
         id: 'export',
@@ -116,6 +130,7 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         title: '5 · Garder votre vue',
         body: 'Une fois la vue à votre goût, exportez-la : enregistrez-la dans « Mes vues » ou téléchargez-la pour la partager.',
         placement: 'bottom',
+        reveal: 'scene',
     },
     {
         id: 'gallery',
@@ -123,5 +138,6 @@ export const STUDIO_TUTORIAL_STEPS: readonly TutorialStep[] = [
         title: '6 · Retrouver vos scènes',
         body: 'Ouvrez la Galerie pour rouvrir vos vues enregistrées et explorer les scènes de démonstration mises en avant — de quoi s’inspirer sans rien capturer.',
         placement: 'bottom',
+        reveal: 'scene',
     },
 ];

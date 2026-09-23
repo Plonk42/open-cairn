@@ -1,16 +1,21 @@
-import { FreeCameraIcon, OrbitIcon, ViewpointIcon } from '@/components/icons/LidarIcons';
+import { CameraIcon, ChevronDownIcon, FreeCameraIcon, OrbitIcon, SceneIcon, ViewpointIcon } from '@/components/icons/LidarIcons';
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
+import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/steps';
 import { PanoramaIcon, SectionDivider } from '@/components/shell/routeSections';
 import { PeakLabelsToggle, SkyPathSection } from '@/components/ui/LayerSwitcher';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import type { AppView } from '@/lib/useView';
 import { useMapStore } from '@/stores/mapStore';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 /** Orbit auto-wiggle toggle. Works in both views (it circles the camera around
  *  the map centre, independent of any loaded LiDAR cloud). */
 export function OrbitTopBarButton() {
-    const { orbiting, setOrbiting } = useOrbit();
+    const orbit = useOrbit();
+    return <OrbitToggle {...orbit} />;
+}
+
+function OrbitToggle({ orbiting, setOrbiting }: Readonly<ReturnType<typeof useOrbit>>) {
     return (
         <button
             type="button"
@@ -64,19 +69,17 @@ function FreeCameraTopBarButton() {
  * other. Off, it asks *where* — armed, the next map click plants the eye on
  * the ground there and the camera stops moving, as if standing on that spot.
  * Standing, the same button asks *what*: it renders as "Panorama" and opens a
- * popover naming the peaks in view (Itinéraire also gets the sun/moon sky
- * tracks there — see below). Two separate buttons used to sit side by side for
- * this, one of them dead until the other was pressed; a button whose label and
- * icon change with the question being asked reads as one continuous action
- * instead of two things to learn.
+ * popover naming the peaks in view, with the sun/moon sky tracks. Two separate
+ * buttons used to sit side by side for this, one of them dead until the other
+ * was pressed; a button whose label and icon change with the question being
+ * asked reads as one continuous action instead of two things to learn.
  *
  * Releasing the standpoint moved inside the popover ("Quitter le point de
  * vue") since a click on the button itself now opens/closes that popover.
  *
- * The Studio already exposes the sky tracks in its *Lumière* pill (same store
- * flags, gated on `sunEnabled` there rather than on standing), so duplicating
- * them here would just be two switches for one setting; the popover keeps only
- * the peak names for it.
+ * The sky tracks live here only, in both views: they answer a question asked
+ * from a standpoint, not a rendering one, so the Studio's *Lumière* section
+ * no longer carries them.
  *
  * Exported because the mobile chrome composes it into its own menu: the mode
  * is a touch gesture like any other, not a desktop-only feature.
@@ -143,12 +146,8 @@ export function ViewpointTopBarButton({ needsTerrain, studio }: Readonly<{ needs
                 <div className="absolute right-0 top-full z-10 mt-2 w-72 overflow-hidden rounded-xl border border-black/5 bg-white shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10">
                     <div className="scrollbar-slim max-h-[60vh] overflow-y-auto p-3 text-slate-800 dark:text-slate-100">
                         <PeakLabelsToggle />
-                        {!studio && (
-                            <>
-                                <SectionDivider />
-                                <SkyPathSection />
-                            </>
-                        )}
+                        <SectionDivider />
+                        <SkyPathSection studio={studio} />
                     </div>
                     <div className="border-t border-black/5 p-2 dark:border-white/10">
                         <button
@@ -190,13 +189,109 @@ function HelpButton({ onClick }: Readonly<{ onClick?: () => void }>) {
 }
 
 /**
+ * A pill group folded, by default, to a single button: the top bar is read
+ * over the map, and most of the time only one of its actions is wanted.
+ * Folded children stay mounted — hidden, not removed — so an orbit in progress
+ * or the viewpoint popover survive a fold. `active` puts a dot on the folded
+ * button, since the mode that lit it is no longer visible.
+ */
+function ActionGroup({ label, Icon, collapsed, onToggle, active = false, children }: Readonly<{
+    label: string;
+    Icon: (props: { className?: string }) => ReactElement;
+    collapsed: boolean;
+    onToggle: () => void;
+    active?: boolean;
+    children: ReactNode;
+}>) {
+    return (
+        <div className="flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
+            <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={!collapsed}
+                aria-label={label}
+                title={collapsed ? `Afficher : ${label}` : `Replier : ${label}`}
+                className="relative inline-flex items-center gap-0.5 rounded-md bg-black/5 p-1.5 text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
+            >
+                <Icon className="h-4 w-4" />
+                <ChevronDownIcon className={`h-3 w-3 transition-transform ${collapsed ? '-rotate-90' : 'rotate-90'}`} />
+                {collapsed && active && (
+                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-600 ring-2 ring-white dark:bg-emerald-400 dark:ring-slate-950" />
+                )}
+            </button>
+            <div className={collapsed ? 'hidden' : 'flex items-center gap-1.5'}>{children}</div>
+        </div>
+    );
+}
+
+/**
+ * Camera-behaviour group: orbit, free camera, point de vue / panorama. They
+ * answer "how does the camera move", as opposed to the scene group below.
+ */
+function CameraActionGroup({ studio }: Readonly<{ studio: boolean }>) {
+    const collapsed = useMapStore((s) => s.topBarCameraCollapsed);
+    const setCollapsed = useMapStore((s) => s.setTopBarCameraCollapsed);
+    const freeCamera = useMapStore((s) => s.freeCamera);
+    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
+    // Lifted here so the folded button can tell an orbit is running.
+    const orbit = useOrbit();
+    return (
+        <ActionGroup
+            label="Caméra"
+            Icon={CameraIcon}
+            collapsed={collapsed}
+            onToggle={() => setCollapsed(!collapsed)}
+            active={orbit.orbiting || (studio && freeCamera) || viewpointOn}
+        >
+            <OrbitToggle {...orbit} />
+            {studio && <FreeCameraTopBarButton />}
+            <ViewpointTopBarButton needsTerrain={!studio} studio={studio} />
+        </ActionGroup>
+    );
+}
+
+/** Scene group: gallery, export, help — "what do I do with this view". */
+function SceneActionGroup({ studio, exportSlot, onHelp }: Readonly<{
+    studio: boolean;
+    exportSlot: ReactNode;
+    onHelp?: () => void;
+}>) {
+    const collapsed = useMapStore((s) => s.topBarSceneCollapsed);
+    const setCollapsed = useMapStore((s) => s.setTopBarSceneCollapsed);
+    return (
+        <ActionGroup
+            label="Galerie, export et aide"
+            Icon={SceneIcon}
+            collapsed={collapsed}
+            onToggle={() => setCollapsed(!collapsed)}
+        >
+            <ShowcaseGallery />
+            {exportSlot}
+            <HelpButton onClick={studio ? onHelp : undefined} />
+        </ActionGroup>
+    );
+}
+
+/** The Studio tutorial unfolds the group holding the control a step points at. */
+function useTopBarReveal(): void {
+    useEffect(() => {
+        const onReveal = (e: Event) => {
+            const detail = (e as CustomEvent<string | null>).detail;
+            const s = useMapStore.getState();
+            if (detail === 'camera') s.setTopBarCameraCollapsed(false);
+            if (detail === 'scene') s.setTopBarSceneCollapsed(false);
+        };
+        globalThis.addEventListener(STUDIO_REVEAL_EVENT, onReveal);
+        return () => globalThis.removeEventListener(STUDIO_REVEAL_EVENT, onReveal);
+    }, []);
+}
+
+/**
  * Shared top-bar action group, composed identically into both views so assets
- * cross over (load a LiDAR scene from the Itinéraire view, load a route from the
- * Studio). Split into two pill groups: camera behaviour (orbit, free camera,
- * point de vue/panorama) on one side, import/export (gallery, `exportSlot`,
- * help) on the other — the two answer different questions ("how does the
- * camera move" vs. "what do I do with this view") and grouping them says so at
- * a glance instead of leaving eight buttons in a single row.
+ * cross over (load a LiDAR scene from the Itinéraire view, load a route from
+ * the Studio). Split into two pill groups that answer different questions
+ * ("how does the camera move" vs. "what do I do with this view") instead of
+ * leaving eight buttons in a single row.
  *
  * The only per-view difference is `exportSlot` — the Studio ships the full
  * scene-export dialog, the Itinéraire a screenshot-only one — and the help
@@ -211,18 +306,11 @@ export function TopBarActions({ view, exportSlot, onHelp }: Readonly<{
     onHelp?: () => void;
 }>) {
     const studio = view === 'lidar';
+    useTopBarReveal();
     return (
         <div className="pointer-events-auto flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
-                <OrbitTopBarButton />
-                {studio && <FreeCameraTopBarButton />}
-                <ViewpointTopBarButton needsTerrain={!studio} studio={studio} />
-            </div>
-            <div className="flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10">
-                <ShowcaseGallery />
-                {exportSlot}
-                <HelpButton onClick={studio ? onHelp : undefined} />
-            </div>
+            <CameraActionGroup studio={studio} />
+            <SceneActionGroup studio={studio} exportSlot={exportSlot} onHelp={onHelp} />
         </div>
     );
 }

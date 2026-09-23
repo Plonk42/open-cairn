@@ -32,6 +32,18 @@ le groupe d'actions partagé — scindé en deux pastilles de **même hauteur** 
 puis *import/export* (*Galerie*, *Exporter cette vue*, *Partager*, aide) — et, à
 droite, le sélecteur de vue.
 
+Les deux pastilles sont **repliées par défaut** en un seul bouton (icône + chevron,
+56 px contre ~390 px déplié pour la caméra) ; l'état est mémorisé
+(`topBarCameraCollapsed`, `topBarSceneCollapsed`) et vaut pour les deux vues. Repliés,
+les boutons restent **montés** (masqués, pas retirés) : une orbite en cours ou le
+popover *Panorama* survivent au repli. Comme le mode actif n'est alors plus visible,
+le bouton replié de la caméra porte un **point vert** tant qu'une orbite, la caméra
+libre ou le point de vue est actif. Le tutoriel du Studio déplie le groupe dont il
+désigne un bouton (`reveal: 'camera' | 'scene'`) ; `useTargetRect` traite un élément
+non mis en page (`display: none`) comme absent, sinon il verrouillerait un rectangle
+nul avant le dépliage. Le mobile n'est pas concerné : il compose ces boutons dans son
+menu `⋯`.
+
 - Le **dock Itinéraire** (itinéraire courant + profil altimétrique) est ancré *sous* la
   carte : il réduit la carte au lieu de la recouvrir. Il a trois états :
   - **fermé** — la carte occupe toute la hauteur ;
@@ -64,13 +76,105 @@ droite, le sélecteur de vue.
 
 ### Sur ordinateur — Studio LiDAR
 
-Même chrome en haut, mais pas de dock : la barre du bas porte les réglages de rendu
-(*Fond*, *Opacité*, *Classes*, *Points*, *Shader*, *Végétation*, *Lumière*,
-*Ombres*, *EDL*), avec un bouton de capture flottant et un localisateur de nuage.
+Le Studio n'a **ni barre du bas ni dock** : ses réglages vivent dans un
+**accordéon ancré à droite** (`StudioSidePanel`), construit sur les primitives
+génériques de `SidePanel.tsx`. La **capture** en reste dehors : elle garde son
+gros **bouton rond vert** flottant en bas (`StudioCaptureButton`), partagé avec
+le mobile — on ne cadre pas la prochaine zone pendant qu'on règle le rendu de
+la précédente, et cette action mérite d'être *l'*action du Studio plutôt qu'un
+réglage parmi treize.
 
-Le groupe d'actions *caméra* du haut gagne un bouton propre au Studio : *Caméra
-libre* (libère la collision caméra/terrain et branche les flèches haut/bas sur
-l'altitude). *Point de vue*, décrit ci-dessous, est offert dans les **deux** vues.
+Les deux sont donc **exclusifs** : le bouton de capture n'existe que **panneau
+replié**. Déplier le panneau le fait disparaître et referme son menu s'il était
+ouvert ; pour capturer, on replie le panneau.
+
+```
+┌──────────────────────────────────────────┬───────────────────┐
+│ open-cairn  [📷 ›][▭ ›]                  │ … │ Itinéraire ▸  │   ← StudioTopBar
+│                                          ├───────────────────┤
+│                                          │ Studio LiDAR ⟳ ⌃ ▯│   ← en-tête
+│                 carte                    │ ▸ Nuages      ③   │
+│           (padding droit = 368 px)       │ ──── RENDU ────   │
+│                                          │ ▾ Fond            │
+│                                          │ ▸ Opacité         │
+│                                          │ ▸ Classes …       │
+└──────────────────────────────────────────┴───────────────────┘
+          panneau déplié : pas de bouton de capture
+
+┌─────────────────────────────────────────────────────────────┐
+│ open-cairn  [📷 ›][▭ ›]                            Itinéraire ▸  │
+│                                                          [▯]  │   ← SidePanelHandle
+│                           carte                                │
+│                                                         ╭───╮  │
+│                                                         │ ◉ │  │   ← StudioCaptureButton
+└─────────────────────────────────────────────────────────╰───╯──┘
+          panneau replié
+```
+
+Le bouton reste **monté** quand il est masqué (prop `hidden`) : c'est ce qui lui
+permet d'entendre le tutoriel. Son menu s'ouvre **au-dessus** de lui ; sur
+ordinateur le bouton sert aussi à le refermer, sur mobile il s'efface pour lui
+laisser la place.
+
+Ce que cela change par rapport à l'ancienne barre de pilules :
+
+- **Plusieurs sections peuvent rester ouvertes en même temps.** Les pilules
+  étaient exclusives : régler l'éclairage en regardant l'effet sur les classes
+  demandait de faire l'aller-retour. L'accordéon les empile.
+- **Le panneau ne recouvre plus la carte.** `useMapRightPadding` pousse le
+  `map.setPadding({ right: 368 })`, donc `fitBounds`, `easeTo` et le
+  recentrage d'un nuage visent la zone réellement visible. Le nettoyage au
+  démontage remet le padding à 0 — la carte est partagée avec l'Itinéraire.
+  ⚠️ `setPadding` réécrit **tous** les bords : le menu de capture, qui pose lui
+  aussi un padding, le fait **uniquement sur mobile** (`useIsMobile`), là où le
+  panneau n'existe pas. Deux écrivains simultanés s'effaceraient l'un l'autre.
+  ⚠️ Un padding déplace aussi le **point de fuite** : MapLibre projette autour
+  de `((w + gauche − droite) / 2, (h + haut − bas) / 2)`, pas autour du centre
+  du canevas. Tout code qui projette une direction à l'infini doit lire
+  `map.getPadding()` — c'est ce qui décalait les étiquettes de sommets de
+  184 px (= 368 / 2) en *Point de vue* panneau ouvert (voir
+  [src/lib/skyProjection.ts](../src/lib/skyProjection.ts)).
+- **L'état du panneau est persistant** (`studioPanelCollapsed`,
+  `studioPanelSections`) : `LidarStudio` est entièrement démonté à chaque
+  bascule de vue, donc il ne peut pas vivre dans un `useState`.
+- **Replié**, le panneau laisse un onglet 10 × 10 en haut à droite
+  (`SidePanelHandle`) et la barre du haut récupère la largeur.
+
+Les trois boutons de l'en-tête sont : *Réinitialiser tous les réglages de rendu*,
+*Tout replier*, *Masquer le panneau*.
+
+Le panneau ne contient donc **que le rendu** (plus la liste des nuages, qui est
+son sujet). La barre du haut reste celle de l'Itinéraire, `TopBarActions` au
+complet : boîte d'en-tête, groupe *caméra* (*Orbite*, *Caméra libre*, *Point de
+vue*), groupe *scène* (Galerie / Exporter cette vue / Aide) et `ViewSwitch`.
+Un mode de caméra n'est pas un réglage d'apparence, et on le change **pendant**
+qu'on lit le panneau.
+
+> La barre du haut n'a pas à s'écarter du panneau : celui-ci commence à
+> `y = 60` alors que le `ViewSwitch` s'arrête à `y = 42`. Les deux se croisent
+> en x, jamais en y. À 1317 px, les trois blocs finissent à 300 / 946 / 1305 px
+> pour une boîte de contenu de 1305 px — ça tient sans réserver de place.
+
+Les sections de l'accordéon sont volontairement **hautes** (~48 px, libellé de
+15 px) et leur filet séparateur est **en retrait** des bords du panneau : une
+douzaine de lignes de 13 px à ras bord se lisent comme une liste d'options, pas
+comme une douzaine de choses qu'on peut ouvrir. C'est le parti pris du *Terrain
+Viewer* de l'IGN, dont `SidePanelGroupLabel` reprend déjà le libellé de groupe
+(filet — petites capitales — filet).
+
+Le **tutoriel** ne peut pas désigner un contrôle replié : `StudioTutorial`
+émet `STUDIO_REVEAL_EVENT` avec le `reveal` de l'étape courante
+(`capture` ou `render`), et chaque surface concernée s'ouvre d'elle-même :
+le panneau déplie la section visée puis fait défiler l'ancre `data-tutorial`
+correspondante jusqu'au centre, le bouton de capture ouvre (ou referme) son
+menu selon que l'étape le vise ou non. Pour l'étape `capture`, le panneau se
+**replie** (le bouton n'existe que replié) ; pour `render`, il se déplie, ce qui
+escamote la capture. Au niveau des sections, le reveal n'**ouvre** jamais que :
+replier les sections de l'utilisateur à chaque étape serait gratuit.
+
+*Caméra libre* (libère la collision caméra/terrain et branche les flèches
+haut/bas sur l'altitude) est propre au Studio. *Point de vue*, décrit
+ci-dessous, est offert dans les **deux** vues.
 
 #### Mode « Point de vue »
 
@@ -229,10 +333,10 @@ La case **« Noms des sommets »** vit dans le popover que le bouton *Point de v
 ouvre une fois debout (il porte alors le nom *Panorama*) — en haut sur ordinateur,
 dans le menu `⋯` sur mobile — commun aux deux vues. Debout est le seul état où le
 bouton ouvre ce popover ; éteint ou armé, un clic agit sur la position comme décrit
-plus haut, il n'y a donc rien à griser. Côté Itinéraire le popover ouvre aussi les
-trajectoires du ciel (voir plus bas) ; côté Studio elles vivent déjà dans la pilule
-*Lumière* de la barre du bas (mêmes drapeaux), donc le popover n'y répète que les
-noms des sommets. Actif par défaut, son état est persisté.
+plus haut, il n'y a donc rien à griser. Le popover ouvre aussi les trajectoires du
+ciel (voir plus bas), dans les deux vues ; côté Studio sans la case « Ciel
+atmosphérique », que remplace son rendu photoréaliste. Actif par défaut, son état
+est persisté.
 
 Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le nom, et son
 altitude quand l'IGN en publie une. Une arête plus proche qui masque un sommet le fait
@@ -302,14 +406,18 @@ outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
 d'actions (`⋯`) qui regroupe **orbite** et **point de vue** (qui devient *panorama*
 une fois debout : noms des sommets et, côté Itinéraire, trajectoires du ciel),
-galerie, export et partage. C'est le **seul** accès mobile à ces actions : le groupe
-`TopBarActions` du desktop n'est pas monté sous 768 px, donc tout bouton ajouté
-là-bas doit être repris ici sous peine de ne pas exister sur téléphone.
+galerie, export et partage. C'est le **seul** accès mobile à ces actions : ni
+`TopBarActions` ni le `StudioSidePanel` du desktop ne sont montés sous 768 px,
+donc tout bouton ajouté là-bas doit être repris ici sous peine de ne pas exister
+sur téléphone.
 Armer le mode *Point de vue* **referme le menu** de lui-même : le geste suivant est
 un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 
 ### Limitations
 
+- **L'accordéon du Studio n'a pas de jumeau mobile** : sous 768 px, le Studio
+  garde ses *bottom sheets* (`StudioMobileShell`). Les deux chromes divergent
+  donc davantage qu'avant — voir [TODO.md](TODO.md).
 - **Pas de mode paysage** dédié sur mobile : si le téléphone est en paysage et large
   comme une tablette, on bascule en layout desktop, ce qui peut laisser peu de place à
   la carte.
@@ -346,7 +454,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe d'actions partagé, scindé en deux pastilles de même hauteur : caméra (orbite, caméra libre, point de vue/panorama) et import/export (galerie, `exportSlot`, aide) |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe *caméra* (orbite, caméra libre, point de vue/panorama) et groupe *scène* (galerie, `exportSlot`, aide), composés par `TopBarActions` pour les deux vues |
 | [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
 | [src/components/map/PeakLabelsOverlay.tsx](../src/components/map/PeakLabelsOverlay.tsx) | Surcouche SVG des noms de sommets : les trois cadences (requête / visée / placement) |
 | [src/lib/peaks.ts](../src/lib/peaks.ts) | Requêtes WFS BD TOPO® + BD CARTO® des sommets nommés et de leurs cotes |
@@ -355,7 +463,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
 | [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé, et restauration |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* |
-| [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` |
+| [src/components/shell/BottomBar.tsx](../src/components/shell/BottomBar.tsx) | Primitives de la barre du bas : `BottomBarPill`, `BottomBarButton` — n'est plus utilisé que par l'Itinéraire |
 | [src/components/shell/routeSections.tsx](../src/components/shell/routeSections.tsx) | `ROUTE_SETTING_SECTIONS` — source unique des 4 sections de la vue carte |
 | [src/components/shell/RouteBottomBar.tsx](../src/components/shell/RouteBottomBar.tsx) | Barre de pilules desktop + bascule du dock |
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
@@ -363,7 +471,10 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
 | [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue/panorama, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
-| [src/components/lidar/StudioBottomBar.tsx](../src/components/lidar/StudioBottomBar.tsx) | Barre de pilules du Studio (desktop) |
+| [src/components/lidar/StudioSidePanel.tsx](../src/components/lidar/StudioSidePanel.tsx) | Accordéon de droite du Studio desktop (nuages, rendu) |
+| [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives génériques du panneau : `SidePanel`, `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton`, `SidePanelHandle` |
+| [src/components/lidar/StudioClouds.tsx](../src/components/lidar/StudioClouds.tsx) | Liste des nuages (`StudioCloudList`, panneau) et localisateur flottant (`StudioCloudLocator`, mobile) |
+| [src/components/lidar/StudioCaptureButton.tsx](../src/components/lidar/StudioCaptureButton.tsx) | Bouton rond vert de capture + son menu — **desktop et mobile** |
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
@@ -398,7 +509,8 @@ flowchart LR
     Which -->|lidar| Studio[LidarStudio.tsx]
     App --> Hook[useIsMobile&#40;&#41;]
     Studio --> Hook
-    Hook -->|false| Desktop[Barre de pilules<br/>+ dock Itinéraire]
+    Hook -->|false, map| Desktop[Barre de pilules<br/>+ dock Itinéraire]
+    Hook -->|false, lidar| Panel[StudioSidePanel<br/>accordéon à droite]
     Hook -->|true| Mobile[MobileToolbar<br/>feuilles]
 ```
 
@@ -415,7 +527,7 @@ la barre de pilules desktop et la barre d'outils mobile.
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
 
 *Panorama* (`PeakLabelsToggle` + `SkyPathSection` : trajectoires soleil / lune, ciel
-atmosphérique, portions cachées, `SunDateControl`) n'est **pas** une de ces sections :
+atmosphérique hors Studio, portions cachées, `SunDateControl`) n'est **pas** une de ces sections :
 c'est un bouton du groupe caméra de la barre du haut, commun aux deux vues (voir
 « Noms des sommets » plus haut) — hors mode *Point de vue* la carte est plafonnée à
 `MAP_MAX_PITCH` (85°), donc il n'y a **pas de ciel à l'écran** pour y tracer une course
@@ -427,7 +539,14 @@ Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend
 ### Réglages — Studio
 
 `STUDIO_RENDER_SETTINGS` (même forme) : `fond`, `opacite`, `classes`, `points`,
-`shader`, `vegetation`, `lumiere`, `ombres`, `edl`.
+`shader`, `vegetation`, `lumiere`, `ombres`, `edl`. Le desktop les rend en
+sections d'accordéon sous l'intitulé *RENDU*, le mobile en feuilles — dans les
+deux cas via `setting.render()`, sans duplication.
+
+Le panneau desktop ajoute une seule section qui n'est **pas** dans ce registre,
+parce qu'elle ne pilote pas le rendu : *Nuages* (`StudioCloudList`). La capture
+(`StudioCaptureButton`) et les modes de caméra (barre du haut) restent hors du
+panneau.
 
 ### Dock redimensionnable (desktop)
 

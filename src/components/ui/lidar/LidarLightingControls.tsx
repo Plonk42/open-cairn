@@ -1,4 +1,3 @@
-import { HIDDEN_PATH_HINT, SKY_PATH_HINT } from '@/components/ui/LayerSwitcher';
 import { useMapStore } from '@/stores/mapStore';
 import { PhotorealControls, TuneSlider } from './PhotorealControls';
 import { ShadowControls } from './ShadowControls';
@@ -94,67 +93,10 @@ export function SunControls() {
                     className={`m-0 mt-2 min-w-0 rounded-md border border-slate-200 bg-white/50 p-2 dark:border-slate-600 dark:bg-slate-800/50 ${sunEnabled ? '' : 'opacity-50'}`}
                 >
                     <SunDateControl />
-                    <SkyPathToggles />
                     <SunManualControls />
                 </fieldset>
             </div>
         </div>
-    );
-}
-
-/**
- * Draws the day's track of one body in the sky. Lives inside the sun fieldset
- * because it tracks the same date picker; the sun's disc follows the
- * *effective* light, so a forced lighting shows up as a disc that has left its
- * track. The Itinéraire view offers the same switches in its « Point de vue »
- * button's *Panorama* popover — same store flags.
- */
-function SkyPathToggle({ label, title, checked, disabled, onChange }: Readonly<{
-    label: string;
-    title: string;
-    checked: boolean;
-    disabled?: boolean;
-    onChange: (v: boolean) => void;
-}>) {
-    return (
-        <label className="mt-2 flex cursor-pointer items-center gap-2">
-            <input
-                type="checkbox"
-                checked={checked}
-                disabled={disabled}
-                onChange={(e) => onChange(e.target.checked)}
-                className="h-3.5 w-3.5 flex-shrink-0 accent-green-600 disabled:opacity-40"
-            />
-            <span
-                className="text-xs text-slate-700 dark:text-slate-300"
-                title={title}
-            >
-                {label}
-            </span>
-        </label>
-    );
-}
-
-function SkyPathToggles() {
-    const sunPath = useMapStore((s) => s.skySunPath);
-    const setSunPath = useMapStore((s) => s.setSkySunPath);
-    const moonPath = useMapStore((s) => s.skyMoonPath);
-    const setMoonPath = useMapStore((s) => s.setSkyMoonPath);
-    const hiddenPath = useMapStore((s) => s.skyHiddenPath);
-    const setHiddenPath = useMapStore((s) => s.setSkyHiddenPath);
-    const trackTitle = `${SKY_PATH_HINT} Lever la caméra au-dessus de l’horizon (pitch > 90°) demande la caméra libre ou le point de vue.`;
-    return (
-        <>
-            <SkyPathToggle label="Trajectoire du soleil" title={trackTitle} checked={sunPath} onChange={setSunPath} />
-            <SkyPathToggle label="Trajectoire de la lune" title={trackTitle} checked={moonPath} onChange={setMoonPath} />
-            <SkyPathToggle
-                label="Portions cachées"
-                title={HIDDEN_PATH_HINT}
-                checked={hiddenPath}
-                disabled={!sunPath && !moonPath}
-                onChange={setHiddenPath}
-            />
-        </>
     );
 }
 

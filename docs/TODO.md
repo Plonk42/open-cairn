@@ -1,5 +1,25 @@
 # TODO
 
+- [ ] **Le recalage des étiquettes de sommets sur le padding n'a pas été vu à l'écran.**
+      `projectDirection` lit maintenant `map.getPadding()`, et la correction est démontrée
+      par le calcul (`map.project(map.getCenter()).x === (w − right) / 2`, mesuré 474 pour
+      1317 − 368). Mais la vérification visuelle en mode *Point de vue* panneau ouvert a
+      échoué faute de tuiles : `data.geopf.fr` renvoyait `ERR_ABORTED` sur l'ortho **et**
+      sur l'ombrage ce jour-là, donc pas de MNT, donc `sightPeaks` sans relief et aucune
+      étiquette placée. À refaire quand le service répond.
+
+- [ ] **L'accordéon du Studio n'a pas de jumeau mobile.** Le desktop a basculé sur
+      `StudioSidePanel` (sections dépliables simultanément, padding carte à droite,
+      état persisté) ; sous 768 px `StudioMobileShell` garde ses *bottom sheets*
+      exclusives. Les deux chromes ont donc divergé un peu plus. À trancher : soit un
+      panneau plein écran repliable sur téléphone, soit assumer la divergence et l'écrire
+      dans `UI_SHELL_AND_RESPONSIVE.md` comme un choix (c'est l'état actuel).
+
+- [ ] **`BottomBar.tsx` n'a plus qu'un consommateur** (`RouteBottomBar`, vue Itinéraire)
+      depuis la suppression de `StudioBottomBar`. Si l'Itinéraire passe lui aussi à un
+      panneau latéral, ces primitives disparaissent ; sinon, il faudra assumer deux
+      vocabulaires visuels (pilules en bas / accordéon à droite) dans la même application.
+
 - [ ] Monter l'œil en *Point de vue* est **clavier seulement** (flèches haut/bas) : sur
       téléphone on reste cloué à 1,70 m, c'est-à-dire précisément au cadrage que le relief
       proche bouche le plus souvent. Il manque un jumeau tactile — glissement à deux doigts
@@ -25,11 +45,6 @@
       Rouges). Deux pistes : monter l'œil à ~15 m, ou accrocher le clic au **point haut local**
       dans un rayon de quelques centaines de mètres, comme PeakFinder — le sol tombe alors
       immédiatement et le problème disparaît sans tricher sur la hauteur.
-- [ ] Les noms de sommets ancrés près du bord droit sont coupés : le texte part vers la
-      droite depuis son ancre et rien ne mesure sa longueur. PeakFinder les coupe aussi,
-      mais on pourrait les faire courir vers la gauche dans la marge droite — au prix de
-      l'invariant « toutes les étiquettes sont des bandes parallèles » dont dépend le
-      désencombrement.
 - [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
       le champ ne peut faire apparaître que des sommets déjà marchés. La portée des rangs 1
       et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
@@ -38,14 +53,6 @@
       360° — hors budget — mais **210** dans un secteur de 37°. Prix à payer : un cap et un
       champ dans `observerKey`, un filtre d'azimut dans `selectCandidates`, et une nouvelle
       marche à chaque arrêt de rotation, là où tourner la tête est gratuit aujourd'hui.
-- [ ] La marche d'occultation modélise la courbure de la Terre alors que le terrain
-      mercator est un **plan** : un sommet lointain y est donc plus bas qu'à l'écran, et
-      peut être déclaré masqué alors que le rendu le dessine. L'écart est l'abaissement
-      différentiel entre le sommet et l'arête qui le masque : 0,41° à 104 km contre 0,27° à
-      70 km, soit ~0,14° de biais contre le lointain. Le placement, lui, est passé dans
-      l'espace du rendu (`renderDirection`). Corriger la marche demanderait un angle plat
-      dans `sightPeaks`, ce qui la découplerait de `skyline.ts`, partagé avec le soleil et la
-      lune où la courbure est juste.
 - [ ] Le MNT lu à `SKYLINE_DEM_ZOOM = 13` sous-estime lourdement les cimes proches
       perchées sur une falaise : Dent de Crolles à 5,8 km lue **1 521 m** pour 2 062 m cotés,
       Pravouta 1 523 m pour 1 760 m, Charmant Som 1 416 m pour 1 867 m. Un pas de 19 m sur une
@@ -70,8 +77,6 @@
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.
-- [ ] Champ de vision : PeakFinder cadre à 110° d'horizontale, nous à 70°. Voir si un champ
-      plus large est souhaitable en *Point de vue*, ou au moins atteignable au pincement.
 - [ ] Le test d'occultation est plus strict que celui de PeakFinder à courte distance :
       `SELF_CLEARANCE` est une *fraction* de la distance (60 m à 4 km, 900 m à 60 km) là où
       PeakFinder pardonne un obstacle à moins de 1 400 m fixes du sommet visé.
@@ -86,4 +91,18 @@
       `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
       la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
       les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
-- [ ] `panoramaDetail.ts` s'accroche \u00e0 des champs priv\u00e9s de MapLibre \u2014 `rttSize` (assign\u00e9\n      uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne\n      suffit pas), `_meshCache`, `_renderableTilesKeys`. Une mont\u00e9e de version peut les\n      renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait\n      simplement \u00e0 rendre en qualit\u00e9 par d\u00e9faut. Piste : une assertion de d\u00e9veloppement au\n      moment du patch.\n- [ ] Entrer en *Point de vue* \u00e0 focale serr\u00e9e fait passer le parc de tuiles de maillage de\n      22 \u00e0 123 d'un coup, avec un \u00e0-coup de ~210 ms pendant que les RTT sont refaites.\n      Piste : \u00e9taler le changement de `meshSize` sur quelques images, ou ne vider\n      `_meshCache` que progressivement.\n- [ ] Rendu \u00ab pur 3D \u00e0 la PeakFinder \u00bb : masquer les couches de fond dans la RTT et ne\n      garder que l'ombrage donnerait la lecture g\u00e9om\u00e9trique demand\u00e9e pour presque rien.\n      L'alternative \u2014 normales par tuile et nuanceur \u00e9clair\u00e9 d\u00e9di\u00e9, comme `LidarWebGLLayer`\n      \u2014 est nettement plus lourde.\n- [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
+- [ ] `panoramaDetail.ts` s'accroche à des champs privés de MapLibre — `rttSize` (assigné
+      uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne
+      suffit pas), `_meshCache`, `_renderableTilesKeys`. Une montée de version peut les
+      renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait
+      simplement à rendre en qualité par défaut. Piste : une assertion de développement au
+      moment du patch.
+- [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
+      22 à 123 d'un coup, avec un à-coup de ~210 ms pendant que les RTT sont refaites.
+      Piste : étaler le changement de `meshSize` sur quelques images, ou ne vider
+      `_meshCache` que progressivement.
+- [ ] Rendu « pur 3D à la PeakFinder » : masquer les couches de fond dans la RTT et ne
+      garder que l'ombrage donnerait la lecture géométrique demandée pour presque rien.
+      L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
+      — est nettement plus lourde.
+- [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/

@@ -36,7 +36,11 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   variante sol lissé), `poisson` (reconstruction de surface WASM). Niveau de détail (LOD) adaptatif
   à la distance pour les gros nuages.
 - **Studio LiDAR** (`?view=lidar`) — vue plein écran dédiée à la capture et à l'exploration d'un
-  nuage : réglages de rendu (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
+  nuage. Sur ordinateur, la capture garde son **gros bouton rond** en bas, les modes de caméra
+  restent dans la barre du haut, et les réglages sont pilotés depuis un **panneau accordéon ancré
+  à droite** (nuages chargés puis les neuf réglages de rendu), dont plusieurs sections
+  peuvent rester ouvertes en même temps et dont l'état est mémorisé : réglages de rendu
+  (opacité, classes, ombres, EDL, éclairage solaire), mode orbite
   automatique, galerie de « vues » (scènes caméra + réglages)
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
 - **Mode « Point de vue »** — disponible dans les **deux vues**, sur ordinateur comme sur mobile :

@@ -143,6 +143,54 @@ export function PopoverCloseIcon({ className = 'h-4 w-4' }: IconProps): ReactEle
     );
 }
 
+/** Accordion affordance: points down when closed, flipped by the caller when open. */
+export function ChevronDownIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+            <path d="m5.5 8 4.5 4.5L14.5 8" />
+        </svg>
+    );
+}
+
+/** Fold every accordion section at once. */
+export function CollapseAllIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+            <path d="m5.5 9 4.5-4.5L14.5 9M5.5 15.5l4.5-4.5 4.5 4.5" />
+        </svg>
+    );
+}
+
+/** Slide the right-hand panel out of the way (and back). */
+export function PanelRightIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+            <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
+            <path d="M12.5 3.5v13" />
+        </svg>
+    );
+}
+
+/** Camera body — folded top-bar group of the camera modes. */
+export function CameraIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" className={className} aria-hidden="true">
+            <path d="M2.5 6.5a1.5 1.5 0 0 1 1.5-1.5h2.2L7.5 3h5l1.3 2H16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5Z" />
+            <circle cx="10" cy="10.3" r="3" />
+        </svg>
+    );
+}
+
+/** Stacked frames — folded top-bar group of gallery, export and help. */
+export function SceneIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+            <rect x="3" y="7" width="14" height="10" rx="1.5" />
+            <path d="M5 4.5h10M7 2h6" />
+        </svg>
+    );
+}
+
 /** Visible/shown state — used to toggle a loaded LiDAR cloud on. */
 export function EyeIcon({ className = 'h-4 w-4' }: IconProps): ReactElement {
     return (

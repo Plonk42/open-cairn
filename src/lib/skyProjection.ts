@@ -60,6 +60,10 @@ export function demSampler(terrain: MapTerrain): GroundSampler {
  * Same pinhole as MapLibre's own camera: the focal length in pixels is
  * `0.5·height/tan(fovY/2)`, which is exactly its `cameraToCenterDistance`.
  * Returns null when the direction is behind the camera.
+ *
+ * The vanishing point is the *padded* centre, not the canvas centre: a floating
+ * panel that pushes `map.setPadding` moves where the camera looks, and reading
+ * the padding here is what keeps the summit labels on their summits.
  */
 export function projectDirection(
     map: MapLibreMap,
@@ -80,9 +84,12 @@ export function projectDirection(
     const depth = dot(forward);
     if (depth <= 1e-4) return null;
     const { width, height } = map.getCanvas().getBoundingClientRect();
+    const { left = 0, right: padRight = 0, top = 0, bottom = 0 } = map.getPadding();
+    // The focal length stays tied to the full canvas height — MapLibre derives
+    // `cameraToCenterDistance` from it, padding excluded.
     const focal = (0.5 * height) / Math.tan((map.getVerticalFieldOfView() * DEG) / 2);
     return {
-        x: width / 2 + (focal * dot(right)) / depth,
-        y: height / 2 - (focal * dot(up)) / depth,
+        x: (width + left - padRight) / 2 + (focal * dot(right)) / depth,
+        y: (height + top - bottom) / 2 - (focal * dot(up)) / depth,
     };
 }

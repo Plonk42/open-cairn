@@ -16,6 +16,12 @@ export type PersistedSettings = {
     mapStyleByView?: Record<AppView, MapStyleSettings>;
     uiTheme?: UiTheme;
     studioTutorialSeen?: boolean;
+    /** Desktop LiDAR Studio side panel: folded away, and which sections are open. */
+    studioPanelCollapsed?: boolean;
+    studioPanelSections?: string[];
+    /** Desktop top-bar groups folded to a single button. */
+    topBarCameraCollapsed?: boolean;
+    topBarSceneCollapsed?: boolean;
     /**
      * Sky tracks of the sun and of the moon. A planning overlay, not part of a
      * scene's ambiance: an exported showcase render must not carry a

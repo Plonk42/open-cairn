@@ -53,6 +53,14 @@ Champs principaux :
   atmosphericSky                    // vue Itinéraire : ciel piloté par le soleil
   peakLabels                        // nommer les sommets visibles — n'a d'effet qu'en Point de vue
 
+  // Chrome du Studio desktop (l'accordéon de droite)
+  studioPanelCollapsed              // panneau replié en onglet
+  studioPanelSections: string[]     // ids des sections dépliées, plusieurs à la fois
+
+  // Barre du haut desktop, les deux vues (défaut : replié)
+  topBarCameraCollapsed             // groupe caméra réduit à un bouton
+  topBarSceneCollapsed              // groupe galerie / export / aide réduit à un bouton
+
   // LiDAR (chargement)
   lidarMode: 'shaded' | 'delaunay' | 'poisson'
   lidarClouds: LoadedLidarCloud[]   // tous les nuages affichés, le plus ancien d'abord
