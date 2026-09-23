@@ -58,10 +58,13 @@ Dans le panneau **LiDAR** :
    (`1/4 dalles · 3,2 / 25,0 Mo`, rafraîchi quatre fois par seconde), et la
    barre avance à l'octet. Le total est **exact** : après la lecture de la
    hiérarchie COPC (quelques ko par dalle), on connaît à l'octet près les plages
-   qui vont être demandées. Tant que toutes les dalles n'ont pas lu la leur,
-   la ligne affiche `3,2 Mo reçus`. C'est le compteur d'octets qui distingue un
-   téléchargement lent d'un téléchargement bloqué : une dalle peut prendre
-   plusieurs minutes.
+   qui vont être demandées. Aucune dalle ne commence à télécharger ses points
+   avant que **toutes** aient lu leur hiérarchie : la file de requêtes globale
+   est servie dans l'ordre d'arrivée, et une dalle qui y déposait ses plages
+   de 16 Mo en premier faisait attendre derrière elles les pages de hiérarchie
+   des autres — et le total avec. Le compteur
+   d'octets distingue ainsi un téléchargement lent d'un téléchargement bloqué :
+   une dalle peut prendre plusieurs minutes.
 
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).

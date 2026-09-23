@@ -59,6 +59,8 @@ export interface ExtractParams {
     signal?: AbortSignal;
     /** Called once, after the hierarchy walk, with the point-data bytes about to be fetched. */
     onPlannedBytes?: (bytes: number) => void;
+    /** Awaited between the hierarchy walk and the point download. */
+    beforePointFetch?: () => Promise<void>;
     /** Called as point-data bytes land (negative when a failed attempt is taken back). */
     onBytes?: (bytes: number) => void;
 }
@@ -351,6 +353,7 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
         'coalesced', sorted.length, '→', groups.length, 'ranges',
         `(overhead ${((totalGroupBytes / Math.max(1, totalNodeBytes) - 1) * 100).toFixed(1)}%)`);
     params.onPlannedBytes?.(totalGroupBytes);
+    await params.beforePointFetch?.();
 
     // Pre-fetch every group concurrently (subject to acquireGlobal). Slice
     // out the per-node buffers into a Map so the decompress step below

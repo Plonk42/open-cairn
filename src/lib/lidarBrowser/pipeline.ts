@@ -109,9 +109,15 @@ const BYTES_REPORT_INTERVAL_MS = 250;
  * a tile can take minutes, and a byte count that stops moving is the only way
  * to tell a stalled download from a slow one. The total is known exactly once
  * every tile has walked its hierarchy, which takes a few kB and seconds.
+ *
+ * `allPlanned` holds each tile's point download until every hierarchy is read:
+ * the global throttle is FIFO, so a tile queueing its 16 MB ranges first would
+ * push the other tiles' hierarchy pages — and the total — behind them.
  */
 function tileProgress(tileCount: number, onProgress: ProgressCallback): {
     plan: (bytes: number) => void;
+    allPlanned: () => Promise<void>;
+    release: () => void;
     addBytes: (bytes: number) => void;
     tileDone: () => void;
 } {
@@ -122,6 +128,8 @@ function tileProgress(tileCount: number, onProgress: ProgressCallback): {
     let total = 0;
     let bytes = 0;
     let lastReport = 0;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
     const report = () => {
         lastReport = performance.now();
         const known = planned === tileCount && total > 0;
@@ -134,7 +142,14 @@ function tileProgress(tileCount: number, onProgress: ProgressCallback): {
         });
     };
     return {
-        plan: (n) => { planned++; total += n; report(); },
+        plan: (n) => {
+            planned++;
+            total += n;
+            if (planned === tileCount) release();
+            report();
+        },
+        allPlanned: () => ready,
+        release: () => release(),
         addBytes: (n) => {
             bytes += n;
             if (performance.now() - lastReport >= BYTES_REPORT_INTERVAL_MS) report();
@@ -341,20 +356,27 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     const tilesTimer = startTimer();
     const tileReport = tileProgress(tiles.length, onProgress);
     const results = await Promise.all(tiles.map(async (tile) => {
-        const r = await extractPoints({
-            tileUrl: tile.url,
-            x0, y0, radius, stride,
-            targetSpacingM: params.targetSpacingM,
-            classFilter,
-            fullDensityClasses: opts?.fullDensityClasses ?? null,
-            rect: rectCrop,
-            needScan,
-            signal: params.signal,
-            onPlannedBytes: tileReport.plan,
-            onBytes: tileReport.addBytes,
-        });
-        tileReport.tileDone();
-        return r;
+        try {
+            const r = await extractPoints({
+                tileUrl: tile.url,
+                x0, y0, radius, stride,
+                targetSpacingM: params.targetSpacingM,
+                classFilter,
+                fullDensityClasses: opts?.fullDensityClasses ?? null,
+                rect: rectCrop,
+                needScan,
+                signal: params.signal,
+                onPlannedBytes: tileReport.plan,
+                beforePointFetch: tileReport.allPlanned,
+                onBytes: tileReport.addBytes,
+            });
+            tileReport.tileDone();
+            return r;
+        } catch (err) {
+            // A tile that dies before planning must not keep the others waiting.
+            tileReport.release();
+            throw err;
+        }
     }));
 
     let totalPts = 0;
