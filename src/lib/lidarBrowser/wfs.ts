@@ -6,9 +6,13 @@
  * `https://data.geopf.fr/wfs/ows` with `Origin: https://*.github.io`).
  */
 
+import { isTimeout, withTimeout } from './deadline';
+
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
 const TYPENAME = 'IGNF_LIDAR-HD_METADONNEE:metadata';
 const MAX_TILES = 64;
+// The answer is a few kB: anything this slow is a connection left hanging.
+const WFS_TIMEOUT_MS = 30_000;
 
 /** Lambert-93 footprint of a tile. */
 export interface TileBboxL93 { minX: number; maxX: number; minY: number; maxY: number }
@@ -32,6 +36,28 @@ function bboxFromNwCorner(nw: unknown): TileBboxL93 | null {
     const minX = Number(m[1]) * 1000;
     const maxY = Number(m[2]) * 1000;
     return { minX, maxX: minX + TILE_SIZE_M, minY: maxY - TILE_SIZE_M, maxY };
+}
+
+/** Run the GetFeature request; the deadline covers the body read too. */
+async function fetchTileIndex(
+    params: URLSearchParams,
+    signal: AbortSignal | undefined,
+): Promise<{ features?: unknown[] }> {
+    try {
+        const res = await fetch(`${WFS_URL}?${params.toString()}`, {
+            headers: { Accept: 'application/json' },
+            signal: withTimeout(signal, WFS_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+            throw new Error(`WFS GetFeature failed: ${res.status} ${res.statusText}`);
+        }
+        return await res.json() as { features?: unknown[] };
+    } catch (err) {
+        if (!isTimeout(err)) throw err;
+        throw new Error(
+            `Le service IGN des dalles LiDAR n'a pas répondu en ${WFS_TIMEOUT_MS / 1000} s. Réessayez.`,
+        );
+    }
 }
 
 /**
@@ -58,14 +84,7 @@ export async function findTiles(
         outputFormat: 'application/json',
         count: String(MAX_TILES + 5),
     });
-    const res = await fetch(`${WFS_URL}?${params.toString()}`, {
-        headers: { Accept: 'application/json' },
-        signal,
-    });
-    if (!res.ok) {
-        throw new Error(`WFS GetFeature failed: ${res.status} ${res.statusText}`);
-    }
-    const data = await res.json() as { features?: unknown[] };
+    const data = await fetchTileIndex(params, signal);
     const features = Array.isArray(data.features) ? data.features : [];
     const tiles: LidarTileRef[] = [];
     for (const f of features) {

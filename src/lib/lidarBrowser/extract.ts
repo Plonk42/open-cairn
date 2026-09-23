@@ -57,6 +57,8 @@ export interface ExtractParams {
      */
     needScan?: boolean;
     signal?: AbortSignal;
+    /** Called with the size of every range read, as it lands. */
+    onBytes?: (bytes: number) => void;
 }
 
 export interface ExtractResult {
@@ -275,7 +277,7 @@ function collectNodePoints(ctx: CollectCtx): { kept: number; keptExempt: number;
 export async function extractPoints(params: ExtractParams): Promise<ExtractResult> {
     const { tileUrl, x0, y0, radius, stride, classFilter, needScan } = params;
     const rect = params.rect ?? null;
-    const { get, stats } = createRangeGetter(tileUrl);
+    const { get, stats } = createRangeGetter(tileUrl, params.onBytes);
     // Init once per worker; ensures Vite-bundled WASM URL is used.
     const lazPerf = await getLazPerf();
     const tCreate = performance.now();

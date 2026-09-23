@@ -26,6 +26,7 @@
  *         plausible salt-and-pepper of its species.
  */
 
+import { withTimeout } from './deadline';
 import { lngLatToL93 } from './proj';
 
 const WFS_URL = 'https://data.geopf.fr/wfs/ows';
@@ -33,6 +34,8 @@ const TYPENAME = 'LANDCOVER.FORESTINVENTORY.V2:formation_vegetale';
 /** Stands are silently truncated past this count; ~28/km² observed, so this
  *  covers the largest allowed capture (25 km²) with margin. */
 const MAX_FEATURES = 3000;
+// 3000 stands of polygon rings is several MB of GeoJSON.
+const BDFORET_TIMEOUT_MS = 60_000;
 
 /** LAS classes that carry vegetation returns (basse / moyenne / haute). */
 const VEG_CLASSES = new Set([3, 4, 5]);
@@ -302,7 +305,7 @@ export async function fetchForestPolygons(
     });
     const res = await fetch(`${WFS_URL}?${params.toString()}`, {
         headers: { Accept: 'application/json' },
-        signal,
+        signal: withTimeout(signal, BDFORET_TIMEOUT_MS),
     });
     if (!res.ok) {
         throw new Error(`BD Forêt WFS GetFeature failed: ${res.status} ${res.statusText}`);

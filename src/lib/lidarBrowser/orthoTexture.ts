@@ -23,6 +23,7 @@
 
 import { BASE_LAYERS, type DrapeSource } from '@/lib/baseLayers';
 import { IGN_LAYERS, ignLayerUrl, OSM_TILE_URL } from '@/lib/ign';
+import { withTimeout } from './deadline';
 
 export interface DrapeMosaic {
     /** Canvas holding the stitched basemap, ready for `texImage2D`. */
@@ -40,6 +41,8 @@ const TILE_SIZE = 256;
 const MAX_MOSAIC_PX = 4096;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 19;
+// Past this a tile is left blank rather than holding the whole mosaic back.
+const TILE_TIMEOUT_MS = 30_000;
 
 /**
  * XYZ template + finest usable zoom for a drapable basemap. Each layer stops at
@@ -76,7 +79,7 @@ function tileToLngLat(x: number, y: number, z: number): { lng: number; lat: numb
  *  decode failure: a missing tile just leaves a blank patch in the mosaic. */
 async function loadTileImage(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> {
     try {
-        const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
+        const res = await fetch(url, { signal: withTimeout(signal, TILE_TIMEOUT_MS), mode: 'cors', credentials: 'omit' });
         if (!res.ok) return null;
         return await createImageBitmap(await res.blob());
     } catch {

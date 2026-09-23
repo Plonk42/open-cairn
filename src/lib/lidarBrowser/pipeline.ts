@@ -101,6 +101,41 @@ function logStage(label: string, ms: number, extra?: string): void {
     console.log(`[lidar] ${label}: ${fmtMs(ms)}${suffix}`);
 }
 
+// Each report crosses the worker boundary: a few per second is enough to show motion.
+const BYTES_REPORT_INTERVAL_MS = 250;
+
+/**
+ * Progress of the tile stage, counted in bytes as well as in finished tiles:
+ * a tile can take minutes, and a byte count that stops moving is the only way
+ * to tell a stalled download from a slow one.
+ */
+function tileProgress(tileCount: number, onProgress: ProgressCallback): {
+    addBytes: (bytes: number) => void;
+    tileDone: () => void;
+} {
+    const plural = tileCount > 1 ? 's' : '';
+    let done = 0;
+    let bytes = 0;
+    let lastReport = 0;
+    const report = () => {
+        lastReport = performance.now();
+        const mb = (bytes / 1_048_576).toFixed(1).replace('.', ',');
+        onProgress({
+            stage: 'tiles',
+            message: STAGE_LABELS.tiles,
+            detail: `${done}/${tileCount} dalle${plural} · ${mb} Mo reçus`,
+            progress: done / tileCount,
+        });
+    };
+    return {
+        addBytes: (n) => {
+            bytes += n;
+            if (performance.now() - lastReport >= BYTES_REPORT_INTERVAL_MS) report();
+        },
+        tileDone: () => { done++; report(); },
+    };
+}
+
 function concatPositions(parts: Float32Array[], totalPts: number): Float32Array {
     const out = new Float32Array(totalPts * 3);
     let off = 0;
@@ -297,7 +332,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
         progress: 0,
     });
     const tilesTimer = startTimer();
-    let completedTiles = 0;
+    const tileReport = tileProgress(tiles.length, onProgress);
     const results = await Promise.all(tiles.map(async (tile) => {
         const r = await extractPoints({
             tileUrl: tile.url,
@@ -308,14 +343,9 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
             rect: rectCrop,
             needScan,
             signal: params.signal,
+            onBytes: tileReport.addBytes,
         });
-        completedTiles++;
-        onProgress({
-            stage: 'tiles',
-            message: STAGE_LABELS.tiles,
-            detail: `${completedTiles}/${tiles.length} dalle${tiles.length > 1 ? 's' : ''}`,
-            progress: completedTiles / tiles.length,
-        });
+        tileReport.tileDone();
         return r;
     }));
 

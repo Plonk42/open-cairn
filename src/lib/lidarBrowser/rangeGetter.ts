@@ -11,11 +11,20 @@
  * Under load it also just drops the connection, and `fetch` then rejects with
  * `Failed to fetch`. A single such hiccup among the hundreds of ranges a
  * capture issues used to abort the whole capture, so it is retried too.
+ *
+ * Worse than a dropped connection is one that stays open and never answers:
+ * `fetch` neither resolves nor rejects, the range keeps one of the four global
+ * in-flight slots for good, and four of them freeze the whole capture with no
+ * error, no log and a progress bar that never moves. Hence the deadline below.
  */
 import { Getter } from 'copc';
 import { acquireGlobal, noteRateLimit, releaseGlobal } from './rateLimiter';
 
 const MAX_ATTEMPTS = 5;
+
+// Generous on purpose: a ~1 MB COPC chunk still needs ~40 s when IGN is
+// saturated and the four slots share ~100 ko/s. Only a real hang exceeds it.
+const RANGE_TIMEOUT_MS = 120_000;
 
 /** Byte-range reader handed to the `copc` package. */
 export type RangeGet = ReturnType<typeof Getter.create>;
@@ -24,6 +33,17 @@ export type RangeGet = ReturnType<typeof Getter.create>;
 export interface RangeStats { ranges: number; bytes: number }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Reject once `ms` has passed; `p` itself can't be aborted through `copc`. */
+function withDeadline(p: Promise<Uint8Array>, ms: number): Promise<Uint8Array> {
+    return new Promise<Uint8Array>((resolve, reject) => {
+        const timer = setTimeout(
+            () => reject(new Error(`aucune réponse après ${Math.round(ms / 1000)} s`)),
+            ms,
+        );
+        p.then(resolve, reject).finally(() => clearTimeout(timer));
+    });
+}
 
 function isRetriable(snippet: string, got: number, expected: number): boolean {
     return /429|503|too many|throttl|unavailable/i.test(snippet) || got < expected / 8;
@@ -48,7 +68,7 @@ async function attemptRange(
 ): Promise<{ buf: Uint8Array } | { snippet: string; got: number }> {
     await acquireGlobal();
     try {
-        const buf = await rawGet(begin, end);
+        const buf = await withDeadline(rawGet(begin, end), RANGE_TIMEOUT_MS);
         if (buf.byteLength === end - begin) return { buf };
         return { snippet: snippetOf(buf), got: buf.byteLength };
     } catch (err) {
@@ -63,6 +83,7 @@ async function attemptRange(
 
 export function createRangeGetter(
     tileUrl: string,
+    onBytes?: (bytes: number) => void,
 ): { get: RangeGet; stats: RangeStats } {
     const rawGet = Getter.create(tileUrl);
     const stats: RangeStats = { ranges: 0, bytes: 0 };
@@ -75,6 +96,7 @@ export function createRangeGetter(
             if ('buf' in outcome) {
                 stats.bytes += outcome.buf.byteLength;
                 stats.ranges++;
+                onBytes?.(outcome.buf.byteLength);
                 return outcome.buf;
             }
             lastSnippet = outcome.snippet;
@@ -91,8 +113,8 @@ export function createRangeGetter(
         console.warn('[lidarBrowser] range mismatch', tileName,
             'asked', expected, 'body:', lastSnippet);
         throw new Error(
-            `Range request failed on ${tileName} (asked ${expected} B). `
-            + `Server response: ${lastSnippet || '<binary>'}`,
+            `Lecture de la dalle ${tileName} impossible (plage de ${expected} octets). `
+            + `Réponse du serveur : ${lastSnippet || '<binaire>'}`,
         );
     };
     return { get, stats };

@@ -53,7 +53,11 @@ Dans le panneau **LiDAR** :
    pas un nouveau fetch.
 5. **Capturer** : une barre de progression suit les étapes
    (recherche de dalles → téléchargement → décodage → normales / mesh /
-   reconstruction Poisson).
+   reconstruction Poisson). Pendant le téléchargement, la ligne de détail
+   compte les dalles terminées **et les mégaoctets reçus** (`1/4 dalles ·
+   3,2 Mo reçus`, rafraîchi quatre fois par seconde) : une dalle peut prendre
+   plusieurs minutes, et c'est le compteur d'octets qui distingue un
+   téléchargement lent d'un téléchargement bloqué.
 
 Chaque chargement est ajouté à la liste « Nuages récents » : le rouvrir depuis
 la galerie est instantané (aucun re-calcul).
@@ -609,9 +613,26 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 
 - **Pas de propagation d'annulation** vers le worker : un nouveau chargement
   ne stoppe pas l'ancien, on s'appuie sur la logique « latest-wins » du store.
-- **Aucun plafond de durée** : sous un IGN lent (≈ 150 ko/s observés en
+- **Aucun plafond de durée globale** : sous un IGN lent (≈ 150 ko/s observés en
   saturation), une capture de 35 Mo prend plusieurs minutes sans qu'aucune
-  étape n'échoue. Seul « Annuler » en sort.
+  étape n'échoue. Seul « Annuler » en sort. Chaque **requête** a en revanche
+  son propre délai maximal : une connexion qu'IGN laisse ouverte sans jamais
+  répondre ne rejette ni ne résout, et l'étape qui l'attend restait figée
+  pour toujours — sans erreur, sans log et sans que la barre bouge. Pour les
+  *range-requests* c'est pire : chacune garde un des quatre créneaux globaux,
+  et quatre d'entre elles bloquaient toute la capture.
+
+  | Appel | Délai | En cas de dépassement |
+  |---|---|---|
+  | *Range-request* COPC ([rangeGetter.ts](../src/lib/lidarBrowser/rangeGetter.ts)) | 120 s | Reprise comme une connexion coupée (5 tentatives, backoff 1/2/4/8 s), puis erreur affichée |
+  | WFS des dalles ([wfs.ts](../src/lib/lidarBrowser/wfs.ts)) | 30 s | Erreur affichée, capture interrompue |
+  | WFS BD Forêt ([bdforet.ts](../src/lib/lidarBrowser/bdforet.ts)) | 60 s | Typage de la végétation sauté, capture poursuivie |
+  | Tuile de mosaïque, drapage et CoSIA ([orthoTexture.ts](../src/lib/lidarBrowser/orthoTexture.ts)) | 30 s | Tuile laissée vide |
+
+  Les délais sont portés par `withTimeout` ([deadline.ts](../src/lib/lidarBrowser/deadline.ts)),
+  sauf celui des *range-requests* : `copc` n'accepte pas de `signal`, la
+  requête abandonnée continue donc en arrière-plan et c'est la promesse qui
+  est mise en concurrence avec un minuteur.
 - **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
   kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
   exploitable.
@@ -622,6 +643,7 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 |-------------------------------------------------|--------------------------------------------------------------------------|
 | Retries `429 Too Many Requests`                 | Baisser `MAX_INFLIGHT_GLOBAL` dans [rateLimiter.ts](../src/lib/lidarBrowser/rateLimiter.ts) |
 | Capture qui s'arrête sur `Failed to fetch`      | L'IGN a coupé la connexion 5 fois de suite sur la même plage ; chercher `[lidarBrowser] retry` en console pour confirmer que la reprise a bien joué |
+| Capture qui n'avance plus, sans erreur          | Regarder le compteur « Mo reçus » : s'il est figé, une connexion IGN est en suspens et atteindra son délai (`aucune réponse après 120 s` en console). S'il avance, IGN est seulement lent |
 | Paliers de qualité qui ne bougent jamais        | La sonde a échoué : chercher `pyramid probe failed` en console, la table nationale sert alors de repli |
 | Toast *« Aucune dalle LiDAR HD »*               | Bbox WFS ; vérifier l'ordre lng,lat dans `wfs.ts`                        |
 | Points qui dérivent au pitch / pan              | Matrice du shader `LidarWebGLLayer` ; vérifier l'usage de `mainMatrix`   |

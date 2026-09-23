@@ -28,7 +28,7 @@ async function withBackoff<T>(p: Promise<T>): Promise<T> {
         (err: unknown) => () => { throw err; },
     );
     try {
-        for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(60_000);
+        for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(120_000);
         return (await settled)();
     } finally {
         vi.useRealTimers();
@@ -57,7 +57,23 @@ describe('createRangeGetter', () => {
         const { get } = createRangeGetter('https://example.test/t.copc.laz');
         const err = await withBackoff(get(0, 100)).catch((e: Error) => e);
 
-        expect((err as Error).message).toMatch(/asked 100 B/);
+        expect((err as Error).message).toMatch(/plage de 100 octets/);
         expect(rawGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a connection that stays open without answering', async () => {
+        rawGet
+            // Answers only past the deadline, as a connection IGN left open does.
+            .mockImplementationOnce(() => new Promise<Uint8Array>((resolve) => {
+                setTimeout(() => resolve(new Uint8Array(100)), 130_000);
+            }))
+            .mockImplementationOnce(() => Promise.resolve(new Uint8Array(100)));
+
+        const { get, stats } = createRangeGetter('https://example.test/t.copc.laz');
+        const buf = await withBackoff(get(0, 100));
+
+        expect(buf.byteLength).toBe(100);
+        expect(rawGet).toHaveBeenCalledTimes(2);
+        expect(stats).toEqual({ ranges: 1, bytes: 100 });
     });
 });
