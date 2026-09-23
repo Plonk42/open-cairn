@@ -22,10 +22,12 @@
       panneau latéral, ces primitives disparaissent ; sinon, il faudra assumer deux
       vocabulaires visuels (pilules en bas / accordéon à droite) dans la même application.
 
-- [ ] Monter l'œil en *Point de vue* est **clavier seulement** (flèches haut/bas) : sur
-      téléphone on reste cloué à 1,70 m, c'est-à-dire précisément au cadrage que le relief
-      proche bouche le plus souvent. Il manque un jumeau tactile — glissement à deux doigts
-      vertical dans `MobileToolbar`, ou petit couple de boutons ▲/▼ dans la feuille du mode.
+- [ ] La barre du mode *Point de vue* n'a pas été vue à **390 px** : le navigateur de
+      VS Code revient à 274 px CSS après `setViewportSize`. À 274 px la seconde rangée passe
+      sur deux lignes ; à 390 px chaque rangée devrait tenir sur une ligne (calcul, pas mesure).
+- [ ] *Changer de lieu* recule sur une vue d'ensemble centrée sur l'ancien lieu, mais rien
+      ne marque cet ancien lieu sur la carte : un repère (le temps du choix) aiderait à se
+      situer.
 
 - [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
       désactivation de notre part : `_elevateCameraIfInsideTerrain` (maplibre-gl 5.11) est

@@ -210,7 +210,7 @@ const HIDDEN_PATH_HINT = 'Prolonge la trajectoire en pointillé derrière le rel
 
 const ATMOSPHERIC_SKY_HINT = 'Peint le ciel d’après la position du soleil à l’heure choisie, au lieu du bleu nuit neutre. Visible surtout quand la carte est inclinée vers le haut.';
 
-const PEAK_LABELS_HINT = 'Nomme les sommets réellement visibles d’ici, ceux qu’aucune crête ne masque (IGN BD TOPO®, couverture française).';
+export const PEAK_LABELS_HINT = 'Nomme les sommets réellement visibles d’ici, ceux qu’aucune crête ne masque (IGN BD TOPO®, couverture française).';
 
 /** One labelled checkbox row, the shape every switch in this section takes. */
 function SkyToggle({ label, title, checked, disabled, onChange }: Readonly<{
@@ -232,24 +232,6 @@ function SkyToggle({ label, title, checked, disabled, onChange }: Readonly<{
                 className="h-4 w-4 accent-green-600 disabled:opacity-40"
             />
         </label>
-    );
-}
-
-/**
- * Name the summits the panorama is made of. Lives next to the sky tracks
- * because it answers the same question — what am I looking at from here — and
- * like them it only means anything for a fixed eye.
- */
-export function PeakLabelsToggle() {
-    const peakLabels = useMapStore((s) => s.peakLabels);
-    const setPeakLabels = useMapStore((s) => s.setPeakLabels);
-    return (
-        <SkyToggle
-            label="Noms des sommets"
-            title={PEAK_LABELS_HINT}
-            checked={peakLabels}
-            onChange={setPeakLabels}
-        />
     );
 }
 

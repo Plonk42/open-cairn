@@ -24,22 +24,122 @@ import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { applyPanoramaDetail } from '@/lib/panoramaDetail';
 import {
     cameraForViewpoint,
+    centerDistanceForZoom,
+    easeInOutCubic,
     eyeHeightAfterStep,
+    eyeLookingAt,
+    flightDurationMs,
     fovAfterPinch,
     fovAfterWheel,
+    interpolatePose,
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
     VIEWPOINT_INITIAL_PITCH,
     VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_TARGET_DISTANCE_M,
     type LookDirection,
+    type Viewpoint,
+    type ViewpointPose,
 } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /** Marks the frames this mode drives, so `moveend` subscribers can skip them. */
 export interface ViewpointEventData {
     viewpoint?: boolean;
+}
+
+/** Where the flight out lands when there is no camera to return to (a share link). */
+const OVERVIEW_ZOOM = 13.5;
+const OVERVIEW_PITCH = 45;
+
+/** The camera the mode was entered from: the pose the flights start and end on, and its exact options. */
+interface Home {
+    pose: ViewpointPose;
+    camera: { center: [number, number]; zoom: number; pitch: number; bearing: number };
+}
+
+function captureHome(map: MapLibreMap): Home {
+    const transform = map.painter.transform;
+    const at = transform.getCameraLngLat();
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const fovDeg = map.getVerticalFieldOfView();
+    const look = { bearing: map.getBearing(), pitch: map.getPitch() };
+    return {
+        pose: {
+            eye: { lng: at.lng, lat: at.lat, altitude: transform.getCameraAltitude() },
+            look,
+            fovDeg,
+            distanceM: centerDistanceForZoom(zoom, center.lat, { heightPx: map.getCanvas().clientHeight, fovDeg }),
+        },
+        camera: { center: [center.lng, center.lat], zoom, ...look },
+    };
+}
+
+/** A view from above and behind the standpoint, facing the way the eye did. */
+function overviewHome(ground: Viewpoint, bearing: number, fovDeg: number, heightPx: number): Home {
+    const look = { bearing, pitch: OVERVIEW_PITCH };
+    const distanceM = centerDistanceForZoom(OVERVIEW_ZOOM, ground.lat, { heightPx, fovDeg });
+    return {
+        pose: { eye: eyeLookingAt(ground, look, distanceM), look, fovDeg, distanceM },
+        camera: { center: [ground.lng, ground.lat], zoom: OVERVIEW_ZOOM, ...look },
+    };
+}
+
+function prefersReducedMotion(): boolean {
+    return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+}
+
+function showPose(map: MapLibreMap, pose: ViewpointPose): void {
+    if (map.getVerticalFieldOfView() !== pose.fovDeg) map.setVerticalFieldOfView(pose.fovDeg);
+    const lens = { heightPx: map.getCanvas().clientHeight, fovDeg: pose.fovDeg };
+    // `elevation` must travel in the SAME `jumpTo`: with terrain on, MapLibre
+    // re-derives the centre elevation from the DEM first and only the explicit
+    // option overrides it.
+    map.jumpTo(cameraForViewpoint(pose.eye, pose.look, lens, pose.distanceM), { viewpoint: true } satisfies ViewpointEventData);
+}
+
+interface Flight {
+    /** Jump to the end and land. */
+    finish: () => void;
+    /** Stop where it is, without landing. */
+    cancel: () => void;
+}
+
+/**
+ * Fly the eye from `from` to `to()` (re-read every frame, so the target may
+ * move under it), never letting it sink under the drawn ground on the way.
+ */
+function fly(map: MapLibreMap, from: ViewpointPose, to: () => ViewpointPose, land: () => void, onFrame: (pose: ViewpointPose) => void): Flight {
+    const durationMs = flightDurationMs(from.eye, to().eye);
+    const start = performance.now();
+    let frame = 0;
+    let over = false;
+    const stop = () => {
+        over = true;
+        cancelAnimationFrame(frame);
+    };
+    const finish = () => {
+        if (over) return;
+        stop();
+        land();
+    };
+    const step = (now: number) => {
+        const t = Math.min(1, (now - start) / durationMs);
+        const pose = interpolatePose(from, to(), easeInOutCubic(t));
+        const ground = map.queryTerrainElevation([pose.eye.lng, pose.eye.lat]);
+        if (typeof ground === 'number' && Number.isFinite(ground)) {
+            pose.eye.altitude = Math.max(pose.eye.altitude, ground + VIEWPOINT_EYE_HEIGHT_M);
+        }
+        showPose(map, pose);
+        onFrame(pose);
+        if (t < 1) frame = requestAnimationFrame(step);
+        else finish();
+    };
+    frame = requestAnimationFrame(step);
+    return { finish, cancel: () => { if (!over) stop(); } };
 }
 
 /** Distance between the two first tracked pointers, 0 unless there are two. */
@@ -66,6 +166,8 @@ export function ViewpointController(): null {
     const map = useMapStore((s) => s.mapInstance);
     const viewpoint = useMapStore((s) => s.viewpoint);
     const picking = useMapStore((s) => s.viewpointPicking);
+    /** The flight back out, still running when the mode may be re-entered. */
+    const exitFlightRef = useRef<Flight | null>(null);
 
     // ── Picking: the next click on the map becomes the standpoint. ──────────
     useEffect(() => {
@@ -100,9 +202,16 @@ export function ViewpointController(): null {
     // ── The mode itself. ───────────────────────────────────────────────────
     useEffect(() => {
         if (!map || !viewpoint) return undefined;
+        // Land a flight out first: it holds the gestures and the lens this mode
+        // is about to save and restore.
+        exitFlightRef.current?.finish();
         const canvas = map.getCanvas();
         const initialFov = map.getVerticalFieldOfView();
         const wasClampedToGround = map.getCenterClampedToGround();
+        // A share link opens straight onto its author's framing, with no camera
+        // of the reader's own to fly from or back to.
+        const framing = useMapStore.getState().viewpointFraming;
+        const home = framing ? null : captureHome(map);
 
         // The centre is parked kilometres away at an altitude that has nothing to
         // do with the relief, so it must stop being re-derived from the DEM every
@@ -122,7 +231,6 @@ export function ViewpointController(): null {
 
         // A share link opens straight onto its author's framing; otherwise we
         // face whichever way the map already did, just below the horizon.
-        const framing = useMapStore.getState().viewpointFraming;
         const look: LookDirection = framing
             ? { bearing: framing.bearing, pitch: framing.pitch }
             : { bearing: map.getBearing(), pitch: VIEWPOINT_INITIAL_PITCH };
@@ -136,16 +244,20 @@ export function ViewpointController(): null {
         // `settleOnGround` reads it on every `idle` to know what it settles to.
         let eyeHeightM = useMapStore.getState().viewpointHeightM;
 
+        const standingPose = (): ViewpointPose => ({
+            eye: { ...eye },
+            look: { ...look },
+            fovDeg,
+            distanceM: VIEWPOINT_TARGET_DISTANCE_M,
+        });
+        /** What is on screen, which is where a flight out has to start from. */
+        let shown = home?.pose ?? standingPose();
+        /** The flight in, while it runs; any gesture lands it at once. */
+        let entry: Flight | null = null;
+
         const apply = () => {
-            if (map.getVerticalFieldOfView() !== fovDeg) map.setVerticalFieldOfView(fovDeg);
-            const camera = cameraForViewpoint(eye, look, {
-                heightPx: canvas.clientHeight,
-                fovDeg,
-            });
-            // `elevation` must travel in the SAME `jumpTo`: with terrain on,
-            // MapLibre re-derives the centre elevation from the DEM first and
-            // only the explicit option overrides it.
-            map.jumpTo(camera, { viewpoint: true } satisfies ViewpointEventData);
+            shown = standingPose();
+            showPose(map, shown);
         };
 
         /**
@@ -171,6 +283,7 @@ export function ViewpointController(): null {
          * by centimetres from looping.
          */
         const settleOnGround = () => {
+            if (entry) return;
             const at = map.painter.transform.getCameraLngLat();
             const ground = map.queryTerrainElevation([at.lng, at.lat]);
             if (typeof ground !== 'number' || !Number.isFinite(ground)) return;
@@ -190,13 +303,20 @@ export function ViewpointController(): null {
             if (e.ctrlKey || e.metaKey || e.altKey || isTextEntry(e.target)) return;
             e.preventDefault();
             e.stopPropagation();
+            entry?.finish();
             const next = eyeHeightAfterStep(eyeHeightM, e.key === 'ArrowUp', e.shiftKey);
-            if (next === eyeHeightM) return;
-            eye.altitude += next - eyeHeightM;
-            eyeHeightM = next;
-            useMapStore.getState().setViewpointHeightM(next);
-            apply();
+            if (next !== eyeHeightM) useMapStore.getState().setViewpointHeightM(next);
         };
+
+        // The arrows above and the mode bar's buttons both go through the store.
+        const unsubscribeHeight = useMapStore.subscribe((s) => {
+            // `setViewpoint` resets the height too; that belongs to the next standpoint.
+            if (s.viewpoint !== viewpoint || s.viewpointHeightM === eyeHeightM) return;
+            eye.altitude += s.viewpointHeightM - eyeHeightM;
+            eyeHeightM = s.viewpointHeightM;
+            // A flight in re-reads `eye` every frame.
+            if (!entry) apply();
+        });
 
         // Tracked by id so a second finger is a pinch rather than a jump: with
         // MapLibre's own touch handlers suspended, nothing else would read it.
@@ -205,6 +325,7 @@ export function ViewpointController(): null {
 
         const onPointerDown = (e: PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return;
+            entry?.finish();
             pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
             spacing = pinchSpacing(pointers);
             canvas.setPointerCapture(e.pointerId);
@@ -249,6 +370,7 @@ export function ViewpointController(): null {
 
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
+            entry?.finish();
             fovDeg = fovAfterWheel(fovDeg, e.deltaY);
             apply();
         };
@@ -267,32 +389,52 @@ export function ViewpointController(): null {
         canvas.addEventListener('wheel', onWheel, { passive: false });
         document.addEventListener('keydown', onKeyDown, true);
         map.on('idle', settleOnGround);
-        apply();
+        if (home && !prefersReducedMotion()) {
+            entry = fly(map, home.pose, standingPose, () => {
+                entry = null;
+                apply();
+            }, (pose) => { shown = pose; });
+        } else {
+            apply();
+        }
 
         return () => {
+            entry?.cancel();
             canvas.removeEventListener('pointerdown', onPointerDown);
             canvas.removeEventListener('pointermove', onPointerMove);
             canvas.removeEventListener('pointerup', onPointerUp);
             canvas.removeEventListener('pointercancel', onPointerUp);
             canvas.removeEventListener('wheel', onWheel);
             document.removeEventListener('keydown', onKeyDown, true);
+            unsubscribeHeight();
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;
-            restoreDetail();
-            restoreGestures();
-            map.setVerticalFieldOfView(initialFov);
-            map.setCenterClampedToGround(wasClampedToGround);
-            // Every frame of the mode was tagged, so the store still holds the
-            // view from before it; publish where the camera actually ended up.
-            const center = map.getCenter();
-            useMapStore.getState().setView({
-                longitude: center.lng,
-                latitude: center.lat,
-                zoom: map.getZoom(),
-                pitch: map.getPitch(),
-                bearing: map.getBearing(),
-            });
+
+            const ground = { ...eye, altitude: eye.altitude - eyeHeightM };
+            const back = home ?? overviewHome(ground, look.bearing, initialFov, canvas.clientHeight);
+            // Gestures, lens and clamping stay the mode's until the eye is home.
+            const land = () => {
+                exitFlightRef.current = null;
+                restoreDetail();
+                restoreGestures();
+                map.setVerticalFieldOfView(initialFov);
+                map.setCenterClampedToGround(wasClampedToGround);
+                map.jumpTo(back.camera);
+                // Every frame of the mode was tagged, so the store still holds
+                // the view from before it; publish where the camera landed.
+                const center = map.getCenter();
+                useMapStore.getState().setView({
+                    longitude: center.lng,
+                    latitude: center.lat,
+                    zoom: map.getZoom(),
+                    pitch: map.getPitch(),
+                    bearing: map.getBearing(),
+                });
+                useMapStore.getState().setViewpointFlying(false);
+            };
+            if (prefersReducedMotion()) land();
+            else exitFlightRef.current = fly(map, shown, () => back.pose, land, () => undefined);
         };
     }, [map, viewpoint]);
 

@@ -679,7 +679,7 @@ function syncRouteToMap(map: maplibregl.Map): void {
 function routeEditingSuspended(studio: boolean): boolean {
     if (studio) return true;
     const s = useMapStore.getState();
-    return s.coordPickActive || s.viewpointPicking || s.viewpoint !== null;
+    return s.coordPickActive || s.viewpointPicking || s.viewpoint !== null || s.viewpointFlying;
 }
 
 function routeCursor(route: ReturnType<typeof useRouteStore.getState>): string {
@@ -745,7 +745,8 @@ export function MapContainer() {
     const ignApiKey = useMapStore((s) => s.ignApiKey);
     const ignDemApiKey = useMapStore((s) => s.ignDemApiKey);
     const freeCamera = useMapStore((s) => s.freeCamera);
-    const viewpoint = useMapStore((s) => s.viewpoint);
+    // The flight out of the mode still starts on the ground, like the mode itself.
+    const viewpointCamera = useMapStore((s) => s.viewpoint !== null || s.viewpointFlying);
 
     // Keep composite protocol in sync with the current IGN API key.
     useEffect(() => { setIgnApiKey(ignApiKey); }, [ignApiKey]);
@@ -1023,8 +1024,8 @@ export function MapContainer() {
     // keeps its historical 85° ceiling: past it MapLibre's terrain collision
     // starts rewriting pitch and zoom on its own, on every gesture.
     useEffect(() => {
-        mapRef.current?.setMaxPitch(studio || viewpoint ? SKY_MAX_PITCH : MAP_MAX_PITCH);
-    }, [studio, viewpoint]);
+        mapRef.current?.setMaxPitch(studio || viewpointCamera ? SKY_MAX_PITCH : MAP_MAX_PITCH);
+    }, [studio, viewpointCamera]);
 
     // "Caméra libre": studio-only release of the camera from the ground, in both
     // senses. MapLibre otherwise pushes the eye back out of the terrain — rewriting
@@ -1040,11 +1041,11 @@ export function MapContainer() {
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        const standing = Boolean(viewpoint);
+        const standing = viewpointCamera;
         const free = (studio && freeCamera) || standing;
         setTerrainCameraCollision(map, !free);
         return free && !standing ? bindAltitudeKeys(map) : undefined;
-    }, [studio, freeCamera, viewpoint]);
+    }, [studio, freeCamera, viewpointCamera]);
 
     // Rebuild style when structural settings change (base layer, hillshade on/off,
     // render quality, contour lines). Uses diff mode to preserve terrain mesh.

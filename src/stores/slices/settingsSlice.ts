@@ -128,6 +128,14 @@ export interface SettingsSlice {
     setViewpointPicking: (v: boolean) => void;
 
     /**
+     * The camera is flying back out of the mode: `viewpoint` is already null,
+     * but the eye still starts on the ground, so terrain collision and the
+     * pitch ceiling must stay released until it lands.
+     */
+    viewpointFlying: boolean;
+    setViewpointFlying: (v: boolean) => void;
+
+    /**
      * Name the summits one can see from the standpoint, along the ridge. Only
      * has an effect while {@link viewpoint} is set: the sightings are solved
      * for a fixed eye, and there is no fixed eye outside that mode.
@@ -192,12 +200,16 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
 
     viewpoint: null,
     setViewpoint: (viewpoint) =>
-        set({
+        set((s) => ({
             viewpoint,
+            // Raised here, in the same update, so the map never sees a frame
+            // without the mode's camera release; `ViewpointController` lowers it
+            // when the flight lands.
+            viewpointFlying: viewpoint === null && (s.viewpoint !== null || s.viewpointFlying),
             viewpointPicking: false,
             viewpointFraming: null,
             viewpointHeightM: VIEWPOINT_EYE_HEIGHT_M,
-        }),
+        })),
 
     viewpointFraming: null,
     setViewpointFraming: (viewpointFraming) => set({ viewpointFraming }),
@@ -207,6 +219,9 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
 
     viewpointPicking: false,
     setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),
+
+    viewpointFlying: false,
+    setViewpointFlying: (viewpointFlying) => set({ viewpointFlying }),
 
     peakLabels: persisted.peakLabels ?? true,
     setPeakLabels: (peakLabels) => set({ peakLabels }),

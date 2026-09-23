@@ -43,14 +43,16 @@ function ToolButton({ tool, active, onSelect }: Readonly<{ tool: MobileTool; act
  *
  * Theme-aware (light default + `dark:` variants). Composed per-view: the
  * Itinéraire and Studio mobile shells each pass their own `tools`, plus optional
- * `leading` (e.g. the Studio basemap switch) and `trailing` (e.g. reset) nodes.
+ * `leading` (e.g. the Studio basemap switch) and `trailing` (e.g. reset) nodes,
+ * and `above` — shown over the buttons while no sheet is open.
  */
-export function MobileToolbar({ tools, activeId, onSelect, leading, trailing }: Readonly<{
+export function MobileToolbar({ tools, activeId, onSelect, leading, trailing, above }: Readonly<{
     tools: ReadonlyArray<MobileTool>;
     activeId: string | null;
     onSelect: (id: string) => void;
     leading?: ReactNode;
     trailing?: ReactNode;
+    above?: ReactNode;
 }>) {
     // A sheet whose tool just lost its prerequisite folds itself away rather
     // than staying open on controls that no longer do anything.
@@ -58,6 +60,7 @@ export function MobileToolbar({ tools, activeId, onSelect, leading, trailing }: 
 
     return (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col">
+            {!active && above}
             {active && (
                 <div className="pointer-events-auto flex max-h-[70vh] flex-col overflow-hidden border-t border-black/10 bg-white/95 shadow-2xl backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90">
                     <button

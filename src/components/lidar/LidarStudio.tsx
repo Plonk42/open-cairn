@@ -4,6 +4,7 @@ import { MobileActionsMenu } from '@/components/shell/MobileActionsMenu';
 import { MobileToolbar } from '@/components/shell/MobileToolbar';
 import { MobileTopBar } from '@/components/shell/MobileTopBar';
 import { TopBarActions } from '@/components/shell/TopBarActions';
+import { ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
 import { ViewSwitch } from '@/components/shell/ViewSwitch';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useMapStore } from '@/stores/mapStore';
@@ -13,7 +14,7 @@ import { ShowcaseExport } from './ShowcaseExport';
 import { StudioCaptureButton } from './StudioCaptureButton';
 import { StudioCloudLocator } from './StudioClouds';
 import { ResetSettingsButton, STUDIO_RENDER_SETTINGS } from './StudioRenderSettings';
-import { StudioSidePanel } from './StudioSidePanel';
+import { STUDIO_PANEL_STRIP_PX, StudioSidePanel } from './StudioSidePanel';
 import { StudioTutorial } from './tutorial/StudioTutorial';
 
 /** One-shot cinematic camera tilt when entering the studio with a loaded cloud. */
@@ -80,14 +81,15 @@ function StudioTopBar({ onHelp }: Readonly<{ onHelp: () => void }>) {
 function StudioMobileShell() {
     const [activeId, setActiveId] = useState<string | null>(null);
     const handleSelect = (id: string) => setActiveId((cur) => (cur === id ? null : id));
+    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
 
     return (
         <div className="relative h-[100dvh] w-screen overflow-hidden bg-slate-950">
             <MapSlot />
             <MobileTopBar actions={<MobileActionsMenu view="lidar" exportSlot={<ShowcaseExport />} />} />
             {/* The floating capture FAB + cloud locator only show over the bare
-                map, so an open render sheet never fights them for the bottom. */}
-            {activeId === null && (
+                map, so an open render sheet — or the viewpoint bar — never fights them for the bottom. */}
+            {activeId === null && !viewpointOn && (
                 <>
                     <StudioCloudLocator anchorClassName="bottom-36 right-4" />
                     <StudioCaptureButton anchor={{ bottom: 80, right: 16 }} />
@@ -98,6 +100,7 @@ function StudioMobileShell() {
                 activeId={activeId}
                 onSelect={handleSelect}
                 trailing={<ResetSettingsButton />}
+                above={<div className="flex justify-center px-2 pb-2"><ViewpointModeBar /></div>}
             />
         </div>
     );
@@ -147,6 +150,14 @@ export function LidarStudio() {
             <StudioTopBar onHelp={() => setTutorialOpen(true)} />
 
             <StudioSidePanel />
+
+            {/* Centred on the map area the panel leaves visible, above the attribution. */}
+            <div
+                className="pointer-events-none absolute bottom-12 left-0 z-30 flex justify-center px-3"
+                style={{ right: panelCollapsed ? 0 : STUDIO_PANEL_STRIP_PX }}
+            >
+                <ViewpointModeBar />
+            </div>
 
             {/* Capturing and tuning the render are never done together. */}
             <StudioCaptureButton anchor={{ bottom: 16, right: 16 }} hidden={!panelCollapsed} />

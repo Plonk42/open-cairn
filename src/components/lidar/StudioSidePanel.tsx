@@ -15,7 +15,7 @@ const STUDIO_PANEL_MARGIN_PX = 12;
 const PANEL_TOP_PX = 60;
 
 /** Horizontal strip the panel occupies, margins included. */
-const STUDIO_PANEL_STRIP_PX = STUDIO_PANEL_WIDTH_PX + 2 * STUDIO_PANEL_MARGIN_PX;
+export const STUDIO_PANEL_STRIP_PX = STUDIO_PANEL_WIDTH_PX + 2 * STUDIO_PANEL_MARGIN_PX;
 
 const CLOUDS_SECTION = 'clouds';
 

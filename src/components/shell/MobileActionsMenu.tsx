@@ -71,7 +71,7 @@ export function MobileActionsMenu({ view, exportSlot }: Readonly<{ view: AppView
                 className={`absolute right-0 top-full z-10 mt-1.5 flex w-56 flex-col items-stretch gap-1.5 rounded-xl border border-black/5 bg-white/95 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10 ${open ? '' : 'invisible opacity-0'}`}
             >
                 <OrbitTopBarButton />
-                <ViewpointTopBarButton needsTerrain={view === 'map'} studio={view === 'lidar'} />
+                <ViewpointTopBarButton needsTerrain={view === 'map'} />
                 <SectionDivider />
                 <ShowcaseGallery />
                 {exportSlot}

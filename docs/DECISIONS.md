@@ -13,6 +13,11 @@ techniques vivent dans le document de chaque sujet.
 - **Bande des noms de sommets bornée par `BAND_MIN_Y_PX`** : pas un défaut, on relève la caméra.
 - **Traits de rappel des sommets verticaux, noms épinglés au-dessus de leur sommet** : le
   glissement latéral avec trait coudé a été essayé et rejeté (illisible).
+- **« Point de vue » reste un mode de caméra, pas une troisième vue** : il sert dans les deux vues
+  et survit à la bascule. Pendant le mode, une barre en bas au centre de la carte porte ses
+  réglages et sa sortie — le haut est où pendent les noms de sommets ; le bouton reste pour
+  l'instant dans le groupe caméra.
+  → `UI_SHELL_AND_RESPONSIVE.md`
 
 ## Studio LiDAR
 

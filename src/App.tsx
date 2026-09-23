@@ -6,6 +6,7 @@ import { RouteDock } from './components/shell/RouteDock';
 import { RouteExportButton } from './components/shell/RouteExportButton';
 import { RouteShareButton } from './components/shell/RouteShareButton';
 import { TopBarActions } from './components/shell/TopBarActions';
+import { ViewpointModeBar } from './components/shell/ViewpointModeBar';
 import { ViewSwitch } from './components/shell/ViewSwitch';
 import { useIsMobile } from './lib/useIsMobile';
 
@@ -34,6 +35,11 @@ export function App() {
                     <div className="pointer-events-auto ml-auto">
                         <ViewSwitch />
                     </div>
+                </div>
+
+                {/* Just above the bottom pill bar: the top of the map is where summit names hang. */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-[4.5rem] z-10 flex justify-center px-3">
+                    <ViewpointModeBar />
                 </div>
 
                 {/* Bottom pill bar (map styling + the Itinéraire toggle). */}

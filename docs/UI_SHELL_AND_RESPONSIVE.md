@@ -28,17 +28,17 @@ Il n'y a **pas de sidebar** : les réglages sont dans des popovers ouverts par l
 
 En haut : l'en-tête (recherche de lieu, coordonnées du curseur, bascule de thème),
 le groupe d'actions partagé — scindé en deux pastilles de **même hauteur** : *caméra*
-(*Orbite*, *Point de vue* — qui devient *Panorama* une fois debout, voir plus bas)
-puis *import/export* (*Galerie*, *Exporter cette vue*, *Partager*, aide) — et, à
-droite, le sélecteur de vue.
+(*Orbite*, *Point de vue*) puis *import/export* (*Galerie*, *Exporter cette vue*,
+*Partager*, aide) — et, à droite, le sélecteur de vue. Pendant le mode *Point de vue*,
+sa **barre de mode** s'ajoute au centre, sous l'en-tête (voir plus bas).
 
 Les deux pastilles sont **repliées par défaut** en un seul bouton (icône + chevron,
 56 px contre ~390 px déplié pour la caméra) ; l'état est mémorisé
 (`topBarCameraCollapsed`, `topBarSceneCollapsed`) et vaut pour les deux vues. Repliés,
-les boutons restent **montés** (masqués, pas retirés) : une orbite en cours ou le
-popover *Panorama* survivent au repli. Comme le mode actif n'est alors plus visible,
-le bouton replié de la caméra porte un **point vert** tant qu'une orbite, la caméra
-libre ou le point de vue est actif. Le tutoriel du Studio déplie le groupe dont il
+les boutons restent **montés** (masqués, pas retirés) : une orbite en cours survit
+au repli. Comme le mode actif n'est alors plus visible, le bouton replié de la caméra
+porte un **point vert** tant qu'une orbite ou la caméra libre est active — pas pour le
+point de vue, que sa barre sur la carte signale déjà. Le tutoriel du Studio déplie le groupe dont il
 désigne un bouton (`reveal: 'camera' | 'scene'`) ; `useTargetRect` traite un élément
 non mis en page (`display: none`) comme absent, sinon il verrouillerait un rectangle
 nul avant le dépliage. Le mobile n'est pas concerné : il compose ces boutons dans son
@@ -178,19 +178,67 @@ ci-dessous, est offert dans les **deux** vues.
 
 #### Mode « Point de vue »
 
-Le bouton *Point de vue* a trois états : **éteint**, **armé** (« Choisissez… », le
-curseur passe en croix, le clic suivant sur la carte choisit le lieu) et **actif**.
-Une fois actif, l'œil est posé **1,70 m au-dessus du sol** à l'endroit cliqué et
-n'en bouge plus : le glisser-déposer fait tourner le regard **sur place**, comme si
-l'on se tenait là et que l'on tournait la tête. C'est l'inverse de l'orbite, qui
-fait tourner la caméra *autour* d'un centre.
+Le bouton *Point de vue* est une bascule, comme *Orbite* : un clic **arme** le mode
+(le curseur passe en croix, le clic suivant sur la carte choisit le lieu), un second
+clic en sort. Son libellé ne change jamais. Une fois actif, l'œil est posé **1,70 m
+au-dessus du sol** à l'endroit cliqué et n'en bouge plus : le glisser-déposer fait
+tourner le regard **sur place**, comme si l'on se tenait là et que l'on tournait la
+tête. C'est l'inverse de l'orbite, qui fait tourner la caméra *autour* d'un centre.
 
-Debout, le même bouton se relabellise **« Panorama »** (icône comprise) et le clic
-n'y libère plus la caméra directement : il ouvre le popover décrit dans « Noms des
-sommets » ci-dessous, qui porte lui-même le bouton « Quitter le point de vue ». Deux
-boutons côte à côte (« se placer » puis « regarder ce qu'il y a d'ici ») posaient la
-même question deux fois avec des mots différents ; un seul bouton qui change de nom
-et d'icône avec la question qu'il pose évite ce doublon.
+Tant que le mode est armé ou actif, une **barre de mode** (`ViewpointModeBar`) est
+posée **en bas au centre** de la carte :
+
+- **armé** : « Cliquez sur la carte pour vous placer » (« Touchez … » sur mobile) et
+  *Annuler* ;
+- **debout** : le titre *Point de vue*, la hauteur de l'œil avec ses boutons ▼/▲, la
+  bascule *Sommets*, le menu *Ciel* (trajectoires et date, voir
+  [SUN_LIGHTING.md](SUN_LIGHTING.md)), *Changer de lieu* et *Quitter*. Un rappel des
+  gestes s'affiche au-dessus pendant six secondes à chaque nouveau lieu.
+
+**Échap** défait un niveau : le menu *Ciel* s'il est ouvert, sinon le choix du lieu,
+sinon le mode. *Changer de lieu* quitte le point de vue — la caméra revole jusqu'à la vue
+d'où le lieu avait été choisi — et réarme le choix : un clic dans le panorama tomberait
+souvent dans le ciel, que `queryTerrainElevation` projette à des kilomètres, à une
+altitude sans rapport (mesuré : 268 m, à 10 km). *Annuler* laisse alors sur cette vue,
+hors du mode.
+
+**Entrer et sortir se font en vol.** Au clic, l'œil part de la caméra courante et
+descend se poser au lieu choisi ; en sortant, il remonte jusqu'à la caméra d'origine,
+retrouvée exactement (centre, zoom, pitch, cap, focale). Le vol interpole **l'œil**,
+pas les options de MapLibre : `center / zoom` interpolés feraient tourner l'œil autour
+d'un centre à des kilomètres. Chaque image passe par `cameraForViewpoint` (œil, cap au
+plus court, pitch, focale et distance au centre interpolés, `easeInOutCubic`), et l'œil
+est maintenu au-dessus du sol dessiné (`queryTerrainElevation` + 1,70 m). Durée :
+0,9 à 2,5 s selon la distance (`flightDurationMs`). Mesuré depuis un zoom 12,3 : de
+6 103 m à l'arrivée au sol en 2,2 s, jamais sous le relief, et retour au pixel près.
+
+- un **geste pendant le vol d'entrée** (glisser, molette, flèches) l'achève aussitôt ;
+- **re-choisir un lieu pendant le vol de sortie** pose d'abord ce vol (gestes, focale et
+  caméra rendus), puis repart de là ;
+- pendant la sortie, `viewpoint` vaut déjà `null` mais l'œil part du sol : le store
+  lève `viewpointFlying` **dans la même mise à jour** que `setViewpoint(null)`, et
+  `MapContainer` garde la collision terrain coupée et le plafond de pitch levé tant qu'il
+  est vrai — sinon la première image de la sortie serait rabotée à 85°. Le contrôleur le
+  rabaisse à l'atterrissage ;
+- un lien de partage ouvre **directement** sur son cadrage (pas de caméra du lecteur
+  d'où partir) et en sort vers une vue d'ensemble au-dessus du lieu (zoom 13,5, pitch 45°,
+  même cap) ;
+- `prefers-reduced-motion` supprime les deux vols.
+
+La barre remplace l'ancien bouton qui se relabellisait *Choisissez…* puis *Panorama*
+et cachait la sortie dans son popover : le mode change ce que font tous les gestes et
+suspend l'édition, il doit donc se voir là où l'on regarde, avec une sortie à un
+clic — pas dans un groupe de la barre du haut replié par défaut. **En bas**, parce que
+le haut de l'image est où pendent les noms de sommets (la bande et ses textes montent
+jusqu'à ~10 px du bord) : posée en haut, elle les recouvrait ; le bas est le premier plan,
+la partie la moins lue d'un panorama. Sur ordinateur elle se pose juste au-dessus de la
+barre de pilules (*Itinéraire*) ou du bord (Studio, centrée sur la carte visible à gauche
+de `STUDIO_PANEL_STRIP_PX`) ; le menu *Ciel* et le rappel des gestes s'ouvrent vers le
+haut. Sur mobile elle passe par le slot `above` de `MobileToolbar`, sur deux lignes
+(titre, *Changer de lieu*, ✕ ; puis hauteur, *Sommets*, *Ciel*), s'efface quand une
+feuille est ouverte, et le Studio masque son bouton de capture le temps du mode. Le menu
+*Ciel* s'y accroche à toute la barre plutôt qu'au bouton, qui le ferait déborder de
+l'écran.
 
 En vue *Itinéraire*, le bouton est **grisé tant que le relief 3D est éteint** : sans
 MNT il n'y a pas de sol où poser l'œil. Et tant que le mode est armé ou actif,
@@ -217,15 +265,16 @@ synchronisation du curseur d'itinéraire s'abstient.
   60° verticaux, soit ~24 mm à ~160 mm en équivalent 24×36). L'écartement des
   doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
   par deux) : l'image suit le geste, comme un pincement de photo.
-- **Flèches haut / bas** = **hauteur de l'œil au-dessus du sol**, 2 m par appui, 20 m
-  avec Maj, entre 1,70 m et 3 000 m. Le point de vue, lui, ne bouge pas : seule
-  l'altitude change. C'est le remède au relief qui passe devant l'œil (voir
-  « Ce que 1,70 m ne garantit pas » plus bas) — se dégager demande une quinzaine de
-  mètres, pas deux. La liaison est posée en phase de **capture** sur `document`, comme
-  `bindAltitudeKeys`, et ignore les frappes dans un champ de saisie. Elle est **sans
-  équivalent tactile** : sur téléphone la hauteur reste à 1,70 m (voir *Limitations*).
+- **Flèches haut / bas**, ou boutons **▲/▼** de la barre = **hauteur de l'œil
+  au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 1,70 m et 3 000 m. Le point
+  de vue, lui, ne bouge pas : seule l'altitude change. C'est le remède au relief qui
+  passe devant l'œil (voir « Ce que 1,70 m ne garantit pas » plus bas) — se dégager
+  demande une quinzaine de mètres, pas deux. La liaison clavier est posée en phase de
+  **capture** sur `document`, comme `bindAltitudeKeys`, et ignore les frappes dans un
+  champ de saisie. Flèches et boutons écrivent tous deux `viewpointHeightM`, auquel le
+  contrôleur est abonné ; les boutons sont le seul moyen de monter l'œil au doigt.
 - Les gestes MapLibre (pan, rotation, zoom, double-clic, clavier, tactile) sont
-  **suspendus** pendant le mode et restaurés en sortant, avec le champ de vision et
+  **suspendus** pendant le mode et restaurés quand le vol de sortie se pose, avec le champ de vision et
   la caméra finale republiée dans le store. En les désactivant, MapLibre retire du
   canvas ses classes `maplibregl-touch-*` — donc le `touch-action: none` qu'elles
   portent — et le navigateur reprendrait le geste (défilement de page, `pointercancel`
@@ -329,12 +378,10 @@ zoom-terrain/zoom-fond que corrige le biais `PANORAMA_SOURCE_BIAS`. 252 sommets
 
 #### Noms des sommets
 
-La case **« Noms des sommets »** vit dans le popover que le bouton *Point de vue*
-ouvre une fois debout (il porte alors le nom *Panorama*) — en haut sur ordinateur,
-dans le menu `⋯` sur mobile — commun aux deux vues. Debout est le seul état où le
-bouton ouvre ce popover ; éteint ou armé, un clic agit sur la position comme décrit
-plus haut, il n'y a donc rien à griser. Le popover ouvre aussi les trajectoires du
-ciel (voir plus bas), dans les deux vues ; côté Studio sans la case « Ciel
+La case **« Sommets »** de la barre du mode (voir « Mode « Point de vue » » plus haut),
+commune aux deux vues et aux deux chromes, allume les noms. Elle n'existe que debout :
+c'est le seul état où il y a un œil fixe. Le menu *Ciel* voisin ouvre les trajectoires
+du ciel (voir plus bas), dans les deux vues ; côté Studio sans la case « Ciel
 atmosphérique », que remplace son rendu photoréaliste. Actif par défaut, son état
 est persisté.
 
@@ -404,12 +451,12 @@ outil ouvre une feuille (*bottom sheet*) à hauteur automatique :
 - *Studio* — les 9 réglages de rendu, plus un bouton de réinitialisation.
 
 La barre du haut est compacte : badge, sélecteur de vue, recherche, et un menu
-d'actions (`⋯`) qui regroupe **orbite** et **point de vue** (qui devient *panorama*
-une fois debout : noms des sommets et, côté Itinéraire, trajectoires du ciel),
-galerie, export et partage. C'est le **seul** accès mobile à ces actions : ni
+d'actions (`⋯`) qui regroupe **orbite** et **point de vue**, galerie, export et
+partage. C'est le **seul** accès mobile à ces actions : ni
 `TopBarActions` ni le `StudioSidePanel` du desktop ne sont montés sous 768 px,
 donc tout bouton ajouté là-bas doit être repris ici sous peine de ne pas exister
-sur téléphone.
+sur téléphone. La barre du mode *Point de vue*, elle, se pose au-dessus de la barre
+d'outils du bas (voir « Mode « Point de vue » »).
 Armer le mode *Point de vue* **referme le menu** de lui-même : le geste suivant est
 un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 
@@ -428,9 +475,6 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   **lien de partage** émis depuis le mode rouvre directement dessus — même point de
   station, même direction, même focale, même hauteur d'œil (cf.
   [SHARE_VIEW.md](SHARE_VIEW.md)).
-- La **hauteur de l'œil n'a pas d'équivalent tactile** : les flèches sont un geste
-  clavier, donc sur téléphone on reste à 1,70 m, là où c'est justement le cadrage le
-  plus souvent bouché par le relief proche.
 - À 1,70 m du sol, le terrain proche remplit le cadre et l'ortho, vue en incidence
   rasante, se réduit à un lissé vertical : le mode rend une vraie image depuis un
   **sommet ou une arête**, beaucoup moins depuis un versant ou un fond de vallée.
@@ -454,8 +498,9 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/useIsMobile.ts](../src/lib/useIsMobile.ts) | Hook `matchMedia` pour breakpoint 768 px |
 | [src/components/map/MapSlot.tsx](../src/components/map/MapSlot.tsx) | Emplacement où la carte partagée est reparentée |
 | [src/components/shell/AppHeaderBox.tsx](../src/components/shell/AppHeaderBox.tsx) | En-tête : recherche, coordonnées, thème |
-| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe *caméra* (orbite, caméra libre, point de vue/panorama) et groupe *scène* (galerie, `exportSlot`, aide), composés par `TopBarActions` pour les deux vues |
+| [src/components/shell/TopBarActions.tsx](../src/components/shell/TopBarActions.tsx) | Groupe *caméra* (orbite, caméra libre, point de vue) et groupe *scène* (galerie, `exportSlot`, aide), composés par `TopBarActions` pour les deux vues |
 | [src/components/map/ViewpointController.tsx](../src/components/map/ViewpointController.tsx) | Contrôleur sans rendu du mode *Point de vue* : choix du lieu, gestes, entrée/sortie |
+| [src/components/shell/ViewpointModeBar.tsx](../src/components/shell/ViewpointModeBar.tsx) | Barre du mode *Point de vue* posée sur la carte : invite de choix, hauteur de l'œil, *Sommets*, *Ciel*, *Changer de lieu*, *Quitter*, Échap |
 | [src/components/map/PeakLabelsOverlay.tsx](../src/components/map/PeakLabelsOverlay.tsx) | Surcouche SVG des noms de sommets : les trois cadences (requête / visée / placement) |
 | [src/lib/peaks.ts](../src/lib/peaks.ts) | Requêtes WFS BD TOPO® + BD CARTO® des sommets nommés et de leurs cotes |
 | [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
@@ -469,7 +514,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/components/shell/RouteDock.tsx](../src/components/shell/RouteDock.tsx) | Dock desktop : états fermé/réduit/déployé, barre de titre, redimensionnement |
 | [src/components/shell/MobileTopBar.tsx](../src/components/shell/MobileTopBar.tsx) | Barre du haut mobile |
 | [src/components/shell/MobileToolbar.tsx](../src/components/shell/MobileToolbar.tsx) | Barre d'outils mobile + feuilles à hauteur automatique |
-| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue/panorama, galerie, export, partage) |
+| [src/components/shell/MobileActionsMenu.tsx](../src/components/shell/MobileActionsMenu.tsx) | Menu d'actions mobile (orbite, point de vue, galerie, export, partage) |
 | [src/components/lidar/StudioRenderSettings.tsx](../src/components/lidar/StudioRenderSettings.tsx) | `STUDIO_RENDER_SETTINGS` — source unique des 9 réglages de rendu |
 | [src/components/lidar/StudioSidePanel.tsx](../src/components/lidar/StudioSidePanel.tsx) | Accordéon de droite du Studio desktop (nuages, rendu) |
 | [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives génériques du panneau : `SidePanel`, `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton`, `SidePanelHandle` |
@@ -478,7 +523,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/components/panels/PanelTabs.tsx](../src/components/panels/PanelTabs.tsx) | `BottomPanelContent` — contenu du dock / de la feuille *Itinéraire* |
 | [src/components/ui/RoutePanel.tsx](../src/components/ui/RoutePanel.tsx) | Panneau itinéraire (waypoints, outils d'édition, profil) |
 | [src/components/ui/ElevationChart.tsx](../src/components/ui/ElevationChart.tsx) | Profil altimétrique Chart.js |
-| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, plus `PeakLabelsToggle` et `SkyPathSection` (4 cases + date/heure) consommées par le popover *Panorama* du bouton *Point de vue* |
+| [src/components/ui/LayerSwitcher.tsx](../src/components/ui/LayerSwitcher.tsx) | Sections *Fond*, *Courbes*, *Terrain*, plus `SkyPathSection` (4 cases + date/heure) consommée par le menu *Ciel* de `ViewpointModeBar` |
 | [src/components/ui/SettingsPanel.tsx](../src/components/ui/SettingsPanel.tsx) | Sections de la pilule *Avancé* (rendu, clés d'API) |
 | [src/components/ui/SavedRoutesPanel.tsx](../src/components/ui/SavedRoutesPanel.tsx) | `PreviewThumb` — vignette d'itinéraire réutilisée par la galerie |
 
@@ -526,12 +571,11 @@ la barre de pilules desktop et la barre d'outils mobile.
 | `terrain` | Terrain    | `Terrain3DSection` + `TerrainDemSection` |
 | `avance`  | Avancé     | `RenderSection` + `ApiKeysSection`       |
 
-*Panorama* (`PeakLabelsToggle` + `SkyPathSection` : trajectoires soleil / lune, ciel
-atmosphérique hors Studio, portions cachées, `SunDateControl`) n'est **pas** une de ces sections :
-c'est un bouton du groupe caméra de la barre du haut, commun aux deux vues (voir
-« Noms des sommets » plus haut) — hors mode *Point de vue* la carte est plafonnée à
-`MAP_MAX_PITCH` (85°), donc il n'y a **pas de ciel à l'écran** pour y tracer une course
-d'astre, ni de panorama à nommer ; le bouton reste visible mais grisé.
+La case *Sommets* et le menu *Ciel* (`SkyPathSection` : trajectoires soleil / lune, ciel
+atmosphérique hors Studio, portions cachées, `SunDateControl`) ne sont **pas** de ces sections :
+ils vivent dans la barre du mode *Point de vue* (`ViewpointModeBar`), commune aux deux vues —
+hors de ce mode la carte est plafonnée à `MAP_MAX_PITCH` (85°), donc il n'y a **pas de ciel à
+l'écran** pour y tracer une course d'astre, ni de panorama à nommer.
 
 Le mobile ajoute en tête un outil `route` (*Itinéraire*) qui rend
 `BottomPanelContent` — le même contenu que le dock desktop.

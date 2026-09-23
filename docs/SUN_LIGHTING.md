@@ -36,21 +36,21 @@ lumière orangée à midi, plein jour avec un soleil sous l'horizon…).
 
 Deux cases indépendantes, **« Trajectoire du soleil »** et **« Trajectoire de la
 lune »**, dessinent la course de chaque astre pour la date choisie. On les trouve,
-dans les deux vues, dans le popover que le bouton *Point de vue* ouvre une fois
-debout (il se relabellise alors *Panorama*) — et **nulle part ailleurs**.
+dans les deux vues, dans le menu *Ciel* de la barre du mode *Point de vue* — et
+**nulle part ailleurs**.
 L'usage visé est le repérage photo : se placer où l'on veut être, regarder le sujet,
 et lire à quelle heure le soleil sera derrière. Ce sont **les mêmes drapeaux**
 (`skySunPath`, `skyMoonPath`) et le même sélecteur de date dans les deux vues :
 cocher d'un côté coche de l'autre.
 
-> **Ce popover n'existe que debout (mode *Point de vue*).** Hors de ce mode la vue
+> **Ce menu n'existe que debout (mode *Point de vue*).** Hors de ce mode la vue
 > de l'Itinéraire est plafonnée à 85° de pitch (`MAP_MAX_PITCH`) : pas de ciel où
 > tracer quoi que ce soit. Le Studio, lui, peut lever les yeux en *Caméra libre* :
-> les trajectoires cochées depuis *Panorama* y restent dessinées, mais il faut
+> les trajectoires cochées depuis *Ciel* y restent dessinées, mais il faut
 > repasser par le point de vue pour les décocher. Elles ont quitté la section
 > *Lumière* du Studio, où elles dépendaient d'« Éclairage soleil » : il fallait
 > changer l'éclairage du nuage pour poser une question de repérage. Dans le Studio,
-> le sélecteur de date de *Panorama* déplace aussi l'éclairage du nuage si
+> le sélecteur de date de *Ciel* déplace aussi l'éclairage du nuage si
 > « Éclairage soleil » est actif — c'est la même date.
 
 > **Demande le relief 3D.** Le tracé est testé en profondeur contre le terrain et
@@ -145,10 +145,10 @@ poser l'œil), et tant qu'il est actif l'édition de l'itinéraire est suspendue
 clic sert à se placer, pas à poser un point de passage. Voir
 [UI_SHELL_AND_RESPONSIVE.md](UI_SHELL_AND_RESPONSIVE.md#mode-point-de-vue).
 
-La case **« Ciel atmosphérique »** du popover *Panorama* peint le ciel de la vue
+La case **« Ciel atmosphérique »** du menu *Ciel* peint le ciel de la vue
 Itinéraire d'après la position du soleil à l'heure choisie, au lieu du bleu nuit
 neutre du style. Elle n'est jamais grisée pour elle-même (le ciel ne demande pas de
-MNT), mais elle suit le popover qui l'héberge — donc en pratique le mode « Point de
+MNT), mais elle suit le menu qui l'héberge — donc le mode « Point de
 vue », seul endroit d'où l'on voit le ciel côté carte. Elle ne touche
 **que le ciel** : le fond de carte garde ses couleurs. Le rééclairage du fond reste
 réservé au Studio, où le mode photoréaliste (`lidarPhotoreal`) allume les deux d'un

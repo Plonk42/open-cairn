@@ -195,6 +195,73 @@ export function cameraForViewpoint(
     };
 }
 
+/** Inverse of the zoom `cameraForViewpoint` picks: eye-to-center distance a camera implies. */
+export function centerDistanceForZoom(zoom: number, centerLat: number, lens: ViewpointLens): number {
+    const distancePx = (0.5 / Math.tan(toRad(lens.fovDeg) / 2)) * Math.max(1, lens.heightPx);
+    const metersPerPixel = (EQUATOR_METERS * Math.cos(toRad(centerLat))) / (TILE_SIZE * 2 ** zoom);
+    return distancePx * metersPerPixel;
+}
+
+/** Everything a flight interpolates: the eye, where it looks, the lens, and how far the center sits. */
+export interface ViewpointPose {
+    eye: Viewpoint;
+    look: LookDirection;
+    fovDeg: number;
+    distanceM: number;
+}
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+/**
+ * Pose `t` (0..1) of the way from `from` to `to`. The eye travels straight and
+ * the bearing takes the short way round; interpolating MapLibre's own
+ * `center / zoom` instead would swing the eye around a center kilometres away.
+ */
+export function interpolatePose(from: ViewpointPose, to: ViewpointPose, t: number): ViewpointPose {
+    const turn = ((((to.look.bearing - from.look.bearing) % 360) + 540) % 360) - 180;
+    return {
+        eye: {
+            lng: lerp(from.eye.lng, to.eye.lng, t),
+            lat: lerp(from.eye.lat, to.eye.lat, t),
+            altitude: lerp(from.eye.altitude, to.eye.altitude, t),
+        },
+        look: { bearing: from.look.bearing + turn * t, pitch: lerp(from.look.pitch, to.look.pitch, t) },
+        fovDeg: lerp(from.fovDeg, to.fovDeg, t),
+        distanceM: lerp(from.distanceM, to.distanceM, t),
+    };
+}
+
+/** Slow out, slow in: the flight should neither lurch off nor slam into the ground. */
+export function easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
+
+const FLIGHT_MIN_MS = 900;
+const FLIGHT_MAX_MS = 2500;
+
+/** Longer for a longer trip, within bounds: a hop is not a crossing. */
+export function flightDurationMs(from: Viewpoint, to: Viewpoint): number {
+    const northM = (to.lat - from.lat) * METERS_PER_DEGREE_LAT;
+    const eastM = (to.lng - from.lng) * METERS_PER_DEGREE_LAT * Math.cos(toRad((from.lat + to.lat) / 2));
+    const metres = Math.hypot(northM, eastM, to.altitude - from.altitude);
+    return clampNumber(700 + metres * 0.12, FLIGHT_MIN_MS, FLIGHT_MAX_MS);
+}
+
+/**
+ * The eye of a camera looking at `target` from `distanceM` away along `look`:
+ * the forward counterpart of {@link cameraForViewpoint}.
+ */
+export function eyeLookingAt(target: Viewpoint, look: LookDirection, distanceM: number): Viewpoint {
+    const groundRun = distanceM * Math.sin(toRad(look.pitch));
+    const bearingRad = toRad(look.bearing);
+    const cosLat = Math.max(Math.cos(toRad(target.lat)), 1e-6);
+    return {
+        lng: target.lng - (groundRun * Math.sin(bearingRad)) / (METERS_PER_DEGREE_LAT * cosLat),
+        lat: target.lat - (groundRun * Math.cos(bearingRad)) / METERS_PER_DEGREE_LAT,
+        altitude: target.altitude + distanceM * Math.cos(toRad(look.pitch)),
+    };
+}
+
 /**
  * Look direction after dragging the panorama by `dx` / `dy` CSS pixels.
  *

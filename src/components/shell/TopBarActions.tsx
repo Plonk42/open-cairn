@@ -1,12 +1,10 @@
 import { CameraIcon, ChevronDownIcon, FreeCameraIcon, OrbitIcon, SceneIcon, ViewpointIcon } from '@/components/icons/LidarIcons';
 import { ShowcaseGallery } from '@/components/lidar/ShowcaseGallery';
 import { STUDIO_REVEAL_EVENT } from '@/components/lidar/tutorial/steps';
-import { PanoramaIcon, SectionDivider } from '@/components/shell/routeSections';
-import { PeakLabelsToggle, SkyPathSection } from '@/components/ui/LayerSwitcher';
 import { useOrbit } from '@/components/ui/lidar/OrbitControl';
 import type { AppView } from '@/lib/useView';
 import { useMapStore } from '@/stores/mapStore';
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 
 /** Orbit auto-wiggle toggle. Works in both views (it circles the camera around
  *  the map centre, independent of any loaded LiDAR cloud). */
@@ -65,102 +63,47 @@ function FreeCameraTopBarButton() {
 }
 
 /**
- * "Point de vue" / "Panorama": one button, two questions asked one after the
- * other. Off, it asks *where* — armed, the next map click plants the eye on
- * the ground there and the camera stops moving, as if standing on that spot.
- * Standing, the same button asks *what*: it renders as "Panorama" and opens a
- * popover naming the peaks in view, with the sun/moon sky tracks. Two separate
- * buttons used to sit side by side for this, one of them dead until the other
- * was pressed; a button whose label and icon change with the question being
- * asked reads as one continuous action instead of two things to learn.
- *
- * Releasing the standpoint moved inside the popover ("Quitter le point de
- * vue") since a click on the button itself now opens/closes that popover.
- *
- * The sky tracks live here only, in both views: they answer a question asked
- * from a standpoint, not a rendering one, so the Studio's *Lumière* section
- * no longer carries them.
+ * "Point de vue" toggle: arms the pick (the next map click plants the eye on
+ * the ground), and quits the mode when pressed again. Its label never changes:
+ * what the mode offers while standing lives in `ViewpointModeBar`, on the map.
  *
  * Exported because the mobile chrome composes it into its own menu: the mode
  * is a touch gesture like any other, not a desktop-only feature.
  */
-export function ViewpointTopBarButton({ needsTerrain, studio }: Readonly<{ needsTerrain: boolean; studio: boolean }>) {
-    const viewpoint = useMapStore((s) => s.viewpoint);
+export function ViewpointTopBarButton({ needsTerrain }: Readonly<{ needsTerrain: boolean }>) {
+    const standing = useMapStore((s) => s.viewpoint !== null);
     const picking = useMapStore((s) => s.viewpointPicking);
     const setViewpoint = useMapStore((s) => s.setViewpoint);
     const setViewpointPicking = useMapStore((s) => s.setViewpointPicking);
     const terrainEnabled = useMapStore((s) => s.terrainEnabled);
-    const standing = viewpoint !== null;
+    const on = standing || picking;
     // The eye is planted at the DEM height under the click: no relief, no ground.
     const disabled = needsTerrain && !terrainEnabled;
 
-    const [open, setOpen] = useState(false);
-    const rootRef = useRef<HTMLDivElement>(null);
-
-    // Losing the standpoint (released from the popover, or terrain toggled off)
-    // closes whatever panorama panel was open on it.
-    useEffect(() => {
-        if (!standing) setOpen(false);
-    }, [standing]);
-
-    useEffect(() => {
-        if (!open) return;
-        const onPointerDown = (e: PointerEvent) => {
-            if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-        };
-        globalThis.addEventListener('pointerdown', onPointerDown);
-        return () => globalThis.removeEventListener('pointerdown', onPointerDown);
-    }, [open]);
-
     const onClick = () => {
-        if (standing) setOpen((o) => !o);
+        if (standing) setViewpoint(null);
         else setViewpointPicking(!picking);
     };
 
     let title = 'Point de vue : choisir où se tenir, puis tourner sur place';
     if (disabled) title = 'Activez le terrain 3D pour vous poser au sol';
-    else if (picking) title = 'Cliquez sur la carte pour vous placer — recliquez ici pour annuler';
-    else if (standing) title = 'Panorama : noms des sommets visibles d’ici';
-
-    let label = 'Point de vue';
-    if (picking) label = 'Choisissez…';
-    else if (standing) label = 'Panorama';
+    else if (on) title = 'Quitter le point de vue (Échap)';
 
     return (
-        <div ref={rootRef} className="relative">
-            <button
-                type="button"
-                onClick={onClick}
-                disabled={disabled}
-                title={title}
-                aria-label={standing ? 'Panorama' : 'Point de vue au sol'}
-                aria-pressed={standing || picking}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${standing || picking
-                    ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
-                    : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
-            >
-                {standing ? <PanoramaIcon className="h-4 w-4" /> : <ViewpointIcon className="h-4 w-4" />}
-                <span>{label}</span>
-            </button>
-            {open && standing && (
-                <div className="absolute right-0 top-full z-10 mt-2 w-72 overflow-hidden rounded-xl border border-black/5 bg-white shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/90 dark:ring-white/10">
-                    <div className="scrollbar-slim max-h-[60vh] overflow-y-auto p-3 text-slate-800 dark:text-slate-100">
-                        <PeakLabelsToggle />
-                        <SectionDivider />
-                        <SkyPathSection studio={studio} />
-                    </div>
-                    <div className="border-t border-black/5 p-2 dark:border-white/10">
-                        <button
-                            type="button"
-                            onClick={() => setViewpoint(null)}
-                            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-black/5 px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-black/5 transition hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10"
-                        >
-                            Quitter le point de vue
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            aria-label="Point de vue au sol"
+            aria-pressed={on}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${on
+                ? 'bg-green-600/10 text-green-700 ring-green-600/30 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-400/40'
+                : 'bg-black/5 text-slate-600 ring-black/5 hover:bg-black/10 dark:bg-white/5 dark:text-slate-200 dark:ring-white/15 dark:hover:bg-white/10'}`}
+        >
+            <ViewpointIcon className="h-4 w-4" />
+            <span>Point de vue</span>
+        </button>
     );
 }
 
@@ -225,14 +168,13 @@ function ActionGroup({ label, Icon, collapsed, onToggle, active = false, childre
 }
 
 /**
- * Camera-behaviour group: orbit, free camera, point de vue / panorama. They
+ * Camera-behaviour group: orbit, free camera, point de vue. They
  * answer "how does the camera move", as opposed to the scene group below.
  */
 function CameraActionGroup({ studio }: Readonly<{ studio: boolean }>) {
     const collapsed = useMapStore((s) => s.topBarCameraCollapsed);
     const setCollapsed = useMapStore((s) => s.setTopBarCameraCollapsed);
     const freeCamera = useMapStore((s) => s.freeCamera);
-    const viewpointOn = useMapStore((s) => s.viewpoint !== null || s.viewpointPicking);
     // Lifted here so the folded button can tell an orbit is running.
     const orbit = useOrbit();
     return (
@@ -241,11 +183,12 @@ function CameraActionGroup({ studio }: Readonly<{ studio: boolean }>) {
             Icon={CameraIcon}
             collapsed={collapsed}
             onToggle={() => setCollapsed(!collapsed)}
-            active={orbit.orbiting || (studio && freeCamera) || viewpointOn}
+            // No dot for the viewpoint mode: its own bar sits on the map.
+            active={orbit.orbiting || (studio && freeCamera)}
         >
             <OrbitToggle {...orbit} />
             {studio && <FreeCameraTopBarButton />}
-            <ViewpointTopBarButton needsTerrain={!studio} studio={studio} />
+            <ViewpointTopBarButton needsTerrain={!studio} />
         </ActionGroup>
     );
 }

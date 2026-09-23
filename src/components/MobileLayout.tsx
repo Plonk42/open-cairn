@@ -5,6 +5,7 @@ import { MobileToolbar, type MobileTool } from '@/components/shell/MobileToolbar
 import { MobileTopBar } from '@/components/shell/MobileTopBar';
 import { RouteExportButton } from '@/components/shell/RouteExportButton';
 import { RouteShareButton } from '@/components/shell/RouteShareButton';
+import { ViewpointModeBar } from '@/components/shell/ViewpointModeBar';
 import { ROUTE_SETTING_SECTIONS, RouteIcon } from '@/components/shell/routeSections';
 import { useState } from 'react';
 
@@ -31,7 +32,12 @@ export function MobileLayout() {
         <div className="relative h-[100dvh] w-screen overflow-hidden bg-gray-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
             <MapSlot />
             <MobileTopBar actions={<MobileActionsMenu view="map" exportSlot={<><RouteExportButton /><RouteShareButton /></>} />} />
-            <MobileToolbar tools={tools} activeId={activeTool} onSelect={handleSelect} />
+            <MobileToolbar
+                tools={tools}
+                activeId={activeTool}
+                onSelect={handleSelect}
+                above={<div className="flex justify-center px-2 pb-2"><ViewpointModeBar /></div>}
+            />
         </div>
     );
 }

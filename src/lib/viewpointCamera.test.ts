@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
     cameraForViewpoint,
+    centerDistanceForZoom,
+    easeInOutCubic,
     eyeHeightAfterStep,
+    eyeLookingAt,
+    flightDurationMs,
     focalEquivalentMm,
     fovAfterPinch,
     fovAfterWheel,
     horizontalFovDeg,
+    interpolatePose,
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
     VIEWPOINT_EYE_STEP_M,
@@ -16,6 +21,7 @@ import {
     VIEWPOINT_MIN_PITCH,
     VIEWPOINT_TARGET_DISTANCE_M,
     type Viewpoint,
+    type ViewpointPose,
 } from './viewpointCamera';
 
 /** Aiguille du Midi-ish: a high viewpoint at a latitude where cos(lat) ≈ 0.7. */
@@ -175,5 +181,49 @@ describe('eyeHeightAfterStep', () => {
 
     it('stops at the ceiling', () => {
         expect(eyeHeightAfterStep(VIEWPOINT_MAX_EYE_HEIGHT_M, true, true)).toBe(VIEWPOINT_MAX_EYE_HEIGHT_M);
+    });
+});
+
+describe('flight helpers', () => {
+    const pose = (eye: Viewpoint, bearing: number, pitch = 60, fovDeg = 36.87, distanceM = 5000): ViewpointPose =>
+        ({ eye, look: { bearing, pitch }, fovDeg, distanceM });
+
+    it('inverts the zoom cameraForViewpoint picks', () => {
+        const cam = cameraForViewpoint(EYE, { bearing: 30, pitch: 85 }, LENS);
+        expect(centerDistanceForZoom(cam.zoom, cam.center[1], LENS)).toBeCloseTo(D, 3);
+    });
+
+    it('lands the forward eye where cameraForViewpoint put the centre', () => {
+        const look = { bearing: 210, pitch: 60 };
+        const cam = cameraForViewpoint(EYE, look, LENS);
+        const eye = eyeLookingAt({ lng: cam.center[0], lat: cam.center[1], altitude: cam.elevation }, look, D);
+        expect(eye.lng).toBeCloseTo(EYE.lng, 4);
+        expect(eye.lat).toBeCloseTo(EYE.lat, 4);
+        expect(eye.altitude).toBeCloseTo(EYE.altitude, 3);
+    });
+
+    it('starts and ends exactly on its two poses', () => {
+        const a = pose(EYE, 10);
+        const b = pose({ lng: 6.9, lat: 45.9, altitude: 2000 }, 80, 85, 20, D);
+        expect(interpolatePose(a, b, 0)).toEqual(a);
+        const end = interpolatePose(a, b, 1);
+        expect(end.eye).toEqual(b.eye);
+        expect(end.look.bearing).toBeCloseTo(80, 9);
+        expect(end.fovDeg).toBeCloseTo(20, 9);
+    });
+
+    it('turns the short way round', () => {
+        const mid = interpolatePose(pose(EYE, 350), pose(EYE, 10), 0.5);
+        expect(((mid.look.bearing % 360) + 360) % 360).toBeCloseTo(0, 9);
+    });
+
+    it('eases in and out, and keeps a hop short and a crossing bounded', () => {
+        expect(easeInOutCubic(0)).toBe(0);
+        expect(easeInOutCubic(1)).toBe(1);
+        expect(easeInOutCubic(0.1)).toBeLessThan(0.1);
+        expect(flightDurationMs(EYE, EYE)).toBeGreaterThan(0);
+        const far = { lng: EYE.lng + 1, lat: EYE.lat, altitude: EYE.altitude };
+        expect(flightDurationMs(EYE, far)).toBeGreaterThan(flightDurationMs(EYE, EYE));
+        expect(flightDurationMs(EYE, far)).toBeLessThanOrEqual(2500);
     });
 });
