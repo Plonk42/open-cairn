@@ -11,17 +11,20 @@
  *
  *   - the summit list is LOADED once per session (`lib/peaks.ts`, a file built
  *     offline by `tools/build-peaks.mjs`), then sliced to the eye's box;
- *   - visibility is MARCHED once per eye position — up to ~900 rays, ~250 ms,
- *     paid when the eye lands and never again while you turn (`lib/peakSightings.ts`);
- *   - the labels are PLACED on every frame, which is pure arithmetic on
- *     directions that were solved once. Which summits get NAMED is decided
- *     here rather than in the march, so it follows the zoom as you turn the
- *     wheel: the march answers what is visible, the placement what fits.
+ *   - visibility is MARCHED on `idle` whenever the eye or the DRAWN terrain
+ *     changed (`lib/peakSightings.ts`), and only for summits on drawn tiles.
+ *     The tile cache is no ground truth: outside what is drawn, MapLibre
+ *     answers from whatever ancestor it still holds, down to z5, hundreds of
+ *     metres low. A summit turned away from keeps its last verdict; turned
+ *     back to, it is marched again on the tiles loaded for it;
+ *   - the labels are PLACED on every frame, through MapLibre's own matrix, at
+ *     the height the march read. Which summits get NAMED is decided here
+ *     rather than in the march, so it follows the zoom as you turn the wheel:
+ *     the march answers what is visible, the placement what fits.
  *
- * Drawn as one SVG over the canvas, not as MapLibre markers: a marker is lifted
- * onto the terrain, and a summit 40 km away sits outside the loaded DEM, so it
- * would drop to sea level and shoot off screen. A direction has no such
- * dependency — the same reason `SkyLabelsOverlay` positions its hours that way.
+ * Drawn as one SVG over the canvas, not as MapLibre markers: a marker would be
+ * lifted onto whatever terrain `Map.project` finds, and re-sampling ~300
+ * summits per frame is what the height kept from the march avoids.
  */
 
 import { loadPeaks as loadAllPeaks, PEAKS_RADIUS_M, peaksWithin, type Peak } from '@/lib/peaks';
@@ -33,7 +36,7 @@ import {
     type PeakLabelSlot,
     type PeakSighting,
 } from '@/lib/peakSightings';
-import { cameraObserver, demSampler, observerKey, projectDirection } from '@/lib/skyProjection';
+import { cameraObserver, observerKey, renderedGroundSampler, screenProjector } from '@/lib/skyProjection';
 import { useMapStore } from '@/stores/mapStore';
 import { useCallback, useEffect, useRef } from 'react';
 
@@ -98,41 +101,36 @@ export function PeakLabelsOverlay() {
     const active = peakLabels && viewpoint !== null;
 
     const hostRef = useRef<SVGSVGElement | null>(null);
-    const nodesRef = useRef<PeakNode[]>([]);
-    /** The eye the labels on screen were solved for, to skip idle no-ops. */
-    const lastKeyRef = useRef('');
+    const nodesRef = useRef(new Map<string, PeakNode>());
+    /** The eye and drawn-tile set the labels on screen were solved for, to skip idle no-ops. */
+    const solvedRef = useRef<{ eye: string; coverage: unknown }>({ eye: '', coverage: null });
     /** Summits already sliced out, and the rounded eye they were sliced around. */
     const peaksRef = useRef<{ key: string; peaks: Peak[] }>({ key: '', peaks: [] });
     const timerRef = useRef<number | undefined>(undefined);
 
     const clearNodes = useCallback(() => {
-        for (const node of nodesRef.current) node.group.remove();
-        nodesRef.current = [];
+        for (const node of nodesRef.current.values()) node.group.remove();
+        nodesRef.current.clear();
     }, []);
 
     const place = useCallback(() => {
         const map = mapInstance;
         if (!map) return;
-        const { width, height } = map.getCanvas().getBoundingClientRect();
+        const { width, height } = map.painter.transform;
+        const project = screenProjector(map);
         const slots: PeakLabelSlot[] = [];
-        const byKey = new Map<string, PeakNode>();
-        for (const node of nodesRef.current) {
+        for (const node of nodesRef.current.values()) {
             node.group.style.display = 'none';
-            const at = projectDirection(map, node.sighting.dir);
+            const { peak, groundM } = node.sighting;
+            const at = project(peak.lng, peak.lat, groundM);
             if (!at) continue;
             const off = at.x < -CULL_MARGIN_PX || at.x > width + CULL_MARGIN_PX
                 || at.y < -CULL_MARGIN_PX || at.y > height + CULL_MARGIN_PX;
             if (off) continue;
-            slots.push({
-                key: node.sighting.peak.id,
-                x: at.x,
-                y: at.y,
-                priority: labelPriority(node.sighting.peak, node.sighting.distanceM),
-            });
-            byKey.set(node.sighting.peak.id, node);
+            slots.push({ key: peak.id, x: at.x, y: at.y, priority: labelPriority(node.sighting) });
         }
         for (const placed of layoutPeakLabels(slots)) {
-            const node = byKey.get(placed.key);
+            const node = nodesRef.current.get(placed.key);
             if (!node) continue;
             node.group.style.display = '';
             node.line.setAttribute('x1', placed.tipX.toFixed(1));
@@ -163,6 +161,31 @@ export function PeakLabelsOverlay() {
         }
     }, []);
 
+    /**
+     * Re-judge the summits standing on drawn terrain, keep the verdicts of the
+     * others: they are off screen, and their tiles are no longer trustworthy.
+     */
+    const merge = useCallback((host: SVGSVGElement, seen: readonly PeakSighting[], sample: (lng: number, lat: number) => number) => {
+        const nodes = nodesRef.current;
+        const seenIds = new Set(seen.map((s) => s.peak.id));
+        for (const [id, node] of nodes) {
+            const { peak } = node.sighting;
+            if (seenIds.has(id) || !Number.isFinite(sample(peak.lng, peak.lat))) continue;
+            node.group.remove();
+            nodes.delete(id);
+        }
+        for (const sighting of seen) {
+            const node = nodes.get(sighting.peak.id);
+            if (node) {
+                node.sighting = sighting;
+                continue;
+            }
+            const created = createNode(sighting);
+            host.appendChild(created.group);
+            nodes.set(sighting.peak.id, created);
+        }
+    }, []);
+
     const recompute = useCallback(async () => {
         const map = mapInstance;
         const terrain = map?.terrain;
@@ -170,27 +193,28 @@ export function PeakLabelsOverlay() {
         if (!map || !terrain || !host) return;
         const observer = cameraObserver(map);
         if (!observer) return;
-        const key = observerKey(observer);
-        if (key === lastKeyRef.current) return;
-        lastKeyRef.current = key;
+        const eye = observerKey(observer);
+        const coverage = terrain.getCoverageIndex();
+        const solved = solvedRef.current;
+        if (eye === solved.eye && coverage === solved.coverage) return;
+        const eyeMoved = eye !== solved.eye;
+        const claim = { eye, coverage };
+        solvedRef.current = claim;
 
         const peaks = await loadPeaks(observer.lng, observer.lat);
         if (peaks === null) {
             // Let the next idle try again rather than stay silent for the session.
-            lastKeyRef.current = '';
+            solvedRef.current = { eye: '', coverage: null };
             return;
         }
-        // The download may have outlived the mode, or the eye may have moved on.
-        if (hostRef.current !== host || lastKeyRef.current !== key) return;
+        // The download may have outlived the mode, or a newer pass taken over.
+        if (hostRef.current !== host || solvedRef.current !== claim) return;
 
-        clearNodes();
-        for (const sighting of sightPeaks(observer, peaks, demSampler(terrain))) {
-            const node = createNode(sighting);
-            host.appendChild(node.group);
-            nodesRef.current.push(node);
-        }
+        if (eyeMoved) clearNodes();
+        const sample = renderedGroundSampler(terrain);
+        merge(host, sightPeaks(observer, peaks, sample), sample);
         place();
-    }, [mapInstance, loadPeaks, clearNodes, place]);
+    }, [mapInstance, loadPeaks, clearNodes, merge, place]);
 
     const recomputeRef = useRef(recompute);
     const schedule = useCallback(() => {
@@ -222,7 +246,7 @@ export function PeakLabelsOverlay() {
             map.off('idle', schedule);
             map.off('move', place);
             clearNodes();
-            lastKeyRef.current = '';
+            solvedRef.current = { eye: '', coverage: null };
             host.remove();
             hostRef.current = null;
         };

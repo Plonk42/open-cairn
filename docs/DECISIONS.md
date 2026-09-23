@@ -11,6 +11,8 @@ techniques vivent dans le document de chaque sujet.
 - **Le LiDAR se dessine toujours au-dessus du terrain**, sans test de profondeur contre lui : le MNT
   IGN est souvent trop haut et ne doit jamais masquer une mesure LiDAR. → `LIDAR_RENDERING.md`
 - **Bande des noms de sommets bornée par `BAND_MIN_Y_PX`** : pas un défaut, on relève la caméra.
+- **Traits de rappel des sommets verticaux, noms épinglés au-dessus de leur sommet** : le
+  glissement latéral avec trait coudé a été essayé et rejeté (illisible).
 
 ## Studio LiDAR
 

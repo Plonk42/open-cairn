@@ -130,40 +130,51 @@ describe('sightPeaks', () => {
         expect(seen.peak.spotHeightM).toBe(1_990);
     });
 
-    it('points the direction vector east for a summit due east', () => {
-        const east: Peak = {
-            id: 'e',
-            name: 'e',
-            lng: OBSERVER.lng + 0.05,
-            lat: OBSERVER.lat,
-            importance: 1,
-            spotHeightM: null,
+    it('reports the ground height the summit was judged on', () => {
+        const peak = peakNorth('alone', 6_000);
+        const [seen] = sightPeaks(OBSERVER, [peak], summits(2_000, [peak]));
+        expect(seen.groundM).toBe(2_000);
+    });
+
+    it('skips a summit the sampler cannot see, and treats a blind ray as clear', () => {
+        const peak = peakNorth('far', 12_000);
+        const blind: GroundSampler = (_lng, lat) => {
+            if (Math.abs(lat - peak.lat) < 0.0009) return 2_000;
+            return Number.NaN;
         };
-        const [seen] = sightPeaks(OBSERVER, [east], summits(3_000, [east]));
-        const [x, y, z] = seen.dir;
-        // 2 000 m up over ~3.9 km is a steep but real 27°, so the direction is
-        // mostly east with a solid tilt upwards.
-        expect(Math.abs(y)).toBeLessThan(0.01);
-        expect(x).toBeCloseTo(Math.cos(27 * (Math.PI / 180)), 2);
-        expect(z).toBeCloseTo(Math.sin(27 * (Math.PI / 180)), 2);
-        expect(Math.hypot(x, y, z)).toBeCloseTo(1, 6);
+        expect(sightPeaks(OBSERVER, [peak], blind).map((s) => s.peak.id)).toEqual(['far']);
+        expect(sightPeaks(OBSERVER, [peak], () => Number.NaN)).toEqual([]);
     });
 });
 
 describe('labelPriority', () => {
+    const at = (peak: Peak, distanceM: number, clearanceDeg = 0.5) => ({ peak, distanceM, clearanceDeg });
+
     it('keeps the Mont Blanc over the knoll that used to evict it', () => {
         // From Chamechaude the two land 16 px apart, and the fraction alone put
         // the Dent du Corbeau first: 0.58 of a rank-2 reach against 0.69 of a
         // rank-1 one.
         const montBlanc = { ...peakNorth('Mont Blanc', 1, 1), importance: 1 };
         const corbeau = { ...peakNorth('Dent du Corbeau', 1, 2), importance: 2 };
-        expect(labelPriority(montBlanc, 104_000)).toBeLessThan(labelPriority(corbeau, 58_000));
+        expect(labelPriority(at(montBlanc, 104_000))).toBeLessThan(labelPriority(at(corbeau, 58_000)));
+    });
+
+    it('prefers a nearby rank-3 summit over a far rank-2 speck in the same column', () => {
+        // Looking west from Chamechaude: Rocher de Chalves against Crêt de Montivert.
+        const chalves = { ...peakNorth('Rocher de Chalves', 1, 3), importance: 3 };
+        const montivert = { ...peakNorth('Crêt de Montivert', 1, 2), importance: 2 };
+        expect(labelPriority(at(chalves, 7_100, 0.57))).toBeLessThan(labelPriority(at(montivert, 91_800, 0.27)));
+    });
+
+    it('prefers the summit standing clear over the one barely peeking', () => {
+        const peak = peakNorth('p', 1, 3);
+        expect(labelPriority(at(peak, 15_000, 1.2))).toBeLessThan(labelPriority(at(peak, 15_000, 0.05)));
     });
 
     it('separates equals by how far they reach for their rank', () => {
         const near = peakNorth('near', 1, 2);
         const far = peakNorth('far', 1, 2);
-        expect(labelPriority(near, 20_000)).toBeLessThan(labelPriority(far, 90_000));
+        expect(labelPriority(at(near, 20_000))).toBeLessThan(labelPriority(at(far, 90_000)));
     });
 });
 
@@ -175,8 +186,8 @@ describe('layoutPeakLabels', () => {
     /** Signed offset of a label's strip across its own direction, in pixels. */
     const lane = (p: PlacedPeakLabel) =>
         p.anchorX * Math.sin(-LABEL_ANGLE_DEG * RAD) + p.anchorY * Math.cos(-LABEL_ANGLE_DEG * RAD);
-    /** The 12 px line box plus the halo the overlay paints under the glyphs. */
-    const LINE_BOX_PX = 15.5;
+    /** 12 px of ink, cap to descender, plus one edge of the halo the overlay paints under it. */
+    const LINE_BOX_PX = 14;
 
     it('hangs every name from one band, clear of the highest summit on screen', () => {
         const placed = layoutPeakLabels([slot('high', 100, 240), slot('low', 400, 520)]);

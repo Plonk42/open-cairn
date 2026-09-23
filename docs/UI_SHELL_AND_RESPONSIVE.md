@@ -669,12 +669,25 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le MNT | jusqu'à **900 rayons à 0,28 ms**, soit **139 ms** mesurés depuis Belledonne avec 831 rayons | une fois par **position** de l'œil, sur `idle` |
+| Visée : un rayon par sommet à travers le relief **dessiné** | 0,28 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) | sur `idle`, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
-Seule la troisième suit le geste, et c'est la seule qui le peut : les deux autres
-dépendent de *où l'on se tient*, pas de *où l'on regarde*. Tourner la tête ne
-redéclenche donc ni découpe ni visée.
+Seule la troisième suit le geste. La deuxième suit **ce que MapLibre dessine** : tourner
+la tête charge d'autres tuiles, et le `idle` qui suit re-vise les sommets posés dessus. Un
+sommet dont on s'est détourné garde son dernier verdict (il est hors champ) ; y revenir
+le re-vise sur les tuiles chargées pour lui.
+
+Pourquoi pas une fois par position de l'œil, comme avant : le cache de tuiles n'est pas
+une vérité. Hors de ce qui est dessiné, `getElevationForLngLatZoom` répond depuis
+n'importe quel ancêtre encore en mémoire. Mesuré à travers une focale de 8° : **864 des
+900** candidats lus sur une tuile **z5**, **396 m trop bas** en médiane et jusqu'à
+**949 m**. Une visée faite à ce moment-là — il suffisait de monter l'œil, qui change la
+position — posait les amorces loin sous les sommets, et les y laissait jusqu'au
+prochain déplacement. `renderedGroundSampler` (`skyProjection.ts`) ne lit donc **que les
+tuiles dessinées** (`Terrain.getCoverageIndex()`, le même index que le `sampleAt` de
+MapLibre) et répond `NaN` ailleurs : un sommet hors tuile n'est pas visé, un tronçon de
+rayon hors tuile compte comme dégagé — c'est du relief sous le cadre, qui ne peut pas se
+dresser devant un sommet dans le cadre.
 
 C'est aussi pourquoi **quels** sommets portent un nom se décide dans la troisième et non
 dans la deuxième : la visée répond à « qu'est-ce qui est visible », qui ne dépend pas du
@@ -746,21 +759,24 @@ abaissement que le rendu n'applique pas : **738 m à 104 km**, soit 0,41°, soit
 dans un champ de 9,6°. La pointe du Mont Blanc se posait sur son flanc. L'azimut était
 faux de la même manière, jusqu'à 9 px : un grand cercle est une courbe en mercator.
 
-La direction de visée est donc construite **dans l'espace du rendu** (`renderDirection`) :
-écarts en mercator, altitude mise à l'échelle comme le moteur le fait — un mètre
-d'altitude vaut un mètre de northing à une latitude de référence. MapLibre prend celle du
-centre de la carte ; prendre celle de l'œil garde la visée indépendante de la caméra et
-coûte 0,01 px.
+La pointe est donc projetée par **la matrice de MapLibre elle-même**
+(`screenProjector`, `skyProjection.ts` : `clipSpaceToPixelsMatrix ×
+modelViewProjectionMatrix`, soit son `_pixelMatrix3D`), au point `(lng, lat, sol)` où
+`sol` est l'altitude de la surface dessinée lue par la visée. Rien n'est redérivé à la
+main : ni la focale, ni la taille du canevas, ni le padding, ni l'échelle verticale —
+chacune a été un bug de l'ancienne direction reconstruite. Vérifié : **0 px** d'écart avec
+`Map.project` sur une grille de points et sur chaque amorce affichée, après rotation,
+changement de focale et montée de l'œil. `projectDirection` (heures du soleil et de la
+lune, à l'infini) lit la même matrice, avec `w = 0`.
 
-Vérifié contre `Map.project` sur les 271 sommets du panorama de Chamechaude : **0,72 px**
-au pire au-delà de 20 km, x compris, et 0,17 px sur le Mont Blanc. Appeler `Map.project`
-directement aurait donné le même résultat sans calcul, mais **44 ms par image** pour ce
-lot contre 0,2 ms — le placement tourne à chaque image.
+Effet de bord mesurable : le placement ne lit plus rien dans le DOM. L'ancienne projection
+appelait `getBoundingClientRect()` du canevas **à chaque sommet**, juste après avoir masqué
+le nœud précédent — une écriture suivie d'une lecture, donc une remise en page forcée par
+sommet. Rejoué sur 196 nœuds : **9,7 ms par image** avant, **0,27 ms** après.
 
-La marche d'occultation, elle, reste physique : savoir si une arête masque réellement un
-sommet est une question sur le **monde**, savoir où son nom se pose est une question sur
-l'**image**, et l'image est un plan. L'écart que cela laisse est noté dans
-[docs/TODO.md](TODO.md).
+La marche d'occultation, elle, reste physique (courbure, réfraction) : savoir si une
+arête masque réellement un sommet est une question sur le **monde**, savoir où son nom se
+pose est une question sur l'**image**, et l'image est un plan.
 
 Le désencombrement ne mesure aucun texte, et c'est volontaire : comme les étiquettes
 sont toutes inclinées du même angle, ce sont des **bandes parallèles**, et deux bandes
@@ -769,21 +785,43 @@ direction — une hauteur de ligne — quelle que soit la longueur des noms.
 
 Toutes les ancres étant sur la même bande horizontale, cet écart en travers se réduit à
 leur **écart horizontal** multiplié par le sinus de l'angle : plus le texte est couché,
-plus il lui faut de place en largeur. À −32° c'est 30 px par nom, là où les −58°
-d'origine n'en demandaient que 19 — le prix de la hauteur qu'on ne consomme plus.
+plus il lui faut de place en largeur. À −32° c'est 26 px par nom : une hauteur de ligne de
+14 px, soit les 12 px d'encre d'une Helvetica 600 à 12 px, de la capitale au jambage
+(mesurés, 9 + 3), plus un bord de halo, pour que le halo d'un voisin ne morde jamais un
+glyphe. C'était 15,5 px (le halo entier des deux côtés), 3,5 px de trop : vers la
+Chartreuse depuis Chamechaude, Montfromage perdait sa colonne pour 0,8 px au profit de
+Rocher de Lorzier, et Mont Salomon la prenait.
 
-Quand deux noms ne tiennent pas tous les deux, celui qui reste est **le plus notoire**
-(`labelPriority` = rang IGN, puis `distance / portée(rang)` pour départager les égaux),
-et non celui qui se trouve le plus à gauche : une butte obscure pouvait auparavant
-évincer un sommet notoire pour 3 px.
+Chaque nom reste **épinglé à la verticale de son sommet**, trait droit. Faire glisser les
+noms serrés sur le côté avec un trait coudé a été essayé et rejeté : ça se lit comme un
+fouillis. La bande en une rangée a donc un plafond dur : depuis Chamechaude vers l'ouest
+(œil à 124 m, 38 sommets vus), **16 noms** est le maximum qu'elle peut porter à −32°, quel
+que soit le choix. Tout se joue donc sur **quels** noms occupent ces places — et sur la
+visée : tourné vers la Chartreuse depuis le même point, l'image est plus vide parce que
+la plupart des sommets mineurs sont **réellement cachés** derrière la crête
+Chalves–Lorzier (1 720–1 850 m à 7–9 km) : Aiguille de Chalais, Roche Brune, le Châtelet,
+Rocher de la Garde, le Pavillon de 2,5 à 4° sous elle, le Grand Sabot de 0,09°.
 
-Trier sur la seule fraction de portée — ce que faisait la mise en page, au motif que le
-nom survivant devait être celui que le budget de rayons aurait marché en premier — écrit
-**`Dent du Corbeau` par-dessus `Mont Blanc`** : depuis Chamechaude, 2 286 m à 58 km usent
-0,58 d'une portée de rang 2, 4 806 m à 104 km en usent 0,69 d'une portée de rang 1, et les
-deux tombent à 16 px l'un de l'autre. Ce sont deux questions différentes : choisir quoi
-marcher est une question de **coût**, et le lointain y perd à raison ; choisir quoi écrire
-est une question de **notoriété**, et il y gagne à raison.
+Quand deux noms ne tiennent pas tous les deux, celui qui reste est le plus bas selon
+`labelPriority` = `distance / portée(rang)` + **0,15 par rang** − **0,2 par degré de
+dégagement** au-dessus du relief plus proche (plafonné à 1,5°), et non celui qui se
+trouve le plus à gauche.
+
+Le rang passait auparavant **d'abord**, entier : tout rang 2 avant n'importe quel rang 3.
+Dans la vue ci-dessus, cela écrivait Crêt de Montivert (92 km, qui dépasse de 0,27° de
+l'arête devant lui) à la place de **Rocher de Chalves** (7 km, 0,57°) dans la même colonne,
+le Gerbier de Jonc à 132 km à la place de **la Sure** à 16 km, Mont Chaix à 99 km à la place
+de **la Cuche**, et Mont Salomon — une colline de 270 m à 76 km — à la place de
+**Montfromage** à 3,6 km. Avec la nouvelle règle, ces quatre sommets locaux prennent la place,
+pour le même nombre de noms. Le dégagement est ce qui distingue un sommet qui se découpe
+d'une encoche qui pointe à peine derrière une crête ; la marche le calcule déjà
+(`clearanceDeg` de la visée).
+
+La règle garde le cas qui avait imposé le rang d'abord — **`Dent du Corbeau` écrit
+par-dessus `Mont Blanc`** quand on triait sur la seule fraction de portée : depuis
+Chamechaude, 2 286 m à 58 km usent 0,58 d'une portée de rang 2, 4 806 m à 104 km en usent
+0,69 d'une portée de rang 1, et les deux tombent à 16 px l'un de l'autre. Le pas de rang
+suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son dégagement).
 
 > ⚠️ La bande ne monte pas indéfiniment. Le texte s'élève depuis son ancre, donc une
 > bande trop haute est une bande dont **tous** les noms sont coupés par le bord — ce qui

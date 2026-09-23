@@ -9,9 +9,10 @@
 //   2. the layout — a screen-space pass that keeps a dense ridge legible.
 //
 // The split is also what keeps the labelling free while the lens moves. Whether
-// a summit is VISIBLE is a fact about the terrain, so the march is paid once per
-// standpoint; whether it is worth NAMING is a fact about how crowded the screen
-// is, so it is decided in the layout, which runs every frame.
+// a summit is VISIBLE is a fact about the terrain, so the march is paid when the
+// drawn terrain changes, never per frame; whether it is worth NAMING is a fact
+// about how crowded the screen is, so it is decided in the layout, which runs
+// every frame.
 //
 // What the split does NOT do is uncover names as the lens narrows, which this
 // comment claimed for a while. Measured across the whole lens range from a
@@ -70,19 +71,13 @@ const DEG = Math.PI / 180;
 const REACH_BY_IMPORTANCE_M = [0, 150_000, 100_000, 40_000, 20_000];
 
 /**
- * Ceiling on the number of rays marched, paid in one go when the eye lands.
+ * Ceiling on the number of rays marched in one pass.
  *
  * Measured in the browser on the Chamechaude standpoint, a ray costs 0.28 ms,
- * not the 0.6 ms this budget was first sized on — so 900 of them cost about a
- * quarter of a second, once. A ray is also barely longer since the reach grew:
- * the march steps geometrically, so 150 km costs 380 samples against 334 for
- * 60 km.
- *
- * It is no longer roomy, though: over Belledonne the circle now offers 831 of
- * them, and the march measured 139 ms there. Reaching further means giving up
- * marching the whole circle and spending the budget inside the visible wedge
- * instead — which buys a lot, an 8° frame holding 3.5 % of the circle, but has
- * to re-march on every turn of the head, where today turning is free.
+ * not the 0.6 ms this budget was first sized on. A ray is also barely longer
+ * since the reach grew: the march steps geometrically, so 150 km costs 380
+ * samples against 334 for 60 km. Only summits on drawn terrain get a ray — the
+ * rest cost one sample — so a pass is paid for the frame, not the circle.
  */
 const MAX_MARCHED = 900;
 
@@ -120,10 +115,13 @@ export interface PeakSighting {
     peak: Peak;
     distanceM: number;
     /**
-     * Unit ENU direction towards the summit (x=east, y=north, z=up), in the
-     * flat world the renderer draws — see {@link renderDirection}.
+     * Ground height under the summit, as sampled for the march. Placed with
+     * MapLibre's own matrix (`screenProjector`), so the tip lands on the relief
+     * as drawn: no curvature, the renderer's vertical scale, its padding.
      */
-    dir: [number, number, number];
+    groundM: number;
+    /** How far the summit stands above the nearer relief, in degrees. */
+    clearanceDeg: number;
 }
 
 interface Candidate {
@@ -148,23 +146,35 @@ export function reachFraction(peak: Peak, distanceM: number): number {
     return distanceM / REACH_BY_IMPORTANCE_M[peak.importance];
 }
 
+/** What one rank of notoriety is worth, in shares of reach. */
+const RANK_STEP = 0.15;
+/** What one degree of clearance above the nearer relief is worth, capped at 1.5°. */
+const CLEARANCE_WEIGHT = 0.2;
+const CLEARANCE_CAP_DEG = 1.5;
+
 /**
- * Which of two names the band keeps when it has room for only one.
+ * Which of two names the band keeps when it has room for only one — lower
+ * first.
  *
- * The layout used to rank on {@link reachFraction} alone, on the argument that
- * the name which survives should be the one the budget would have marched
- * first. Those are two different questions, and answering them with one number
- * printed `Dent du Corbeau` over `Mont Blanc`: 2286 m at 58 km uses 0.58 of a
- * rank-2 reach where 4806 m at 104 km uses 0.69 of a rank-1 reach, the two land
- * 16 px apart, and the nearer one takes the slot. Deciding what to march is a
- * question about COST, and there the far speck rightly loses; deciding what to
- * print is a question about NOTORIETY, and there it rightly wins.
+ * Rank used to come first, whole: every rank-2 before any rank-3. Looking west
+ * from Chamechaude that printed Crêt de Montivert (92 km, peeking 0.27° over
+ * the ridge in front) instead of Rocher de Chalves (7 km, 0.57°) in the same
+ * column, the Gerbier de Jonc at 132 km over la Sure at 16 km, and Mont Salomon
+ * — a 270 m hill at 76 km — over Montfromage at 3.6 km. A rank is how far a
+ * name carries, so it is weighed against the distance ({@link reachFraction})
+ * instead of trumping it, a step of {@link RANK_STEP} per rank; and a summit
+ * that stands clear of the relief before it reads as a summit, where one
+ * barely peeking over a nearer ridge reads as a notch.
  *
- * So rank comes first and the fraction only separates equals — it stays below 1
- * by construction, so a rank never bleeds into the next.
+ * Still holds the case rank-first was introduced for: the Mont Blanc (4806 m
+ * at 104 km, 0.69 of a rank-1 reach) over the Dent du Corbeau (58 km, 0.58 of
+ * a rank-2 one), which land 16 px apart.
  */
-export function labelPriority(peak: Peak, distanceM: number): number {
-    return peak.importance + Math.min(1, reachFraction(peak, distanceM));
+export function labelPriority(sighting: Pick<PeakSighting, 'peak' | 'distanceM' | 'clearanceDeg'>): number {
+    const { peak, distanceM, clearanceDeg } = sighting;
+    return reachFraction(peak, distanceM)
+        + RANK_STEP * (peak.importance - 1)
+        - CLEARANCE_WEIGHT * Math.min(CLEARANCE_CAP_DEG, Math.max(0, clearanceDeg));
 }
 
 /**
@@ -185,50 +195,6 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
     return candidates.slice(0, MAX_MARCHED);
 }
 
-/** Length of the equator in metres, the unit MapLibre scales its world from. */
-const EQUATOR_M = 40_075_016.686;
-
-/** Mercator northing of a latitude, in world units — 0 at the top of the map, 1 at the bottom. */
-function mercatorY(latDeg: number): number {
-    return (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG) / 2))) / 360;
-}
-
-/**
- * Unit direction from the eye to a summit, in the flat world MapLibre DRAWS.
- *
- * Deliberately not the direction {@link apparentAngleDeg} gives. A mercator
- * terrain is a plane, so the renderer knows nothing of the Earth's curvature,
- * while `apparentAngleDeg` subtracts it: 738 m at 104 km, which is 0.41°, which
- * through a 9.6° lens is 27 px — the leader tip landed on the Mont Blanc's
- * flank instead of its summit, measured against `Map.project`. The azimuth was
- * off too, by up to 9 px, a great circle being a curve in mercator.
- *
- * So the march stays physical and the projection does not: whether a ridge
- * really hides a summit is a question about the world, where its name goes is a
- * question about the picture, and the picture is a plane.
- *
- * The vertical scale is folded in the way the renderer folds it — one metre of
- * altitude is one metre of northing at a reference latitude. MapLibre takes the
- * map centre's; taking the eye's instead keeps the sighting free of the camera
- * and was worth 0.01 px. Checked against `Map.project` over the 271 summits of
- * the Chamechaude panorama: 0.7 px worst case past 20 km, x included. Calling
- * `Map.project` itself would have cost 44 ms a frame for that set, against
- * 0.2 ms for this.
- */
-function renderDirection(
-    observer: SkylineObserver,
-    lng: number,
-    lat: number,
-    groundM: number,
-): [number, number, number] {
-    const scale = EQUATOR_M * Math.cos(observer.lat * DEG);
-    const east = ((lng - observer.lng) / 360) * scale;
-    const north = (mercatorY(observer.lat) - mercatorY(lat)) * scale;
-    const up = groundM - observer.altitudeM;
-    const length = Math.hypot(east, north, up) || 1;
-    return [east / length, north / length, up / length];
-}
-
 /**
  * Keep the summits that stand clear of everything between them and the eye.
  *
@@ -236,11 +202,20 @@ function renderDirection(
  * sun labels do would be 130 m off course at 30 km, enough to march up the
  * wrong gully and call a summit hidden.
  *
+ * The march stays physical (curvature, refraction) while the placement is the
+ * renderer's: whether a ridge really hides a summit is a question about the
+ * world, where its name goes is a question about the picture, and the picture
+ * is a plane.
+ *
  * The whole test runs in DEM space, the summit included, even when a surveyed
  * height is published for it: comparing a surveyed top against a DEM ridge
  * would tilt every verdict by the few metres that separate the two models. The
  * published height is only printed — and `tools/build-peaks.mjs` has already
  * dropped the ones RGE ALTI® contradicts.
+ *
+ * A summit the sampler cannot see (non-finite) is skipped, and a blind stretch
+ * of ray counts as clear ground: fed the drawn surface, that is terrain below
+ * the frame, which cannot stand in front of a summit inside it.
  */
 export function sightPeaks(
     observer: SkylineObserver,
@@ -254,11 +229,7 @@ export function sightPeaks(
         const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, distanceM);
         const ridgeDeg = ridgeAngleBefore(observer, azimuthDeg, distanceM * SELF_CLEARANCE, sample);
         if (elevationDeg < ridgeDeg + CLEARANCE_TOLERANCE_DEG) continue;
-        out.push({
-            peak,
-            distanceM,
-            dir: renderDirection(observer, peak.lng, peak.lat, groundM),
-        });
+        out.push({ peak, distanceM, groundM, clearanceDeg: elevationDeg - ridgeDeg });
     }
     return out;
 }
@@ -287,15 +258,20 @@ const BAND_CLEARANCE_PX = 26;
 const BAND_MIN_Y_PX = 110;
 
 /**
- * Room one name needs along the band, and the 12 px line box widened by the
- * 3.5 px halo it is derived from.
+ * Room one name needs across its own direction: the 12 px of ink a 600-weight
+ * 12 px Helvetica spans from cap to descender (measured, 9 + 3), plus one halo
+ * edge (1.75 px, half the 3.5 px stroke) so a neighbour's halo never bites a
+ * glyph. Two halos may touch; they are the same dark.
+ *
+ * It was 15.5 — the full halo on both sides — which is 3.5 px too careful and
+ * cost a name every so often: looking into Chartreuse from Chamechaude,
+ * Montfromage lost its slot to Rocher de Lorzier by 0.8 px, and Mont Salomon
+ * took the column instead.
  *
  * Every anchor sits on the same y, so the offset across two parallel strips
- * reduces to their horizontal gap times the sine of the angle — the pass no
- * longer projects anything. The shallower the text, the more horizontal room a
- * name needs: 30 px at -32°, where -58° only asked 19.
+ * reduces to their horizontal gap times the sine of the angle: 26 px at -32°.
  */
-const LINE_BOX_PX = 15.5;
+const LINE_BOX_PX = 14;
 const MIN_ANCHOR_GAP_PX = LINE_BOX_PX / Math.sin(-LABEL_ANGLE_DEG * DEG);
 
 export interface PeakLabelSlot {
@@ -322,18 +298,17 @@ export interface PlacedPeakLabel {
  * This is PeakFinder's reading of a panorama, and the reason it looks tidy on a
  * crowded ridge: the names do not follow the skyline, so they neither cover the
  * relief nor bunch up wherever the summits do. The leader carries the meaning
- * instead, and being vertical it is unambiguous however long it gets.
+ * instead, and being vertical it is unambiguous however long it gets. Sliding
+ * crowded names aside with a bent leader was tried and rejected: it reads as a
+ * tangle.
  *
- * It also used to be sold as making the selection follow the zoom for free:
- * narrowing the field spreads the summits, the gap test stops failing, and the
- * minor names appear on their own. Measured, the count only falls as the lens
- * narrows — the gap test is not what binds at 8°, {@link BAND_MIN_Y_PX} is, and
+ * Narrowing the lens does not uncover names by itself: measured, the count only
+ * falls as the lens narrows — {@link BAND_MIN_Y_PX} is what binds at 8°, and
  * what it drops is the whole top of the skyline.
  *
  * Which name survives a collision is `priority`, not screen order — an obscure
  * knoll used to be able to evict a notorious summit for standing slightly left
- * of it. See {@link labelPriority} for what that order is, and for the summit
- * it was getting wrong.
+ * of it. See {@link labelPriority} for what that order is.
  */
 export function layoutPeakLabels(slots: readonly PeakLabelSlot[]): PlacedPeakLabel[] {
     if (slots.length === 0) return [];
@@ -347,13 +322,7 @@ export function layoutPeakLabels(slots: readonly PeakLabelSlot[]): PlacedPeakLab
         if (slot.y < bandY) continue;
         if (taken.some((x) => Math.abs(x - slot.x) < MIN_ANCHOR_GAP_PX)) continue;
         taken.push(slot.x);
-        placed.push({
-            key: slot.key,
-            tipX: slot.x,
-            tipY: slot.y,
-            anchorX: slot.x,
-            anchorY: bandY,
-        });
+        placed.push({ key: slot.key, tipX: slot.x, tipY: slot.y, anchorX: slot.x, anchorY: bandY });
     }
     placed.sort((a, b) => a.anchorX - b.anchorX);
     return placed;

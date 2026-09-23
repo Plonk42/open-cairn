@@ -1,12 +1,14 @@
 # TODO
 
-- [ ] **Le recalage des étiquettes de sommets sur le padding n'a pas été vu à l'écran.**
-      `projectDirection` lit maintenant `map.getPadding()`, et la correction est démontrée
-      par le calcul (`map.project(map.getCenter()).x === (w − right) / 2`, mesuré 474 pour
-      1317 − 368). Mais la vérification visuelle en mode *Point de vue* panneau ouvert a
-      échoué faute de tuiles : `data.geopf.fr` renvoyait `ERR_ABORTED` sur l'ortho **et**
-      sur l'ombrage ce jour-là, donc pas de MNT, donc `sightPeaks` sans relief et aucune
-      étiquette placée. À refaire quand le service répond.
+- [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
+      encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
+      MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
+      les sommets). Un azimut de lever hors champ peut donc lire une crête lissée. Les
+      noms de sommets ne lisent plus que les tuiles dessinées (`renderedGroundSampler`) ;
+      pour le ciel, dont les croisements sont souvent hors champ, il faudrait un MNT propre.
+- [ ] `settleOnGround` (`ViewpointController`) lit le sol sous l'œil par
+      `queryTerrainElevation`, qui retombe sur la même lecture du cache quand l'œil est
+      sous le cadre — non vérifié si la hauteur d'œil s'en trouve faussée.
 
 - [ ] **L'accordéon du Studio n'a pas de jumeau mobile.** Le desktop a basculé sur
       `StudioSidePanel` (sections dépliables simultanément, padding carte à droite,
@@ -50,17 +52,10 @@
       et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
       Belledonne) ; aller plus loin demande de ne plus marcher tout le cercle mais le seul
       secteur regardé. Chiffré : une table `[0, 200, 150, 60, 20]` donne 1 322 candidats sur
-      360° — hors budget — mais **210** dans un secteur de 37°. Prix à payer : un cap et un
-      champ dans `observerKey`, un filtre d'azimut dans `selectCandidates`, et une nouvelle
-      marche à chaque arrêt de rotation, là où tourner la tête est gratuit aujourd'hui.
-- [ ] Le MNT lu à `SKYLINE_DEM_ZOOM = 13` sous-estime lourdement les cimes proches
-      perchées sur une falaise : Dent de Crolles à 5,8 km lue **1 521 m** pour 2 062 m cotés,
-      Pravouta 1 523 m pour 1 760 m, Charmant Som 1 416 m pour 1 867 m. Un pas de 19 m sur une
-      paroi verticale suffit. Conséquence visible : l'amorce de ces sommets-là tombe 120 à
-      200 px **sous** la cime dessinée (mesuré contre `Map.project`, qui lit au zoom courant),
-      et la marche sous-occulte les crêtes proches. Piste : échantillonner la cime au zoom du
-      rendu, au prix de deux altitudes différentes pour le même sommet — celle de la marche et
-      celle du placement.
+      360° — hors budget — mais **210** dans un secteur de 37°. La marche ne paie déjà plus
+      que les sommets sur tuiles dessinées, à chaque `idle` où elles changent ; reste à
+      filtrer par azimut dans `selectCandidates` *avant* le plafond de 900, qui coupe
+      aujourd'hui le cercle entier.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.
