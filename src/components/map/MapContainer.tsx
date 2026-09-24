@@ -1,6 +1,6 @@
 import { BASE_LAYERS } from '@/lib/baseLayers';
 import { basemapRelight, NEUTRAL_RELIGHT, type RasterRelight } from '@/lib/basemapRelight';
-import { compositeTileUrl, registerCompositeProtocol, setIgnApiKey, SHADOW_LAYER_KEY } from '@/lib/compositeProtocol';
+import { compositeTileUrl, registerCompositeProtocol, setIgnApiKey, SHADOW_LAYER_KEY, type CompositeTileRetryDetail } from '@/lib/compositeProtocol';
 import { bindAltitudeKeys, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { ignLayerUrl } from '@/lib/ign';
 import { atmosphereFromSun } from '@/lib/lidarAtmosphere';
@@ -1121,6 +1121,17 @@ export function MapContainer() {
         };
         globalThis.addEventListener('composite-tile-reload', handler);
         return () => globalThis.removeEventListener('composite-tile-reload', handler);
+    }, []);
+
+    // A no-op for a tile that has left the frame in the meantime.
+    useEffect(() => {
+        const handler = (ev: Event) => {
+            const map = mapRef.current;
+            if (!map?.getSource('base')) return;
+            map.refreshTiles('base', [(ev as CustomEvent<CompositeTileRetryDetail>).detail]);
+        };
+        globalThis.addEventListener('composite-tile-retry', handler);
+        return () => globalThis.removeEventListener('composite-tile-retry', handler);
     }, []);
 
     useEffect(() => {
