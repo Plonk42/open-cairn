@@ -213,6 +213,7 @@ self.onmessage = (ev: MessageEvent<CompositeRequest>) => {
             type: 'err',
             error: err instanceof Error ? err.message : 'composite failed',
             aborted: controller.signal.aborted,
+            timedOut: err instanceof DOMException && err.name === 'TimeoutError',
         }))
         .finally(() => running.delete(msg.id));
 };

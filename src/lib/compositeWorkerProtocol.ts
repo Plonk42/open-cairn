@@ -35,4 +35,4 @@ export type CompositeRequest = CompositeJob | CompositeCancel;
 
 export type CompositeReply =
     | { id: number; type: 'ok'; bitmap: ImageBitmap | null }
-    | { id: number; type: 'err'; error: string; aborted: boolean };
+    | { id: number; type: 'err'; error: string; aborted: boolean; timedOut: boolean };

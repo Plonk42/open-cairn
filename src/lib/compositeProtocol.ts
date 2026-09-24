@@ -149,7 +149,8 @@ function onWorkerReply(ev: MessageEvent<CompositeReply>): void {
     }
     pendingJobs.delete(msg.id);
     if (msg.type === 'ok') job.resolve(msg.bitmap);
-    else job.reject(msg.aborted ? new DOMException('Aborted', 'AbortError') : new Error(msg.error));
+    else if (msg.aborted) job.reject(new DOMException('Aborted', 'AbortError'));
+    else job.reject(msg.timedOut ? new DOMException(msg.error, 'TimeoutError') : new Error(msg.error));
 }
 
 /** A worker that fails to load would otherwise leave every tile it was given pending forever. */
@@ -263,6 +264,43 @@ export function clearTileCache(): void {
     globalThis.dispatchEvent(new CustomEvent('composite-tile-reload'));
 }
 
+export interface CompositeTileRetryDetail {
+    z: number;
+    x: number;
+    y: number;
+}
+
+// MapLibre never re-requests an errored tile while it stays in frame: a tile whose worker
+// fetches both timed out would stay a hole, so ask the map to refresh it a little later.
+const RETRY_DELAY_MS = 15_000;
+const MAX_DEFERRED_RETRIES = 3;
+const deferredRetries = new Map<string, number>();
+
+function scheduleDeferredRetry(url: string, tile: CompositeTileRetryDetail): void {
+    const count = deferredRetries.get(url) ?? 0;
+    if (count >= MAX_DEFERRED_RETRIES) {
+        deferredRetries.delete(url);
+        return;
+    }
+    deferredRetries.set(url, count + 1);
+    globalThis.setTimeout(() => {
+        globalThis.dispatchEvent(new CustomEvent<CompositeTileRetryDetail>('composite-tile-retry', { detail: tile }));
+    }, RETRY_DELAY_MS);
+}
+
+async function compositeOrScheduleRetry(
+    url: string,
+    tile: CompositeTileRetryDetail,
+    args: CompositeArgs,
+): Promise<ImageBitmap | null> {
+    try {
+        return await composite(args);
+    } catch (err) {
+        if (err instanceof DOMException && err.name === 'TimeoutError') scheduleDeferredRetry(url, tile);
+        throw err;
+    }
+}
+
 export function registerCompositeProtocol(): void {
     if (registered) return;
     registered = true;
@@ -282,20 +320,24 @@ export function registerCompositeProtocol(): void {
         const hasDetailScale = parts.length >= 8;
         const detailScale = hasDetailScale ? Math.max(1, Math.min(2, Number(parts[4]) || 1)) : 1;
         const tileOffset = hasDetailScale ? 5 : 4;
-        const bitmap = await composite({
+        const tile = {
+            z: Number(parts[tileOffset]),
+            x: Number(parts[tileOffset + 1]),
+            y: Number(parts[tileOffset + 2]),
+        };
+        const bitmap = await compositeOrScheduleRetry(url, tile, {
             baseKey,
             shadow,
             mode,
             intensity,
             detailScale,
-            z: Number(parts[tileOffset]),
-            x: Number(parts[tileOffset + 1]),
-            y: Number(parts[tileOffset + 2]),
+            ...tile,
             signal: abortController?.signal,
         });
         if (!bitmap) {
             throw new Error('composite: base tile unavailable');
         }
+        deferredRetries.delete(url);
         tileCache.set(url, bitmap);
         return { data: bitmap };
     });
