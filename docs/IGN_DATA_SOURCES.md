@@ -261,12 +261,17 @@ celui qu'utilise le générateur.
   lui-même sur OSM. Le chiffre qui ne souffre pas de ce biais est le 86,4 % de la
   BD CARTO®, qui ne partage aucune source avec la référence.
 - Contre-épreuve indépendante d'OSM : les altitudes d'infobox de fr.wikipedia, via
-  Wikidata (`P2044`), sur la Chartreuse et Belledonne. **45 des 47** sommets que les deux
-  jeux cotent sont à moins de 3 m, la Chartreuse à 25/25 exacts. Les deux écarts (Les
+  Wikidata (`P2044`), sur la Chartreuse et Belledonne, avec un script jetable (non
+  conservé : deux massifs, c'est trop peu pour un outil — voir `TODO.md` pour une version
+  nationale). À la première mesure, **45 des 47** sommets que les
+  deux jeux cotent étaient à moins de 3 m, la Chartreuse à 25/25 exacts. Les deux écarts (Les
   Perrons 2521 contre 2537, Brame-Farine 1210 contre 1230) sont des **points secondaires
   de crête** que la BD TOPO® nomme comme le sommet entier : le RGE ALTI® interrogé à la
   coordonnée de Wikipédia y lit 2535,2 et 1222,7, donc c'est bien notre ancre qui est à
-  côté, pas la cote qui est fausse.
+  côté, pas la cote qui est fausse. Relancé le 24/09/2026 : **46 sur 51**, avec trois nouveaux
+  écarts en Chartreuse — le Grand Manti (1850 contre 1818, sol 1812,6), le roc de Gleisin
+  (1460 contre 1434, sol 1431,0 à 6 m de notre point) et le mont Outheran (1686 contre
+  1676, sol 1673,0).
 - ⚠️ **Overpass refuse une requête sans `User-Agent`** (HTTP 406). Sa politique d'usage
   autorise ce genre d'extraction *ponctuelle* ; un usage récurrent, ou déclenché par les
   visiteurs d'un site, devrait passer par les extraits Geofabrik et `osmium`.

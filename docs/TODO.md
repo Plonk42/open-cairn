@@ -66,9 +66,23 @@
 - [ ] Le test d'occultation est plus strict que celui de PeakFinder à courte distance :
       `SELF_CLEARANCE` est une *fraction* de la distance (60 m à 4 km, 900 m à 60 km) là où
       PeakFinder pardonne un obstacle à moins de 1 400 m fixes du sommet visé.
-- [ ] `tools/check-wikidata2.mjs` n'est pas versionné. Contrairement à `verify-peaks.mjs`, il
-      ne dépend d'aucune donnée hors dépôt et pourrait tourner en CI. À nettoyer (`.sort` en
-      expression, gabarit imbriqué) avant de le committer.
+- [ ] La contre-épreuve Wikidata (cote contre `P2044`, arbitrée par le RGE ALTI® à la
+      coordonnée de Wikidata) voit deux cotes fausses que le garde de `build-peaks.mjs`
+      laisse passer : le roc de Gleisin porte 1460 m là où Wikipédia dit 1434 et le
+      RGE ALTI® lit 1431,0 à 6 m de notre point ; le mont Outheran 1686 contre 1676 (sol
+      1673,0). Toutes deux sont *au-dessus* du sol, dans la marge de
+      `MAX_SURVEY_OVERSHOOT_M` (400 m) : trouver quelle source les fournit, et si un
+      sommet dont l'ancre est déjà au point haut devrait être tenu plus serré.
+- [ ] Faire de cette contre-épreuve Wikidata une validation **nationale**. Faite une fois
+      sur la Chartreuse et Belledonne (51 sommets sur ~25 800, script non conservé), c'est
+      le seul contrôle qui ne dépende pas d'OSM — la référence de `verify-peaks.mjs` s'appuie
+      dessus — ni d'une donnée hors dépôt. Le principe : requêtes SPARQL `wikibase:box`
+      (`wdt:P31/wdt:P279* wd:Q8502`, `wdt:P2044`) sur un découpage de la France (le service
+      coupe à 60 s par requête), appariement par nom normalisé à moins de 2,5 km, sol
+      RGE ALTI® par lots de **30** points (au-delà de 31 le service rastérise la boîte,
+      cf. `ALTI_BATCH`), et un rapport par tranches d'écart comme `verify-peaks.mjs`.
+      Wikidata n'est pas tout à fait indépendant (`P2044` est parfois recopié d'OSM ou de
+      l'IGN) : c'est le sol à sa coordonnée qui tranche.
 - [ ] `@deck.gl/core`, `@deck.gl/layers` et `@deck.gl/mapbox` sont toujours déclarés dans
       `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
       la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
