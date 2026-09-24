@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { panoramaTileZoom } from './panoramaDetail';
+import { missingMembers, panoramaTileZoom } from './panoramaDetail';
 
 /**
  * MapLibre's own rule, transcribed from `covering_tiles.ts`, to compare against.
@@ -74,5 +74,29 @@ describe('panoramaTileZoom', () => {
 
     it('does not divide by zero on the tile the eye sits in', () => {
         expect(Number.isFinite(panoramaTileZoom(0)(14, 0, 0, CENTER_3D, 30))).toBe(true);
+    });
+});
+
+describe('missingMembers', () => {
+    class Transform {
+        _helper = { _nearZ: 1 };
+        _calcMatrices(): void {}
+    }
+
+    it('finds members on the prototype and through nested objects', () => {
+        expect(missingMembers(new Transform(), [
+            ['_calcMatrices', 'function'],
+            ['_helper._nearZ', 'number'],
+        ])).toEqual([]);
+    });
+
+    it('reports a renamed, retyped or nulled member by its path', () => {
+        const root = { terrain: { meshSize: '128', tileManager: null } };
+        expect(missingMembers(root, [
+            ['terrain._meshCache', 'object'],
+            ['terrain.meshSize', 'number'],
+            ['terrain.tileManager', 'object'],
+            ['terrain.tileManager.tileSize', 'number'],
+        ])).toEqual(['terrain._meshCache', 'terrain.meshSize', 'terrain.tileManager', 'terrain.tileManager.tileSize']);
     });
 });
