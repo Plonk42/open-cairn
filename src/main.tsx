@@ -3,6 +3,7 @@ import { setWorkerUrl } from 'maplibre-gl';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Root } from './Root';
+import { clampHashPitch } from './lib/mapHash';
 import { parseShareFromUrl } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
 import { gateKeyedBaseLayer } from './stores/mapStyleView';
@@ -13,6 +14,12 @@ import './styles/index.css';
 // the worker file inside Vite's module graph, so it must be pointed at the
 // bundled worker chunk once, before the first `Map` is created.
 setWorkerUrl(maplibreWorkerUrl);
+
+// Must run before the first `Map` is constructed — see `clampHashPitch`.
+const clampedHash = clampHashPitch(globalThis.location.hash, 90);
+if (clampedHash !== globalThis.location.hash) {
+    history.replaceState(null, '', globalThis.location.pathname + globalThis.location.search + clampedHash);
+}
 
 // Restore shared state BEFORE React renders so that stores are populated
 // before MapContainer reads the initial view.
