@@ -17,9 +17,6 @@
       l'accordéon (`RouteSidePanel`). Pour le Studio, la divergence est tranchée
       (`DECISIONS.md` : il garde ses feuilles) ; pour l'Itinéraire, c'est l'état de fait,
       pas encore un choix écrit.
-- [ ] *Changer de lieu* recule sur une vue d'ensemble centrée sur l'ancien lieu, mais rien
-      ne marque cet ancien lieu sur la carte : un repère (le temps du choix) aiderait à se
-      situer.
 - [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
       désactivation de notre part : `_elevateCameraIfInsideTerrain` (maplibre-gl 5.11) est
       bien la méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,

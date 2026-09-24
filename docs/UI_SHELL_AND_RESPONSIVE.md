@@ -277,7 +277,10 @@ sinon le mode. *Changer de lieu* quitte le point de vue — la caméra revole ju
 d'où le lieu avait été choisi — et réarme le choix : un clic dans le panorama tomberait
 souvent dans le ciel, que `queryTerrainElevation` projette à des kilomètres, à une
 altitude sans rapport (mesuré : 268 m, à 10 km). *Annuler* laisse alors sur cette vue,
-hors du mode.
+hors du mode. Le temps du choix, un **repère vert** (« Lieu précédent ») marque le lieu
+quitté : `changeViewpointPlace` le garde dans `viewpointLeftBehind`, que tout autre
+changement du choix ou du lieu efface (nouveau lieu, *Annuler*, Échap). Un choix armé
+depuis la barre du haut, après *Quitter*, n'en montre pas.
 
 **Entrer et sortir se font en vol.** Au clic, l'œil part de la caméra courante et
 descend se poser au lieu choisi ; en sortant, il remonte jusqu'à la caméra d'origine,
