@@ -482,6 +482,15 @@ caches (le drapé garde sa texture 2048² et le maillage ses 128 quads, aucun de
 n'étant indexé par sa taille). Le réglage est **réappliqué sur `styledata`** : changer
 de fond ou d'ombrage reconstruit le style, donc les sources et le terrain.
 
+Ces deux réglages passent par des membres **privés** de MapLibre (`rttSize`, `_meshCache`,
+`_calculateNearFarZ`, `_helper._nearZ`…), qu'une montée de version peut renommer sans
+erreur de type. Avant chaque pose, `missingMembers` vérifie leur présence et leur type :
+si l'un manque, le réglage **n'est pas posé** et la console affiche une fois
+`Panorama detail skipped: MapLibre no longer has …` (ou `Viewpoint near plane skipped`).
+Le mode rend alors en qualité par défaut au lieu de lever une exception. Seuls la
+présence et le type sont vérifiés : un membre qui garderait son nom mais changerait de
+sens passerait.
+
 **L'altitude d'une tuile est retenue une fois lue.** MapLibre borne une tuile dont le MNT
 a quitté son cache (60 tuiles, dimensionné sur le canevas) par `[0, élévation du centre]`.
 Or le centre de ce mode est 4 km le long du regard, donc **en l'air** dès qu'on regarde

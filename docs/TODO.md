@@ -76,15 +76,6 @@
       `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
       la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
       les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
-- [ ] `panoramaDetail.ts` s'accroche à des champs privés de MapLibre — `rttSize` (assigné
-      uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne
-      suffit pas), `_meshCache`, `_renderableTilesKeys`, et sur le *transform*
-      `_calculateNearFarZ`, `calculateFogMatrix`, `_calcMatrices`, `_helper._nearZ` /
-      `_pixelPerMeter`, et `Terrain.getMinMaxElevation` /
-      `tileManager.getSourceTile`. Une montée de version peut les
-      renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait
-      simplement à rendre en qualité par défaut. Piste : une assertion de développement au
-      moment du patch.
 - [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
       22 à 123 d'un coup, avec un à-coup de ~210 ms pendant que les RTT sont refaites.
       Piste : étaler le changement de `meshSize` sur quelques images, ou ne vider
