@@ -1,11 +1,5 @@
 # TODO
 
-- [ ] **Recharger la page en *Point de vue* regard levé donne une page blanche** : le hash
-      garde un pitch > 90 (ex. `…/-96.1/97`), le constructeur `Map` le rejoue par
-      `_onHashChange` → `jumpTo` → `Invalid LngLat object: (NaN, NaN)`, levé dans
-      `MapContainer` sans `ErrorBoundary`. Reproduit en ouvrant
-      `?view=lidar#13.05/45.17732/5.76467/128.6/97`. Borner le pitch du hash avant la
-      construction.
 - [ ] Un fond `composite://` dont les deux essais expirent (10 s chacun) reste en erreur :
       un trou jusqu'à ce que la tuile sorte du cadre. Un nouvel essai différé le comblerait.
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent

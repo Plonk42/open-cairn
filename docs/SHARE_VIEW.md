@@ -64,6 +64,11 @@ Le payload est dans le **fragment** (hash), pas dans la query string :
 Le préfixe `#share=` distingue ce fragment de celui que MapLibre écrit lui-même
 (`hash: true`).
 
+Ce fragment MapLibre (`#zoom/lat/lng/bearing/pitch`) peut garder un pitch > 90 quand on
+regarde vers le haut en *Point de vue*. Le constructeur `Map` le rejoue avant que le garde
+de collision avec le terrain soit coupé, et plante. `main.tsx` le borne donc à 90
+(`clampHashPitch`, `src/lib/mapHash.ts`) avant le premier rendu.
+
 ### Schéma `SharePayload` v2
 
 ```ts
