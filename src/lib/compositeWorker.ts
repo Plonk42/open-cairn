@@ -88,27 +88,37 @@ function drawDetailedTiles(
     }
 }
 
+interface DetailedShadow {
+    ctx: OffscreenCanvasRenderingContext2D | null;
+    /** A tile of the mosaic timed out: the relief is missing where it should be, not absent. */
+    timedOut: boolean;
+}
+
 /** The shadow mosaic, already cropped to the requested tile's extent. */
 async function loadDetailedShadow(
     tileRequests: DetailedTileRequest[],
     size: number,
     signal: AbortSignal,
-): Promise<OffscreenCanvasRenderingContext2D | null> {
+): Promise<DetailedShadow> {
+    let timedOut = false;
     const tiles = await Promise.all(
         tileRequests.map(async (tile) => ({
             tile,
-            bitmap: await fetchBitmap(tile.url, signal).catch(() => null),
+            bitmap: await fetchBitmap(tile.url, signal).catch((err: unknown) => {
+                if (err instanceof DOMException && err.name === 'TimeoutError') timedOut = true;
+                return null;
+            }),
         })),
     );
     const loadedTiles = tiles.filter(
         (tile): tile is { tile: DetailedTileRequest; bitmap: ImageBitmap } => Boolean(tile.bitmap),
     );
-    if (loadedTiles.length === 0) return null;
+    if (loadedTiles.length === 0) return { ctx: null, timedOut };
 
     const shadowCtx = context(new OffscreenCanvas(size, size), true);
     if (shadowCtx) drawDetailedTiles(shadowCtx, loadedTiles, size, size);
     for (const { bitmap } of loadedTiles) bitmap.close();
-    return shadowCtx;
+    return { ctx: shadowCtx, timedOut };
 }
 
 interface BlendArgs {
@@ -168,14 +178,21 @@ function renderCompositeShadow(args: BlendArgs, mode: BlendMode, intensity: numb
     else renderMultiply(args, intensity);
 }
 
-async function composite(job: CompositeJob, signal: AbortSignal): Promise<ImageBitmap | null> {
+interface CompositeResult {
+    bitmap: ImageBitmap | null;
+    shadowTimedOut: boolean;
+}
+
+const NO_SHADOW: DetailedShadow = { ctx: null, timedOut: false };
+
+async function composite(job: CompositeJob, signal: AbortSignal): Promise<CompositeResult> {
     const { base: baseTile, shadowTiles, mode, intensity, detailScale } = job;
     const scale = Math.max(1, detailScale);
-    const [base, shadow] = await Promise.all([
+    const [base, { ctx: shadow, timedOut: shadowTimedOut }] = await Promise.all([
         fetchBitmap(baseTile.url, signal),
-        shadowTiles.length > 0 ? loadDetailedShadow(shadowTiles, 256 * scale, signal) : Promise.resolve(null),
+        shadowTiles.length > 0 ? loadDetailedShadow(shadowTiles, 256 * scale, signal) : Promise.resolve(NO_SHADOW),
     ]);
-    if (!base) return null;
+    if (!base) return { bitmap: null, shadowTimedOut };
 
     const w = (base.width || 256) * scale;
     const h = (base.height || 256) * scale;
@@ -183,13 +200,13 @@ async function composite(job: CompositeJob, signal: AbortSignal): Promise<ImageB
     const ctx = context(canvas, shadow !== null && mode === 'lidar-neutral');
     if (!ctx) {
         base.close();
-        return null;
+        return { bitmap: null, shadowTimedOut };
     }
 
     if (shadow) renderCompositeShadow({ ctx, base, baseTile, shadow, width: w, height: h }, mode, intensity);
     else drawOverzoomedTile(ctx, base, baseTile, w, h);
     base.close();
-    return canvas.transferToImageBitmap();
+    return { bitmap: canvas.transferToImageBitmap(), shadowTimedOut };
 }
 
 const running = new Map<number, AbortController>();
@@ -207,7 +224,10 @@ self.onmessage = (ev: MessageEvent<CompositeRequest>) => {
     const controller = new AbortController();
     running.set(msg.id, controller);
     composite(msg, controller.signal)
-        .then((bitmap) => reply({ id: msg.id, type: 'ok', bitmap }, bitmap ? [bitmap] : []))
+        .then(({ bitmap, shadowTimedOut }) => reply(
+            { id: msg.id, type: 'ok', bitmap, shadowTimedOut },
+            bitmap ? [bitmap] : [],
+        ))
         .catch((err: unknown) => reply({
             id: msg.id,
             type: 'err',

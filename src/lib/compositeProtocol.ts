@@ -128,9 +128,14 @@ function detailedTiles(
 // ---------------------------------------------------------------------------
 // Worker pool: the blend runs off the main thread (see `compositeWorker.ts`)
 // ---------------------------------------------------------------------------
+interface CompositeOutcome {
+    bitmap: ImageBitmap | null;
+    shadowTimedOut: boolean;
+}
+
 interface PendingJob {
     worker: Worker;
-    resolve: (bitmap: ImageBitmap | null) => void;
+    resolve: (outcome: CompositeOutcome) => void;
     reject: (err: Error) => void;
 }
 
@@ -148,7 +153,7 @@ function onWorkerReply(ev: MessageEvent<CompositeReply>): void {
         return;
     }
     pendingJobs.delete(msg.id);
-    if (msg.type === 'ok') job.resolve(msg.bitmap);
+    if (msg.type === 'ok') job.resolve({ bitmap: msg.bitmap, shadowTimedOut: msg.shadowTimedOut });
     else if (msg.aborted) job.reject(new DOMException('Aborted', 'AbortError'));
     else job.reject(msg.timedOut ? new DOMException(msg.error, 'TimeoutError') : new Error(msg.error));
 }
@@ -175,7 +180,7 @@ function pickWorker(): Worker {
     return workers[nextWorker++ % workers.length];
 }
 
-function runInWorker(job: Omit<CompositeJob, 'type' | 'id'>, signal?: AbortSignal): Promise<ImageBitmap | null> {
+function runInWorker(job: Omit<CompositeJob, 'type' | 'id'>, signal?: AbortSignal): Promise<CompositeOutcome> {
     if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
     const worker = pickWorker();
     const id = ++nextJobId;
@@ -189,14 +194,14 @@ function runInWorker(job: Omit<CompositeJob, 'type' | 'id'>, signal?: AbortSigna
         const settle = () => signal?.removeEventListener('abort', onAbort);
         pendingJobs.set(id, {
             worker,
-            resolve: (bitmap) => { settle(); resolve(bitmap); },
+            resolve: (outcome) => { settle(); resolve(outcome); },
             reject: (err) => { settle(); reject(err); },
         });
         worker.postMessage({ type: 'job', id, ...job } satisfies CompositeRequest);
     });
 }
 
-function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
+function composite(args: CompositeArgs): Promise<CompositeOutcome> {
     const { baseKey, shadow: shadowKind, mode, intensity, detailScale, z, x, y, signal } = args;
     const shadowKey = SHADOW_LAYER_KEY[shadowKind];
     const wantShadow = intensity > 0 && z >= IGN_LAYERS[shadowKey].minZoom;
@@ -272,6 +277,7 @@ export interface CompositeTileRetryDetail {
 
 // MapLibre never re-requests an errored tile while it stays in frame: a tile whose worker
 // fetches both timed out would stay a hole, so ask the map to refresh it a little later.
+// A tile whose shadow timed out is shown, but likewise refreshed rather than cached.
 const RETRY_DELAY_MS = 15_000;
 const MAX_DEFERRED_RETRIES = 3;
 const deferredRetries = new Map<string, number>();
@@ -292,9 +298,11 @@ async function compositeOrScheduleRetry(
     url: string,
     tile: CompositeTileRetryDetail,
     args: CompositeArgs,
-): Promise<ImageBitmap | null> {
+): Promise<CompositeOutcome> {
     try {
-        return await composite(args);
+        const outcome = await composite(args);
+        if (outcome.bitmap && outcome.shadowTimedOut) scheduleDeferredRetry(url, tile);
+        return outcome;
     } catch (err) {
         if (err instanceof DOMException && err.name === 'TimeoutError') scheduleDeferredRetry(url, tile);
         throw err;
@@ -325,7 +333,7 @@ export function registerCompositeProtocol(): void {
             x: Number(parts[tileOffset + 1]),
             y: Number(parts[tileOffset + 2]),
         };
-        const bitmap = await compositeOrScheduleRetry(url, tile, {
+        const { bitmap, shadowTimedOut } = await compositeOrScheduleRetry(url, tile, {
             baseKey,
             shadow,
             mode,
@@ -337,6 +345,7 @@ export function registerCompositeProtocol(): void {
         if (!bitmap) {
             throw new Error('composite: base tile unavailable');
         }
+        if (shadowTimedOut) return { data: bitmap };
         deferredRetries.delete(url);
         tileCache.set(url, bitmap);
         return { data: bitmap };
