@@ -43,7 +43,7 @@ import {
     type ViewpointPose,
 } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import { Marker, type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
 /** Marks the frames this mode drives, so `moveend` subscribers can skip them. */
@@ -167,8 +167,19 @@ export function ViewpointController(): null {
     const map = useMapStore((s) => s.mapInstance);
     const viewpoint = useMapStore((s) => s.viewpoint);
     const picking = useMapStore((s) => s.viewpointPicking);
+    const leftBehind = useMapStore((s) => s.viewpointLeftBehind);
     /** The flight back out, still running when the mode may be re-entered. */
     const exitFlightRef = useRef<Flight | null>(null);
+
+    // ── The standpoint just left, to pick the next one relative to it. ───────
+    useEffect(() => {
+        if (!map || !leftBehind) return undefined;
+        const marker = new Marker({ color: '#16a34a' })
+            .setLngLat([leftBehind.lng, leftBehind.lat])
+            .addTo(map);
+        marker.getElement().title = 'Lieu précédent';
+        return () => { marker.remove(); };
+    }, [map, leftBehind]);
 
     // ── Picking: the next click on the map becomes the standpoint. ──────────
     useEffect(() => {
