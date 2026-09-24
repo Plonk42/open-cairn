@@ -121,13 +121,8 @@ function StandingContent({ skyOpen, setSkyOpen, studio, compact }: Readonly<{
 }>) {
     const peakLabels = useMapStore((s) => s.peakLabels);
     const setPeakLabels = useMapStore((s) => s.setPeakLabels);
-    const setPicking = useMapStore((s) => s.setViewpointPicking);
+    const changePlace = useMapStore((s) => s.changeViewpointPlace);
     const setViewpoint = useMapStore((s) => s.setViewpoint);
-    // Leaving first: `ViewpointController` then steps back to an overview to pick from.
-    const changePlace = () => {
-        setViewpoint(null);
-        setPicking(true);
-    };
 
     const title = (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-1.5 text-xs font-semibold text-green-700 dark:text-emerald-300">

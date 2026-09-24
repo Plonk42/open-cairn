@@ -138,6 +138,14 @@ export interface SettingsSlice {
     setViewpointPicking: (v: boolean) => void;
 
     /**
+     * The standpoint *Changer de lieu* just left, marked on the map while the next one
+     * is picked. Cleared by any other change of picking or standpoint.
+     */
+    viewpointLeftBehind: Viewpoint | null;
+    /** Leaves the standpoint and re-arms the pick, keeping the old one marked. */
+    changeViewpointPlace: () => void;
+
+    /**
      * The camera is flying back out of the mode: `viewpoint` is already null,
      * but the eye still starts on the ground, so terrain collision and the
      * pitch ceiling must stay released until it lands.
@@ -162,7 +170,7 @@ export interface SettingsSlice {
     setIgnDemApiKey: (v: string) => void;
 }
 
-export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> = (set) => ({
+export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> = (set, get) => ({
     renderQuality: persisted.renderQuality ?? 'balanced',
     setRenderQuality: (renderQuality) => set({ renderQuality }),
 
@@ -216,6 +224,7 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
             // when the flight lands.
             viewpointFlying: viewpoint === null && (s.viewpoint !== null || s.viewpointFlying),
             viewpointPicking: false,
+            viewpointLeftBehind: null,
             viewpointFraming: null,
             viewpointHeightM: VIEWPOINT_EYE_HEIGHT_M,
         })),
@@ -227,7 +236,15 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     setViewpointHeightM: (viewpointHeightM) => set({ viewpointHeightM }),
 
     viewpointPicking: false,
-    setViewpointPicking: (viewpointPicking) => set({ viewpointPicking }),
+    setViewpointPicking: (viewpointPicking) => set({ viewpointPicking, viewpointLeftBehind: null }),
+
+    viewpointLeftBehind: null,
+    changeViewpointPlace: () => {
+        const left = get().viewpoint;
+        // Leaving first: `ViewpointController` then steps back to an overview to pick from.
+        get().setViewpoint(null);
+        set({ viewpointPicking: true, viewpointLeftBehind: left });
+    },
 
     viewpointFlying: false,
     setViewpointFlying: (viewpointFlying) => set({ viewpointFlying }),
