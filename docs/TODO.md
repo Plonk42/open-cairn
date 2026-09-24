@@ -1,19 +1,13 @@
 # TODO
 
-- [ ] **Boucle de chargement du MNT en *Point de vue* à focale serrée** : 133 tuiles MNT
-      dans le cadre contre un cache hors-vue de 60 (MapLibre le dimensionne sur la taille
-      du canvas, pas sur le pavage du mode). Une tuile évincée perd son altitude, sa boîte
-      retombe sur `[0, élévation du centre]` — et le centre est 4 km en l'air quand on
-      regarde au-dessus de l'horizon (962 m mesuré) — donc elle redevient « visible », est
-      rechargée, puis ré-évincée : ~250 requêtes/s sans fin, `idle` ne vient jamais, les
-      noms de sommets ne se rafraîchissent plus. Vérifié : cache porté à 600 → 0 requête,
-      `idle` en 225 ms. À dimensionner sur le nombre de tuiles dessinées (≈ 1 Mo par tuile).
-- [ ] Les noms de sommets attendent `idle`, donc le fond composite et le re-rendu des
-      drapés que MapLibre fait **une tuile par image** : ~3 s après une rotation à 60°
-      alors que le MNT est complet en 0,7 s. Ils n'ont besoin que du MNT dessiné.
-- [ ] Le fond `lidar-neutral` compose ses tuiles sur le fil principal
-      (`renderNeutralLidarRelief` → `getImageData`) : 650 ms sur 2,5 s de profil pendant
-      une rotation. Candidat à un worker (`OffscreenCanvas`).
+- [ ] **Recharger la page en *Point de vue* regard levé donne une page blanche** : le hash
+      garde un pitch > 90 (ex. `…/-96.1/97`), le constructeur `Map` le rejoue par
+      `_onHashChange` → `jumpTo` → `Invalid LngLat object: (NaN, NaN)`, levé dans
+      `MapContainer` sans `ErrorBoundary`. Reproduit en ouvrant
+      `?view=lidar#13.05/45.17732/5.76467/128.6/97`. Borner le pitch du hash avant la
+      construction.
+- [ ] Un fond `composite://` dont les deux essais expirent (10 s chacun) reste en erreur :
+      un trou jusqu'à ce que la tuile sorte du cadre. Un nouvel essai différé le comblerait.
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
@@ -57,7 +51,7 @@
       Belledonne) ; aller plus loin demande de ne plus marcher tout le cercle mais le seul
       secteur regardé. Chiffré : une table `[0, 200, 150, 60, 20]` donne 1 322 candidats sur
       360° — hors budget — mais **210** dans un secteur de 37°. La marche ne paie déjà plus
-      que les sommets sur tuiles dessinées, à chaque `idle` où elles changent ; reste à
+      que les sommets sur tuiles dessinées, à chaque arrêt de la caméra où elles changent ; reste à
       filtrer par azimut dans `selectCandidates` *avant* le plafond de 900, qui coupe
       aujourd'hui le cercle entier.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
@@ -90,7 +84,8 @@
       uniquement dans le constructeur de `RenderToTexture`, donc `qualityFactor` seul ne
       suffit pas), `_meshCache`, `_renderableTilesKeys`, et sur le *transform*
       `_calculateNearFarZ`, `calculateFogMatrix`, `_calcMatrices`, `_helper._nearZ` /
-      `_pixelPerMeter`. Une montée de version peut les
+      `_pixelPerMeter`, et `Terrain.getMinMaxElevation` /
+      `tileManager.getSourceTile`. Une montée de version peut les
       renommer sans bruit : il n'y a aucun test qui l'attraperait, le mode continuerait
       simplement à rendre en qualité par défaut. Piste : une assertion de développement au
       moment du patch.

@@ -1,13 +1,14 @@
 /**
  * `composite://` MapLibre protocol — fetches a base raster tile and a LiDAR
- * shadow tile in parallel, blends them in a 2D canvas, and returns the
- * result to MapLibre as an ImageBitmap (no PNG re-encode).
+ * shadow tile in parallel, blends them in a worker's OffscreenCanvas, and
+ * returns the result to MapLibre as an ImageBitmap (no PNG re-encode).
  *
  * URL format:
  *   composite://<baseKey>/<shadowKind>/<blendMode>/<intensityPercent>/<detailScale>/{z}/{x}/{y}
  */
 
 import * as maplibregl from 'maplibre-gl';
+import type { CompositeJob, CompositeReply, CompositeRequest, DetailedTileRequest, TileRequest } from './compositeWorkerProtocol';
 import { IGN_ATTRIBUTION, IGN_LAYERS, ignWmtsUrl, OSM_ATTRIBUTION, OSM_TILE_URL } from './ign';
 
 let registered = false;
@@ -73,7 +74,7 @@ function tileUrlFor(layerKey: CompositeBaseKey, z: number, x: number, y: number)
         .replace('{y}', String(y));
 }
 
-function overzoomedTile(layerKey: CompositeBaseKey, z: number, x: number, y: number) {
+function overzoomedTile(layerKey: CompositeBaseKey, z: number, x: number, y: number): TileRequest {
     const def = rasterLayerDef(layerKey);
     const sourceZ = Math.max(def.minZoom, Math.min(def.maxZoom, z));
     const overscale = 2 ** (z - sourceZ);
@@ -88,22 +89,6 @@ function overzoomedTile(layerKey: CompositeBaseKey, z: number, x: number, y: num
     };
 }
 
-/** Fetch a tile as an ImageBitmap. Returns null on http error or decode
- *  failure. AbortError propagates so MapLibre's cancellation bubbles up. */
-async function fetchBitmap(
-    url: string,
-    signal?: AbortSignal,
-): Promise<ImageBitmap | null> {
-    const res = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    try {
-        return await createImageBitmap(blob);
-    } catch {
-        return null;
-    }
-}
-
 interface CompositeArgs {
     baseKey: CompositeBaseKey;
     shadow: ShadowKind;
@@ -114,49 +99,6 @@ interface CompositeArgs {
     x: number;
     y: number;
     signal?: AbortSignal;
-}
-
-type Canvas2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-type RenderCanvas = OffscreenCanvas | HTMLCanvasElement;
-type TileRequest = ReturnType<typeof overzoomedTile>;
-
-interface DetailedTileRequest extends TileRequest {
-    dx: number;
-    dy: number;
-    scale: number;
-}
-
-interface BlendRenderArgs {
-    ctx: Canvas2D;
-    base: ImageBitmap;
-    baseTile: TileRequest;
-    shadow: ImageBitmap;
-    shadowTile: TileRequest;
-    width: number;
-    height: number;
-}
-
-function createRenderCanvas(width: number, height: number): RenderCanvas {
-    if (typeof OffscreenCanvas === 'undefined') {
-        return Object.assign(document.createElement('canvas'), { width, height });
-    }
-    return new OffscreenCanvas(width, height);
-}
-
-function canvasContext(canvas: RenderCanvas): Canvas2D | null {
-    return canvas.getContext('2d');
-}
-
-function drawOverzoomedTile(
-    ctx: Canvas2D,
-    img: ImageBitmap,
-    tile: TileRequest,
-    width: number,
-    height: number,
-): void {
-    const sw = img.width / tile.overscale;
-    const sh = img.height / tile.overscale;
-    ctx.drawImage(img, tile.offsetX * sw, tile.offsetY * sh, sw, sh, 0, 0, width, height);
 }
 
 function detailedTiles(
@@ -183,175 +125,87 @@ function detailedTiles(
     });
 }
 
-function drawDetailedTiles(
-    ctx: Canvas2D,
-    tiles: Array<{ bitmap: ImageBitmap; tile: DetailedTileRequest }>,
-    width: number,
-    height: number,
-): void {
-    const scale = tiles[0]?.tile.scale ?? 1;
-    const tileWidth = width / scale;
-    const tileHeight = height / scale;
+// ---------------------------------------------------------------------------
+// Worker pool: the blend runs off the main thread (see `compositeWorker.ts`)
+// ---------------------------------------------------------------------------
+interface PendingJob {
+    worker: Worker;
+    resolve: (bitmap: ImageBitmap | null) => void;
+    reject: (err: Error) => void;
+}
 
-    for (const { bitmap, tile } of tiles) {
-        const sw = bitmap.width / tile.overscale;
-        const sh = bitmap.height / tile.overscale;
-        ctx.drawImage(
-            bitmap,
-            tile.offsetX * sw,
-            tile.offsetY * sh,
-            sw,
-            sh,
-            tile.dx * tileWidth,
-            tile.dy * tileHeight,
-            tileWidth,
-            tileHeight,
-        );
+let workers: Worker[] = [];
+let nextWorker = 0;
+let nextJobId = 0;
+const pendingJobs = new Map<number, PendingJob>();
+
+function onWorkerReply(ev: MessageEvent<CompositeReply>): void {
+    const msg = ev.data;
+    const job = pendingJobs.get(msg.id);
+    if (!job) {
+        // Cancelled while the worker was already done with it.
+        if (msg.type === 'ok') msg.bitmap?.close();
+        return;
+    }
+    pendingJobs.delete(msg.id);
+    if (msg.type === 'ok') job.resolve(msg.bitmap);
+    else job.reject(msg.aborted ? new DOMException('Aborted', 'AbortError') : new Error(msg.error));
+}
+
+/** A worker that fails to load would otherwise leave every tile it was given pending forever. */
+function onWorkerError(worker: Worker, ev: ErrorEvent): void {
+    for (const [id, job] of pendingJobs) {
+        if (job.worker !== worker) continue;
+        pendingJobs.delete(id);
+        job.reject(new Error(ev.message || 'composite worker crashed'));
     }
 }
 
-interface DetailedShadowLoadArgs {
-    layerKey: CompositeBaseKey;
-    z: number;
-    x: number;
-    y: number;
-    detailScale: number;
-    width: number;
-    height: number;
-    signal?: AbortSignal;
-}
-
-async function loadDetailedShadow(
-    args: DetailedShadowLoadArgs,
-): Promise<{ bitmap: ImageBitmap; tiles: Array<{ bitmap: ImageBitmap; tile: DetailedTileRequest }> } | null> {
-    const { layerKey, z, x, y, detailScale, width, height, signal } = args;
-    const tileRequests = detailedTiles(layerKey, z, x, y, detailScale);
-    const tiles = await Promise.all(
-        tileRequests.map(async (tile) => ({
-            tile,
-            bitmap: await fetchBitmap(tile.url, signal).catch(() => null),
-        })),
-    );
-    const loadedTiles = tiles.filter(
-        (tile): tile is { tile: DetailedTileRequest; bitmap: ImageBitmap } => Boolean(tile.bitmap),
-    );
-    if (loadedTiles.length === 0) return null;
-
-    const shadowCanvas = createRenderCanvas(width, height);
-    const shadowCtx = canvasContext(shadowCanvas);
-    if (!shadowCtx) return null;
-
-    drawDetailedTiles(shadowCtx, loadedTiles, width, height);
-    return { bitmap: await createImageBitmap(shadowCanvas), tiles: loadedTiles };
-}
-
-
-
-function renderNeutralLidarRelief(args: BlendRenderArgs, intensity: number): boolean {
-    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
-    drawOverzoomedTile(ctx, base, baseTile, width, height);
-
-    const shadeCtx = canvasContext(createRenderCanvas(width, height));
-    if (!shadeCtx) return false;
-    drawOverzoomedTile(shadeCtx, shadow, shadowTile, width, height);
-
-    const baseData = ctx.getImageData(0, 0, width, height);
-    const shadeData = shadeCtx.getImageData(0, 0, width, height);
-    const neutral = 180 / 255;
-    const shadowGain = 1.35;
-    const lightGain = 0.78;
-
-    for (let i = 0; i < baseData.data.length; i += 4) {
-        const shadeLum = (shadeData.data[i] + shadeData.data[i + 1] + shadeData.data[i + 2]) / (3 * 255);
-        const delta = shadeLum - neutral;
-        const rawFactor = delta < 0
-            ? 1 + delta * shadowGain
-            : 1 + delta * lightGain;
-        const factor = 1 + intensity * (rawFactor - 1);
-
-        for (let channel = 0; channel < 3; channel++) {
-            baseData.data[i + channel] = Math.max(0, Math.min(255, baseData.data[i + channel] * factor));
-        }
+function pickWorker(): Worker {
+    if (workers.length === 0) {
+        const count = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2)));
+        workers = Array.from({ length: count }, () => {
+            const worker = new Worker(new URL('./compositeWorker.ts', import.meta.url), { type: 'module' });
+            worker.onmessage = onWorkerReply;
+            worker.onerror = (ev) => onWorkerError(worker, ev);
+            return worker;
+        });
     }
-
-    ctx.putImageData(baseData, 0, 0);
-    return true;
+    return workers[nextWorker++ % workers.length];
 }
 
-function renderMultiply(args: BlendRenderArgs, intensity: number): void {
-    const { ctx, base, baseTile, shadow, shadowTile, width, height } = args;
-    drawOverzoomedTile(ctx, base, baseTile, width, height);
-    ctx.globalAlpha = intensity;
-    ctx.globalCompositeOperation = 'multiply';
-    drawOverzoomedTile(ctx, shadow, shadowTile, width, height);
+function runInWorker(job: Omit<CompositeJob, 'type' | 'id'>, signal?: AbortSignal): Promise<ImageBitmap | null> {
+    if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    const worker = pickWorker();
+    const id = ++nextJobId;
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            pendingJobs.delete(id);
+            worker.postMessage({ type: 'cancel', id } satisfies CompositeRequest);
+            reject(new DOMException('Aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        const settle = () => signal?.removeEventListener('abort', onAbort);
+        pendingJobs.set(id, {
+            worker,
+            resolve: (bitmap) => { settle(); resolve(bitmap); },
+            reject: (err) => { settle(); reject(err); },
+        });
+        worker.postMessage({ type: 'job', id, ...job } satisfies CompositeRequest);
+    });
 }
 
-function renderCompositeShadow(
-    renderArgs: BlendRenderArgs,
-    mode: BlendMode,
-    intensity: number,
-): boolean {
-    if (mode === 'lidar-neutral') return renderNeutralLidarRelief(renderArgs, intensity);
-    renderMultiply(renderArgs, intensity);
-    return true;
-}
-
-async function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
+function composite(args: CompositeArgs): Promise<ImageBitmap | null> {
     const { baseKey, shadow: shadowKind, mode, intensity, detailScale, z, x, y, signal } = args;
-    const baseTile = overzoomedTile(baseKey, z, x, y);
     const shadowKey = SHADOW_LAYER_KEY[shadowKind];
-    const shadowDef = IGN_LAYERS[shadowKey];
-    const wantShadow = intensity > 0 && z >= shadowDef.minZoom;
-    const shadowTiles = wantShadow ? detailedTiles(shadowKey, z, x, y, detailScale) : [];
-
-    const [base, shadow] = await Promise.all([
-        fetchBitmap(baseTile.url, signal),
-        shadowTiles.length > 0
-            ? loadDetailedShadow({
-                layerKey: shadowKey,
-                z,
-                x,
-                y,
-                detailScale,
-                width: 256 * Math.max(1, detailScale),
-                height: 256 * Math.max(1, detailScale),
-                signal,
-            })
-            : Promise.resolve(null),
-    ]);
-    if (!base) return null;
-
-    const w = (base.width || 256) * Math.max(1, detailScale);
-    const h = (base.height || 256) * Math.max(1, detailScale);
-    const canvas = createRenderCanvas(w, h);
-    const ctx = canvasContext(canvas);
-    if (!ctx) {
-        base.close?.();
-        shadow?.bitmap.close?.();
-        for (const tile of shadow?.tiles ?? []) tile.bitmap.close?.();
-        return null;
-    }
-
-    if (shadow) {
-        // loadDetailedShadow already handles overzooming internally —
-        // the bitmap it returns covers exactly this tile's extent.
-        // Use identity overzoom so render functions draw it at full extent.
-        const shadowTile = { url: '', overscale: 1, offsetX: 0, offsetY: 0 };
-        const renderArgs = { ctx, base, baseTile, shadow: shadow.bitmap, shadowTile, width: w, height: h };
-        const rendered = renderCompositeShadow(renderArgs, mode, intensity);
-        if (!rendered) return null;
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = 'source-over';
-        shadow.bitmap.close?.();
-    } else {
-        drawOverzoomedTile(ctx, base, baseTile, w, h);
-    }
-    base.close?.();
-    for (const tile of shadow?.tiles ?? []) tile.bitmap.close?.();
-
-    // Hand back an ImageBitmap directly — MapLibre v5 accepts it as-is and
-    // skips the PNG decode/upload roundtrip (the main perf bottleneck).
-    return await createImageBitmap(canvas);
+    const wantShadow = intensity > 0 && z >= IGN_LAYERS[shadowKey].minZoom;
+    return runInWorker({
+        base: overzoomedTile(baseKey, z, x, y),
+        shadowTiles: wantShadow ? detailedTiles(shadowKey, z, x, y, detailScale) : [],
+        mode,
+        intensity,
+        detailScale,
+    }, signal);
 }
 
 // ---------------------------------------------------------------------------

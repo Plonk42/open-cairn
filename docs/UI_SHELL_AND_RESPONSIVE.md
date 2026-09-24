@@ -482,6 +482,17 @@ caches (le drapé garde sa texture 2048² et le maillage ses 128 quads, aucun de
 n'étant indexé par sa taille). Le réglage est **réappliqué sur `styledata`** : changer
 de fond ou d'ombrage reconstruit le style, donc les sources et le terrain.
 
+**L'altitude d'une tuile est retenue une fois lue.** MapLibre borne une tuile dont le MNT
+a quitté son cache (60 tuiles, dimensionné sur le canevas) par `[0, élévation du centre]`.
+Or le centre de ce mode est 4 km le long du regard, donc **en l'air** dès qu'on regarde
+au-dessus de l'horizon (962 m mesuré, sol à 210 m) : la tuile redevenait « visible »,
+était rechargée, écartée sur ses vraies altitudes, ré-évincée — ~250 requêtes MNT par
+seconde, carte immobile, et jamais d'`idle`. `getMinMaxElevation` est donc remplacé le temps
+du mode par une version qui garde, par tuile, l'intervalle lu sur son propre MNT. Mesuré à
+8° de champ : **0** requête au repos au lieu de ~1 100 en 5 s, et **51** tuiles MNT dans le
+cadre au lieu de 83–133. Agrandir le cache aurait aussi rompu la boucle, mais au prix
+d'environ 1 Mo par tuile, là où retenir deux nombres suffit.
+
 `meshSize` est plafonné à **252**, pas 256 : MapLibre range les indices du maillage de
 terrain (grille + les quatre bourrelets qui masquent la couture entre tuiles de zoom
 différent) dans un `Uint16` fixe, sans repli en 32 bits. `(meshSize+1) × (meshSize+7)`
@@ -831,11 +842,11 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le relief **dessiné** | 0,28 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) | sur `idle`, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
+| Visée : un rayon par sommet à travers le relief **dessiné** | 0,28 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste. La deuxième suit **ce que MapLibre dessine** : tourner
-la tête charge d'autres tuiles, et le `idle` qui suit re-vise les sommets posés dessus. Un
+la tête charge d'autres tuiles, et la visée qui suit re-vise les sommets posés dessus. Un
 sommet dont on s'est détourné garde son dernier verdict (il est hors champ) ; y revenir
 le re-vise sur les tuiles chargées pour lui.
 
@@ -993,10 +1004,12 @@ suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son déga
 > inverserait la lecture de tous les traits de l'écran pour une seule étiquette. C'est à
 > l'utilisateur de relever la caméra.
 
-> La visée est branchée sur **`idle`**, ce qui ne marche que parce que la carte se
-> repose vraiment : voir « La carte qui repeint sans fin » juste au-dessus. Si un jour
-> un appel remet le style en « modifié » à chaque image, les noms de sommets cesseront
-> silencieusement de se mettre à jour.
+> La visée n'attend **pas** `idle`. `idle` attend aussi le fond de carte et le re-rendu
+> des drapés, que MapLibre fait **une tuile de terrain par image**, la plus proche
+> d'abord : après une rotation à 60°, le MNT était complet en 0,14 s et `idle` venait
+> entre 4 et 10 s plus tard. `PeakLabelsOverlay` écoute donc `render` et vise dès que le
+> MNT est chargé (`isSourceLoaded`) et que la caméra n'a pas bougé depuis 250 ms — chaque
+> `move` relance l'attente. Mesuré : noms à jour **0,43 s** après la fin du geste.
 
 ### Limitations techniques
 

@@ -11,8 +11,9 @@
  *
  *   - the summit list is LOADED once per session (`lib/peaks.ts`, a file built
  *     offline by `tools/build-peaks.mjs`), then sliced to the eye's box;
- *   - visibility is MARCHED on `idle` whenever the eye or the DRAWN terrain
- *     changed (`lib/peakSightings.ts`), and only for summits on drawn tiles.
+ *   - visibility is MARCHED once the camera has stopped and the DEM is loaded,
+ *     whenever the eye or the DRAWN terrain changed (`lib/peakSightings.ts`),
+ *     and only for summits on drawn tiles.
  *     The tile cache is no ground truth: outside what is drawn, MapLibre
  *     answers from whatever ancestor it still holds, down to z5, hundreds of
  *     metres low. A summit turned away from keeps its last verdict; turned
@@ -38,11 +39,12 @@ import {
 } from '@/lib/peakSightings';
 import { cameraObserver, observerKey, renderedGroundSampler, screenProjector } from '@/lib/skyProjection';
 import { useMapStore } from '@/stores/mapStore';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useCallback, useEffect, useRef } from 'react';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/** The eye settles on `idle` a frame or two after landing; wait it out. */
+/** Quiet time after the last camera move before a march. */
 const RECOMPUTE_DEBOUNCE_MS = 250;
 
 /** The summit list is reused while the eye stays inside this radius. */
@@ -92,6 +94,12 @@ function createNode(sighting: PeakSighting): PeakNode {
 
     group.append(line, dot, text);
     return { sighting, group, line, dot, text };
+}
+
+/** Every DEM tile the drawn terrain asked for has arrived: the march reads nothing else. */
+function demLoaded(map: MapLibreMap): boolean {
+    const source = map.getTerrain()?.source;
+    return source !== undefined && map.getSource(source) !== undefined && map.isSourceLoaded(source);
 }
 
 export function PeakLabelsOverlay() {
@@ -190,7 +198,7 @@ export function PeakLabelsOverlay() {
         const map = mapInstance;
         const terrain = map?.terrain;
         const host = hostRef.current;
-        if (!map || !terrain || !host) return;
+        if (!map || !terrain || !host || !demLoaded(map)) return;
         const observer = cameraObserver(map);
         if (!observer) return;
         const eye = observerKey(observer);
@@ -219,7 +227,10 @@ export function PeakLabelsOverlay() {
     const recomputeRef = useRef(recompute);
     const schedule = useCallback(() => {
         window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(() => void recomputeRef.current(), RECOMPUTE_DEBOUNCE_MS);
+        timerRef.current = window.setTimeout(() => {
+            timerRef.current = undefined;
+            void recomputeRef.current();
+        }, RECOMPUTE_DEBOUNCE_MS);
     }, []);
 
     useEffect(() => {
@@ -235,16 +246,24 @@ export function PeakLabelsOverlay() {
         map.getContainer().appendChild(host);
         hostRef.current = host;
 
-        // `idle` rather than `moveend`: the DEM tiles the marches read are only
-        // in place once the map has finished loading what the move asked for.
-        map.on('idle', schedule);
-        map.on('move', place);
+        // Not `idle`: that also waits for the basemap and for MapLibre's drape refresh,
+        // one terrain tile per frame — seconds after the DEM the march reads is in place.
+        const onRender = () => {
+            if (timerRef.current === undefined && demLoaded(map)) schedule();
+        };
+        const onMove = () => {
+            place();
+            if (timerRef.current !== undefined) schedule();
+        };
+        map.on('render', onRender);
+        map.on('move', onMove);
         schedule();
 
         return () => {
             window.clearTimeout(timerRef.current);
-            map.off('idle', schedule);
-            map.off('move', place);
+            timerRef.current = undefined;
+            map.off('render', onRender);
+            map.off('move', onMove);
             clearNodes();
             solvedRef.current = { eye: '', coverage: null };
             host.remove();

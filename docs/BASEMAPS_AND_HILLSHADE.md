@@ -124,10 +124,11 @@ flowchart LR
     Store[mapStore<br/>Zustand] --> Style[mapStyle.ts<br/>buildStyle&#40;&#41;]
     Style --> ML[MapLibre instance]
     ML -->|tile request| Proto["composite://<br/>handler"]
-    Proto -->|fetch base| WMTSb[(IGN WMTS<br/>fond)]
-    Proto -->|fetch shadow| WMTSs[(IGN WMTS<br/>MNS/MNT/MNH)]
-    Proto -->|2D blend| Canvas[OffscreenCanvas]
-    Canvas -->|ImageBitmap| ML
+    Proto -->|job| Worker[compositeWorker<br/>OffscreenCanvas]
+    Worker -->|fetch base| WMTSb[(IGN WMTS<br/>fond)]
+    Worker -->|fetch shadow| WMTSs[(IGN WMTS<br/>MNS/MNT/MNH)]
+    Worker -->|ImageBitmap transféré| Proto
+    Proto -->|ImageBitmap| ML
     ML --> Terrain[raster-dem<br/>TerrainRGB]
     Terrain --> WMSr[(IGN WMS-r<br/>HIGHRES.LINEAR)]
 ```
@@ -138,7 +139,8 @@ flowchart LR
 |---------|------|
 | [src/lib/baseLayers.ts](../src/lib/baseLayers.ts) | **Registre unique des fonds** : id, source de tuiles, libellés, description, drapabilité |
 | [src/lib/ignToponymLayers.json](../src/lib/ignToponymLayers.json) | Les 117 couches `symbol` extraites du style officiel IGN *toponymes* — **généré**, voir `tools/fetch-ign-toponyms.mjs` |
-| [src/lib/compositeProtocol.ts](../src/lib/compositeProtocol.ts) | Handler MapLibre `composite://`, parallèle base + shadow, blend 2D, gestion overzoom et detail-scale |
+| [src/lib/compositeProtocol.ts](../src/lib/compositeProtocol.ts) | Handler MapLibre `composite://` : décode l'URL, planifie les tuiles (overzoom, detail-scale), cache LRU, pool de workers |
+| [src/lib/compositeWorker.ts](../src/lib/compositeWorker.ts) | Téléchargement base + shadow et mélange 2D, hors du fil principal |
 | [src/lib/mapStyle.ts](../src/lib/mapStyle.ts) | Génère le `StyleSpecification` MapLibre depuis l'état du store |
 | [src/lib/ign.ts](../src/lib/ign.ts) | Registre des endpoints IGN (URL builders, definitions de couches, plages de zoom) |
 | [src/components/map/MapContainer.tsx](../src/components/map/MapContainer.tsx) | Instance MapLibre, sync style/terrain, enregistrement protocole |
@@ -231,7 +233,21 @@ sequenceDiagram
 Le mode `lidar-neutral` parcourt les pixels et applique une formule asymétrique : les zones
 sombres du shadow (creux) assombrissent le fond, les zones claires (crêtes) éclaircissent
 légèrement, en préservant la luminance globale. Algo en clair dans
-[compositeProtocol.ts](../src/lib/compositeProtocol.ts).
+[compositeWorker.ts](../src/lib/compositeWorker.ts).
+
+**Le mélange tourne dans un pool de workers** (la moitié des cœurs, 4 au plus). Sur le fil
+principal, les deux relectures `getImageData` et la boucle par pixel coûtaient ~10 ms par
+tuile, soit 650 ms sur 2,5 s de profil pendant une rotation en *Point de vue* — autant de
+retard pour le traitement des tuiles de MapLibre. Le fil principal ne fait plus que
+planifier les URL (la clé IGN y vit) et recevoir l'`ImageBitmap`, transféré sans copie.
+Les canevas relus sont créés en `willReadFrequently` : mémoire CPU, relecture en copie
+plutôt qu'en aller-retour GPU (6–8 ms → 2 ms par tuile 512²).
+
+Chaque requête IGN a **10 s** pour aboutir, puis une seconde chance. Sans délai, une
+requête qui ne répond jamais laissait sa tuile en `loading` pour toujours, et MapLibre
+n'atteignait plus jamais `idle`. Mesuré sur 120 tuiles froides tirées ensemble : médiane
+0,8 s, 3 au-delà de 10 s, 2 encore en attente après 40 s — le défaut existait déjà avant
+le worker.
 
 #### Overzoom et detail-scale
 
@@ -385,6 +401,8 @@ Persisté sous la clé localStorage `open-cairn-settings` (champ `state` sérial
   Les `ImageBitmap` produits sont gardés en mémoire pour `tileCacheSize` entrées maximum.
 - **Pas de fallback** sur erreur tuile : MapLibre affichera un trou. Pour debug, ouvrir
   l'onglet réseau et chercher les requêtes 4xx.
-- **`OffscreenCanvas` requis** : pas de fallback sur les navigateurs qui ne le supportent
-  pas (Safari < 16.4). Une dégradation possible serait un `<canvas>` détaché en main thread,
-  mais cela bloquerait le rendu MapLibre.
+- **`OffscreenCanvas` en worker requis** : pas de fallback sur les navigateurs qui ne le
+  supportent pas (Safari < 16.4). `AbortSignal.any` / `AbortSignal.timeout` (délai des
+  requêtes) demandent Safari 17.4.
+- Une tuile dont les deux essais expirent reste **en erreur** : MapLibre ne la redemande
+  pas, un trou reste visible jusqu'à ce qu'elle sorte du cadre et y revienne.

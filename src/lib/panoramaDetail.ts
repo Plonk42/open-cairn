@@ -97,6 +97,27 @@ function rttSizeHolder(map: MapLibreMap): RttSizeHolder {
     return map.painter.renderToTexture as unknown as RttSizeHolder;
 }
 
+type ElevationRange = ReturnType<TerrainLike['getMinMaxElevation']>;
+
+/**
+ * Keeps each tile's elevation range once its own DEM has been seen. MapLibre bounds a
+ * tile whose DEM left its 60-tile cache by `[0, centre elevation]`, and this mode's
+ * centre floats 4 km up the gaze: the tile turned visible, reloaded, was culled on its
+ * real heights and evicted again — ~250 DEM requests a second, and never an `idle`.
+ */
+function rememberTileElevations(terrain: TerrainLike): void {
+    const proto = Object.getPrototypeOf(terrain) as TerrainLike;
+    const known = new Map<string, ElevationRange>();
+    terrain.getMinMaxElevation = function (this: TerrainLike, tileID) {
+        const range = proto.getMinMaxElevation.call(this, tileID);
+        if (this.tileManager.getSourceTile(tileID, false)?.dem) {
+            known.set(tileID.key, range);
+            return range;
+        }
+        return known.get(tileID.key) ?? range;
+    };
+}
+
 function patchTerrain(map: MapLibreMap, terrain: TerrainLike): TerrainDetailBackup {
     const rtt = rttSizeHolder(map);
     const backup: TerrainDetailBackup = {
@@ -112,10 +133,12 @@ function patchTerrain(map: MapLibreMap, terrain: TerrainLike): TerrainDetailBack
     // them: the drape keeps its 2048² texture and the mesh its 128 quads.
     terrain.tileManager.releaseAllRTT();
     for (const key of Object.keys(terrain._meshCache)) delete terrain._meshCache[key];
+    rememberTileElevations(terrain);
     return backup;
 }
 
 function unpatchTerrain(map: MapLibreMap, backup: TerrainDetailBackup): void {
+    delete (backup.terrain as Partial<Pick<TerrainLike, 'getMinMaxElevation'>>).getMinMaxElevation;
     backup.terrain.qualityFactor = backup.qualityFactor;
     backup.terrain.meshSize = backup.meshSize;
     rttSizeHolder(map).rttSize = backup.rttSize;
