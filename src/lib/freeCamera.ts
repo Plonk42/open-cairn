@@ -29,7 +29,9 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 // internal method that implements it. It is a single function with a narrow
 // contract (`transform → { pitch?, zoom? }`), the original is kept and restored
 // on the way out, and a missing method is treated as "nothing to do" so a
-// MapLibre upgrade degrades to today's behaviour instead of throwing.
+// MapLibre upgrade degrades to today's behaviour instead of throwing — with a
+// warning, since v6 moved the method from the map to `map._camera` and the swap
+// then went silently missing for days.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CollisionFix = Readonly<{ pitch?: number; zoom?: number }>;
@@ -44,6 +46,8 @@ const NO_COLLISION: ElevateCameraFn = () => ({});
 /** Original method per map, kept only while the collision is disabled. */
 const suspended = new WeakMap<MapLibreMap, ElevateCameraFn>();
 
+let warnedMissing = false;
+
 /**
  * Enable or disable MapLibre's "push the camera out of the terrain" correction.
  *
@@ -52,8 +56,12 @@ const suspended = new WeakMap<MapLibreMap, ElevateCameraFn>();
  * the camera move freely through the terrain surface.
  */
 export function setTerrainCameraCollision(map: MapLibreMap, enabled: boolean): void {
-    const camera = map as unknown as CameraInternals;
-    if (typeof camera._elevateCameraIfInsideTerrain !== 'function') return;
+    const camera = (map as unknown as { _camera?: CameraInternals })._camera;
+    if (typeof camera?._elevateCameraIfInsideTerrain !== 'function') {
+        if (!warnedMissing) console.warn('Camera._elevateCameraIfInsideTerrain not found: terrain collision stays on');
+        warnedMissing = true;
+        return;
+    }
 
     if (enabled) {
         const original = suspended.get(map);
