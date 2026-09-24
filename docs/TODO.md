@@ -18,18 +18,24 @@
       (`DECISIONS.md` : il garde ses feuilles) ; pour l'Itinéraire, c'est l'état de fait,
       pas encore un choix écrit.
 - [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
-      désactivation de notre part : `_elevateCameraIfInsideTerrain` (maplibre-gl 5.11) est
-      bien la méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,
+      désactivation de notre part : `Camera._elevateCameraIfInsideTerrain` est bien la
+      méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,
       **marge nulle**, et n'y arrive même pas : itéré quatre fois il est un **point fixe à
       −0,29 m** (même pitch 77,22°, même zoom 16,486, caméra déplacée de 0 m). Il ne teste
       qu'un échantillon bilinéaire sous la caméra — jamais le terrain *entre* l'œil et le
       centre, jamais le maillage de triangles réellement dessiné, qui le dépasse de plusieurs
       mètres sur un versant. Mesuré sur un tour complet à z16,5 / pitch 80 : **12 images sur
-      60 sous le sol**, et le pitch oscille 77,2° ↔ 64,5° parce que le garde réécrit *pitch et
-      zoom* au lieu de reculer la caméra. Piste : remplacer le garde par le nôtre (on sait
-      déjà le faire, cf. `setTerrainCameraCollision`), avec une marge réelle, un maximum sur
-      quelques sondes autour de l'œil, et une correction qui ne touche qu'au zoom pour ne pas
-      manger le cadrage demandé.
+      60 sous le sol** en 5.11, **3 sur 60** en 6.10 (au-dessus de Saint-Martin-le-Vinoux,
+      5.7735 / 45.2525, pitch 71° ↔ 78,8°) parce que le garde réécrit *pitch et zoom* au
+      lieu de reculer la caméra. **Essayé** (branche `todo/terrain-camera-guard-wip`) : un
+      garde à nous qui ne touche qu'au zoom, recule l'œil le long de sa visée jusqu'à
+      dépasser de la profondeur du plan proche (7,6 m à z16,5) le plus haut de cinq sondes.
+      Le pitch tient à 80° et plus aucune image n'est sous le sol, mais au même endroit
+      il faut reculer **×3,02 (z16,5 → z14,9)** : le versant derrière l'œil monte plus
+      vite que la ligne de visée (10°), et seule la crête au-delà le dégage. Le zoom
+      corrigé est ensuite figé à chaque `moveend`, comme l'était le pitch. À trancher :
+      ne toucher qu'au zoom coûte parfois bien plus de cadrage que le pitch réécrit ; un
+      mélange (reculer jusqu'à un plafond, puis relever) reste à écrire.
 - [ ] Le recalage du point de station au point haut à 50 m lit `queryTerrainElevation` au
       zoom du clic : depuis une vue d'ensemble (z12–13), le MNT est grossier et le « point
       haut » est souvent juste le bord amont du disque. Sur un long versant, le disque ne

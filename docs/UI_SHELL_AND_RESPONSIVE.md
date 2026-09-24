@@ -246,6 +246,12 @@ replier les sections de l'utilisateur à chaque étape serait gratuit.
 haut/bas sur l'altitude) est propre au Studio. *Point de vue*, décrit
 ci-dessous, est offert dans les **deux** vues.
 
+Les deux coupent la collision en remplaçant `Camera._elevateCameraIfInsideTerrain`
+(`setTerrainCameraCollision`), qui vit sur `map._camera` depuis maplibre-gl 6 : du
+passage à la v6 jusqu'à ce correctif, le remplacement cherchait la méthode sur la
+carte, ne la trouvait pas et ne faisait rien, en silence. Il avertit désormais une
+fois dans la console s'il ne la trouve plus.
+
 #### Mode « Point de vue »
 
 Le bouton *Point de vue* est une bascule, comme *Orbite* : un clic **arme** le mode
