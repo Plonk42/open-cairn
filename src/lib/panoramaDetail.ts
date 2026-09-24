@@ -99,6 +99,57 @@ function rttSizeHolder(map: MapLibreMap): RttSizeHolder {
 
 type ElevationRange = ReturnType<TerrainLike['getMinMaxElevation']>;
 
+type MemberSpec = readonly [path: string, type: 'function' | 'number' | 'object'];
+
+/**
+ * Dotted paths of `specs` absent from `root` or of another type. The patches below go
+ * through MapLibre members that are not public: an upgrade can rename one without any
+ * type error, and the mode would quietly fall back to default quality — or throw.
+ */
+export function missingMembers(root: object, specs: readonly MemberSpec[]): string[] {
+    return specs
+        .filter(([path, type]) => {
+            const value = path.split('.').reduce<unknown>(
+                (node, key) => (node as Record<string, unknown> | null | undefined)?.[key],
+                root,
+            );
+            return typeof value !== type || value === null;
+        })
+        .map(([path]) => path);
+}
+
+const reportedPatches = new Set<string>();
+
+/** Logs (once per patch) and returns false when MapLibre no longer has what a patch needs. */
+function hasMembers(patch: string, root: object, specs: readonly MemberSpec[]): boolean {
+    const missing = missingMembers(root, specs);
+    if (missing.length > 0 && !reportedPatches.has(patch)) {
+        reportedPatches.add(patch);
+        console.error(`${patch} skipped: MapLibre no longer has ${missing.join(', ')}`);
+    }
+    return missing.length === 0;
+}
+
+const PANORAMA_DETAIL_MEMBERS: readonly MemberSpec[] = [
+    ['painter.renderToTexture.rttSize', 'number'],
+    ['terrain.qualityFactor', 'number'],
+    ['terrain.meshSize', 'number'],
+    ['terrain._meshCache', 'object'],
+    ['terrain.getMinMaxElevation', 'function'],
+    ['terrain.tileManager.tileSize', 'number'],
+    ['terrain.tileManager.getSourceTile', 'function'],
+    ['terrain.tileManager.releaseAllRTT', 'function'],
+];
+
+const NEAR_PLANE_MEMBERS: readonly MemberSpec[] = [
+    ['_calculateNearFarZ', 'function'],
+    ['_calcMatrices', 'function'],
+    ['calculateFogMatrix', 'function'],
+    ['getCameraLngLat', 'function'],
+    ['_helper._nearZ', 'number'],
+    ['_helper._pixelPerMeter', 'number'],
+];
+
 /**
  * Keeps each tile's elevation range once its own DEM has been seen. MapLibre bounds a
  * tile whose DEM left its 60-tile cache by `[0, centre elevation]`, and this mode's
@@ -164,7 +215,9 @@ export function applyPanoramaDetail(map: MapLibreMap): () => void {
         // A rebuilt style brings a fresh Terrain at MapLibre's defaults; the
         // same instance means `styledata` fired for something else, and
         // re-capturing would back up our own values.
-        if (terrain && terrain !== patched?.terrain) patched = patchTerrain(map, terrain);
+        if (terrain && terrain !== patched?.terrain && hasMembers('Panorama detail', map, PANORAMA_DETAIL_MEMBERS)) {
+            patched = patchTerrain(map, terrain);
+        }
         map.triggerRepaint();
     };
 
@@ -258,6 +311,7 @@ export function applyViewpointNearPlane(map: MapLibreMap): () => void {
     const apply = () => {
         const transform = map.painter.transform as unknown as NearPlaneTransform;
         if (transform === patched) return;
+        if (!hasMembers('Viewpoint near plane', transform, NEAR_PLANE_MEMBERS)) return;
         patchTransform(transform);
         patched = transform;
         map.triggerRepaint();
