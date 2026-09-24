@@ -90,7 +90,7 @@ function createNode(sighting: PeakSighting): PeakNode {
     // summit, and a height RGE ALTI® contradicted was dropped when the data
     // file was built rather than printed (`lib/peaks.ts`).
     const { name, spotHeightM } = sighting.peak;
-    text.textContent = spotHeightM === null ? name : `${name} ${spotHeightM} m`;
+    text.textContent = spotHeightM === null ? name : `${name} · ${spotHeightM} m`;
 
     group.append(line, dot, text);
     return { sighting, group, line, dot, text };
