@@ -249,6 +249,13 @@ n'atteignait plus jamais `idle`. Mesuré sur 120 tuiles froides tirées ensemble
 0,8 s, 3 au-delà de 10 s, 2 encore en attente après 40 s — le défaut existait déjà avant
 le worker.
 
+Quand les deux essais de la tuile **de fond** expirent, MapLibre la passe en erreur et ne
+la redemande plus tant qu'elle reste dans le cadre. Le protocole programme alors un
+nouvel essai **15 s** plus tard (`composite-tile-retry` → `map.refreshTiles('base', …)`
+dans `MapContainer`), au plus 3 fois par tuile ; sans effet si la tuile a quitté le
+cadre entre-temps. Vérifié en bloquant les tuiles Plan IGN HD pendant 28 s : les 16
+tuiles en erreur sont rechargées 15 s après.
+
 #### Overzoom et detail-scale
 
 Si la requête dépasse le zoom max d'une couche source (ex. SCAN 25 maxZoom = 18 alors que
@@ -404,5 +411,7 @@ Persisté sous la clé localStorage `open-cairn-settings` (champ `state` sérial
 - **`OffscreenCanvas` en worker requis** : pas de fallback sur les navigateurs qui ne le
   supportent pas (Safari < 16.4). `AbortSignal.any` / `AbortSignal.timeout` (délai des
   requêtes) demandent Safari 17.4.
-- Une tuile dont les deux essais expirent reste **en erreur** : MapLibre ne la redemande
-  pas, un trou reste visible jusqu'à ce qu'elle sorte du cadre et y revienne.
+- Une tuile de fond dont les deux essais expirent reste **en erreur** 15 s, le temps du
+  nouvel essai différé (au plus 3). Une tuile d'**ombrage** qui expire n'est pas
+  réessayée : la tuile sort sans son relief (ou avec un quadrant manquant en *Sharp*) et
+  reste ainsi dans le cache.

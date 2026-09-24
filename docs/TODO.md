@@ -1,7 +1,9 @@
 # TODO
 
-- [ ] Un fond `composite://` dont les deux essais expirent (10 s chacun) reste en erreur :
-      un trou jusqu'à ce que la tuile sorte du cadre. Un nouvel essai différé le comblerait.
+- [ ] Une tuile d'ombrage LiDAR dont les deux essais expirent est ignorée sans bruit
+      (`loadDetailedShadow` → `null`) : la tuile `composite://` sort sans relief, ou avec
+      un quadrant manquant en *Sharp*, et reste ainsi dans le cache LRU. Ne pas la mettre
+      en cache (et la réessayer comme le fond) quand une tuile d'ombrage a expiré.
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
