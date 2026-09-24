@@ -256,6 +256,14 @@ dans `MapContainer`), au plus 3 fois par tuile ; sans effet si la tuile a quitt�
 cadre entre-temps. Vérifié en bloquant les tuiles Plan IGN HD pendant 28 s : les 16
 tuiles en erreur sont rechargées 15 s après.
 
+Quand c'est une tuile **d'ombrage** qui expire deux fois, la tuile `composite://` sort
+quand même, sans relief (ou avec un quadrant manquant en *Sharp*), mais elle n'entre
+pas dans le cache LRU et le même nouvel essai à 15 s est programmé. Une tuile d'ombrage
+absente pour de bon (HTTP 404 hors couverture LiDAR, image indécodable) n'est pas une
+expiration : la tuile sans relief est alors mise en cache. Vérifié en bloquant les tuiles
+`…SHADOW` pendant 24 s : 15 `composite-tile-retry` partent à 35 s, et le relief revient
+sans bouger la caméra.
+
 #### Overzoom et detail-scale
 
 Si la requête dépasse le zoom max d'une couche source (ex. SCAN 25 maxZoom = 18 alors que
