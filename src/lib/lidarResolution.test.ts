@@ -97,3 +97,28 @@ describe('measured pyramid profiles', () => {
         }
     });
 });
+
+describe('downloaded bytes', () => {
+    // Zone pyramids and the bytes of the nodes meeting the zone, read from the
+    // COPC hierarchies by tools/lidar-density/capture-bytes.mjs.
+    it('matches what the pipeline fetched on measured zones', () => {
+        const vercors = [0.072, 1.079, 4.449, 12.617, 27.462, 30.616];
+        const camargue = [0.019, 0.171, 0.651, 2.269, 7.644, 8.093];
+        const ratios = [
+            estimateCapture(250, 250, 0, vercors).bytes / 32.0e6,
+            estimateCapture(400, 500, 0, camargue).bytes / 15.7e6,
+        ];
+        for (const r of ratios) {
+            expect(r).toBeGreaterThan(0.85);
+            expect(r).toBeLessThan(1.15);
+        }
+    });
+
+    it('charges a small zone for the whole coarse nodes it touches', () => {
+        // The reported bug: at a flat 6 B/pt, the dial announced a third of the download.
+        const { points, bytes } = estimateCapture(250, 250, 0);
+        expect(bytes / points).toBeGreaterThan(12);
+        const large = estimateCapture(2000, 2000, 1.7);
+        expect(large.bytes / large.points).toBeLessThan(bytes / points);
+    });
+});

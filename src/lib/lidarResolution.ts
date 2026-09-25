@@ -76,10 +76,45 @@ export type PyramidProfile = readonly number[];
 /** The table above: used for a zone whose tiles have not been probed yet. */
 export const ESTIMATED_PYRAMID: PyramidProfile = DENSITY_AT_STOP_PT_M2;
 
-/** Compressed LAZ bytes per point, measured on the same pyramid. */
-const BYTES_PER_POINT = 6;
+/** LiDAR HD tiles are 1 km squares, each its own COPC cube: level ℓ nodes are 1000/2^ℓ m wide. */
+const TILE_SIDE_M = 1000;
 
-/** Downloaded-point budget a capture aims to stay under (auto resolution). */
+/**
+ * Compressed LAZ bytes per point of the level each stop adds (the native stop:
+ * every level past 4), medians of `tools/lidar-density/capture-bytes.mjs` on
+ * six zones (Chartreuse, Vercors, Mont-Blanc, Camargue, La Meije). Sparse levels
+ * compress worse; level 4 alone spans 3.7 → 6.0.
+ */
+const BYTES_PER_POINT_AT_STOP = [11, 8.6, 7.5, 6.4, 4.8, 5.2] as const;
+
+/**
+ * `|cos θ| + |sin θ|` averaged over every bearing: how much wider than its own
+ * sides a rotated rectangle reads on the tile grid. Averaged so that turning
+ * the zone does not move the quality steps.
+ */
+const MEAN_BEARING_SPREAD = 4 / Math.PI;
+
+/**
+ * Compressed bytes the pipeline fetches: a node is downloaded whole as soon as
+ * it meets the zone, so each level costs the expected area of the grid cells
+ * the rectangle touches, `A + s·(wₓ + wᵧ) + s²` for cells of side `s`. On a
+ * 250 m zone that is 1.7 km² at level 0 — twenty-seven times its own area.
+ */
+function downloadedBytes(
+    widthM: number, lengthM: number, stopIdx: number, pyramid: PyramidProfile,
+): number {
+    const spread = (widthM + lengthM) * MEAN_BEARING_SPREAD;
+    let bytes = 0;
+    for (let i = 0; i <= stopIdx; i++) {
+        const levelDensity = pyramid[i] - (i > 0 ? pyramid[i - 1] : 0);
+        const side = TILE_SIDE_M / 2 ** i;
+        const touchedM2 = widthM * lengthM + side * spread + side * side;
+        bytes += levelDensity * touchedM2 * BYTES_PER_POINT_AT_STOP[i];
+    }
+    return bytes;
+}
+
+/** Budget of points kept inside the zone a capture aims to stay under (auto resolution). */
 export const CAPTURE_POINT_BUDGET = 6_000_000;
 
 /**
@@ -94,13 +129,17 @@ export function densityAt(resolutionM: number, pyramid: PyramidProfile = ESTIMAT
     return pyramid[resolutionToIndex(resolutionM)];
 }
 
-/** Points and compressed bytes a capture downloads, before any stride. */
+/**
+ * Points a capture keeps inside the zone, before any stride, and the
+ * compressed bytes it downloads to get them.
+ */
 export function estimateCapture(
     widthM: number, lengthM: number, resolutionM: number,
     pyramid: PyramidProfile = ESTIMATED_PYRAMID,
 ): { points: number; bytes: number } {
     const points = widthM * lengthM * densityAt(resolutionM, pyramid);
-    return { points, bytes: points * BYTES_PER_POINT };
+    const bytes = downloadedBytes(widthM, lengthM, resolutionToIndex(resolutionM), pyramid);
+    return { points, bytes };
 }
 
 /** Finest stop whose download stays within {@link CAPTURE_POINT_BUDGET}. */
