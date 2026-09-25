@@ -177,7 +177,7 @@ describe('eyeHeightAfterStep', () => {
         expect(eyeHeightAfterStep(50, true, true)).toBeCloseTo(50 + 10 * VIEWPOINT_EYE_STEP_M, 6);
     });
 
-    it('never sinks below standing height', () => {
+    it('never sinks below the ground', () => {
         expect(eyeHeightAfterStep(VIEWPOINT_EYE_HEIGHT_M, false, true)).toBe(VIEWPOINT_MIN_EYE_HEIGHT_M);
         expect(eyeHeightAfterStep(VIEWPOINT_MIN_EYE_HEIGHT_M, false, false)).toBe(VIEWPOINT_MIN_EYE_HEIGHT_M);
     });

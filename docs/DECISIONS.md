@@ -23,7 +23,8 @@ techniques vivent dans le document de chaque sujet.
   → `UI_SHELL_AND_RESPONSIVE.md`
 - **L'œil arrive à 10 m au-dessus du sol en « Point de vue »**, pas à 1,70 m : c'est ce qui
   supprime les collisions du maillage MapLibre avec le premier plan. Abaisser le relief dessiné
-  sous l'œil a été jugé trop lourd. Les flèches redescendent jusqu'à 1,70 m.
+  sous l'œil a été jugé trop lourd. Les flèches redescendent jusqu'au sol (0 m), pour qui
+  veut vraiment la vue au ras du sol.
   → `UI_SHELL_AND_RESPONSIVE.md`
 - **PeakFinder est une référence, pas une cible** : une différence de sommets vus ou nommés est
   acceptable dès qu'on sait l'expliquer ou qu'elle est assumée (le classement des noms par

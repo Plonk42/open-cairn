@@ -77,8 +77,8 @@ export interface ViewpointCamera {
  */
 export const VIEWPOINT_EYE_HEIGHT_M = 10;
 
-/** The floor the arrows cannot go under: standing height. */
-export const VIEWPOINT_MIN_EYE_HEIGHT_M = 1.7;
+/** The floor the arrows cannot go under: the ground itself, for a view from ground level. */
+export const VIEWPOINT_MIN_EYE_HEIGHT_M = 0;
 
 /**
  * Ceiling for the arrow keys. Well past what the mode is for, but a slope that keeps

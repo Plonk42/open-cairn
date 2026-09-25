@@ -294,7 +294,7 @@ retrouvée exactement (centre, zoom, pitch, cap, focale). Le vol interpole **l'�
 pas les options de MapLibre : `center / zoom` interpolés feraient tourner l'œil autour
 d'un centre à des kilomètres. Chaque image passe par `cameraForViewpoint` (œil, cap au
 plus court, pitch, focale et distance au centre interpolés, `easeInOutCubic`), et l'œil
-est maintenu au-dessus du sol dessiné (`queryTerrainElevation` + 1,70 m au moins). Durée :
+est maintenu au-dessus du sol dessiné (jamais sous `queryTerrainElevation`). Durée :
 0,9 à 2,5 s selon la distance (`flightDurationMs`). Mesuré depuis un zoom 12,3 : de
 6 103 m à l'arrivée au sol en 2,2 s, jamais sous le relief, et retour au pixel près.
 
@@ -352,7 +352,7 @@ synchronisation du curseur d'itinéraire s'abstient.
   doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
   par deux) : l'image suit le geste, comme un pincement de photo.
 - **Flèches haut / bas**, ou boutons **▲/▼** de la barre = **hauteur de l'œil
-  au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 1,70 m et 3 000 m (10 m à
+  au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 0 (au ras du sol) et 3 000 m (10 m à
   l'arrivée). Le point
   de vue, lui, ne bouge pas : seule l'altitude change. Elles servent à se dégager d'un
   versant qui continue de monter au-delà des 50 m du point de station. La liaison clavier est posée en phase de

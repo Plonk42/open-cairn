@@ -121,7 +121,7 @@ L'altitude absolue de l'œil voyage quand même, mais elle ne suffit pas : à l'
 `settleOnGround` la **rabat sur le sol** que le destinataire charge, qui n'est pas celui
 que l'émetteur voyait. Sans le septième nombre, une station remontée à 50 m aux flèches
 retomberait silencieusement à la hauteur d'arrivée (10 m) chez le destinataire. `heightM` dit **à quelle
-hauteur se reposer**, et il est borné à la lecture à `[1,7 ; 3000]` m comme le pitch et
+hauteur se reposer**, et il est borné à la lecture à `[0 ; 3000]` m comme le pitch et
 la focale.
 
 Trois conséquences dans le code :
