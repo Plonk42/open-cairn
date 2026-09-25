@@ -46,8 +46,9 @@ export interface ExtractParams {
      * Optional oriented-rectangle crop in Lambert-93. When present it supersedes
      * the square `radius` bbox for the per-point keep test: a point is kept iff
      * it falls inside the rotated rectangle. `ux,uy` is the unit L93 direction of
-     * the length axis (the width axis is its left-perpendicular). The square
-     * `radius` AABB is still used to pick intersecting nodes.
+     * the length axis (the width axis is its left-perpendicular). Nodes are
+     * picked against the rectangle too: the square `radius` AABB around it is
+     * twice its area, and every point fetched there would be cropped.
      */
     rect?: { ux: number; uy: number; halfWidthM: number; halfLengthM: number } | null;
     /**
@@ -296,7 +297,9 @@ export async function extractPoints(params: ExtractParams): Promise<ExtractResul
     };
     const tHier = performance.now();
     const maxLevel = copcMaxLevel(copc.info.spacing, params.targetSpacingM ?? 0);
-    const nodes = await collectIntersectingNodes(get, copc, bbox, maxLevel);
+    const nodes = await collectIntersectingNodes(
+        get, copc, bbox, maxLevel, rect ? { x0, y0, ...rect } : null,
+    );
     const dHier = performance.now() - tHier;
     // eslint-disable-next-line no-console
     console.log('[lidarBrowser] tile', tileUrl.split('/').pop(),

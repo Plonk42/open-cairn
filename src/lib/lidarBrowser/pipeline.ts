@@ -15,6 +15,7 @@ import { buildForestRaster, fetchForestPolygons, labelForestPoints } from './bdf
 import { COVER_NONE, fetchCoverGrid, labelCover } from './cosia';
 import { extractPoints } from './extract';
 import { buildGridMesh } from './gridMesh';
+import { boxMeetsRect } from './hierarchy';
 import {
     buildVegGroundGrid, computeVegHeights, DEFAULT_VEG_GROUND_GAP, DEFAULT_VEG_GROUND_ROUGH,
     sanitizeVegHeights, type VegGroundGrid,
@@ -122,7 +123,7 @@ function tileProgress(tileCount: number, onProgress: ProgressCallback): {
     tileDone: () => void;
 } {
     const plural = tileCount > 1 ? 's' : '';
-    const mb = (bytes: number) => (bytes / 1_048_576).toFixed(1).replace('.', ',');
+    const mb = (bytes: number) => (bytes / 1e6).toFixed(1).replace('.', ',');
     let done = 0;
     let planned = 0;
     let total = 0;
@@ -309,7 +310,8 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     const [x0, y0] = lngLatToL93(params.lng, params.lat);
 
     // Oriented-rectangle crop (Lambert-93 axes + half-extents), or null for the
-    // default square. The square `radius` AABB still drives tile/node selection.
+    // default square. Tiles and nodes are picked against it, inside the square
+    // `radius` AABB.
     const rectCrop = params.rect
         ? {
             ...l93RectAxes(params.lng, params.lat, params.rect.bearingDeg),
@@ -334,6 +336,7 @@ async function fetchCommon(params: BrowserFetchParams, opts?: { needScan?: boole
     const tiles = wfsTiles.filter(({ bboxL93: b }) => !b || (
         b.maxX >= x0 - radius && b.minX <= x0 + radius
         && b.maxY >= y0 - radius && b.minY <= y0 + radius
+        && (!rectCrop || boxMeetsRect(b, { x0, y0, ...rectCrop }))
     ));
     const dropped = wfsTiles.length - tiles.length;
     const droppedNote = dropped > 0 ? ` (${dropped} hors emprise écartée(s))` : '';
