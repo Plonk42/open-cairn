@@ -542,8 +542,8 @@ s'entassent, et ils ne recouvrent plus le relief.
 Conséquence directe : **la sélection des noms suit le zoom, en direct**. Ce qui s'imprime
 ne dépend que de l'écartement des sommets à l'écran, recalculé à chaque image ; resserrer
 le champ les écarte, la bande trouve de la place, et les noms mineurs apparaissent d'eux-
-mêmes. La visée, elle, ne dépend du champ de vision que lorsque trop de sommets sont à
-portée pour le budget de rayons — les sommets cadrés passent alors en premier.
+mêmes. La visée, elle, ne porte que sur les sommets posés sur le relief dessiné — le cadre
+et ses abords — et se refait quand ce relief change.
 
 Ce qu'il faut savoir :
 
@@ -882,36 +882,34 @@ dresser devant un sommet dans le cadre.
 
 C'est aussi pourquoi **quels** sommets portent un nom se décide dans la troisième et non
 dans la deuxième : la visée répond à « qu'est-ce qui est visible », qui ne dépend du
-champ de vision que lorsque le budget de rayons déborde (voir plus bas) ; le placement
-répond à « qu'est-ce qui tient », qui n'en dépend que.
+champ de vision qu'à travers les tuiles dessinées ; le placement répond à « qu'est-ce
+qui tient », qui n'en dépend que.
 
 #### Le trajet d'un sommet, du fichier à l'étiquette
 
 Chaque étage ne fait que retirer des sommets ; aucun n'en ajoute. Les chiffres sont
-ceux de la Croix de Belledonne.
+ceux d'un point de vue à 2 515 m sous la Croix de Belledonne (5,9936° E, 45,1836° N),
+cap 60°, focale verticale 30°.
 
 ```mermaid
 flowchart TD
     A["peaksData.json<br/>25 798 sommets"] --> B["Découpe autour de l'œil<br/>(refaite tous les km)"]
     B --> C{"Portée du rang ?<br/>250 m ≤ distance ≤ portée"}
     C -- non --> X1[écarté]
-    C -- "oui : 1 050 candidats" --> D["Tri par part de portée<br/>distance / portée(rang)"]
-    D --> E{"Plus de 900 ?"}
-    E -- non --> G
-    E -- oui --> F["Cadrés d'abord,<br/>puis hors cadre"]
-    F --> G["Les 900 premiers"]
+    C -- "oui : 1 050" --> S{"Sur une tuile dessinée ?<br/>(un échantillon)"}
+    S -- non --> X0["pas jugé<br/>(garde son verdict)"]
+    S -- "oui : 464" --> D["Tri par part de portée<br/>distance / portée(rang)"]
+    D --> G["Les 900 premiers<br/>(ici tous)"]
     G --> H{"Visée : un rayon<br/>le sommet dépasse-t-il<br/>le relief devant lui ?"}
-    H -- non / hors tuile --> X2[caché]
-    H -- oui --> I["Sommets visibles"]
-    I --> J{"Placement, à chaque image :<br/>sous la bande et à 26 px<br/>d'un nom mieux classé ?"}
+    H -- non --> X2[caché]
+    H -- "oui : 98" --> J{"Placement, à chaque image :<br/>sous la bande et à 26 px<br/>d'un nom mieux classé ?"}
     J -- non --> X3[vu mais pas nommé]
-    J -- oui --> K["Étiquette"]
+    J -- "oui : 24" --> K["Étiquette"]
 
     subgraph visee ["visée : immobile 250 ms, œil ou tuiles changés"]
         C
+        S
         D
-        E
-        F
         G
         H
     end
@@ -938,33 +936,24 @@ les plus lointains *pour leur rang*, pas forcément les plus lointains tout cour
         part de portée = 0 au centre, 1 sur le cercle de son propre rang
 ```
 
-**Le secteur.** Il n'intervient qu'au-delà de 900 candidats, et il ne change que
-**l'ordre** dans lequel le budget est dépensé : la portée ne bouge pas.
+**Le relief dessiné avant le budget.** Le sol sous chaque candidat est lu **avant** de
+remplir les 900 places, et un sommet hors des tuiles dessinées est écarté là, pour un
+échantillon. Les places ne vont donc qu'à des sommets qui recevront vraiment un rayon.
 
 ```text
-                cap de la caméra
-     marge 20°  champ horizontal  marge 20°
-      ╲           ╲     │     ╱           ╱
-         ╲         ╲    │    ╱         ╱
-            ╲       ╲   │   ╱       ╱
-               ╲     ╲  │  ╱     ╱
-                  ╲   ╲ │ ╱   ╱
-                     ╲ ╲│╱ ╱
-                        ◉ œil
+  candidats du tour complet, triés par part de portée, de 0 à 1 :
 
-  « cadré » : |azimut − cap| ≤ FOV/2 + 20°      tout le reste : « hors cadre »
+  avant   [ dessiné · hors tuile · dessiné · hors tuile ········· | coupés ]
+           └────────────── 900 places ─────────────────┘   dont des dessinés
+             un hors-tuile y prend une place, puis est jeté sans rayon
 
-  candidats triés par part de portée, de 0 à 1 :
-
-  sans secteur  [ tous azimuts mêlés ···························· | coupés ]
-                 └────────────── 900 marchés ──────────────────┘   cadrés ou non
-
-  avec secteur  [ cadrés ········ | hors cadre ················· | coupés ]
-                 └────────────── 900 marchés ──────────────────┘   hors cadre
+  après   [ dessinés seulement ················ | coupés ]
+           └────── 900 places au plus ──────┘
 ```
 
-Sans secteur, la coupe tombe au hasard des azimuts ; avec, elle ne tombe que derrière
-l'œil tant que le cadre tient dans le budget.
+Les tuiles dessinées suivent le cadre de près : des 464 sommets dessinés ci-dessus, 368
+sont dans le champ horizontal (46°), 88 dans le demi-champ suivant de chaque côté, 8
+au-delà.
 
 #### À quels sommets on paie un rayon
 
@@ -1018,25 +1007,22 @@ avec la table actuelle :
 | Mont Ventoux | 348 | tient |
 | Puy de Dôme | 240 | tient |
 
-Quand il déborde, le tri par part de portée seul coupe les sommets au bout de leur
-portée **sur tout le tour**, y compris ceux qui sont dans l'image. `selectCandidates`
-prend donc un `ViewSector` (cap de la caméra + champ de vision horizontal, fournis par
-`PeakLabelsOverlay`) : les candidats du cadre — élargi de 20° de chaque côté
-(`SECTOR_MARGIN_DEG`), parce que la visée ne se refait que lorsque le jeu de tuiles
-dessinées change et qu'un sommet juste hors champ ne doit pas manquer à la première
-rotation — passent avant ceux qui restent derrière l'œil, chaque moitié gardant son tri
-par part de portée. Candidats **dans le champ réel** que le secteur rend à la visée,
-en moyenne sur douze caps :
+Quand il déborde et que le budget est rempli **avant** de savoir quels sommets sont
+dessinés — ce que faisait `selectCandidates` — la coupe tombe sur tout le tour, y compris
+dans l'image, pendant que des places vont à des sommets hors tuile qui ne recevront
+jamais de rayon. `selectCandidates` lit donc le sol sous chaque candidat d'abord, avec le
+même échantillonneur que la visée, et ne classe que ceux qui sont dessinés. Mesuré au point
+du schéma ci-dessus :
 
-| | FOV 8° | FOV 30° | FOV 60° |
-|---|---|---|---|
-| Croix de Belledonne | +3,2 | +12,5 | +25,0 |
-| Brévent | +1,4 | +6,3 | +12,5 |
+| | budget rempli puis filtré | filtré puis budget |
+|---|---|---|
+| sommets qui reçoivent un rayon | 408 | **464** |
+| dont regagnés | — | 56 : 14 entre 37 et 40 km, 42 entre 91 et 99 km |
+| tri + visée | — | 59 ms |
 
-Ce sont des sommets entre 19 et 149 km — des rangs 4 vers 20 km, des rangs 1 et 2 vers
-100–150 km — et des **candidats**, pas des noms : chacun doit encore dépasser le relief
-devant lui, puis trouver une place dans la bande. Là où le cercle tient (six des huit
-points ci-dessus), le secteur ne change rien.
+Les sommets regagnés sont ceux qui étaient au bout de leur portée : des rangs 3 vers
+40 km, des rangs 2 vers 100 km. Là où le cercle tient (six des huit points ci-dessus),
+rien ne change.
 
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
 des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le

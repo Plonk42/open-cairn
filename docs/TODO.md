@@ -109,3 +109,11 @@
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
       — est nettement plus lourde.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
+- [ ] Noms des sommets : la règle du visible diffère de celle de PeakFinder (comparaison
+      locale dans `data/PEAKFINDER_COMPARISON.md`, hors dépôt). Notre `SELF_CLEARANCE` ignore
+      les derniers 1,5 % de la distance sans rien tester — trop strict de près, trop laxiste
+      au loin. Piste : marcher jusqu'au sommet et ne pardonner un obstacle proche de la cime
+      que tant que le terrain monte. À essayer sur des cas étiquetés avant d'adopter.
+- [ ] Noms des sommets : l'œil de PeakFinder est plus haut que le nôtre et son sol creusé
+      autour de lui ; le nôtre est à 1,70 m et nos rayons ne regardent rien avant 80 m.
+      Depuis un replat, il voit plus. À mesurer avant de copier.
