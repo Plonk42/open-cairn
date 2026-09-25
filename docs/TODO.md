@@ -76,9 +76,6 @@
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.
-- [ ] Le test d'occultation est plus strict que celui de PeakFinder à courte distance :
-      `SELF_CLEARANCE` est une *fraction* de la distance (60 m à 4 km, 900 m à 60 km) là où
-      PeakFinder pardonne un obstacle à moins de 1 400 m fixes du sommet visé.
 - [ ] La contre-épreuve Wikidata (cote contre `P2044`, arbitrée par le RGE ALTI® à la
       coordonnée de Wikidata) voit deux cotes fausses que le garde de `build-peaks.mjs`
       laisse passer : le roc de Gleisin porte 1460 m là où Wikipédia dit 1434 et le
@@ -109,11 +106,7 @@
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
       — est nettement plus lourde.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
-- [ ] Noms des sommets : la règle du visible diffère de celle de PeakFinder (comparaison
-      locale dans `data/PEAKFINDER_COMPARISON.md`, hors dépôt). Notre `SELF_CLEARANCE` ignore
-      les derniers 1,5 % de la distance sans rien tester — trop strict de près, trop laxiste
-      au loin. Piste : marcher jusqu'au sommet et ne pardonner un obstacle proche de la cime
-      que tant que le terrain monte. À essayer sur des cas étiquetés avant d'adopter.
-- [ ] Noms des sommets : l'œil de PeakFinder est plus haut que le nôtre et son sol creusé
-      autour de lui ; le nôtre est à 1,70 m et nos rayons ne regardent rien avant 80 m.
-      Depuis un replat, il voit plus. À mesurer avant de copier.
+- [ ] Noms des sommets : il reste 51 désaccords avec PeakFinder sur 2 952 sommets (29 que
+      nous voyons et pas lui, 22 l'inverse), mesurés sur quatre points de vue seulement,
+      tous en Isère et Haute-Savoie. Les regarder un par un (MNT différent ? ancre mal
+      placée ?) et élargir l'échantillon à un fond de vallée et à un autre massif.

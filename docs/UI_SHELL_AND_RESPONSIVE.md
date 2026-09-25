@@ -860,7 +860,7 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le relief **dessiné** | 0,28 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
+| Visée : un rayon par sommet à travers le relief **dessiné** | ~0,10 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) ; 2 à 100 ms par passe mesurés | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste. La deuxième suit **ce que MapLibre dessine** : tourner
@@ -1026,9 +1026,44 @@ rien ne change.
 
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
 des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le
-rayon dans le couloir voisin. Et la marche s'arrête **1,5 % avant** le sommet
-(`SELF_CLEARANCE`) : sinon l'échantillon pris un pas avant la cime — sur sa propre
-pente, à peine plus bas — compte comme un obstacle et masque tout le panorama.
+rayon dans le couloir voisin.
+
+La marche va **jusqu'au sommet**, et c'est la règle qui pardonne sa propre masse :
+
+```text
+  œil ─────────────────────────────────────────────────────────────▲ sommet
+       ▲ obstacle au-dessus de la visée              │← 1 400 m →│
+       plus de 1 400 m avant le sommet : caché        la masse du sommet : pardonnée
+                                                     tant que le terrain monte, caché
+                                                     dès qu'il redescend de 15 m
+                                                     (un col devant la cime)
+```
+
+- **Un échantillon tous les `max(10 m, d / 150)`** : 10 m jusqu'à 1,5 km, 133 m à 20 km,
+  670 m à 100 km, soit ~840 échantillons jusqu'à 150 km. Un sommet caché s'arrête au
+  premier obstacle de premier plan, si bien que le coût par rayon ne bouge pas (~0,10 ms).
+- **Le sol près de l'œil est abaissé** de 20 m sous l'œil, de moins en moins jusqu'à 1 km
+  (`smoothstep`) : la pente sous les pieds ne cache rien de ce qu'un marcheur voit
+  par-dessus.
+- Le **dégagement** qui entre dans la priorité des noms (`labelPriority`) se mesure contre
+  le relief à plus de 1 400 m du sommet.
+
+La marche d'avant s'arrêtait **1,5 % avant** le sommet, sans rien tester dans cette zone
+(60 m à 4 km, 1,5 km à 100 km), avec une marge de 0,02° et un pas de 2 % de la distance.
+Calibré contre les verdicts de PeakFinder sur 2 952 sommets nommés vus depuis quatre
+points (Chamechaude, sous la Croix de Belledonne, près du Brévent, col de Porte) —
+comparaison locale, hors dépôt :
+
+| marche | désaccords |
+|---|---|
+| arrêt à 1,5 %, pas de 2 % (avant) | 94 |
+| jusqu'au sommet, zone de 1 400 m, pas `d / 150`, sans abaisser le sol | 75 |
+| **la même, sol abaissé près de l'œil** | **51** |
+| arrêt à 1,5 %, pas `d / 150`, sol abaissé | 64 |
+
+La zone et la redescente ont été balayées (800 / 1 400 / 2 000 m, 10 / 15 / 25 m) : le
+résultat est plat autour de 1 400 m et 15 m. Relever l'œil de 2 m pour le test n'apportait
+plus rien une fois le pas affiné (51 dans les deux cas) : abandonné.
 
 À l'autre bout, un sommet à moins de **250 m** (`MIN_SIGHT_DISTANCE_M`) n'est pas une
 visée, c'est le sol sous les pieds. L'œil se pose 1,70 m au-dessus du MNT au point de
