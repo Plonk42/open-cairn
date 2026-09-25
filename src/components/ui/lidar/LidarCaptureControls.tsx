@@ -92,7 +92,7 @@ function PoissonControls() {
                     className="mt-1 w-full accent-green-600"
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
-                    8 = rapide / grossier &middot; 10 = équilibré &middot; 12 = fin / lent.
+                    Plafond : au calcul, elle est ramenée à ce que la densité réelle du sol peut nourrir (sous forêt, souvent un ou deux crans de moins).
                 </p>
             </label>
             <label className="block">

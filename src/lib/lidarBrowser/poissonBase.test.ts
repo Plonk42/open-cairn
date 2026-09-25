@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VegGroundGrid } from './groundHeight';
-import { buildPoissonBase, buildPoissonBaseMask, POISSON_BASE_MARGIN_M, POISSON_WALL_PERIM_M, resolvePoissonBaseRect } from './poissonBase';
+import { buildPoissonBase, buildPoissonBaseMask, FLOOR_STEP_CELLS, POISSON_BASE_MARGIN_M, POISSON_WALL_PERIM_M, resolvePoissonBaseRect } from './poissonBase';
 
 interface BasePoint { x: number; y: number; z: number; nx: number; ny: number; nz: number; }
 
@@ -171,6 +171,17 @@ describe('buildPoissonBase with an oriented rectangle', () => {
             expect(Math.abs(du)).toBeLessThanOrEqual(3 + 1e-4);
             expect(Math.abs(dw)).toBeLessThanOrEqual(3 + 1e-4);
         }
+    });
+
+    it('sizes the octree cell on the rectangle, not on the grid around it', () => {
+        // The solver runs in the rectangle's frame, so a 200 m square turned 45°
+        // inside a 300 m grid has a 200 m box: sampling on the grid would put
+        // the floor 1.5× further apart in solver cells, towards the sag cliff.
+        const grid = makeGrid(100, 100, () => 10, 3);
+        const s = Math.SQRT1_2;
+        const rect = { ux: s, uy: s, halfLengthM: 100, halfWidthM: 100, centerX: 150, centerY: 150 };
+        const [a, b] = floors(decode(buildPoissonBase(grid, { rect })));
+        expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo((FLOOR_STEP_CELLS * 200) / 2 ** 9, 3);
     });
 });
 

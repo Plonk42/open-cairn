@@ -120,13 +120,15 @@ function cellIndex(worldOffset: number, cell: number, n: number): number {
 /**
  * Side (m) of the solver's finest octree cell: PoissonRecon cubes the sample
  * bounding box and subdivides it `depth` times, so the cell is the largest bbox
- * side over 2^depth. Everything the socle emits is sized in these units — a
+ * side over 2^depth. The pipeline turns the samples into the rectangle's own
+ * frame before solving, so the horizontal box is the rectangle, not the grid
+ * (√2 wider at 45°). Everything the socle emits is sized in these units — a
  * feature smaller than one cell does not exist for the solver. Measured on the
  * un-margined Z range: the margin derives from the cell, so feeding it back in
  * would be circular.
  */
-function octreeCellM(grid: VegGroundGrid, range: { min: number; max: number }, depth: number): number {
-    const extentXY = Math.max(grid.cols, grid.rows) * grid.cell;
+function octreeCellM(rect: ResolvedRect, range: { min: number; max: number }, depth: number): number {
+    const extentXY = 2 * Math.max(rect.halfLengthM, rect.halfWidthM);
     return Math.max(extentXY, range.max - range.min) / 2 ** depth;
 }
 
@@ -225,10 +227,12 @@ export const POISSON_WALL_PERIM_M = 0.6;
  * plane, so the capture band must scale with the solver resolution rather than
  * stay a fixed sub-metre value.
  */
-export function poissonBaseWallPerimM(grid: VegGroundGrid, depth = DEFAULT_POISSON_DEPTH): number {
+export function poissonBaseWallPerimM(
+    grid: VegGroundGrid, rect: ResolvedRect, depth = DEFAULT_POISSON_DEPTH,
+): number {
     const range = groundRange(grid.groundZ);
     if (!range) return POISSON_WALL_PERIM_M;
-    return Math.max(POISSON_WALL_PERIM_M, octreeCellM(grid, range, depth) * 1.5);
+    return Math.max(POISSON_WALL_PERIM_M, octreeCellM(rect, range, depth) * 1.5);
 }
 
 /** A near-vertical vertex is a wall when its normal's up-component is below this
@@ -261,12 +265,12 @@ export function buildPoissonBaseMask(
 }
 
 /** Elevation of the socle's flat underside; `null` when the grid has no finite cell. */
-function poissonBaseZ(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): number | null {
+function poissonBaseZ(grid: VegGroundGrid, rect: ResolvedRect, opts: PoissonBaseOptions): number | null {
     const range = groundRange(grid.groundZ);
     if (!range) return null;
     const sampleDepth = Math.min(opts.depth ?? DEFAULT_POISSON_DEPTH, POISSON_BASE_MAX_SAMPLE_DEPTH);
     const marginM = opts.marginM
-        ?? Math.max(POISSON_BASE_MARGIN_M, octreeCellM(grid, range, sampleDepth) * POISSON_BASE_MARGIN_CELLS);
+        ?? Math.max(POISSON_BASE_MARGIN_M, octreeCellM(rect, range, sampleDepth) * POISSON_BASE_MARGIN_CELLS);
     return range.min - marginM;
 }
 
@@ -278,8 +282,9 @@ function poissonBaseZ(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): numbe
  * grid's east/north/up meter frame. Empty when the grid has no finite cell.
  */
 export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions = {}): Float32Array {
+    const rect = resolvePoissonBaseRect(grid, opts.rect);
     const range = groundRange(grid.groundZ);
-    const baseZ = poissonBaseZ(grid, opts);
+    const baseZ = poissonBaseZ(grid, rect, opts);
     if (!range || baseZ === null) return new Float32Array(0);
 
     // Octree cell ≈ largest bbox side / 2^depth. Coplanar walls no longer alias,
@@ -288,7 +293,7 @@ export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions =
     // force a needlessly dense (and, on tall walls, hugely inflated) socle.
     const depth = opts.depth ?? DEFAULT_POISSON_DEPTH;
     const sampleDepth = Math.min(depth, POISSON_BASE_MAX_SAMPLE_DEPTH);
-    const octreeCell = octreeCellM(grid, range, sampleDepth);
+    const octreeCell = octreeCellM(rect, range, sampleDepth);
 
     // The steps are multiples of the octree cell and must stay so: the solver
     // works in cell units, so an absolute metre ceiling here freezes the socle's
@@ -306,7 +311,6 @@ export function buildPoissonBase(grid: VegGroundGrid, opts: PoissonBaseOptions =
     // it. No absolute floor here: a metre clamp is 2.6 cells on a 300 m capture.
     const floorStep = opts.floorStepM ?? octreeCell * FLOOR_STEP_CELLS;
 
-    const rect = resolvePoissonBaseRect(grid, opts.rect);
     const ctx: OrientedContext = { grid, baseZ, hStep, vStep, floorStep, out: [], rect };
     emitOrientedFloor(ctx);
     emitOrientedWalls(ctx);

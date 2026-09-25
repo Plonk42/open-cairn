@@ -110,6 +110,11 @@ séparément — le curseur affiche alors « personnalisée ». Les incohérence
 sont signalées avec leur correction (« Profondeur inutilement élevée… »,
 « Densité sol trop faible… »), chaque message portant son bouton *Corriger*.
 
+Les paliers restent calculés sur la densité **toutes classes** : sous forêt, le
+« détail » affiché est donc optimiste. Le worker, lui, ne dépasse pas la
+profondeur que le sol reçu peut nourrir (voir le mode Poisson plus bas) ; le
+curseur « Profondeur octree » des réglages avancés est de même un plafond.
+
 ### Résolution : le réglage qui décide du coût
 
 Une dalle COPC est un octree, mais **pas un octree plein** : les niveaux de la
@@ -505,13 +510,34 @@ flowchart TD
   `Uint32Array` indices. Les normales sont ensuite recalculées par
   pondération d'aires (`normalsFromMesh` dans `pipeline.ts`).
 
+  Le solveur travaille **dans le repère du rectangle de capture** : les
+  échantillons (sol et socle, positions et normales) y sont tournés avant
+  l'appel, le maillage est tourné en retour. PoissonRecon cube la boîte
+  alignée sur les axes de ses échantillons ; en axes est/nord, un rectangle tracé
+  à 45° remplit une boîte √2 plus large que lui — un demi-niveau d'octree
+  perdu, qui dépendait de l'orientation de la caméra au tracé.
+
+  La profondeur demandée est un **plafond** : `fetchLidarPoisson` la ramène à
+  celle que le sol réellement reçu peut nourrir (`groundDepthCap`, espacement
+  moyen des points sol sur la boîte du solveur, avant la décimation
+  adaptative). Le curseur Qualité ne peut dimensionner la profondeur que sur la
+  pyramide COPC, qui compte toutes les classes, alors que le solveur ne voit
+  que le sol : sous la forêt de Chartreuse (5.77 / 45.29), 48 pt/m² en tout
+  pour 4,5 au sol. Mesuré sur 200 × 200 m à 45° et densité native : depth 11
+  demandé → **9** (sol espacé de 0,46 m), 549 k sommets en 86 s ; sur la prairie
+  du Vercors, depth 10 reste 10. Le plafonnement s'affiche dans la ligne de
+  progression (« Poisson depth 9 (11 demandé, sol espacé de 0,46 m) ») et dans
+  la console (`profondeur`).
+
   Avant la reconstruction, `poissonBase.ts` ajoute un **socle** : un plancher
   quelques mètres sous le point le plus bas, normales vers le bas, et quatre murs
   verticaux coplanaires sur les bords du rectangle de capture. Sans lui le
   solveur referme le dessous en coussin bombé.
 
   Tout y est dimensionné en **cellules d'octree** (`octreeCellM` : plus grand côté
-  de la bbox / 2^profondeur), jamais en distances absolues — une valeur en mètres
+  du rectangle ou de l'étendue en Z / 2^profondeur — le rectangle, pas la grille
+  qui l'entoure, puisque le solveur tourne dans son repère), jamais en distances
+  absolues — une valeur en mètres
   se comporte correctement à une seule échelle de capture :
 
   - les **pas d'échantillonnage** sont des multiples de la cellule, sinon un

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     captureAdvice, coherentDepth, coherentGroundStride, COMFORT_SECONDS,
-    defaultQualityIndex, formatDetail, formatSeconds, octreeCellM, POISSON_DEPTH_MAX,
+    defaultQualityIndex, formatDetail, formatSeconds, groundDepthCap, octreeCellM, POISSON_DEPTH_MAX,
     POISSON_DEPTH_MIN, QUALITY_TIER_COUNT, qualityTiers, spacingM, tierIndexOf,
 } from './lidarQuality';
 import { CAPTURE_POINT_CEILING } from './lidarResolution';
@@ -35,6 +35,18 @@ describe('coherentDepth', () => {
     it('stays within the range the pipeline clamps to', () => {
         expect(coherentDepth(50, 50, 6.8)).toBeGreaterThanOrEqual(POISSON_DEPTH_MIN);
         expect(coherentDepth(5000, 5000, 0)).toBeLessThanOrEqual(POISSON_DEPTH_MAX);
+    });
+});
+
+describe('groundDepthCap', () => {
+    it('lands on the dial\'s own depth where the ground is the whole cloud', () => {
+        expect(groundDepthCap(250, spacingM(0))).toBe(coherentDepth(250, 250, 0));
+    });
+
+    it('drops two levels under a forest', () => {
+        // Chartreuse, 5.77 / 45.29: 48 pt/m² in all, 4.5 of them on the ground.
+        const allClasses = groundDepthCap(250, 1 / Math.sqrt(48));
+        expect(groundDepthCap(250, 1 / Math.sqrt(4.5))).toBe(allClasses - 2);
     });
 });
 

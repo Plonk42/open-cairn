@@ -7,6 +7,7 @@
  * Returns the same data shapes as `src/lib/lidarCloud.ts` types.
  */
 import type { LidarMeshData, LidarMixedData, LidarShadedCloudData } from '../lidarCloud';
+import { groundDepthCap } from '../lidarQuality';
 import {
     adaptiveDecimateGround, DEFAULT_ADAPTIVE_CELL_M,
     DEFAULT_ADAPTIVE_RESIDUAL_M, DEFAULT_ADAPTIVE_SIGMA_TOL,
@@ -1034,6 +1035,56 @@ function normalsFromMesh(
 }
 
 /**
+ * Horizontal axes the solver works in: the capture rectangle's own. PoissonRecon
+ * cubes the axis-aligned box of its samples, and a rectangle drawn at 45° fills
+ * a box √2 wider than itself in east/north axes — half an octree level lost.
+ */
+interface SolverFrame { ux: number; uy: number; }
+
+/** Rotate the XY of the triple at `i` by the angle whose cosine/sine are `c`/`s`, negated. */
+function rotateXY(a: Float32Array, i: number, c: number, s: number): void {
+    const x = a[i], y = a[i + 1];
+    a[i] = x * c + y * s;
+    a[i + 1] = y * c - x * s;
+}
+
+/** Interleaved `[x, y, z, nx, ny, nz]` samples, east/north → solver frame, in place. */
+function toSolverFrame(oriented: Float32Array, f: SolverFrame): void {
+    for (let i = 0; i < oriented.length; i += 6) {
+        rotateXY(oriented, i, f.ux, f.uy);
+        rotateXY(oriented, i + 3, f.ux, f.uy);
+    }
+}
+
+/** Mesh positions, solver frame → east/north, in place. */
+function fromSolverFrame(positions: Float32Array, f: SolverFrame): void {
+    for (let i = 0; i < positions.length; i += 3) rotateXY(positions, i, f.ux, -f.uy);
+}
+
+/**
+ * Depth the ground points can feed, measured on the points themselves: their
+ * mean spacing over the solver-frame box, before the adaptive decimation (which
+ * only drops what the octree could not see anyway).
+ */
+function measuredGroundDepthCap(
+    pos: Float32Array, count: number, f: SolverFrame,
+): { depth: number; spacingM: number } {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < count; i++) {
+        const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+        const u = x * f.ux + y * f.uy;
+        const w = y * f.ux - x * f.uy;
+        minX = Math.min(minX, u); maxX = Math.max(maxX, u);
+        minY = Math.min(minY, w); maxY = Math.max(maxY, w);
+        minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    const ex = maxX - minX, ey = maxY - minY;
+    const spacingM = Math.sqrt((ex * ey) / count);
+    return { depth: groundDepthCap(Math.max(ex, ey, maxZ - minZ), spacingM), spacingM };
+}
+
+/**
  * Poisson reconstruction mode: ground points → per-point normals via k-NN
  * PCA → PoissonRecon WASM (octree solver) → triangle mesh. Mirrors the
  * mixed mode by also returning a shaded point cloud of every non-ground
@@ -1044,7 +1095,7 @@ export async function fetchLidarPoisson(
     params: BrowserFetchParams,
 ): Promise<LidarMixedData> {
     const onProgress = params.onProgress ?? noopProgress;
-    const depth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
+    const requestedDepth = Math.max(6, Math.min(12, Math.floor(params.poissonDepth ?? 9)));
     const total = startTimer();
 
     // Fetch every class. Ground+water are kept at FULL density (exempt from the
@@ -1119,6 +1170,14 @@ export async function fetchLidarPoisson(
             halfWidthM: params.rect.halfWidthM,
         };
     }
+    const frame: SolverFrame = rectOpt ?? { ux: 1, uy: 0 };
+    const cap = measuredGroundDepthCap(groundPos, groundCount, frame);
+    const depth = Math.min(requestedDepth, cap.depth);
+    const spacingLabel = cap.spacingM.toFixed(2).replace('.', ',');
+    const depthLabel = depth < requestedDepth
+        ? `Poisson depth ${depth} (${requestedDepth} demandé, sol espacé de ${spacingLabel} m)`
+        : `Poisson depth ${depth}`;
+    logStage('profondeur', 0, `${requestedDepth} demandée → ${depth} · sol espacé de ${spacingLabel} m`);
     const flatBaseRect = (params.poissonFlatBase ?? true) && groundGrid
         ? resolvePoissonBaseRect(groundGrid, rectOpt)
         : null;
@@ -1143,10 +1202,11 @@ export async function fetchLidarPoisson(
         logStage('socle plat', tFlatBase(), `+${(flatBase.length / 6).toLocaleString()} pts base`);
     }
     const solverInput = oriented;
+    toSolverFrame(solverInput, frame);
     onProgress({
         stage: 'mesh',
         message: STAGE_LABELS.mesh,
-        detail: `Poisson depth ${depth}`,
+        detail: depthLabel,
     });
     const tPoisson = startTimer();
     const mesh = await reconstructPoisson(solverInput, {
@@ -1161,10 +1221,11 @@ export async function fetchLidarPoisson(
         onPhase: (label, fraction) => onProgress({
             stage: 'mesh',
             message: STAGE_LABELS.mesh,
-            detail: `Poisson depth ${depth} · ${label}`,
+            detail: `${depthLabel} · ${label}`,
             progress: fraction,
         }),
     });
+    fromSolverFrame(mesh.positions, frame);
     const vertexCount = mesh.positions.length / 3;
     const triangleCount = mesh.indices.length / 3;
     logStage('poisson', tPoisson(), `depth ${depth} → ${vertexCount.toLocaleString()} verts / ${triangleCount.toLocaleString()} tri`);
@@ -1178,7 +1239,7 @@ export async function fetchLidarPoisson(
     logStage('normals (mesh sol)', tMeshNrm());
     let baseMask: Uint8Array | undefined;
     if (flatBaseRect && groundGrid) {
-        const perimM = poissonBaseWallPerimM(groundGrid, depth);
+        const perimM = poissonBaseWallPerimM(groundGrid, flatBaseRect, depth);
         baseMask = buildPoissonBaseMask(mesh.positions, meshNrm, flatBaseRect, perimM);
     }
     const meshData: LidarMeshData = {

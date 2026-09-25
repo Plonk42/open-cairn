@@ -71,13 +71,27 @@ function snapStride(ratio: number): number {
     return Math.min(STRIDE_STOPS[0], 2 ** Math.max(0, exp));
 }
 
+/** Unrounded depth at which the octree cell over `extentM` matches `spacing`. */
+function depthForSpacing(extentM: number, spacing: number): number {
+    return Math.log2(extentM / spacing);
+}
+
 /** Unrounded depth at which the octree cell matches the effective spacing. */
 function coherentDepthExact(
     widthM: number, lengthM: number, resolutionM: number, groundStride: number,
     pyramid: PyramidProfile,
 ): number {
     const effective = spacingM(resolutionM, pyramid) * Math.sqrt(Math.max(1, groundStride));
-    return Math.log2(Math.max(widthM, lengthM) / effective);
+    return depthForSpacing(Math.max(widthM, lengthM), effective);
+}
+
+/**
+ * Deepest octree level the ground points a capture actually received can feed.
+ * The dial can only size the depth on the pyramid, which counts every class; the
+ * solver sees the ground alone, which is 9 % of the points under a forest.
+ */
+export function groundDepthCap(extentM: number, groundSpacingM: number): number {
+    return clampDepth(Math.round(depthForSpacing(extentM, groundSpacingM)));
 }
 
 /** Octree depth whose cell matches the cloud's effective ground spacing. */
