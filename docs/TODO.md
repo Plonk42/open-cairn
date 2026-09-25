@@ -108,5 +108,6 @@
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
 - [ ] Noms des sommets : il reste 51 désaccords avec PeakFinder sur 2 952 sommets (29 que
       nous voyons et pas lui, 22 l'inverse), mesurés sur quatre points de vue seulement,
-      tous en Isère et Haute-Savoie. Les regarder un par un (MNT différent ? ancre mal
-      placée ?) et élargir l'échantillon à un fond de vallée et à un autre massif.
+      tous en Isère et Haute-Savoie. Les regarder un par un pour les **expliquer** (MNT
+      différent ? ancre mal placée ?) — pas pour les annuler : un écart compris ou assumé
+      est acceptable. Élargir l'échantillon à un fond de vallée et à un autre massif.

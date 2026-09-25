@@ -21,6 +21,10 @@ techniques vivent dans le document de chaque sujet.
 - **Le point de station est le point le plus haut à moins de 50 m du clic**, comme PeakFinder :
   l'œil ne se pose plus sur l'endroit exact cliqué. Un lien de partage, lui, n'est pas recalé.
   → `UI_SHELL_AND_RESPONSIVE.md`
+- **PeakFinder est une référence, pas une cible** : une différence de sommets vus ou nommés est
+  acceptable dès qu'on sait l'expliquer ou qu'elle est assumée (le classement des noms par
+  distance rapportée au rang, par exemple). On ne cherche pas à annuler l'écart pour lui-même.
+  → `UI_SHELL_AND_RESPONSIVE.md`
 
 ## Studio LiDAR
 
