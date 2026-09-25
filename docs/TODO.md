@@ -111,3 +111,15 @@
       tous en Isère et Haute-Savoie. Les regarder un par un pour les **expliquer** (MNT
       différent ? ancre mal placée ?) — pas pour les annuler : un écart compris ou assumé
       est acceptable. Élargir l'échantillon à un fond de vallée et à un autre massif.
+- [ ] Ancres posées derrière leur vrai sommet : vus depuis la Croix de Belledonne, Chamechaude
+      et le Brévent, la Grande Roche, Pointe Centrale Nord, Pic de la Grande Valloire, Tête
+      Pelouse, Dôme de Polset et Pic de la Loze ont leur ancre 200 m à 1 km *au-delà* du point
+      le plus haut du MNT, 6 à 57 m plus bas que lui (Tête Pelouse : 57 m, au-dessus du seuil
+      de 40 m de la montée guidée, qui a donc calé). C'est ce qui empêche de chercher le col
+      d'une crête distincte sous la ligne de visée (`peakSightings.ts`, `SUMMIT_DIP_M`). Deux
+      pistes : mieux remonter les ancres dans `build-peaks.mjs`, ou poser la pointe du trait au
+      point le plus haut de la zone du sommet à l'affichage.
+- [ ] Le sol abaissé de 20 m sur 1 km autour de l'œil (`SINK_DEPTH_M`) n'a été validé que
+      contre PeakFinder, qui fait la même chose. Le vérifier contre une référence
+      indépendante : des rayons tirés hors ligne sur le RGE ALTI® à pleine résolution, pour
+      quelques centaines de sommets.

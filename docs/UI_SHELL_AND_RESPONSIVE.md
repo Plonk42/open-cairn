@@ -1033,20 +1033,29 @@ La marche va **jusqu'au sommet**, et c'est la règle qui pardonne sa propre mass
 ```text
   œil ─────────────────────────────────────────────────────────────▲ sommet
        ▲ obstacle au-dessus de la visée              │← 1 400 m →│
-       plus de 1 400 m avant le sommet : caché        la masse du sommet : pardonnée
-                                                     tant que le terrain monte, caché
-                                                     dès qu'il redescend de 15 m
-                                                     (un col devant la cime)
+       avant la zone : caché                          la masse du sommet : un obstacle
+                                                     y est pardonné, sauf si un obstacle
+                                                     suivant est 15 m plus bas (une
+                                                     encoche devant la cime)
 ```
 
+- **La zone fait 1 400 m, jamais plus de la moitié du trajet** : sans ce plafond, un sommet à
+  1 km avait tout son rayon pardonné, et une banquette à 200 m de l'œil passait pour sa masse.
+- **La redescente n'est cherchée que parmi les obstacles**, c'est-à-dire au-dessus de la
+  visée. Une crête distincte dont le col tombe *sous* la visée est donc pardonnée — c'est
+  une limite connue. La chercher aussi sous la visée a été essayé : cela cachait 7 sommets sur
+  2 952 que PeakFinder voit (la Grande Roche, Tête Pelouse, Pic de la Loze…), tous parce que
+  leur ancre est posée 200 m à 1 km *derrière* le point le plus haut du MNT, sur le versant
+  opposé. Le défaut est dans l'ancre, pas dans la règle (voir `TODO.md`).
 - **Un échantillon tous les `max(10 m, d / 150)`** : 10 m jusqu'à 1,5 km, 133 m à 20 km,
   670 m à 100 km, soit ~840 échantillons jusqu'à 150 km. Un sommet caché s'arrête au
   premier obstacle de premier plan, si bien que le coût par rayon ne bouge pas (~0,10 ms).
 - **Le sol près de l'œil est abaissé** de 20 m sous l'œil, de moins en moins jusqu'à 1 km
-  (`smoothstep`) : la pente sous les pieds ne cache rien de ce qu'un marcheur voit
-  par-dessus.
+  (`smoothstep`). C'est le réglage le moins établi : il réduit l'écart avec PeakFinder, qui
+  fait de même, mais n'a pas été vérifié contre une référence indépendante.
 - Le **dégagement** qui entre dans la priorité des noms (`labelPriority`) se mesure contre
-  le relief à plus de 1 400 m du sommet.
+  le relief qui précède la zone. Comme la zone ne dépasse pas la moitié du trajet, il y a
+  toujours un premier plan : un sommet proche ne reçoit plus d'office le bonus maximal.
 
 La marche d'avant s'arrêtait **1,5 % avant** le sommet, sans rien tester dans cette zone
 (60 m à 4 km, 1,5 km à 100 km), avec une marge de 0,02° et un pas de 2 % de la distance.
