@@ -95,18 +95,31 @@ const RAY_STEP_FRACTION = 1 / 150;
 /**
  * The ground near the eye is lowered, by this much at the eye and smoothly less
  * out to this radius, so the slope underfoot hides nothing the walker sees over.
- * Without it the march above disagrees on 75 summits instead of 52.
+ * Without it the march above disagrees on 75 summits instead of 52 — but
+ * PeakFinder does the same, so that gain is partly circular: not yet checked
+ * against an independent reference.
  */
 const SINK_DEPTH_M = 20;
 const SINK_RADIUS_M = 1_000;
 
 /**
- * A blocker this close to the summit is the summit's own mass, forgiven while
- * the terrain keeps climbing — until it has dropped {@link SUMMIT_DIP_M} below
- * the highest such blocker, which is a col in front of the top, not its flank.
- * Farther out, anything above the line of sight hides the summit.
+ * A blocker this close to the summit is the summit's own mass, forgiven as long
+ * as no later blocker sits {@link SUMMIT_DIP_M} below the highest one — a notch
+ * in what stands before the top. Farther out, anything above the line of sight
+ * hides the summit.
+ *
+ * A drop BELOW the line of sight is deliberately not checked, although it is
+ * what tells a separate crest from the summit's flank: it is also the far side
+ * of a top the anchor sits just behind. Checking it hid 7 summits of 2 952 that
+ * PeakFinder sees — la Grande Roche, Tête Pelouse, Pic de la Loze… — all with
+ * their anchor 200 m to 1 km past the highest point of the DEM.
+ *
+ * The zone never covers more than {@link SUMMIT_ZONE_MAX_SHARE} of the way: past
+ * the halfway point the terrain is nearer the eye than the summit is, and a
+ * 1 400 m zone would otherwise forgive the whole ray of a summit 1 km away.
  */
 const SUMMIT_ZONE_M = 1_400;
+const SUMMIT_ZONE_MAX_SHARE = 0.5;
 const SUMMIT_DIP_M = 15;
 
 /** A summit whose DEM reads at sea level is outside the loaded terrain. */
@@ -233,14 +246,15 @@ function sinkM(d: number): number {
 }
 
 /**
- * How far the summit stands above the relief in front of it, in degrees, or null
- * when that relief hides it.
+ * How far the summit stands above the relief in front of its own mass, in
+ * degrees, or null when that relief hides it.
  */
 function summitClearanceDeg(observer: SkylineObserver, candidate: Candidate, sample: GroundSampler): number | null {
     const { distanceM, groundM } = candidate;
     const eyeM = observer.altitudeM;
     const { perMetreLng, perMetreLat } = rayStep(observer, candidate.azimuthDeg);
     const summitDeg = apparentAngleDeg(eyeM, groundM, distanceM);
+    const zoneStartM = distanceM - Math.min(SUMMIT_ZONE_M, distanceM * SUMMIT_ZONE_MAX_SHARE);
     let foregroundDeg = -90;
     let highestBlockerM = Number.NEGATIVE_INFINITY;
     for (let d = RAY_MIN_STEP_M; d < distanceM; d += Math.max(RAY_MIN_STEP_M, d * RAY_STEP_FRACTION)) {
@@ -248,10 +262,12 @@ function summitClearanceDeg(observer: SkylineObserver, candidate: Candidate, sam
         if (!Number.isFinite(rawM)) continue;
         const h = rawM - sinkM(d);
         const deg = apparentAngleDeg(eyeM, h, d);
-        const onSummit = distanceM - d <= SUMMIT_ZONE_M;
-        if (!onSummit) foregroundDeg = Math.max(foregroundDeg, deg);
+        if (d < zoneStartM) {
+            if (deg > summitDeg) return null;
+            foregroundDeg = Math.max(foregroundDeg, deg);
+            continue;
+        }
         if (deg <= summitDeg) continue;
-        if (!onSummit) return null;
         highestBlockerM = Math.max(highestBlockerM, h);
         if (highestBlockerM - h >= SUMMIT_DIP_M) return null;
     }

@@ -142,6 +142,27 @@ describe('sightPeaks', () => {
         expect(sightPeaks(OBSERVER, [top], sample)).toEqual([]);
     });
 
+    it('does not forgive a bench near the eye as the mass of a summit 1 km away', () => {
+        const near = peakNorth('near', 1_000);
+        const sample: GroundSampler = (_lng, lat) => {
+            const dM = (lat - OBSERVER.lat) * METRES_PER_DEG_LAT;
+            if (dM > 940) return 1_100;
+            return dM > 200 ? 1_060 : 998;
+        };
+        expect(sightPeaks(OBSERVER, [near], sample)).toEqual([]);
+    });
+
+    it('measures a near summit\'s clearance against the relief in front of it', () => {
+        const near = peakNorth('near', 1_000);
+        const sample: GroundSampler = (_lng, lat) => {
+            const dM = (lat - OBSERVER.lat) * METRES_PER_DEG_LAT;
+            return dM > 940 ? 1_030 : 998;
+        };
+        const [seen] = sightPeaks(OBSERVER, [near], sample);
+        expect(seen.clearanceDeg).toBeGreaterThan(0);
+        expect(seen.clearanceDeg).toBeLessThan(5);
+    });
+
     it('sees over a hummock at the eye\'s feet', () => {
         const far = peakNorth('far', 10_000);
         const sample: GroundSampler = (_lng, lat) => {
