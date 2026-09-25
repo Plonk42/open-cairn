@@ -120,6 +120,7 @@
       pistes : mieux remonter les ancres dans `build-peaks.mjs`, ou poser la pointe du trait au
       point le plus haut de la zone du sommet à l'affichage.
 - [ ] Le sol abaissé de 20 m sur 1 km autour de l'œil (`SINK_DEPTH_M`) n'a été validé que
-      contre PeakFinder, qui fait la même chose. Le vérifier contre une référence
-      indépendante : des rayons tirés hors ligne sur le RGE ALTI® à pleine résolution, pour
-      quelques centaines de sommets.
+      contre PeakFinder, qui fait la même chose — et mesuré avec l'œil à 1,70 m. L'œil étant
+      désormais à 10 m, remesurer son effet ; s'il n'apporte plus rien, le retirer. Le
+      vérifier aussi contre une référence indépendante : des rayons tirés hors ligne sur le
+      RGE ALTI® à pleine résolution, pour quelques centaines de sommets.

@@ -256,7 +256,7 @@ fois dans la console s'il ne la trouve plus.
 
 Le bouton *Point de vue* est une bascule, comme *Orbite* : un clic **arme** le mode
 (le curseur passe en croix, le clic suivant sur la carte choisit le lieu), un second
-clic en sort. Son libellé ne change jamais. Une fois actif, l'œil est posé **1,70 m
+clic en sort. Son libellé ne change jamais. Une fois actif, l'œil est posé **10 m
 au-dessus du point le plus haut à moins de 50 m** de l'endroit cliqué (voir « Le point de
 station » plus bas) et n'en bouge plus : le glisser-déposer fait
 tourner le regard **sur place**, comme si l'on se tenait là et que l'on tournait la
@@ -294,7 +294,7 @@ retrouvée exactement (centre, zoom, pitch, cap, focale). Le vol interpole **l'�
 pas les options de MapLibre : `center / zoom` interpolés feraient tourner l'œil autour
 d'un centre à des kilomètres. Chaque image passe par `cameraForViewpoint` (œil, cap au
 plus court, pitch, focale et distance au centre interpolés, `easeInOutCubic`), et l'œil
-est maintenu au-dessus du sol dessiné (`queryTerrainElevation` + 1,70 m). Durée :
+est maintenu au-dessus du sol dessiné (`queryTerrainElevation` + 1,70 m au moins). Durée :
 0,9 à 2,5 s selon la distance (`flightDurationMs`). Mesuré depuis un zoom 12,3 : de
 6 103 m à l'arrivée au sol en 2,2 s, jamais sous le relief, et retour au pixel près.
 
@@ -352,7 +352,8 @@ synchronisation du curseur d'itinéraire s'abstient.
   doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
   par deux) : l'image suit le geste, comme un pincement de photo.
 - **Flèches haut / bas**, ou boutons **▲/▼** de la barre = **hauteur de l'œil
-  au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 1,70 m et 3 000 m. Le point
+  au-dessus du sol**, 2 m par appui, 20 m avec Maj, entre 1,70 m et 3 000 m (10 m à
+  l'arrivée). Le point
   de vue, lui, ne bouge pas : seule l'altitude change. Elles servent à se dégager d'un
   versant qui continue de monter au-delà des 50 m du point de station. La liaison clavier est posée en phase de
   **capture** sur `document`, comme `bindAltitudeKeys`, et ignore les frappes dans un
@@ -391,14 +392,19 @@ sort en équirectangulaire, MapLibre rebâtit en mercator, et la composante vert
 bras de levier vaut `4000 · cos(85°) ≈ 348 m` — 0,3 % d'écart y font un mètre. Tant que
 la boucle comparait la consigne à elle-même, elle ne pouvait pas le voir : mesuré sur
 cinq points de vue, l'œil arrivait entre **0,73 m et 2,08 m** au-dessus du sol au lieu de
-1,70 m. En corrigeant sur l'altitude atteinte — qui suit la consigne avec une pente de 1,
-donc converge en une passe — les cinq mêmes points donnent **1,70 m** exactement.
+1,70 m (la hauteur d'arrivée d'alors). En corrigeant sur l'altitude atteinte — qui suit la
+consigne avec une pente de 1, donc converge en une passe — les cinq mêmes points donnent
+**1,70 m** exactement.
 
-> **Ce que 1,70 m ne garantit pas.** Être au-dessus du sol *selon le MNT* ne veut pas
-> dire être au-dessus du sol *dessiné* : `queryTerrainElevation` interpole le raster en
-> bilinéaire, alors que MapLibre dessine une grille de triangles qui ne coïncide avec lui
-> qu'aux sommets du maillage. Le point de station (ci-dessous) garde pour cela une marge sur
-> le relief alentour.
+> **Ce que la hauteur de l'œil ne garantit pas.** Être au-dessus du sol *selon le MNT* ne
+> veut pas dire être au-dessus du sol *dessiné* : `queryTerrainElevation` interpole le
+> raster en bilinéaire, alors que MapLibre dessine une grille de triangles qui ne coïncide
+> avec lui qu'aux sommets du maillage. Sur un versant, à 1,70 m, la surface dessinée passait
+> souvent au-dessus de l'œil et entaillait le premier plan. C'est pourquoi l'œil arrive
+> désormais à **10 m** : l'artefact disparaît, et la ligne de visée n'en est pas changée de
+> façon visible. Abaisser le relief *dessiné* sous l'œil (en réécrivant la texture de
+> hauteurs des tuiles concernées) a été envisagé, et écarté comme trop lourd. Le point de
+> station (ci-dessous) garde aussi une marge sur le relief alentour.
 
 #### Le point de station : le point haut à 50 m
 
@@ -1075,7 +1081,7 @@ résultat est plat autour de 1 400 m et 15 m. Relever l'œil de 2 m pour le test
 plus rien une fois le pas affiné (51 dans les deux cas) : abandonné.
 
 À l'autre bout, un sommet à moins de **250 m** (`MIN_SIGHT_DISTANCE_M`) n'est pas une
-visée, c'est le sol sous les pieds. L'œil se pose 1,70 m au-dessus du MNT au point de
+visée, c'est le sol sous les pieds. L'œil se posait alors 1,70 m au-dessus du MNT au point de
 station, qui n'est jamais exactement la cime enregistrée : debout sur Chamechaude, la
 ligne « Chamechaude » est à 34 m et le MNT y lit 10 m de plus, soit **16° d'élévation**.
 Une amorce pointant le ciel — et, comme la bande s'accroche au sommet le plus haut de

@@ -52,7 +52,7 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   automatique, galerie de « vues » (scènes caméra + réglages)
   sauvegardables localement ou partagées via [public/showcase/](public/showcase/), export d'images
 - **Mode « Point de vue »** — disponible dans les **deux vues**, sur ordinateur comme sur mobile :
-  on clique (ou on touche) l'endroit où l'on se tiendrait, la caméra y **descend en vol**, l'œil se pose 1,70 m au-dessus du point le plus haut à moins de 50 m du clic et
+  on clique (ou on touche) l'endroit où l'on se tiendrait, la caméra y **descend en vol**, l'œil se pose 10 m au-dessus du point le plus haut à moins de 50 m du clic et
   la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale ; flèches
   haut/bas ou boutons ▲/▼ = hauteur de l'œil, pour se dégager d'un relief proche). Une **barre de
   mode** en bas de la carte porte les réglages du point de vue, *Changer de lieu* et *Quitter*
