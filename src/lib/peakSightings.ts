@@ -31,7 +31,7 @@
 import type { Peak } from '@/lib/peaks';
 import {
     apparentAngleDeg,
-    ridgeAngleBefore,
+    rayStep,
     sightingFrom,
     type GroundSampler,
     type SkylineObserver,
@@ -73,23 +73,41 @@ const REACH_BY_IMPORTANCE_M = [0, 150_000, 100_000, 40_000, 20_000];
 /**
  * Ceiling on the number of rays marched in one pass.
  *
- * Measured in the browser on the Chamechaude standpoint, a ray costs 0.28 ms,
- * not the 0.6 ms this budget was first sized on. A ray is also barely longer
- * since the reach grew: the march steps geometrically, so 150 km costs 380
- * samples against 334 for 60 km. Only summits on drawn terrain get a ray — the
- * rest cost one sample — so a pass is paid for the frame, not the circle.
+ * A ray costs about 0.10 ms (measured over 3 800 rays, sampler included), and a
+ * hidden summit — most of them — stops at its first foreground blocker. Only
+ * summits on drawn terrain get a ray, so a pass is paid for the frame, not the
+ * circle.
  */
 const MAX_MARCHED = 900;
 
-/**
- * The march stops this fraction short of the summit. Without it the DEM sample
- * taken one step before the top — on the summit's own slope, and barely lower —
- * would be counted as an occluder and hide every peak in the panorama.
+/*
+ * How the visibility march reads the relief. Calibrated against PeakFinder's
+ * verdicts on 2 952 named summits seen from four standpoints (Chamechaude, below
+ * the Croix de Belledonne, Brévent, Col de Porte): this march disagrees on 51,
+ * where the one it replaced — stop 1.5 % short of the summit, 0.02° of margin,
+ * a step of 2 % of the distance — disagreed on 94, at the same cost per ray.
  */
-const SELF_CLEARANCE = 0.985;
 
-/** Under a summit's own apparent size, a "clearance" is DEM noise, not a view. */
-const CLEARANCE_TOLERANCE_DEG = 0.02;
+/** First probe, and the finest step: 10 m up to 1.5 km, then 1/150 of the distance. */
+const RAY_MIN_STEP_M = 10;
+const RAY_STEP_FRACTION = 1 / 150;
+
+/**
+ * The ground near the eye is lowered, by this much at the eye and smoothly less
+ * out to this radius, so the slope underfoot hides nothing the walker sees over.
+ * Without it the march above disagrees on 75 summits instead of 52.
+ */
+const SINK_DEPTH_M = 20;
+const SINK_RADIUS_M = 1_000;
+
+/**
+ * A blocker this close to the summit is the summit's own mass, forgiven while
+ * the terrain keeps climbing — until it has dropped {@link SUMMIT_DIP_M} below
+ * the highest such blocker, which is a col in front of the top, not its flank.
+ * Farther out, anything above the line of sight hides the summit.
+ */
+const SUMMIT_ZONE_M = 1_400;
+const SUMMIT_DIP_M = 15;
 
 /** A summit whose DEM reads at sea level is outside the loaded terrain. */
 const MIN_GROUND_M = 1;
@@ -208,6 +226,38 @@ export function selectCandidates(
     return candidates.slice(0, MAX_MARCHED);
 }
 
+/** Metres the ground is lowered by, `d` metres from the eye. */
+function sinkM(d: number): number {
+    const x = Math.min(1, d / SINK_RADIUS_M);
+    return SINK_DEPTH_M * (1 - x * x * (3 - 2 * x));
+}
+
+/**
+ * How far the summit stands above the relief in front of it, in degrees, or null
+ * when that relief hides it.
+ */
+function summitClearanceDeg(observer: SkylineObserver, candidate: Candidate, sample: GroundSampler): number | null {
+    const { distanceM, groundM } = candidate;
+    const eyeM = observer.altitudeM;
+    const { perMetreLng, perMetreLat } = rayStep(observer, candidate.azimuthDeg);
+    const summitDeg = apparentAngleDeg(eyeM, groundM, distanceM);
+    let foregroundDeg = -90;
+    let highestBlockerM = Number.NEGATIVE_INFINITY;
+    for (let d = RAY_MIN_STEP_M; d < distanceM; d += Math.max(RAY_MIN_STEP_M, d * RAY_STEP_FRACTION)) {
+        const rawM = sample(observer.lng + perMetreLng * d, observer.lat + perMetreLat * d);
+        if (!Number.isFinite(rawM)) continue;
+        const h = rawM - sinkM(d);
+        const deg = apparentAngleDeg(eyeM, h, d);
+        const onSummit = distanceM - d <= SUMMIT_ZONE_M;
+        if (!onSummit) foregroundDeg = Math.max(foregroundDeg, deg);
+        if (deg <= summitDeg) continue;
+        if (!onSummit) return null;
+        highestBlockerM = Math.max(highestBlockerM, h);
+        if (highestBlockerM - h >= SUMMIT_DIP_M) return null;
+    }
+    return summitDeg - foregroundDeg;
+}
+
 /**
  * Keep the summits that stand clear of everything between them and the eye.
  *
@@ -236,11 +286,11 @@ export function sightPeaks(
     sample: GroundSampler,
 ): PeakSighting[] {
     const out: PeakSighting[] = [];
-    for (const { peak, distanceM, azimuthDeg, groundM } of selectCandidates(observer, peaks, sample)) {
-        const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, distanceM);
-        const ridgeDeg = ridgeAngleBefore(observer, azimuthDeg, distanceM * SELF_CLEARANCE, sample);
-        if (elevationDeg < ridgeDeg + CLEARANCE_TOLERANCE_DEG) continue;
-        out.push({ peak, distanceM, groundM, clearanceDeg: elevationDeg - ridgeDeg });
+    for (const candidate of selectCandidates(observer, peaks, sample)) {
+        const clearanceDeg = summitClearanceDeg(observer, candidate, sample);
+        if (clearanceDeg === null) continue;
+        const { peak, distanceM, groundM } = candidate;
+        out.push({ peak, distanceM, groundM, clearanceDeg });
     }
     return out;
 }

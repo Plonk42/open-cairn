@@ -120,13 +120,36 @@ describe('sightPeaks', () => {
 
     it('does not let a summit hide itself with its own slope', () => {
         // A broad dome: the probes just short of the top are barely lower, which
-        // is exactly the case the self-clearance margin exists for.
+        // is exactly the case the summit zone exists for.
         const dome = peakNorth('dome', 8_000);
         const sample: GroundSampler = (_lng, lat) => {
             const dM = Math.abs(lat - dome.lat) * METRES_PER_DEG_LAT;
             return dM > 2_000 ? 1_000 : 2_000 - (dM / 2_000) * 1_000;
         };
         expect(sightPeaks(OBSERVER, [dome], sample).map((s) => s.peak.id)).toEqual(['dome']);
+    });
+
+    it('hides a summit behind a col in front of its top, even inside the summit zone', () => {
+        const top = peakNorth('top', 5_000);
+        const northOf = (lat: number) => (lat - OBSERVER.lat) * METRES_PER_DEG_LAT;
+        const sample: GroundSampler = (_lng, lat) => {
+            const dM = northOf(lat);
+            if (Math.abs(dM - 5_000) < 60) return 2_000;
+            if (Math.abs(dM - 4_200) < 60) return 2_100;
+            if (Math.abs(dM - 4_600) < 60) return 1_950;
+            return 1_000;
+        };
+        expect(sightPeaks(OBSERVER, [top], sample)).toEqual([]);
+    });
+
+    it('sees over a hummock at the eye\'s feet', () => {
+        const far = peakNorth('far', 10_000);
+        const sample: GroundSampler = (_lng, lat) => {
+            const dM = (lat - OBSERVER.lat) * METRES_PER_DEG_LAT;
+            if (Math.abs(dM - 10_000) < 60) return 1_010;
+            return dM > 50 && dM < 300 ? 1_003 : 998;
+        };
+        expect(sightPeaks(OBSERVER, [far], sample).map((s) => s.peak.id)).toEqual(['far']);
     });
 
     it('drops a summit whose DEM reads at sea level, i.e. outside the loaded terrain', () => {

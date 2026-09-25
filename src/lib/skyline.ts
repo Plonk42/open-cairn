@@ -98,7 +98,7 @@ export function apparentAngleDeg(observerAltM: number, groundM: number, distance
  * that placed a summit with a different projection than the march would land in
  * a neighbouring gully and be declared hidden by relief that is not in its way.
  */
-function rayStep(observer: SkylineObserver, azimuthDeg: number): { perMetreLng: number; perMetreLat: number } {
+export function rayStep(observer: SkylineObserver, azimuthDeg: number): { perMetreLng: number; perMetreLat: number } {
     const az = azimuthDeg * DEG;
     const cosLat = Math.max(1e-6, Math.cos(observer.lat * DEG));
     return {
@@ -152,32 +152,6 @@ export function skylineAt(
         if (elevationDeg > best.elevationDeg) best = { elevationDeg, distanceM: d, lng, lat, groundM };
     }
     return best;
-}
-
-/**
- * Highest apparent angle the relief reaches between the eye and `farM`, along
- * one azimuth. `-90` when nothing stands in the way.
- *
- * This is {@link skylineAt} stopped short, and the distinction matters: a named
- * summit is seen exactly when it stands above everything CLOSER than itself.
- * Marching all the way to the horizon would let the far wall BEHIND it — which
- * it is drawn against, not hidden by — declare it invisible.
- */
-export function ridgeAngleBefore(
-    observer: SkylineObserver,
-    azimuthDeg: number,
-    farM: number,
-    sample: GroundSampler,
-): number {
-    const { perMetreLng, perMetreLat } = rayStep(observer, azimuthDeg);
-    let highest = -90;
-    for (let d = NEAR_M; d <= farM; d *= STEP_RATIO) {
-        const groundM = sample(observer.lng + perMetreLng * d, observer.lat + perMetreLat * d);
-        if (!Number.isFinite(groundM)) continue;
-        const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, d);
-        if (elevationDeg > highest) highest = elevationDeg;
-    }
-    return highest;
 }
 
 /** How far the body stands above the skyline, in degrees. Negative = hidden. */
