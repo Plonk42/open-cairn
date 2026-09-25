@@ -38,6 +38,7 @@ import {
     type PeakSighting,
 } from '@/lib/peakSightings';
 import { cameraObserver, observerKey, renderedGroundSampler, screenProjector } from '@/lib/skyProjection';
+import { horizontalFovDeg } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useCallback, useEffect, useRef } from 'react';
@@ -220,7 +221,12 @@ export function PeakLabelsOverlay() {
 
         if (eyeMoved) clearNodes();
         const sample = renderedGroundSampler(terrain);
-        merge(host, sightPeaks(observer, peaks, sample), sample);
+        const { width, height } = map.painter.transform;
+        const sector = {
+            bearingDeg: map.getBearing(),
+            fovDeg: horizontalFovDeg(map.getVerticalFieldOfView(), width / height),
+        };
+        merge(host, sightPeaks(observer, peaks, sample, sector), sample);
         place();
     }, [mapInstance, loadPeaks, clearNodes, merge, place]);
 

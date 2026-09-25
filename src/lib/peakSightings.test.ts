@@ -27,6 +27,20 @@ function peakNorth(id: string, northM: number, importance = 1): Peak {
     };
 }
 
+/** A summit `distanceM` away at compass `azimuthDeg`, for sector tests. */
+function peakAtAzimuth(id: string, azimuthDeg: number, distanceM: number, importance = 1): Peak {
+    const rad = (azimuthDeg * Math.PI) / 180;
+    const cosLat = Math.cos((OBSERVER.lat * Math.PI) / 180);
+    return {
+        id,
+        name: id,
+        lng: OBSERVER.lng + (distanceM * Math.sin(rad)) / (METRES_PER_DEG_LAT * cosLat),
+        lat: OBSERVER.lat + (distanceM * Math.cos(rad)) / METRES_PER_DEG_LAT,
+        importance,
+        spotHeightM: null,
+    };
+}
+
 /** Flat ground, except a disc of `height` around each listed summit. */
 function summits(height: number, peaks: readonly Peak[], ground = 1000): GroundSampler {
     return (lng, lat) => {
@@ -86,6 +100,30 @@ describe('selectCandidates', () => {
             peakNorth('near-minor', 2_000, 4),
         ]);
         expect(selected.map((c) => c.peak.id)).toEqual(['near-minor', 'far-major']);
+    });
+
+    it('keeps summits inside the aimed sector over nearer ones behind the camera once the circle overflows', () => {
+        const framed: Peak[] = [];
+        for (let i = 0; i < 900; i++) framed.push(peakAtAzimuth(`framed-${i}`, 0, 5_000 + i, 4));
+        // Nearer than every framed summit, so reach share alone would rank it first.
+        const behind = peakAtAzimuth('behind', 180, 4_000, 4);
+        const selected = selectCandidates(OBSERVER, [...framed, behind], { bearingDeg: 0, fovDeg: 60 });
+        expect(selected).toHaveLength(900);
+        expect(selected.some((c) => c.peak.id === 'behind')).toBe(false);
+    });
+
+    it('keeps a summit just outside the field of view thanks to the rotation margin', () => {
+        const framed: Peak[] = [];
+        for (let i = 0; i < 900; i++) framed.push(peakAtAzimuth(`framed-${i}`, 0, 5_000 + i, 4));
+        // 40° off bearing: outside the 30° half-FOV, inside the 50° margined half-width.
+        const nearEdge = peakAtAzimuth('near-edge', 40, 4_000, 4);
+        const selected = selectCandidates(OBSERVER, [...framed, nearEdge], { bearingDeg: 0, fovDeg: 60 });
+        expect(selected.some((c) => c.peak.id === 'near-edge')).toBe(true);
+    });
+
+    it('ignores the sector when the circle already fits the budget', () => {
+        const withSector = selectCandidates(OBSERVER, [peakAtAzimuth('behind', 180, 5_000, 4)], { bearingDeg: 0, fovDeg: 60 });
+        expect(withSector.map((c) => c.peak.id)).toEqual(['behind']);
     });
 });
 

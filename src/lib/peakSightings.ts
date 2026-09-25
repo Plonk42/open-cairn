@@ -130,6 +130,27 @@ interface Candidate {
     azimuthDeg: number;
 }
 
+/** The camera's own aim, to keep the marching budget from being spent behind it. */
+export interface ViewSector {
+    /** Compass bearing looked at, degrees clockwise from north. */
+    bearingDeg: number;
+    /** Horizontal field of view, degrees. */
+    fovDeg: number;
+}
+
+/**
+ * Extra half-width added on each side of the horizontal field of view, so a
+ * candidate just outside the frame is not dropped the moment the bearing
+ * settles — `recompute` only re-marches when the drawn tileset changes, not on
+ * every degree of rotation.
+ */
+const SECTOR_MARGIN_DEG = 20;
+
+/** Angular distance from `azimuthDeg` to `bearingDeg`, in `[0, 180]`. */
+function azimuthOffsetDeg(azimuthDeg: number, bearingDeg: number): number {
+    return Math.abs(((azimuthDeg - bearingDeg + 540) % 360) - 180);
+}
+
 /**
  * Share of its rank's reach a summit uses, which is what the budget is spent in
  * order of.
@@ -180,8 +201,19 @@ export function labelPriority(sighting: Pick<PeakSighting, 'peak' | 'distanceM' 
 /**
  * Thin the raw summit list down to what is worth a ray: near enough for its
  * rank, and inside the marching budget.
+ *
+ * Filling the budget in reach-share order alone spends it on the whole 360°
+ * circle: a wide reach for ranks 1 and 2 can fill all 900 slots with far
+ * candidates behind the camera, leaving none for a nearby minor summit that is
+ * actually framed. When `sector` is given and the circle overflows the budget,
+ * candidates inside the camera's own aim (plus {@link SECTOR_MARGIN_DEG} of
+ * slack) are marched first, each half still ordered by reach share.
  */
-export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak[]): Candidate[] {
+export function selectCandidates(
+    observer: SkylineObserver,
+    peaks: readonly Peak[],
+    sector?: ViewSector,
+): Candidate[] {
     const candidates: Candidate[] = [];
     for (const peak of peaks) {
         const reach = REACH_BY_IMPORTANCE_M[peak.importance] ?? 0;
@@ -190,9 +222,19 @@ export function selectCandidates(observer: SkylineObserver, peaks: readonly Peak
         if (distanceM > reach || distanceM < MIN_SIGHT_DISTANCE_M) continue;
         candidates.push({ peak, distanceM, azimuthDeg });
     }
-    candidates.sort((a, b) =>
-        reachFraction(a.peak, a.distanceM) - reachFraction(b.peak, b.distanceM));
-    return candidates.slice(0, MAX_MARCHED);
+    const byReachShare = (a: Candidate, b: Candidate) =>
+        reachFraction(a.peak, a.distanceM) - reachFraction(b.peak, b.distanceM);
+    if (sector === undefined || candidates.length <= MAX_MARCHED) {
+        return [...candidates].sort(byReachShare).slice(0, MAX_MARCHED);
+    }
+    const halfWidthDeg = sector.fovDeg / 2 + SECTOR_MARGIN_DEG;
+    const framed: Candidate[] = [];
+    const behind: Candidate[] = [];
+    for (const candidate of candidates) {
+        (azimuthOffsetDeg(candidate.azimuthDeg, sector.bearingDeg) <= halfWidthDeg ? framed : behind)
+            .push(candidate);
+    }
+    return [...[...framed].sort(byReachShare), ...[...behind].sort(byReachShare)].slice(0, MAX_MARCHED);
 }
 
 /**
@@ -221,9 +263,10 @@ export function sightPeaks(
     observer: SkylineObserver,
     peaks: readonly Peak[],
     sample: GroundSampler,
+    sector?: ViewSector,
 ): PeakSighting[] {
     const out: PeakSighting[] = [];
-    for (const { peak, distanceM, azimuthDeg } of selectCandidates(observer, peaks)) {
+    for (const { peak, distanceM, azimuthDeg } of selectCandidates(observer, peaks, sector)) {
         const groundM = sample(peak.lng, peak.lat);
         if (!Number.isFinite(groundM) || groundM < MIN_GROUND_M) continue;
         const elevationDeg = apparentAngleDeg(observer.altitudeM, groundM, distanceM);
