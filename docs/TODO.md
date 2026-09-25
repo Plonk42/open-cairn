@@ -60,15 +60,6 @@
       élargir le rayon quand le maximum tombe sur le bord.
 - [ ] Le recalage peut franchir une barre : au pied de Chamechaude il monte de 117 m pour
       50 m. Voulu pour un panorama, mais surprenant si l'on visait le pied de la falaise.
-- [ ] Le champ de vision ne dicte encore que le *placement*, pas la *visée* : resserrer
-      le champ ne peut faire apparaître que des sommets déjà marchés. La portée des rangs 1
-      et 2 est montée à 150/100 km, ce qui remplit le budget (831 candidats sur 900 depuis
-      Belledonne) ; aller plus loin demande de ne plus marcher tout le cercle mais le seul
-      secteur regardé. Chiffré : une table `[0, 200, 150, 60, 20]` donne 1 322 candidats sur
-      360° — hors budget — mais **210** dans un secteur de 37°. La marche ne paie déjà plus
-      que les sommets sur tuiles dessinées, à chaque arrêt de la caméra où elles changent ; reste à
-      filtrer par azimut dans `selectCandidates` *avant* le plafond de 900, qui coupe
-      aujourd'hui le cercle entier.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.

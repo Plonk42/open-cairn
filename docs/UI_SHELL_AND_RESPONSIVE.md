@@ -922,6 +922,21 @@ budget — la portée était la contrainte, jamais le coût. Mesuré depuis un p
 Les rangs 3 et 4 ne bougent pas avec eux, et cette coupe-là est **éditoriale** et non
 budgétaire : un rang 4 est un nom emprunté au hameau du dessous, il ne dit rien à 100 km.
 
+Porter les rangs 1 et 2 à 150/100 km remplit le budget dès qu'on regarde un secteur
+étroit : la portée par part de rang seule marche **tout le cercle**, si bien qu'un champ
+de vision resserré peut voir ses 900 rayons dépensés sur l'horizon lointain **derrière**
+la caméra avant même d'atteindre les sommets proches réellement cadrés — mesuré, une
+table `[0, 200, 150, 60, 20]` donne 1 322 candidats sur 360° (hors budget) mais
+seulement **210** dans un secteur de 37°. `selectCandidates` prend donc un `ViewSector`
+optionnel (cap de la caméra + champ de vision horizontal, fournis par
+`PeakLabelsOverlay`) : quand le cercle déborde le budget, les candidats à l'intérieur du
+cadre — élargi de 20° de chaque côté (`SECTOR_MARGIN_DEG`), pour qu'un sommet juste hors
+champ ne disparaisse pas à la première rotation, la visée ne se refaisant que lorsque le
+jeu de tuiles dessinées change — sont marchés avant ceux qui restent derrière l'œil,
+chaque moitié gardant son tri par part de portée. Sans secteur (l'appel historique,
+toujours utilisé quand le cercle entier tient dans le budget), le comportement ne
+change pas.
+
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
 des paquets de 0,25° se trompent déjà de 130 m à 30 km, ce qui suffit à faire passer le
 rayon dans le couloir voisin. Et la marche s'arrête **1,5 % avant** le sommet
