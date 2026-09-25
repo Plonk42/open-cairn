@@ -351,6 +351,17 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   prouvé, qui donne les deux d'un coup. Le Néron passe de « sans altitude » à **1298 m ancrés
   à 0 m du sommet**, le mont Rachais à 1046 m (+1013 m) et le mont Outheran à 1686 m
   (+1019 m). La contre-épreuve Wikipédia passe de **5 sommets sans cote à 2**.
+- ⚠️ **La mémoïsation sur disque de cette marche et de l'appariement lointain** (`cached('anchors',
+  …)` / `cached('farmatches', …)`) ne dépendait que d'une signature passée à la main
+  (rayons, tolérances…), jamais du code du calcul lui-même : avoir changé la *forme* de ce
+  que produit l'appariement lointain sans toucher cette signature a fait relire un cache
+  incompatible en silence et perdu 71 cotes sans aucune erreur. `cached()` (dans
+  `tools/build-peaks.mjs`) combine désormais la signature reçue avec un hachage du code de
+  `produce` (`Function.prototype.toString`, exact puisque `tools/*.mjs` s'exécute sans
+  bundler) — un changement du calcul invalide le cache tout seul, sans qu'un appelant ait à
+  faire grossir sa signature à la main. Les caches sans signature (les cinq extractions
+  brutes : BD TOPO®, BD CARTO®, OSM, GeoNames, RGE ALTI®) restent inchangés — toujours
+  rafraîchis à volonté, seulement via `--refetch`.
 
 Service d'altimétrie, tel qu'appelé par le générateur :
 

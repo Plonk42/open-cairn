@@ -69,10 +69,6 @@
       réduire quand aucune sonde ne monte, ou sonder deux couronnes.
 - [ ] Mont Saint-Eynard et aiguilles de l'Argentière restent sans cote : leur homonyme est
       au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
-- [ ] La signature de cache ne capture que des constantes et des données, pas le code : avoir
-      changé la *forme* de la valeur de `farmatches` sans toucher à la signature a fait relire
-      un cache incompatible en silence, et perdu 71 cotes sans aucune erreur. Un numéro de
-      forme est présent dans la signature de `farmatches`, mais rien ne l'impose ailleurs.
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.
