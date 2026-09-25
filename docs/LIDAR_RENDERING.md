@@ -62,10 +62,19 @@ Le panneau **LiDAR** offre trois modes de rendu :
 - **Végétation enrichie** (activée par défaut) : rendu réaliste et lisible du feuillage
   (classes LAS 3/4/5). Réglages : *dégradé feuillage* (coloration tronc brun → cime vert
   clair selon la hauteur au-dessus du sol), *ombrage par normale* (intensité du relief
-  calculé sur la normale des feuilles, 0 % = aplat EDL seul), *densité feuillage*
+  calculé sur la normale des feuilles, 0 % = aplat EDL seul ; soleil allumé, 100 % =
+  soleil pur et, en dessous, une part croissante d'éclairage neutre lui-même aplati par
+  le curseur), *densité feuillage*
   (grossissement des points), *feuilles rondes* (splats
   ronds opaques découpés au disque). Le toggle maître rétablit la couleur de classe à
   plat et les splats carrés.
+  En photoréaliste, l'*ombrage par normale* aplatit la lumière fixe (`N·L` et ambiante
+  hémisphérique) comme le fait `flatMod` sur le chemin classique. Il ne le faisait pas :
+  soleil éteint le curseur était **sans effet**, et soleil allumé il fondait le soleil
+  dans une lumière fixe à relief complet — deux reliefs d'orientations différentes qui se
+  compensaient à 50 %, d'où un creux au milieu de la course (amplitude du relief mesurée
+  sur un couvert de Chartreuse : 0,137 / 0,081 / 0,184 à 0 / 50 / 100 %, contre 0 / 0,067 /
+  0,185 désormais).
 - **Filtre par classe** : cocher / décocher chaque classe LAS (sol, végétation basse,
   moyenne, haute, bâtiments, etc.)
 - **Texture drapée** : projette un fond de carte en nadir sur la géométrie 3D —

@@ -14,7 +14,7 @@
       si `vegRamp`/`vegRampColor` (l. 89-130) assombrit trop le bas du dégradé (tronc) par
       rapport à la teinte de base ; en mode essence le mélange se fait avec
       `speciesHeightShade` (l. 137, 330), possiblement avec le même travers.
-- [ ] **« Ombrage par normale » (végétation) à vérifier : l'effet semble s'estomper à 50 %**,
+- [x] **« Ombrage par normale » (végétation) à vérifier : l'effet semble s'estomper à 50 %**,
       avec un rendu à 50 % proche à la fois de 0 % et de 100 %. Slider `u_vegNormalShade`
       (`LidarAppearanceControls.tsx` l. 992-996) → `points.frag` l. 74-86 : `vegNorm`,
       `flatMod = mix(1.0, v_flatDiff, vegNorm)` et `flatVeg = max(u_flatLight, 1.0 - u_vegNormalShade)`
