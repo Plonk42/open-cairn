@@ -1,5 +1,25 @@
 # TODO
 
+- [ ] **L'estimation de taille de téléchargement LiDAR est très en dessous du réel** :
+      annoncé « Qualité détail 20 cm ≈ 73 Mo téléchargés · ≈ 21 min 35 · 21,2 M sommets »,
+      constaté en cours de capture « 0/4 dalles · 91,2 / 250,0 Mo » — plus de 3× l'estimation,
+      avant même la fin. `estimateCapture` (`src/lib/lidarResolution.ts`) et son usage dans
+      `LidarCaptureControls.tsx` (l. 239-264, 384-413) et `lidarQuality.ts` s'appuient sur une
+      densité de points par pyramide de résolution (`ESTIMATED_PYRAMID` / `VERCORS_PYRAMID`) qui
+      ne reflète apparemment pas le volume réel téléchargé par dalle COPC — à mesurer sur des
+      captures réelles multi-dalles et recaler la loi (ou le facteur bytes/point).
+- [ ] **« Dégradé feuillage » rend la couleur trop foncée.** Le slider `u_vegIntensity`
+      (`LidarAppearanceControls.tsx` l. 939) module `gradAmt` dans `points.vert` (l. 315-341) :
+      hors essence, `mix(baseCol, vegRamp(a_height, u_vegHeightScale), gradAmt)` — à vérifier
+      si `vegRamp`/`vegRampColor` (l. 89-130) assombrit trop le bas du dégradé (tronc) par
+      rapport à la teinte de base ; en mode essence le mélange se fait avec
+      `speciesHeightShade` (l. 137, 330), possiblement avec le même travers.
+- [ ] **« Ombrage par normale » (végétation) à vérifier : l'effet semble s'estomper à 50 %**,
+      avec un rendu à 50 % proche à la fois de 0 % et de 100 %. Slider `u_vegNormalShade`
+      (`LidarAppearanceControls.tsx` l. 992-996) → `points.frag` l. 74-86 : `vegNorm`,
+      `flatMod = mix(1.0, v_flatDiff, vegNorm)` et `flatVeg = max(u_flatLight, 1.0 - u_vegNormalShade)`
+      se combinent de façon non monotone ou non perceptuellement linéaire — à tracer/mesurer
+      sur un feuillage fixe aux trois valeurs (0, 50, 100 %).
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour

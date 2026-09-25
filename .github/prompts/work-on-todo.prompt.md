@@ -14,10 +14,17 @@ prefer stopping and reporting over guessing on anything ambiguous.
 
 - Check `git status --short`:
   - empty: continue;
-  - a handful of small, unrelated edits and/or untracked files (a few files, small diffs, nothing
-    that reads like an in-progress feature): set it aside with
-    `git stash push -u -m "work-on-todo: autostash before autonomous run"` and continue — restore
-    it in step 3, once every selected item is done or abandoned and `main` is checked out again;
+  - `docs/TODO.md` itself has uncommitted changes: commit it on `main` on its own
+    (`git commit -m "..." -- docs/TODO.md`) before anything else, instead of stashing it — it's the
+    reference list every branch is created from and every checkoff is compared against; stashing
+    it would hide the user's latest edits from that list for the whole run and only bring them back
+    at the very end, after every branch already picked and checked off bullets against the stale
+    version;
+  - a handful of small, unrelated edits and/or untracked files besides `docs/TODO.md` (a few files,
+    small diffs, nothing that reads like an in-progress feature): set them aside with
+    `git stash push -u -m "work-on-todo: autostash before autonomous run" -- <paths, excluding
+    docs/TODO.md>` and continue — restore it in step 3, once every selected item is done or
+    abandoned and `main` is checked out again;
   - anything larger (many files, a big diff, clear unfinished feature work): stop and report —
     do not stash or discard it.
 - `git fetch`, then compare local `main` to `origin/main`. If they've diverged, stop and report —
