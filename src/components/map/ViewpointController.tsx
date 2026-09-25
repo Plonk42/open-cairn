@@ -35,6 +35,7 @@ import {
     interpolatePose,
     lookAfterDrag,
     VIEWPOINT_EYE_HEIGHT_M,
+    VIEWPOINT_MIN_EYE_HEIGHT_M,
     VIEWPOINT_INITIAL_PITCH,
     VIEWPOINT_MAX_PITCH,
     VIEWPOINT_TARGET_DISTANCE_M,
@@ -132,7 +133,7 @@ function fly(map: MapLibreMap, from: ViewpointPose, to: () => ViewpointPose, lan
         const pose = interpolatePose(from, to(), easeInOutCubic(t));
         const ground = map.queryTerrainElevation([pose.eye.lng, pose.eye.lat]);
         if (typeof ground === 'number' && Number.isFinite(ground)) {
-            pose.eye.altitude = Math.max(pose.eye.altitude, ground + VIEWPOINT_EYE_HEIGHT_M);
+            pose.eye.altitude = Math.max(pose.eye.altitude, ground + VIEWPOINT_MIN_EYE_HEIGHT_M);
         }
         showPose(map, pose);
         onFrame(pose);

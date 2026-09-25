@@ -1,8 +1,8 @@
 import { decodeShareState, encodeShareState, type SharedState } from '@/lib/shareView';
 import {
-    VIEWPOINT_EYE_HEIGHT_M,
     VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_MIN_EYE_HEIGHT_M,
     VIEWPOINT_MIN_FOV,
     type ViewpointFraming,
 } from '@/lib/viewpointCamera';
@@ -127,7 +127,7 @@ describe('shareView viewpoint', () => {
     it('clamps a height the arrows could not have reached', () => {
         const framing = { bearing: 0, pitch: 85, fovDeg: 40 };
         expect(decodeShareState(encodeShareState(withViewpoint(framing, -500)))!.viewpoint!.heightM)
-            .toBe(VIEWPOINT_EYE_HEIGHT_M);
+            .toBe(VIEWPOINT_MIN_EYE_HEIGHT_M);
         expect(decodeShareState(encodeShareState(withViewpoint(framing, 1e6)))!.viewpoint!.heightM)
             .toBe(VIEWPOINT_MAX_EYE_HEIGHT_M);
     });

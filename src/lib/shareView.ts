@@ -6,10 +6,10 @@ import type { LngLatTuple } from './geo';
 import { formatSunDate, todaySunDatePart } from './sun';
 import {
     clampNumber,
-    VIEWPOINT_EYE_HEIGHT_M,
     VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_FOV,
     VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_MIN_EYE_HEIGHT_M,
     VIEWPOINT_MIN_FOV,
     VIEWPOINT_MIN_PITCH,
     type Viewpoint,
@@ -149,7 +149,7 @@ function deserializeViewpoint(vp: SerializedViewpoint | undefined): SharedViewpo
             pitch: clampNumber(pitch, VIEWPOINT_MIN_PITCH, VIEWPOINT_MAX_PITCH),
             fovDeg: clampNumber(fovDeg, VIEWPOINT_MIN_FOV, VIEWPOINT_MAX_FOV),
         },
-        heightM: clampNumber(heightM, VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M),
+        heightM: clampNumber(heightM, VIEWPOINT_MIN_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M),
     };
 }
 

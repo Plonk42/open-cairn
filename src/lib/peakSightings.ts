@@ -128,9 +128,10 @@ const MIN_GROUND_M = 1;
 /**
  * Nearer than this, a summit is the ground underfoot rather than a sighting.
  *
- * The mode puts the eye 1.70 m above the DEM at the picked spot, which is never
- * exactly the recorded top: standing on Chamechaude the summit row sits 34 m
- * away and the DEM reads 10 m higher there, so its apparent elevation is **16°**
+ * The mode puts the eye a few metres above the DEM at the picked spot, which is
+ * never exactly the recorded top: with the eye at 1.70 m, standing on Chamechaude
+ * the summit row sat 34 m away and the DEM read 10 m higher there, so its apparent
+ * elevation was **16°**
  * — a leader pointing at empty sky, and a label band dragged 340 px above the
  * skyline it is supposed to clear, because the band hangs off the highest slot
  * on screen. At 250 m the same 10 m of DEM noise is 2.3°, under the slope noise

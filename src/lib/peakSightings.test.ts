@@ -76,7 +76,7 @@ describe('selectCandidates', () => {
     });
 
     it('drops the summit the observer is standing on', () => {
-        // The eye lands 1.70 m above the DEM, never on the recorded top: from
+        // The eye lands a few metres above the DEM, never on the recorded top: from
         // 34 m away the summit reads 16° up and hangs the whole band in the sky.
         const selected = selectCandidates(OBSERVER, [peakNorth('underfoot', 34), peakNorth('ridge', 900)], flat);
         expect(selected.map((c) => c.peak.id)).toEqual(['ridge']);

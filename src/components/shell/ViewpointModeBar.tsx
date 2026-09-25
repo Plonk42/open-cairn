@@ -4,7 +4,7 @@ import { PEAK_LABELS_HINT, SkyPathSection } from '@/components/ui/LayerSwitcher'
 import { isTextEntry } from '@/lib/freeCamera';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useView } from '@/lib/useView';
-import { eyeHeightAfterStep, VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M } from '@/lib/viewpointCamera';
+import { eyeHeightAfterStep, VIEWPOINT_MAX_EYE_HEIGHT_M, VIEWPOINT_MIN_EYE_HEIGHT_M } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
 import { useEffect, useRef, useState } from 'react';
 
@@ -49,7 +49,7 @@ function EyeHeightControl({ compact }: Readonly<{ compact: boolean }>) {
             <button
                 type="button"
                 onClick={(e) => step(false, e.shiftKey)}
-                disabled={heightM <= VIEWPOINT_EYE_HEIGHT_M}
+                disabled={heightM <= VIEWPOINT_MIN_EYE_HEIGHT_M}
                 aria-label="Descendre l’œil"
                 className={`${CHIP_BASE} ${CHIP_IDLE} px-1.5`}
             >

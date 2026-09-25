@@ -1033,8 +1033,8 @@ export function MapContainer() {
     // altitude to the DEM, which makes a purely vertical move impossible. Off that
     // leash the arrows gain altitude instead of panning, like a drone.
     //
-    // The viewpoint mode needs the same release (the eye stands 1.7 m above the
-    // ground, well inside MapLibre's collision envelope) but not THESE arrow keys:
+    // The viewpoint mode needs the same release (the eye stands 10 m above the
+    // ground by default, well inside MapLibre's collision envelope) but not THESE arrow keys:
     // `bindAltitudeKeys` raises the map centre, which would drag the standpoint the
     // mode exists to hold still. `ViewpointController` binds its own pair, moving
     // the eye height while the feet stay put.

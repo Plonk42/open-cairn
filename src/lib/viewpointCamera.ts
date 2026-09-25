@@ -70,8 +70,15 @@ export interface ViewpointCamera {
     pitch: number;
 }
 
-/** Eye height above the ground on arrival, and the floor the arrows cannot go under. */
-export const VIEWPOINT_EYE_HEIGHT_M = 1.7;
+/**
+ * Eye height above the ground on arrival. Standing height would do, but at 1.70 m
+ * MapLibre's terrain mesh often passes above the eye on a slope and cuts into the
+ * foreground; 10 m clears it without visibly changing the line of sight.
+ */
+export const VIEWPOINT_EYE_HEIGHT_M = 10;
+
+/** The floor the arrows cannot go under: standing height. */
+export const VIEWPOINT_MIN_EYE_HEIGHT_M = 1.7;
 
 /**
  * Ceiling for the arrow keys. Well past what the mode is for, but a slope that keeps
@@ -92,7 +99,7 @@ const VIEWPOINT_EYE_FAST_FACTOR = 10;
  */
 export function eyeHeightAfterStep(heightM: number, up: boolean, fast: boolean): number {
     const step = VIEWPOINT_EYE_STEP_M * (fast ? VIEWPOINT_EYE_FAST_FACTOR : 1);
-    return clampNumber(heightM + (up ? step : -step), VIEWPOINT_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M);
+    return clampNumber(heightM + (up ? step : -step), VIEWPOINT_MIN_EYE_HEIGHT_M, VIEWPOINT_MAX_EYE_HEIGHT_M);
 }
 
 /** A picked standpoint moves to the highest ground within this radius, like PeakFinder. */

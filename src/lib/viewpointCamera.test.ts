@@ -18,6 +18,7 @@ import {
     VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_FOV,
     VIEWPOINT_MAX_PITCH,
+    VIEWPOINT_MIN_EYE_HEIGHT_M,
     VIEWPOINT_MIN_FOV,
     VIEWPOINT_MIN_PITCH,
     VIEWPOINT_TARGET_DISTANCE_M,
@@ -177,7 +178,8 @@ describe('eyeHeightAfterStep', () => {
     });
 
     it('never sinks below standing height', () => {
-        expect(eyeHeightAfterStep(VIEWPOINT_EYE_HEIGHT_M, false, true)).toBe(VIEWPOINT_EYE_HEIGHT_M);
+        expect(eyeHeightAfterStep(VIEWPOINT_EYE_HEIGHT_M, false, true)).toBe(VIEWPOINT_MIN_EYE_HEIGHT_M);
+        expect(eyeHeightAfterStep(VIEWPOINT_MIN_EYE_HEIGHT_M, false, false)).toBe(VIEWPOINT_MIN_EYE_HEIGHT_M);
     });
 
     it('stops at the ceiling', () => {
