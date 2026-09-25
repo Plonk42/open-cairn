@@ -164,13 +164,24 @@ const refetch = process.argv.includes('--refetch');
  * sidecar so the raw download caches keep their format. The anchors are walked
  * from the heights and the ground, and would otherwise survive a change to
  * either and hand back positions computed from data that no longer exists.
+ *
+ * `signature` only ever captured constants and data, never the shape of the
+ * computation itself: changing what `produce` does to its inputs, without
+ * touching any constant it closes over, left a now-incompatible cache read
+ * back in silence. The persisted signature is therefore `signature` plus a
+ * hash of `produce`'s own source (`Function.prototype.toString`, exact and
+ * unminified — `tools/*.mjs` runs unbundled), so any edit to the producer's
+ * body invalidates the cache on its own.
  */
 async function cached(name, produce, signature) {
     mkdirSync(CACHE_DIR, { recursive: true });
     const path = `${CACHE_DIR}${name}.json`;
     const sigPath = `${CACHE_DIR}${name}.sig`;
-    const fresh = signature === undefined
-        || (existsSync(sigPath) && readFileSync(sigPath, 'utf8') === signature);
+    const fullSignature = signature === undefined
+        ? undefined
+        : `${signature}/${createHash('sha256').update(produce.toString()).digest('hex').slice(0, 12)}`;
+    const fresh = fullSignature === undefined
+        || (existsSync(sigPath) && readFileSync(sigPath, 'utf8') === fullSignature);
     if (!refetch && fresh && existsSync(path)) {
         const hit = JSON.parse(readFileSync(path, 'utf8'));
         console.log(`  ${name}: ${hit.length ?? Object.keys(hit).length} (cache)`);
@@ -178,7 +189,7 @@ async function cached(name, produce, signature) {
     }
     const value = await produce();
     writeFileSync(path, JSON.stringify(value));
-    if (signature !== undefined) writeFileSync(sigPath, signature);
+    if (fullSignature !== undefined) writeFileSync(sigPath, fullSignature);
     return value;
 }
 
