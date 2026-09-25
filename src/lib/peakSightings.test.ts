@@ -27,19 +27,7 @@ function peakNorth(id: string, northM: number, importance = 1): Peak {
     };
 }
 
-/** A summit `distanceM` away at compass `azimuthDeg`, for sector tests. */
-function peakAtAzimuth(id: string, azimuthDeg: number, distanceM: number, importance = 1): Peak {
-    const rad = (azimuthDeg * Math.PI) / 180;
-    const cosLat = Math.cos((OBSERVER.lat * Math.PI) / 180);
-    return {
-        id,
-        name: id,
-        lng: OBSERVER.lng + (distanceM * Math.sin(rad)) / (METRES_PER_DEG_LAT * cosLat),
-        lat: OBSERVER.lat + (distanceM * Math.cos(rad)) / METRES_PER_DEG_LAT,
-        importance,
-        spotHeightM: null,
-    };
-}
+const flat: GroundSampler = () => 1000;
 
 /** Flat ground, except a disc of `height` around each listed summit. */
 function summits(height: number, peaks: readonly Peak[], ground = 1000): GroundSampler {
@@ -54,19 +42,19 @@ function summits(height: number, peaks: readonly Peak[], ground = 1000): GroundS
 describe('selectCandidates', () => {
     it('keeps a notorious summit far away and drops a minor one at the same spot', () => {
         const far = 40_000;
-        const kept = selectCandidates(OBSERVER, [peakNorth('major', far, 1)]);
-        const dropped = selectCandidates(OBSERVER, [peakNorth('minor', far, 4)]);
+        const kept = selectCandidates(OBSERVER, [peakNorth('major', far, 1)], flat);
+        const dropped = selectCandidates(OBSERVER, [peakNorth('minor', far, 4)], flat);
         expect(kept.map((c) => c.peak.id)).toEqual(['major']);
         expect(dropped).toEqual([]);
     });
 
     it('keeps a minor summit once it is close enough to be checked', () => {
-        const close = selectCandidates(OBSERVER, [peakNorth('minor', 5_000, 4)]);
+        const close = selectCandidates(OBSERVER, [peakNorth('minor', 5_000, 4)], flat);
         expect(close.map((c) => c.peak.id)).toEqual(['minor']);
     });
 
     it('reads the azimuth in the same frame the ray march walks', () => {
-        const [north] = selectCandidates(OBSERVER, [peakNorth('n', 5_000)]);
+        const [north] = selectCandidates(OBSERVER, [peakNorth('n', 5_000)], flat);
         expect(north.azimuthDeg).toBeCloseTo(0, 3);
         expect(north.distanceM).toBeCloseTo(5_000, 0);
 
@@ -78,19 +66,19 @@ describe('selectCandidates', () => {
             importance: 1,
             spotHeightM: null,
         };
-        expect(selectCandidates(OBSERVER, [east])[0].azimuthDeg).toBeCloseTo(90, 3);
+        expect(selectCandidates(OBSERVER, [east], flat)[0].azimuthDeg).toBeCloseTo(90, 3);
     });
 
     it('caps the marching budget', () => {
         const many: Peak[] = [];
         for (let i = 0; i < 2_000; i++) many.push(peakNorth(`minor-${i}`, 5_000 + i, 4));
-        expect(selectCandidates(OBSERVER, many)).toHaveLength(900);
+        expect(selectCandidates(OBSERVER, many, flat)).toHaveLength(900);
     });
 
     it('drops the summit the observer is standing on', () => {
         // The eye lands 1.70 m above the DEM, never on the recorded top: from
         // 34 m away the summit reads 16° up and hangs the whole band in the sky.
-        const selected = selectCandidates(OBSERVER, [peakNorth('underfoot', 34), peakNorth('ridge', 900)]);
+        const selected = selectCandidates(OBSERVER, [peakNorth('underfoot', 34), peakNorth('ridge', 900)], flat);
         expect(selected.map((c) => c.peak.id)).toEqual(['ridge']);
     });
 
@@ -98,32 +86,18 @@ describe('selectCandidates', () => {
         const selected = selectCandidates(OBSERVER, [
             peakNorth('far-major', 50_000, 1),
             peakNorth('near-minor', 2_000, 4),
-        ]);
+        ], flat);
         expect(selected.map((c) => c.peak.id)).toEqual(['near-minor', 'far-major']);
     });
 
-    it('keeps summits inside the aimed sector over nearer ones behind the camera once the circle overflows', () => {
-        const framed: Peak[] = [];
-        for (let i = 0; i < 900; i++) framed.push(peakAtAzimuth(`framed-${i}`, 0, 5_000 + i, 4));
-        // Nearer than every framed summit, so reach share alone would rank it first.
-        const behind = peakAtAzimuth('behind', 180, 4_000, 4);
-        const selected = selectCandidates(OBSERVER, [...framed, behind], { bearingDeg: 0, fovDeg: 60 });
-        expect(selected).toHaveLength(900);
-        expect(selected.some((c) => c.peak.id === 'behind')).toBe(false);
-    });
-
-    it('keeps a summit just outside the field of view thanks to the rotation margin', () => {
-        const framed: Peak[] = [];
-        for (let i = 0; i < 900; i++) framed.push(peakAtAzimuth(`framed-${i}`, 0, 5_000 + i, 4));
-        // 40° off bearing: outside the 30° half-FOV, inside the 50° margined half-width.
-        const nearEdge = peakAtAzimuth('near-edge', 40, 4_000, 4);
-        const selected = selectCandidates(OBSERVER, [...framed, nearEdge], { bearingDeg: 0, fovDeg: 60 });
-        expect(selected.some((c) => c.peak.id === 'near-edge')).toBe(true);
-    });
-
-    it('ignores the sector when the circle already fits the budget', () => {
-        const withSector = selectCandidates(OBSERVER, [peakAtAzimuth('behind', 180, 5_000, 4)], { bearingDeg: 0, fovDeg: 60 });
-        expect(withSector.map((c) => c.peak.id)).toEqual(['behind']);
+    it('spends the budget on summits standing on drawn terrain only', () => {
+        const offTile: Peak[] = [];
+        for (let i = 0; i < 900; i++) offTile.push(peakNorth(`off-${i}`, 2_000 + i, 4));
+        // Farther than every off-tile summit, so reach share alone would cut it.
+        const drawn = peakNorth('drawn', 10_000, 4);
+        const drawnOnly: GroundSampler = (_lng, lat) => (lat >= drawn.lat - 1e-6 ? 1000 : Number.NaN);
+        const selected = selectCandidates(OBSERVER, [...offTile, drawn], drawnOnly);
+        expect(selected.map((c) => c.peak.id)).toEqual(['drawn']);
     });
 });
 
