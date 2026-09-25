@@ -83,10 +83,14 @@ void main() {
     vec3 rgb = mix(lit, neutral, flatVeg);
     // Photorealistic path: same decomposition, resolved in linear radiance
     // (hemispheric ambient + aerial perspective + filmic tone mapping).
-    // The « ombrage feuillage » slider still flattens the foliage normal by
-    // pushing it towards the fixed light, as in the legacy model.
-    float direct = mix(v_diff, v_flatDirect, flatVeg) * s;
-    rgb = mix(rgb, pbrEncode(pbrShade(albedo, v_nz, direct, v_distM)), u_pbr);
+    // The fixed light is flattened by the slider as `flatMod` is above: blending
+    // the sun into a full-relief fixed light instead left the slider inert with
+    // the sun off, and dipped the relief at 50 % with it on. The hemispheric
+    // ambient follows the normal too, so it is flattened alike.
+    float flatDirect = mix(1.0, v_flatDirect, vegNorm);
+    float direct = mix(v_diff, flatDirect, flatVeg) * s;
+    float ambientNz = mix(1.0, v_nz, vegNorm);
+    rgb = mix(rgb, pbrEncode(pbrShade(albedo, ambientNz, direct, v_distM)), u_pbr);
     fragColor = vec4(rgb * v_alpha, v_alpha);
     fragDepth = vec2(v_depth, gl_FragCoord.z);
 }
