@@ -191,6 +191,31 @@ budget.
 Un ordre de grandeur mesuré : 3 × 3 km à 3,4 m = 38 dalles, ~5 M de points,
 environ une minute et demie (l'essentiel du temps part en attente des 429).
 
+#### Les Mo annoncés : des nœuds entiers, pas des points
+
+Un nœud COPC se télécharge **en entier** dès qu'il touche la zone, et un nœud de
+niveau ℓ fait 1000/2^ℓ m de côté : 1 km au niveau 0, 62,5 m au niveau 4. Les Mo
+annoncés ne sont donc pas « surface × densité × octets par point » — c'est ce que
+faisait l'estimation, à 6 octets par point, et elle annonçait **le tiers** du
+téléchargement réel (73 Mo annoncés, 250 constatés). `estimateCapture` compte
+maintenant, niveau par niveau, l'aire attendue des nœuds que touche le rectangle,
+`A + s·(wₓ + wᵧ) + s²` pour des nœuds de côté `s` (l'orientation est moyennée,
+`4/π`, pour qu'une rotation ne déplace pas les paliers), multipliée par la
+densité propre du niveau et par ses **octets par point**, qui décroissent avec la
+profondeur (11 au niveau 0, ~5 aux niveaux fins : les points épars se
+compressent mal). Sur une zone de 250 m, le niveau 0 coûte ainsi 1,7 km² — 27 fois
+la zone. Le nombre de **points**, lui, reste celui de la zone : c'est ce que le
+maillage consomme et ce que mesurent les budgets.
+
+Mesuré avec [tools/lidar-density/capture-bytes.mjs](../tools/lidar-density/capture-bytes.mjs),
+qui lit les hiérarchies (sans décoder un point) et compare l'estimation aux
+octets réellement demandés, sur six zones de 250 m à 2 km (Chartreuse, Vercors,
+Belledonne, Mont-Blanc, Camargue, La Meije) : l'estimation tombe entre ×0,93 et
+×1,4 du réel, selon le calage de la zone sur la grille des nœuds. Une capture
+réelle de 300 × 400 m dans le Vercors : 46 Mo annoncés, 57 Mo téléchargés.
+Avant la pyramide mesurée, la table nationale peut rester loin d'une zone dense
+(94 Mo contre 219 en Belledonne) — c'est la table, pas la loi.
+
 ### Réglages embarqués avec chaque capture
 
 Un nuage enregistré emporte de quoi le refaire : son emprise (mode, centre,
@@ -347,7 +372,7 @@ flowchart TD
     P([BrowserFetchParams<br/>lng, lat, radius, stride,<br/>targetSpacingM, classes]) --> R[Clamp radius 20-4000m<br/>Clamp stride 1-200]
     R --> L93[proj.ts<br/>lng,lat → Lambert-93 x0,y0]
     L93 --> WFS[wfs.ts findTiles<br/>bbox query data.geopf.fr WFS]
-    WFS --> FILT[Filtre emprise L93<br/>bboxL93 ∩ carré x0,y0 ± radius]
+    WFS --> FILT[Filtre emprise L93<br/>bboxL93 ∩ rectangle de capture]
     FILT -->|0 tiles| ERR([Throw 'no_lidar_tile'])
     FILT -->|N tiles| FAN[Promise.all over tiles]
     FAN --> EXT[extract.ts<br/>extractPoints per tile]
@@ -357,7 +382,13 @@ flowchart TD
 
 Notes :
 
-- `radius` est le **demi-côté** d'un carré L93, pas un rayon de cercle.
+- `radius` est le **demi-côté** d'un carré L93, pas un rayon de cercle. Avec un
+  rectangle de capture, c'est le rayon de son cercle circonscrit, et le carré
+  qu'il définit fait **deux fois** l'aire d'un rectangle carré : dalles et nœuds
+  sont donc retenus sur le rectangle orienté lui-même (`boxMeetsRect`, test des
+  axes séparateurs), à l'intérieur de ce carré. Les points hors rectangle étant
+  de toute façon écartés au décodage, le nuage est identique, et le
+  téléchargement baisse de 35 à 56 % (446 → 219 Mo sur 600 × 900 m en Belledonne).
 - `wfs.ts` ramène jusqu'à **64 dalles** (`MAX_TILES`) : une zone de 5 km de côté
   en couvre 36 au pire cadrage. Au-delà, la liste est tronquée sans avertir —
   c'est la garde de dernier recours, pas un réglage.
@@ -380,7 +411,8 @@ Notes :
 ### Décodage COPC par dalle (`extract.ts`)
 
 Une dalle COPC est un fichier LAZ de 0.5–2 GB indexé par un octree dans son
-EVLR. On HTTP-Range-fetch uniquement les nœuds qui intersectent notre bbox.
+EVLR. On HTTP-Range-fetch uniquement les nœuds qui intersectent le rectangle de
+capture (ou le carré `radius` sans rectangle).
 
 ```mermaid
 flowchart TD

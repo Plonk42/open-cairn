@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] **L'estimation de taille de téléchargement LiDAR est très en dessous du réel** :
+- [x] **L'estimation de taille de téléchargement LiDAR est très en dessous du réel** :
       annoncé « Qualité détail 20 cm ≈ 73 Mo téléchargés · ≈ 21 min 35 · 21,2 M sommets »,
       constaté en cours de capture « 0/4 dalles · 91,2 / 250,0 Mo » — plus de 3× l'estimation,
       avant même la fin. `estimateCapture` (`src/lib/lidarResolution.ts`) et son usage dans
@@ -124,3 +124,8 @@
       désormais à 10 m, remesurer son effet ; s'il n'apporte plus rien, le retirer. Le
       vérifier aussi contre une référence indépendante : des rayons tirés hors ligne sur le
       RGE ALTI® à pleine résolution, pour quelques centaines de sommets.
+- [ ] La durée annoncée par le curseur Qualité (`FETCH_POINTS_PER_S` dans `lidarQuality.ts`)
+      a été calée quand dalles et nœuds étaient retenus sur le carré du cercle circonscrit :
+      depuis qu'ils le sont sur le rectangle, une capture télécharge 35 à 56 % d'octets en
+      moins, et la part « téléchargement » de la durée est probablement surestimée. Recaler
+      sur quelques captures chronométrées, idéalement sur les octets plutôt que les points.
