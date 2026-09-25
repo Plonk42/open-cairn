@@ -16,10 +16,9 @@ prefer stopping and reporting over guessing on anything ambiguous.
   - empty: continue;
   - `docs/TODO.md` itself has uncommitted changes: commit it on `main` on its own
     (`git commit -m "..." -- docs/TODO.md`) before anything else, instead of stashing it — it's the
-    reference list every branch is created from and every checkoff is compared against; stashing
-    it would hide the user's latest edits from that list for the whole run and only bring them back
-    at the very end, after every branch already picked and checked off bullets against the stale
-    version;
+    reference list every branch is created from and removes its bullet from; stashing it would
+    hide the user's latest edits from that list for the whole run and only bring them back at the
+    very end, after every branch already picked and removed bullets against the stale version;
   - a handful of small, unrelated edits and/or untracked files besides `docs/TODO.md` (a few files,
     small diffs, nothing that reads like an in-progress feature): set them aside with
     `git stash push -u -m "work-on-todo: autostash before autonomous run" -- <paths, excluding
@@ -61,13 +60,18 @@ work without waiting for approval — this command is meant to run while the use
 5. Before the branch's final commit:
    - run the validation gates — `npx tsc -b && npm run lint:test && npm run test:run && npm run build`
      — and fix failures before moving on;
-   - check off (`- [x]`) or remove the addressed bullet in `docs/TODO.md`; update whichever doc the
-     copilot-instructions topic table maps to the area touched;
+   - **delete the addressed bullet from `docs/TODO.md` entirely** — the whole entry, including its
+     continuation lines. Do **not** just tick it to `- [x]`: a checked box left in the file is
+     wrong, the TODO only lists work still to do and the history lives in git. If the fix only
+     covers part of the bullet, rewrite the bullet so it describes what remains, still as `- [ ]`;
+   - update whichever doc the copilot-instructions topic table maps to the area touched;
    - if the fix has a mobile-facing counterpart (see "Mobile is half the app" in the repo
      instructions), address it in the same branch;
    - if something new surfaces but is left aside, append a fresh `- [ ] ...` bullet to
      `docs/TODO.md` in the same pass instead of only mentioning it in the report.
-6. Commit the `docs/TODO.md` (and other doc) update as its own commit.
+6. Commit the `docs/TODO.md` (and other doc) update as its own commit. Before committing, check
+   `git diff -- docs/TODO.md`: the addressed bullet must show as removed lines, never as a
+   `- [ ]` → `- [x]` change.
 7. Leave the branch checked out locally with all its commits — do **not** push, open a PR, or
    merge into `main`.
 8. If the item turns out bigger than expected mid-way, abandon it: `git switch main`,
