@@ -26,6 +26,14 @@ import {
 /** Allowed density stops, coarse → max. Shared by both density sliders. */
 export const STRIDE_STOPS = [64, 32, 16, 8, 4, 2, 1] as const;
 
+/** Default « Densité » (non-ground stride), one of {@link STRIDE_STOPS}. */
+export const DEFAULT_CLOUD_STRIDE = 8;
+
+/** `value` when it is a density stop, else `fallback`: the slider can only sit on a stop. */
+export function strideStopOr(value: number | undefined, fallback: number): number {
+    return STRIDE_STOPS.some((s) => s === value) ? value as number : fallback;
+}
+
 /** PoissonRecon octree depth range, as clamped by the capture pipeline. */
 export const POISSON_DEPTH_MIN = 6;
 export const POISSON_DEPTH_MAX = 12;

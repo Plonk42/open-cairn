@@ -17,7 +17,8 @@ import {
 } from '@/lib/lidarCaptureRect';
 import type { LidarMeshData, LidarShadedCloudData, VegColorMode } from '@/lib/lidarCloud';
 import {
-    defaultQualityIndex, qualityTiers, tierIndexOf, type QualityTier,
+    DEFAULT_CLOUD_STRIDE, defaultQualityIndex, qualityTiers, strideStopOr, tierIndexOf,
+    type QualityTier,
 } from '@/lib/lidarQuality';
 import { RESOLUTION_STOPS_M, resolutionToIndex, type PyramidProfile } from '@/lib/lidarResolution';
 import { makeCloudKey, saveLoadedCloud } from '@/lib/savedClouds';
@@ -878,9 +879,9 @@ export const createLidarSlice: StateCreator<MapState, [], [], LidarSlice> = (set
         lidarCloudLoading: false,
         lidarCloudError: null,
         lidarCloudProgress: null,
-        lidarCloudStride: persisted.lidarCloudStride ?? 10,
+        lidarCloudStride: strideStopOr(persisted.lidarCloudStride, DEFAULT_CLOUD_STRIDE),
         setLidarCloudStride: (lidarCloudStride) => set({ lidarCloudStride }),
-        lidarCloudGroundStride: persisted.lidarCloudGroundStride ?? defaultTier.groundStride,
+        lidarCloudGroundStride: strideStopOr(persisted.lidarCloudGroundStride, defaultTier.groundStride),
         setLidarCloudGroundStride: (lidarCloudGroundStride) => set({ lidarCloudGroundStride }),
         lidarMeshSmooth: persisted.lidarMeshSmooth ?? true,
         setLidarMeshSmooth: (lidarMeshSmooth) => set({ lidarMeshSmooth }),

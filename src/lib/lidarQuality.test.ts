@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
-    captureAdvice, coherentDepth, coherentGroundStride, COMFORT_SECONDS,
+    captureAdvice, coherentDepth, coherentGroundStride, COMFORT_SECONDS, DEFAULT_CLOUD_STRIDE,
     defaultQualityIndex, formatDetail, formatSeconds, groundDepthCap, octreeCellM, POISSON_DEPTH_MAX,
-    POISSON_DEPTH_MIN, QUALITY_TIER_COUNT, qualityTiers, spacingM, tierIndexOf,
+    POISSON_DEPTH_MIN, QUALITY_TIER_COUNT, qualityTiers, spacingM, STRIDE_STOPS, strideStopOr,
+    tierIndexOf,
 } from './lidarQuality';
 import { CAPTURE_POINT_CEILING } from './lidarResolution';
+
+describe('strideStopOr', () => {
+    it('keeps a stop and replaces anything else', () => {
+        expect(strideStopOr(16, 8)).toBe(16);
+        expect(strideStopOr(10, 8)).toBe(8);
+        expect(strideStopOr(undefined, 4)).toBe(4);
+    });
+
+    it('defaults the density to a stop', () => {
+        expect(STRIDE_STOPS).toContain(DEFAULT_CLOUD_STRIDE);
+    });
+});
 
 describe('coherentDepth', () => {
     it('matches the depth the 250 m sweep saturates at', () => {
