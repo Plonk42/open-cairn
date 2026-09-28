@@ -1,25 +1,11 @@
 # TODO
 
-- [x] **L'estimation de taille de téléchargement LiDAR est très en dessous du réel** :
-      annoncé « Qualité détail 20 cm ≈ 73 Mo téléchargés · ≈ 21 min 35 · 21,2 M sommets »,
-      constaté en cours de capture « 0/4 dalles · 91,2 / 250,0 Mo » — plus de 3× l'estimation,
-      avant même la fin. `estimateCapture` (`src/lib/lidarResolution.ts`) et son usage dans
-      `LidarCaptureControls.tsx` (l. 239-264, 384-413) et `lidarQuality.ts` s'appuient sur une
-      densité de points par pyramide de résolution (`ESTIMATED_PYRAMID` / `VERCORS_PYRAMID`) qui
-      ne reflète apparemment pas le volume réel téléchargé par dalle COPC — à mesurer sur des
-      captures réelles multi-dalles et recaler la loi (ou le facteur bytes/point).
 - [ ] **« Dégradé feuillage » rend la couleur trop foncée.** Le slider `u_vegIntensity`
       (`LidarAppearanceControls.tsx` l. 939) module `gradAmt` dans `points.vert` (l. 315-341) :
       hors essence, `mix(baseCol, vegRamp(a_height, u_vegHeightScale), gradAmt)` — à vérifier
       si `vegRamp`/`vegRampColor` (l. 89-130) assombrit trop le bas du dégradé (tronc) par
       rapport à la teinte de base ; en mode essence le mélange se fait avec
       `speciesHeightShade` (l. 137, 330), possiblement avec le même travers.
-- [x] **« Ombrage par normale » (végétation) à vérifier : l'effet semble s'estomper à 50 %**,
-      avec un rendu à 50 % proche à la fois de 0 % et de 100 %. Slider `u_vegNormalShade`
-      (`LidarAppearanceControls.tsx` l. 992-996) → `points.frag` l. 74-86 : `vegNorm`,
-      `flatMod = mix(1.0, v_flatDiff, vegNorm)` et `flatVeg = max(u_flatLight, 1.0 - u_vegNormalShade)`
-      se combinent de façon non monotone ou non perceptuellement linéaire — à tracer/mesurer
-      sur un feuillage fixe aux trois valeurs (0, 50, 100 %).
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
@@ -125,3 +111,35 @@
       depuis qu'ils le sont sur le rectangle, une capture télécharge 35 à 56 % d'octets en
       moins, et la part « téléchargement » de la durée est probablement surestimée. Recaler
       sur quelques captures chronométrées, idéalement sur les octets plutôt que les points.
+- [ ] **Le curseur Qualité aligne la profondeur Poisson sur la densité toutes classes**
+      (`spacingM` ← pyramide COPC), alors que le solveur ne reçoit que le sol. Mesuré
+      (`tools/lidar-density/analyze.mjs`, 200 × 200 m) : prairie du Vercors 98,8 % de sol,
+      forêt de Chartreuse (5.77 / 45.29) **9,3 %** — 48 pt/m² en tout, 4,5 au sol,
+      espacement 0,14 m annoncé contre 0,47 m réel, soit ~1,7 niveau d'octree de trop en
+      forêt. La sonde de pyramide aggrave le biais : une forêt y paraît *plus* dense.
+      Le worker plafonne désormais la profondeur sur le sol reçu (`groundDepthCap`), mais
+      l'**aperçu** du curseur (détail, sommets, durée) reste optimiste sous forêt. Piste :
+      décoder un nœud par dalle dans la sonde pour y lire la fraction sol.
+- [ ] **La densité sol du palier est inerte aux résolutions grossières.**
+      `adaptiveDecimateGround` travaille en cellules absolues de 1,5 m et traite comme
+      « relief » toute cellule de moins de 6 points : simulé sur une pente parfaitement
+      lisse, un pas 8 garde 100 % des points à 0,6 pt/m² sol, 75 % à 1,5 et 45 % à 2,3
+      (12 % au-delà de 4,5). Les paliers 3,4 m et 1,7 m, qui affichent sol 2 ou 8, ne
+      déciment donc rien, et leur estimation de sommets (`points × 1,75 / groundStride`) est
+      fausse d'autant. Exprimer la cellule en espacements de points plutôt qu'en mètres.
+- [ ] **La maille annoncée (`octreeCellM` de `lidarQuality.ts`) ignore le `--scale 1.1`** de
+      PoissonRecon : la cellule réelle est 10 % plus large que l'annonce. Laissé tel quel
+      parce que la cohérence profondeur/densité (et `groundDepthCap`) est calée sur le
+      balayage de 25 captures dans cette convention ; corriger l'un sans re-balayer décalerait
+      les paliers d'un cran à la limite d'arrondi. (L'orientation du rectangle, elle, ne
+      compte plus : le solveur tourne dans son repère.)
+- [ ] Sous la profondeur cohérente le nombre de sommets suit l'octree, pas les points
+      (constat du balayage cité dans `lidarQuality.ts`), mais l'estimation du palier reste
+      une loi en points. Et l'aide du curseur « Profondeur octree » (« 8 = rapide… 12 = fin »)
+      donne des profondeurs absolues, alors que leur sens dépend de la taille de zone.
+- [ ] **En mode Points (et Delaunay), le curseur Qualité affiche des grandeurs Poisson** :
+      « détail » = maille d'octree, « sommets » = maillage Poisson, et `tierIndexOf` compare
+      profondeur et densité sol que ces modes ignorent. Seule sa résolution y sert. La
+      « Densité » (`lidarCloudStride`, 1 point sur N gardé après décodage) n'entre pas dans
+      l'estimation, et son défaut 10 n'est pas un cran de `STRIDE_STOPS` : l'étiquette lit
+      « 1/10 », le curseur est posé sur 1/8.
