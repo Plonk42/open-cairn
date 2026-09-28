@@ -1,11 +1,20 @@
 # TODO
 
-- [ ] **« Dégradé feuillage » rend la couleur trop foncée.** Le slider `u_vegIntensity`
-      (`LidarAppearanceControls.tsx` l. 939) module `gradAmt` dans `points.vert` (l. 315-341) :
-      hors essence, `mix(baseCol, vegRamp(a_height, u_vegHeightScale), gradAmt)` — à vérifier
-      si `vegRamp`/`vegRampColor` (l. 89-130) assombrit trop le bas du dégradé (tronc) par
-      rapport à la teinte de base ; en mode essence le mélange se fait avec
-      `speciesHeightShade` (l. 137, 330), possiblement avec le même travers.
+- [ ] **« Dégradé feuillage » rend la couleur trop foncée — en photoréaliste seulement.**
+      Le slider `u_vegIntensity` fait `mix(baseCol, vegRamp(...), gradAmt)` dans
+      `points.vert` ; en photoréaliste `vegRamp` est `vegRampColorPbr` (ρ ≈ 0,03-0,08, voulu
+      par §5.3 de `ROCK_AND_CLIFF_DETAIL.md`) alors que `baseCol` reste la couleur de classe,
+      une couleur de *carte* (classe 5 = 60/128/60, ρ vert ≈ 0,21) — l'erreur même que §5.3
+      a corrigée pour la rampe. Le curseur passe donc d'une réflectance à l'autre et règle la
+      luminosité au lieu du dégradé. Mesuré (Chartreuse 5.7825 / 45.2939, rayon 80 m,
+      soleil éteint, luminance linéaire moyenne des pixels de feuillage) : 0,218 à 0 %,
+      0,125 à 50 %, **0,072 au défaut 85 %**, 0,057 à 100 % ; l'orthophoto des mêmes arbres,
+      ombrage désactivé, lit **0,097**. Sur le chemin classique le curseur est à peu près
+      neutre (0,131 → 0,173). Aucune des deux extrémités n'est donc juste : à trancher entre
+      éclaircir `vegRampColorPbr` vers l'orthophoto (≈ ×1,35 en linéaire), ou donner aussi
+      au feuillage une couleur de base en réflectance sur ce chemin pour que le curseur ne
+      règle plus que le dégradé. Le mode essence (`speciesHeightShade`, facteur 0,42 → 1,10)
+      n'a pas été mesuré.
 - [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
       encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
       MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
