@@ -126,7 +126,18 @@
       lisse, un pas 8 garde 100 % des points à 0,6 pt/m² sol, 75 % à 1,5 et 45 % à 2,3
       (12 % au-delà de 4,5). Les paliers 3,4 m et 1,7 m, qui affichent sol 2 ou 8, ne
       déciment donc rien, et leur estimation de sommets (`points × 1,75 / groundStride`) est
-      fausse d'autant. Exprimer la cellule en espacements de points plutôt qu'en mètres.
+      fausse d'autant. **Exprimer la cellule en espacements ne suffit pas sur le terrain
+      réel** : essayé (cellule = max(1,5 m, √22,5 × espacement), soit 22,5 points par
+      cellule comme au calage) sur le sol IGN de 6.04216 / 45.24039 (400 × 400 m, niveaux
+      COPC tronqués pour imiter la résolution), un pas 8 garde 100 → 94 % à 0,44 pt/m²,
+      90 → 86 % à 1,8, et même 65 → 75 % à 6,7 (cellule 1,8 m). C'est `residualTol`, en
+      mètres absolus (0,3 m), qui retient tout : la courbure d'un vrai versant sur une
+      cellule élargie le dépasse. Mettre aussi la tolérance à l'échelle de la cellule
+      (0,3 × cellule / 1,5) décime vraiment : 54 % à 0,44 pt/m², 61 % à 1,8 — mais c'est
+      changer ce que la décimation juge « relief », à arbitrer sur des maillages Poisson
+      réels. Même à pleine densité (34 pt/m² sol), ce pas 8 garde encore **76 %** du sol :
+      la loi `1 / groundStride` de l'estimation est loin du compte partout, pas seulement
+      aux résolutions grossières.
 - [ ] **La maille annoncée (`octreeCellM` de `lidarQuality.ts`) ignore le `--scale 1.1`** de
       PoissonRecon : la cellule réelle est 10 % plus large que l'annonce. Laissé tel quel
       parce que la cohérence profondeur/densité (et `groundDepthCap`) est calée sur le
