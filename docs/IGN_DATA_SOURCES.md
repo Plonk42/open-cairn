@@ -346,6 +346,26 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
 - ⚠️ **Une cote fausse déplace l'ancre sur le mauvais sommet.** Le Grand Manti porte 1850 m
   là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 355 m du
   bon point. C'est borné par les 2 km, mais réel.
+- ⚠️ **La marche éloigne plus d'ancres qu'elle n'en rapproche.** Mesuré contre les positions
+  de la référence de `verify-peaks.mjs` (même nom, à moins de 2 km du toponyme) : sur 838
+  marches déplacées qui y trouvent un homonyme, 432 finissent plus loin de lui que leur
+  toponyme, 335 plus près. Et 302 marches finissent à plus de 10 m **au-dessus** de leur cote :
+  l'arrêt à 5 m de la cote n'est testé qu'après un saut de 250 m, qui peut atterrir sur le
+  flanc d'un voisin plus haut. Distance à la référence : médiane 97 m, p75 331 m.
+- **Essayé et écarté : faire monter plus loin les marches qui calent.** Rejoué sur les 1 301
+  marcheurs, contre la même référence :
+
+  | Variante | Abandonnées | Sondes | Médiane / p75 | ≤ 100 m |
+  |---|---|---|---|---|
+  | 8 sondes à 250 m (retenue) | 225 | 41 k | **97 / 331 m** | **510** |
+  | + seconde couronne décalée d'un demi-pas avant de réduire le pas | 180 | 65 k | 119 / 396 m | 487 |
+  | rayon de départ à 500 m | 194 | 42 k | 360 / 562 m | 376 |
+  | les deux | 142 | 66 k | 460 / 670 m | 335 |
+
+  La seconde couronne sauve 51 marches, mais 25 d'entre elles finissent plus loin du sommet
+  de référence et 11 plus près : elles montent sur un voisin (Tête du Grand Bois finit à
+  2820 m pour une cote de 2773). Ce qui cale n'est pas le défaut principal ; c'est ce qui
+  dépasse.
 - Le cercle vicieux des sommets sans cote — la cote manque *parce que* l'ancre est loin, et
   l'ancre reste loin *parce que* la cote manque — est rompu par l'appariement lointain
   prouvé, qui donne les deux d'un coup. Le Néron passe de « sans altitude » à **1298 m ancrés

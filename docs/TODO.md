@@ -49,10 +49,15 @@
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
       (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
       recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.
-- [ ] La montée guidée converge vers le maximum local le plus proche : 225 marches calent
-      à plus de 40 m sous leur cible et gardent leur ancre d'origine. Sur une crête étroite
-      elle peut même s'éloigner du sommet. Piste : élargir le rayon de départ au lieu de le
-      réduire quand aucune sonde ne monte, ou sonder deux couronnes.
+- [ ] La montée guidée éloigne plus d'ancres du sommet qu'elle n'en rapproche : sur les
+      838 marches déplacées qui ont un homonyme dans la référence de `verify-peaks.mjs`,
+      432 finissent plus loin de lui que leur toponyme et 335 plus près ; 302 finissent à
+      plus de 10 m *au-dessus* de leur cote, donc sur le flanc d'un voisin plus haut. L'arrêt
+      « sol ≥ cote − 5 m » n'est testé qu'après un saut de 250 m. Pistes : refuser une
+      arrivée au-dessus de la cote, ou revenir sur le dernier pas et le raccourcir quand il
+      la dépasse. Les 225 marches qui calent sous leur cible ne sont pas le problème à
+      traiter en premier : les faire monter plus loin (seconde couronne, rayon de départ de
+      500 m) a été mesuré pire — voir `IGN_DATA_SOURCES.md`.
 - [ ] Mont Saint-Eynard et aiguilles de l'Argentière restent sans cote : leur homonyme est
       au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
