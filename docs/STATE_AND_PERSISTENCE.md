@@ -223,6 +223,10 @@ Deux cas particuliers :
   restauré, plutôt que sur trois défauts indépendants qui reviendraient incohérents. Les régler
   un par un reste possible dans « Réglages avancés » ; le curseur affiche alors « personnalisée »
   et `captureAdvice` signale les incohérences avec leur correction.
+- **Densités sur leurs crans** : `lidarCloudStride` et `lidarCloudGroundStride` ne sont relus que
+  s'ils valent un cran de `STRIDE_STOPS` (`strideStopOr`), sinon ils reprennent leur défaut
+  (`DEFAULT_CLOUD_STRIDE` = 8, et le palier par défaut pour le sol). Le curseur ne sait se poser
+  que sur un cran : l'ancien défaut 10 s'affichait « 1/10 » avec le curseur sur 1/8.
 
 `lidarZonePyramid` accompagne ces trois-là sans jamais être **persisté ni exposé à l'utilisateur** :
 c'est la densité par niveau mesurée dans la hiérarchie COPC des dalles sous la zone (cf.

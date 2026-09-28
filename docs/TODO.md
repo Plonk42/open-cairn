@@ -160,5 +160,6 @@
       « détail » = maille d'octree, « sommets » = maillage Poisson, et `tierIndexOf` compare
       profondeur et densité sol que ces modes ignorent. Seule sa résolution y sert. La
       « Densité » (`lidarCloudStride`, 1 point sur N gardé après décodage) n'entre pas dans
-      l'estimation, et son défaut 10 n'est pas un cran de `STRIDE_STOPS` : l'étiquette lit
-      « 1/10 », le curseur est posé sur 1/8.
+      l'estimation. À trancher avant d'écrire : sur une grande zone, plusieurs paliers ne
+      diffèrent que par la densité sol et deviendraient des crans identiques en mode Points,
+      et aucune durée n'est calée pour les normales k-PPV ni pour Delaunay.
