@@ -155,8 +155,7 @@
       compte plus : le solveur tourne dans son repère.)
 - [ ] Sous la profondeur cohérente le nombre de sommets suit l'octree, pas les points
       (constat du balayage cité dans `lidarQuality.ts`), mais l'estimation du palier reste
-      une loi en points. Et l'aide du curseur « Profondeur octree » (« 8 = rapide… 12 = fin »)
-      donne des profondeurs absolues, alors que leur sens dépend de la taille de zone.
+      une loi en points.
 - [ ] **En mode Points (et Delaunay), le curseur Qualité affiche des grandeurs Poisson** :
       « détail » = maille d'octree, « sommets » = maillage Poisson, et `tierIndexOf` compare
       profondeur et densité sol que ces modes ignorent. Seule sa résolution y sert. La
