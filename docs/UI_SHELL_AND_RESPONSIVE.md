@@ -568,8 +568,8 @@ Ce qu'il faut savoir :
 - Le **point visé par le trait de rappel n'est pas le toponyme brut** : la BD TOPO® pose le
   nom d'une crête là où l'étiquette se lit sur une carte, pas sur la cime. Quand la cote
   dépasse de plus de 40 m le sol sous le toponyme, le générateur remonte l'ancre au RGE
-  ALTI® jusqu'à la cote — 1 076 sommets, dont Rocher de Chalves déplacé de 625 m et le
-  Néron de 618 m, jusque sur sa cime.
+  ALTI® jusqu'à la cote — 663 sommets, dont Rocher de Chalves déplacé de 625 m. Une
+  marche qui finit sur le flanc d'un voisin plus haut garde son toponyme.
 - Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
   **s'il porte une altitude** : c'est la seule preuve qu'il désigne un point culminant
   (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).

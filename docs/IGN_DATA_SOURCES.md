@@ -323,7 +323,9 @@ seulement en *réfuter* une.
 son étiquette affiche 1845 m : le trait de rappel du panorama désignait une épaule. PeakFinder
 évite ça en calant chaque POI sur le nœud de MNT le plus haut du voisinage
 (`lookupHighestElevation`). `tools/build-peaks.mjs` fait de même, avec un avantage : **la cote
-publie la cible**, donc la marche sait où s'arrêter au lieu d'errer vers un voisin plus haut.
+publie la cible**, donc la marche sait où s'arrêter. La cible seule ne la garde pas d'un
+voisin plus haut, dont le flanc croise la même courbe de niveau : c'est le contrôle de sommet
+qui l'écarte.
 Quand un appariement lointain a déjà prouvé sa position, elle est prise telle quelle et la
 marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherchée.
 
@@ -333,12 +335,16 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
 - **Comment** : 8 sondes à 250 m, on saute sur la plus haute, on réduit le pas quand aucune ne
   monte, on s'arrête à 5 m de la cote. Les sondes sont **arrondies à 6 décimales** — en pleine
   précision, un lot fait une URL que le service refuse en HTTP 414.
-- **Deux garde-fous**. Passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné.
-  Et une marche qui **cale à plus de 40 m sous sa cible** a trouvé un ressaut, pas une cime :
+- **Trois garde-fous**. Passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné.
+  Une marche qui **cale à plus de 40 m sous sa cible** a trouvé un ressaut, pas une cime :
   elle garde aussi l'ancienne ancre. Le Néron a montré pourquoi — sur une crête étroite, la
   montée guidée converge vers le maximum local le plus proche, et elle avait fini à 1178,8 m
-  pour une cible de 1298, en s'éloignant du sommet (743 m contre 618 au départ). **225**
-  marches sont ainsi abandonnées, **1 076** aboutissent.
+  pour une cible de 1298, en s'éloignant du sommet (743 m contre 618 au départ). Enfin le
+  **contrôle de sommet** : 8 sondes à 30 m et 8 à 60 m autour de l'arrivée
+  (`TOP_CHECK_RADII_M`) ; si l'arrivée ou l'une d'elles dépasse la cote de plus de 5 m
+  (`CLIMB_TARGET_SLACK_M`), la marche a atteint la courbe de niveau sur le flanc d'un voisin
+  plus haut et garde l'ancienne ancre. **225** marches calent, **413** débordent, **663**
+  aboutissent.
 - **Résultat** : Rocher de Chalves atterrit à 625 m de son toponyme, sur un sol à 1842,9 m pour
   une cote de 1845 — à 6 m du nœud OSM « Rochers de Chalves », que la marche n'a jamais
   consulté. Les altitudes ne se dégradent pas (98,0 % à moins de 3 m) et l'appariement à la
@@ -346,18 +352,32 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
 - ⚠️ **Une cote fausse déplace l'ancre sur le mauvais sommet.** Le Grand Manti porte 1850 m
   là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 355 m du
   bon point. C'est borné par les 2 km, mais réel.
-- ⚠️ **La marche éloigne plus d'ancres qu'elle n'en rapproche.** Mesuré contre les positions
-  de la référence de `verify-peaks.mjs` (même nom, à moins de 2 km du toponyme) : sur 838
-  marches déplacées qui y trouvent un homonyme, 432 finissent plus loin de lui que leur
-  toponyme, 335 plus près. Et 302 marches finissent à plus de 10 m **au-dessus** de leur cote :
-  l'arrêt à 5 m de la cote n'est testé qu'après un saut de 250 m, qui peut atterrir sur le
-  flanc d'un voisin plus haut. Distance à la référence : médiane 97 m, p75 331 m.
+- **Pourquoi le contrôle de sommet.** Sans lui, la marche éloignait plus d'ancres qu'elle n'en
+  rapprochait. Mesuré contre les positions de la référence de `verify-peaks.mjs` (même nom, à
+  moins de 2 km du toponyme ; 1 015 des 1 301 marcheurs en ont un) :
+
+  | Variante | Déplacées | Plus près / plus loin | Médiane / p75 | ≤ 100 m |
+  |---|---|---|---|---|
+  | aucune marche | 0 | — | 73 / 178 m | 606 |
+  | marche sans contrôle | 1 076 | 335 / 432 | 97 / 331 m | 510 |
+  | rejet si l'arrivée dépasse la cote de 5 m | 725 | 318 / 165 | 48 / 145 m | 689 |
+  | **contrôle de sommet 30/60 m, cote + 5 m** (retenu) | 663 | 314 / 116 | **45 / 123 m** | **719** |
+
+  L'arrêt à 5 m de la cote n'est testé qu'après un saut de 250 m, qui peut atterrir haut
+  sur le flanc d'un voisin : 302 marches finissaient à plus de 10 m *au-dessus* de leur cote.
+  Le seul sol d'arrivée n'en attrape qu'une partie ; les anneaux attrapent aussi celles qui
+  s'arrêtent juste sous la cote avec plus haut à côté. Marges de 3 ou 8 m, anneaux à
+  60/120 m : à quelques unités près. Interdire à la marche de sauter au-dessus de la cote, au lieu de
+  juger l'arrivée, n'apporte rien de plus une fois le contrôle en place et coûte 16 % de
+  sondes. La référence n'est pas une vérité au mètre — son point est en médiane 23 m sous la
+  cote au RGE ALTI® —, donc seules les distances au-delà de ~50 m ont un sens. Les
+  altitudes ne bougent pas (`verify-peaks.mjs` : 10 210 exactes, 98,0 % à moins de 3 m).
 - **Essayé et écarté : faire monter plus loin les marches qui calent.** Rejoué sur les 1 301
-  marcheurs, contre la même référence :
+  marcheurs, sans contrôle de sommet, contre la même référence :
 
   | Variante | Abandonnées | Sondes | Médiane / p75 | ≤ 100 m |
   |---|---|---|---|---|
-  | 8 sondes à 250 m (retenue) | 225 | 41 k | **97 / 331 m** | **510** |
+  | 8 sondes à 250 m (base) | 225 | 41 k | **97 / 331 m** | **510** |
   | + seconde couronne décalée d'un demi-pas avant de réduire le pas | 180 | 65 k | 119 / 396 m | 487 |
   | rayon de départ à 500 m | 194 | 42 k | 360 / 562 m | 376 |
   | les deux | 142 | 66 k | 460 / 670 m | 335 |

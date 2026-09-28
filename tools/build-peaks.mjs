@@ -411,6 +411,9 @@ const CLIMB_DIRECTIONS = 8;
 /** Enough for eight full steps of climb plus the three that shrink the radius. */
 const MAX_CLIMB_ROUNDS = 16;
 
+/** Rings sampled around an arrival to tell a top from the flank of a higher one. */
+const TOP_CHECK_RADII_M = [30, 60];
+
 /**
  * A probe near a point. Rounded to 6 decimals — 0.1 m, far finer than a 1 m
  * DEM — because full-precision floats make each coordinate 20 characters and
@@ -464,6 +467,23 @@ function climbStep(walkers, probes, heights) {
 }
 
 /**
+ * The walkers standing on, or next to, ground higher than their own height:
+ * they reached the target contour on the flank of a higher neighbour.
+ */
+async function overshotWalkers(walkers) {
+    const perWalker = TOP_CHECK_RADII_M.length * CLIMB_DIRECTIONS;
+    const probes = walkers.flatMap((w) => TOP_CHECK_RADII_M.flatMap((radiusM) =>
+        climbProbes([{ lng: w.lng, lat: w.lat, radiusM }])));
+    const heights = await sampleGround(probes, `top check (${walkers.length})`);
+    const overshot = new Set();
+    walkers.forEach((w, i) => {
+        const around = heights.slice(i * perWalker, (i + 1) * perWalker).filter((z) => z !== undefined);
+        if (Math.max(w.groundM, ...around) > w.targetM + CLIMB_TARGET_SLACK_M) overshot.add(w.id);
+    });
+    return overshot;
+}
+
+/**
  * Walk a toponym uphill until the ground under it matches the height its own
  * label carries.
  *
@@ -474,15 +494,16 @@ function climbStep(walkers, probes, heights) {
  * the highest DEM node around it.
  *
  * The published height is what makes the walk safe to run offline: it says how
- * far there is left to climb, so the walk has a target and stops at it rather
- * than wandering onto a higher neighbour. A walk that strays past
- * {@link MAX_ANCHOR_MOVE_M} is abandoned outright — better the old anchor than
- * a name moved onto the wrong mountain. 1784 of the 13294 heighted summits
- * qualify; the rest already stand within 40 m of their own ground.
+ * far there is left to climb, so the walk has a target and stops at it. That
+ * alone does not keep it off a higher neighbour, whose flank crosses the same
+ * contour: a walk whose arrival has ground above its height within
+ * {@link TOP_CHECK_RADII_M} is abandoned, as is one that strays past
+ * {@link MAX_ANCHOR_MOVE_M} — better the old anchor than a name moved onto the
+ * wrong mountain.
  */
 function reanchorAll(entries) {
     const signature = createHash('sha256')
-        .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}\n`)
+        .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}/${TOP_CHECK_RADII_M}\n`)
         .update(entries.map((e) => `${e.peak.id}:${e.m}:${e.groundM}:${e.at ?? ''}`).join('\n'))
         .digest('hex');
     return cached('anchors', async () => {
@@ -503,17 +524,17 @@ function reanchorAll(entries) {
             walkers = climbStep(walkers, probes,
                 await sampleGround(probes, `climb ${round} (${walkers.length} left)`));
         }
+        // A walk that never got near its target found a shoulder, not the top.
+        const stalled = all.filter((w) => w.targetM - w.groundM > ANCHOR_DRIFT_M);
+        const arrived = all.filter((w) => w.targetM - w.groundM <= ANCHOR_DRIFT_M
+            && w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M);
+        const overshot = await overshotWalkers(arrived);
         const moved = {};
-        let stalled = 0;
-        for (const w of all) {
-            // A walk that never got near its target found a shoulder, not the top:
-            // le Néron's crest is narrow enough to stall one 119 m short, and
-            // further from the summit than the toponym it started at.
-            if (w.targetM - w.groundM > ANCHOR_DRIFT_M) { stalled += 1; continue; }
-            if (w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M) moved[w.id] = [w.lng, w.lat];
-        }
-        console.log(`  ${stalled} walks stalled short of their height and kept`
+        for (const w of arrived) if (!overshot.has(w.id)) moved[w.id] = [w.lng, w.lat];
+        console.log(`  ${stalled.length} walks stalled short of their height and kept`
             + ' their old anchor');
+        console.log(`  ${overshot.size} walks ended beside ground above their height and`
+            + ' kept their old anchor');
         return moved;
     }, signature);
 }

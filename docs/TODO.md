@@ -47,17 +47,12 @@
 - [ ] Le recalage peut franchir une barre : au pied de Chamechaude il monte de 117 m pour
       50 m. Voulu pour un panorama, mais surprenant si l'on visait le pied de la falaise.
 - [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
-      (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Rejeter le
-      recalage quand le sol d'arrivée dépasse la cote, ou quand la marche a traversé un col.
-- [ ] La montée guidée éloigne plus d'ancres du sommet qu'elle n'en rapproche : sur les
-      838 marches déplacées qui ont un homonyme dans la référence de `verify-peaks.mjs`,
-      432 finissent plus loin de lui que leur toponyme et 335 plus près ; 302 finissent à
-      plus de 10 m *au-dessus* de leur cote, donc sur le flanc d'un voisin plus haut. L'arrêt
-      « sol ≥ cote − 5 m » n'est testé qu'après un saut de 250 m. Pistes : refuser une
-      arrivée au-dessus de la cote, ou revenir sur le dernier pas et le raccourcir quand il
-      la dépasse. Les 225 marches qui calent sous leur cible ne sont pas le problème à
-      traiter en premier : les faire monter plus loin (seconde couronne, rayon de départ de
-      500 m) a été mesuré pire — voir `IGN_DATA_SOURCES.md`.
+      (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Le contrôle
+      de sommet ne l'attrape pas : une cote trop haute n'a aucun sol au-dessus d'elle.
+      Piste : rejeter le recalage quand la marche a traversé un col.
+- [ ] Après le contrôle de sommet, 116 marches déplacées finissent encore à plus de 20 m
+      plus loin de leur homonyme dans la référence de `verify-peaks.mjs` que leur toponyme
+      (314 plus près). Les examiner au cas par cas avant d'inventer un autre garde.
 - [ ] Mont Saint-Eynard et aiguilles de l'Argentière restent sans cote : leur homonyme est
       au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
