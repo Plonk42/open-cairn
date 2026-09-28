@@ -30,7 +30,7 @@ type ModuleFactory = (opts: {
 }) => Promise<EmModule>;
 
 export interface PoissonOptions {
-    /** Octree depth (8 = fast/coarse, 12 = slow/fine). Default 9. */
+    /** Octree depth: the finest cell is the input's extent / 2^depth. Default 9. */
     depth?: number;
     /** Boundary type: 1=free, 2=Dirichlet, 3=Neumann. Default 2. */
     bType?: number;

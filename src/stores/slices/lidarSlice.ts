@@ -404,7 +404,7 @@ export interface LidarSlice {
     /** LAS classification filter (empty = all classes). */
     lidarCloudClasses: number[];
     setLidarCloudClasses: (v: number[]) => void;
-    /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
+    /** Octree depth for the 'poisson' mode, relative to the zone: its finest cell is extent / 2^depth. */
     lidarCloudPoissonDepth: number;
     setLidarCloudPoissonDepth: (v: number) => void;
     /** Min samples per octree node for PoissonRecon. Default 1.5. */

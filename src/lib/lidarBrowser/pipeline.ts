@@ -48,7 +48,8 @@ export interface BrowserFetchParams {
      *  without thinning the non-ground overlay. Absolute, like `stride`; values
      *  below `stride` have no effect (points were already decimated on extract). */
     poissonGroundStride?: number;
-    /** Octree depth for the 'poisson' mode (8 = fast, 12 = fine). */
+    /** Requested octree depth for the 'poisson' mode; the finest cell is the zone's extent / 2^depth.
+     *  Capped by `groundDepthCap` on the ground actually received. */
     poissonDepth?: number;
     /** Min samples per octree node for PoissonRecon. Default 1.5. */
     poissonSamplesPerNode?: number;
