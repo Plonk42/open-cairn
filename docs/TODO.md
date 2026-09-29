@@ -1,69 +1,42 @@
 # TODO
 
-- [ ] **« Dégradé feuillage » rend la couleur trop foncée — en photoréaliste seulement.**
-      Le slider `u_vegIntensity` fait `mix(baseCol, vegRamp(...), gradAmt)` dans
-      `points.vert` ; en photoréaliste `vegRamp` est `vegRampColorPbr` (ρ ≈ 0,03-0,08, voulu
-      par §5.3 de `ROCK_AND_CLIFF_DETAIL.md`) alors que `baseCol` reste la couleur de classe,
-      une couleur de *carte* (classe 5 = 60/128/60, ρ vert ≈ 0,21) — l'erreur même que §5.3
-      a corrigée pour la rampe. Le curseur passe donc d'une réflectance à l'autre et règle la
-      luminosité au lieu du dégradé. Mesuré (Chartreuse 5.7825 / 45.2939, rayon 80 m,
-      soleil éteint, luminance linéaire moyenne des pixels de feuillage) : 0,218 à 0 %,
-      0,125 à 50 %, **0,072 au défaut 85 %**, 0,057 à 100 % ; l'orthophoto des mêmes arbres,
-      ombrage désactivé, lit **0,097**. Sur le chemin classique le curseur est à peu près
-      neutre (0,131 → 0,173). Aucune des deux extrémités n'est donc juste : à trancher entre
-      éclaircir `vegRampColorPbr` vers l'orthophoto (≈ ×1,35 en linéaire), ou donner aussi
-      au feuillage une couleur de base en réflectance sur ce chemin pour que le curseur ne
-      règle plus que le dégradé. Le mode essence (`speciesHeightShade`, facteur 0,42 → 1,10)
-      n'a pas été mesuré.
-- [ ] Les heures de lever/coucher du soleil et de la lune (`SkyLabelsOverlay`) marchent
-      encore l'horizon avec `demSampler`, donc sur le cache de tuiles : hors du cadre,
-      MapLibre répond depuis un ancêtre jusqu'à z5 (mesuré 396 m trop bas en médiane pour
-      les sommets). Un azimut de lever hors champ peut donc lire une crête lissée. Les
-      noms de sommets ne lisent plus que les tuiles dessinées (`renderedGroundSampler`) ;
-      pour le ciel, dont les croisements sont souvent hors champ, il faudrait un MNT propre.
-- [ ] `settleOnGround` (`ViewpointController`) lit le sol sous l'œil par
-      `queryTerrainElevation`, qui retombe sur la même lecture du cache quand l'œil est
-      sous le cadre — non vérifié si la hauteur d'œil s'en trouve faussée.
-- [ ] **L'Itinéraire mobile garde ses *bottom sheets*** alors que le desktop est passé à
-      l'accordéon (`RouteSidePanel`). Pour le Studio, la divergence est tranchée
-      (`DECISIONS.md` : il garde ses feuilles) ; pour l'Itinéraire, c'est l'état de fait,
-      pas encore un choix écrit.
-- [ ] La caméra traverse le relief en rotation hors *Point de vue*, et ce n'est pas une
-      désactivation de notre part : `Camera._elevateCameraIfInsideTerrain` est bien la
-      méthode d'origine partout ailleurs. Mais ce garde vise `camAlt == ground`,
-      **marge nulle**, et n'y arrive même pas : itéré quatre fois il est un **point fixe à
-      −0,29 m** (même pitch 77,22°, même zoom 16,486, caméra déplacée de 0 m). Il ne teste
-      qu'un échantillon bilinéaire sous la caméra — jamais le terrain *entre* l'œil et le
-      centre, jamais le maillage de triangles réellement dessiné, qui le dépasse de plusieurs
-      mètres sur un versant. Mesuré sur un tour complet à z16,5 / pitch 80 : **12 images sur
-      60 sous le sol** en 5.11, **3 sur 60** en 6.10 (au-dessus de Saint-Martin-le-Vinoux,
-      5.7735 / 45.2525, pitch 71° ↔ 78,8°) parce que le garde réécrit *pitch et zoom* au
-      lieu de reculer la caméra. **Essayé** (branche `todo/terrain-camera-guard-wip`) : un
-      garde à nous qui ne touche qu'au zoom, recule l'œil le long de sa visée jusqu'à
-      dépasser de la profondeur du plan proche (7,6 m à z16,5) le plus haut de cinq sondes.
-      Le pitch tient à 80° et plus aucune image n'est sous le sol, mais au même endroit
-      il faut reculer **×3,02 (z16,5 → z14,9)** : le versant derrière l'œil monte plus
-      vite que la ligne de visée (10°), et seule la crête au-delà le dégage. Le zoom
-      corrigé est ensuite figé à chaque `moveend`, comme l'était le pitch. À trancher :
-      ne toucher qu'au zoom coûte parfois bien plus de cadrage que le pitch réécrit ; un
-      mélange (reculer jusqu'à un plafond, puis relever) reste à écrire.
-- [ ] Le recalage du point de station au point haut à 50 m lit `queryTerrainElevation` au
-      zoom du clic : depuis une vue d'ensemble (z12–13), le MNT est grossier et le « point
-      haut » est souvent juste le bord amont du disque. Sur un long versant, le disque ne
-      contient de toute façon aucun sommet (mesuré : +34 m sur une pente à 60 %, le sol
-      remplit encore le cadre). Pistes : sonder au zoom du MNT le plus fin chargé, ou
+Une entrée = une action : un verbe, ce qui la clôt, et un lien vers la section qui porte
+les mesures. Constats et essais vivent dans le document du sujet (souvent ses
+*Limitations*), les choix tranchés dans `DECISIONS.md`. Une entrée faite ou abandonnée
+est retirée.
+
+- [ ] **Trancher la couleur du feuillage en photoréaliste** : le curseur « Dégradé
+      feuillage » y règle la luminosité (0,218 → 0,072 au défaut ; l'orthophoto lit
+      0,097) parce que `baseCol` reste une couleur de carte. Au choix : éclaircir
+      `vegRampColorPbr` vers l'orthophoto (≈ ×1,35 en linéaire), ou donner au feuillage une
+      couleur de base en réflectance pour que le curseur ne règle plus que le dégradé.
+      Mesurer aussi le mode essence. Détails : `ROCK_AND_CLIFF_DETAIL.md` §5.3.
+- [ ] Donner au calcul des heures de lever/coucher (`SkyLabelsOverlay`) un MNT propre hors
+      du cadre : il lit encore le cache de tuiles, lissé jusqu'à z5 (`SUN_LIGHTING.md`,
+      *Limitations*).
+- [ ] Vérifier si `settleOnGround` (`ViewpointController`) fausse la hauteur d'œil : il lit
+      le sol par `queryTerrainElevation`, qui retombe sur le cache de tuiles quand l'œil
+      est sous le cadre.
+- [ ] **Trancher le mobile de l'Itinéraire** : il garde ses *bottom sheets* alors que le
+      desktop est passé à l'accordéon (`RouteSidePanel`). Pour le Studio c'est un choix
+      écrit (`DECISIONS.md`), pour l'Itinéraire un état de fait. Soit l'écrire dans
+      `DECISIONS.md`, soit donner à l'accordéon un jumeau mobile.
+- [ ] **Écrire un garde caméra/terrain hors *Point de vue*** : celui de MapLibre laisse la
+      caméra sous le sol en rotation (jusqu'à 12 images sur 60). Un garde qui ne touche
+      qu'au zoom a été essayé (`todo/terrain-camera-guard-wip`) et coûte parfois ×3 de
+      recul ; reste à écrire le mélange — reculer jusqu'à un plafond, puis relever le
+      pitch. Mesures : `UI_SHELL_AND_RESPONSIVE.md`, *Limitations techniques*.
+- [ ] Recaler le point de station sur un MNT assez fin : il lit `queryTerrainElevation` au
+      zoom du clic, et depuis une vue d'ensemble (z12–13) le « point haut » est souvent
+      juste le bord amont du disque. Pistes : sonder au zoom du MNT le plus fin chargé, ou
       élargir le rayon quand le maximum tombe sur le bord.
-- [ ] Le recalage peut franchir une barre : au pied de Chamechaude il monte de 117 m pour
-      50 m. Voulu pour un panorama, mais surprenant si l'on visait le pied de la falaise.
-- [ ] Une cote fausse déplace l'ancre sur le mauvais sommet : Le Grand Manti porte 1850 m
-      (Wikipédia dit 1818) et la marche s'est éloignée de 355 m du bon point. Le contrôle
-      de sommet ne l'attrape pas : une cote trop haute n'a aucun sol au-dessus d'elle.
-      Piste : rejeter le recalage quand la marche a traversé un col.
+- [ ] Rejeter le recalage d'ancre de `build-peaks.mjs` quand la marche a traversé un col :
+      une cote fausse l'emmène sur le mauvais sommet (Le Grand Manti, 355 m), et le
+      contrôle de sommet ne l'attrape pas — une cote trop haute n'a aucun sol au-dessus
+      d'elle. Cf. `IGN_DATA_SOURCES.md`, « Remonter les ancres sur leur sommet ».
 - [ ] Après le contrôle de sommet, 116 marches déplacées finissent encore à plus de 20 m
       plus loin de leur homonyme dans la référence de `verify-peaks.mjs` que leur toponyme
       (314 plus près). Les examiner au cas par cas avant d'inventer un autre garde.
-- [ ] Mont Saint-Eynard et aiguilles de l'Argentière restent sans cote : leur homonyme est
-      au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.
@@ -84,10 +57,6 @@
       cf. `ALTI_BATCH`), et un rapport par tranches d'écart comme `verify-peaks.mjs`.
       Wikidata n'est pas tout à fait indépendant (`P2044` est parfois recopié d'OSM ou de
       l'IGN) : c'est le sol à sa coordonnée qui tranche.
-- [ ] `@deck.gl/core`, `@deck.gl/layers` et `@deck.gl/mapbox` sont toujours déclarés dans
-      `package.json` alors qu'aucun fichier de `src/` ne les importe depuis l'extraction de
-      la « Coupe de falaise » (`CliffSlicePathOverlay` était leur seul consommateur). Ne pas
-      les retirer sans arbitrage : la branche `cliff-slice` en a besoin.
 - [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
       22 à 123 d'un coup, avec un à-coup de ~210 ms pendant que les RTT sont refaites.
       Piste : étaler le changement de `meshSize` sur quelques images, ou ne vider
@@ -120,42 +89,18 @@
       depuis qu'ils le sont sur le rectangle, une capture télécharge 35 à 56 % d'octets en
       moins, et la part « téléchargement » de la durée est probablement surestimée. Recaler
       sur quelques captures chronométrées, idéalement sur les octets plutôt que les points.
-- [ ] **Le curseur Qualité aligne la profondeur Poisson sur la densité toutes classes**
-      (`spacingM` ← pyramide COPC), alors que le solveur ne reçoit que le sol. Mesuré
-      (`tools/lidar-density/analyze.mjs`, 200 × 200 m) : prairie du Vercors 98,8 % de sol,
-      forêt de Chartreuse (5.77 / 45.29) **9,3 %** — 48 pt/m² en tout, 4,5 au sol,
-      espacement 0,14 m annoncé contre 0,47 m réel, soit ~1,7 niveau d'octree de trop en
-      forêt. La sonde de pyramide aggrave le biais : une forêt y paraît *plus* dense.
-      Le worker plafonne désormais la profondeur sur le sol reçu (`groundDepthCap`), mais
-      l'**aperçu** du curseur (détail, sommets, durée) reste optimiste sous forêt. Piste :
-      décoder un nœud par dalle dans la sonde pour y lire la fraction sol.
-- [ ] **La densité sol du palier est inerte aux résolutions grossières.**
-      `adaptiveDecimateGround` travaille en cellules absolues de 1,5 m et traite comme
-      « relief » toute cellule de moins de 6 points : simulé sur une pente parfaitement
-      lisse, un pas 8 garde 100 % des points à 0,6 pt/m² sol, 75 % à 1,5 et 45 % à 2,3
-      (12 % au-delà de 4,5). Les paliers 3,4 m et 1,7 m, qui affichent sol 2 ou 8, ne
-      déciment donc rien, et leur estimation de sommets (`points × 1,75 / groundStride`) est
-      fausse d'autant. **Exprimer la cellule en espacements ne suffit pas sur le terrain
-      réel** : essayé (cellule = max(1,5 m, √22,5 × espacement), soit 22,5 points par
-      cellule comme au calage) sur le sol IGN de 6.04216 / 45.24039 (400 × 400 m, niveaux
-      COPC tronqués pour imiter la résolution), un pas 8 garde 100 → 94 % à 0,44 pt/m²,
-      90 → 86 % à 1,8, et même 65 → 75 % à 6,7 (cellule 1,8 m). C'est `residualTol`, en
-      mètres absolus (0,3 m), qui retient tout : la courbure d'un vrai versant sur une
-      cellule élargie le dépasse. Mettre aussi la tolérance à l'échelle de la cellule
-      (0,3 × cellule / 1,5) décime vraiment : 54 % à 0,44 pt/m², 61 % à 1,8 — mais c'est
-      changer ce que la décimation juge « relief », à arbitrer sur des maillages Poisson
-      réels. Même à pleine densité (34 pt/m² sol), ce pas 8 garde encore **76 %** du sol :
-      la loi `1 / groundStride` de l'estimation est loin du compte partout, pas seulement
-      aux résolutions grossières.
-- [ ] **La maille annoncée (`octreeCellM` de `lidarQuality.ts`) ignore le `--scale 1.1`** de
-      PoissonRecon : la cellule réelle est 10 % plus large que l'annonce. Laissé tel quel
-      parce que la cohérence profondeur/densité (et `groundDepthCap`) est calée sur le
-      balayage de 25 captures dans cette convention ; corriger l'un sans re-balayer décalerait
-      les paliers d'un cran à la limite d'arrondi. (L'orientation du rectangle, elle, ne
-      compte plus : le solveur tourne dans son repère.)
-- [ ] Sous la profondeur cohérente le nombre de sommets suit l'octree, pas les points
-      (constat du balayage cité dans `lidarQuality.ts`), mais l'estimation du palier reste
-      une loi en points.
+- [ ] Rendre l'aperçu du curseur Qualité (détail, sommets, durée) juste sous forêt : il
+      dimensionne sur la densité toutes classes (`spacingM` ← pyramide COPC) alors que le
+      solveur ne reçoit que le sol (9,3 % sous la Chartreuse). Piste : décoder un nœud par
+      dalle dans la sonde pour y lire la fraction sol. Mesures : `LIDAR_PIPELINE.md`,
+      « Le curseur Qualité ».
+- [ ] Arbitrer, sur des maillages Poisson réels, une tolérance de `adaptiveDecimateGround` à
+      l'échelle de la cellule (0,3 × cellule / 1,5) : aujourd'hui la densité sol du palier
+      ne décime presque rien aux résolutions grossières, et agrandir la cellule seule ne
+      suffit pas. Mesures et essai : `LIDAR_PIPELINE.md`, *Limitations techniques*.
+- [ ] Refaire l'estimation de sommets du palier (`points × 1,75 / groundStride`) en loi
+      d'octree, après l'arbitrage précédent qui change ce que la décimation garde
+      (`LIDAR_PIPELINE.md`, *Limitations techniques*).
 - [ ] **En mode Points (et Delaunay), le curseur Qualité affiche des grandeurs Poisson** :
       « détail » = maille d'octree, « sommets » = maillage Poisson, et `tierIndexOf` compare
       profondeur et densité sol que ces modes ignorent. Seule sa résolution y sert. La

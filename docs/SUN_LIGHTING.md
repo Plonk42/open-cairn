@@ -174,6 +174,10 @@ trait jaune en travers de l'image.
   pointillé vaut ce que vaut le modèle de terrain. À quelques kilomètres, une
   erreur d'altitude de quelques mètres déplace la silhouette d'environ 0,1°, soit
   un cinquième de diamètre solaire — et le MNT ignore les arbres et les bâtiments.
+- **Hors du cadre, la crête vient du cache de tuiles** : `demSampler` y répond depuis
+  un ancêtre, jusqu'à z5 (mesuré 396 m trop bas en médiane pour les sommets). Un lever
+  dont l'azimut est hors champ peut donc se lire sur une crête lissée. Les noms de
+  sommets, eux, ne lisent que les tuiles dessinées (`renderedGroundSampler`).
 - **Horizon limité à 200 km** : au-delà, le rayon s'arrête. C'est la distance de
   l'horizon vu de 3 000 m ; depuis un sommet plus haut, sur une plaine dégagée,
   l'horizon serait très légèrement plus bas que calculé.

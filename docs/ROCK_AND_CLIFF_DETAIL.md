@@ -395,6 +395,24 @@ la photo : des arbres presque noirs détachés sur la pelouse claire. D'où
 réflectance, sélectionnée par `u_pbr`. La palette de carte est inchangée hors
 photoréalisme.
 
+**Limite connue — le curseur « Dégradé feuillage ».** Il fait
+`mix(baseCol, vegRamp(...), gradAmt)` dans `points.vert`. En photoréaliste,
+`vegRamp` est `vegRampColorPbr`, mais `baseCol` reste la couleur de classe, une
+couleur de *carte* (classe 5 = 60/128/60, ρ vert ≈ 0,21) — l'erreur même que
+cette section corrige pour la rampe. Le curseur passe donc d'une réflectance à
+l'autre et règle la luminosité au lieu du dégradé. Mesuré en Chartreuse
+(5.7825 / 45.2939, rayon 80 m, soleil éteint, luminance linéaire moyenne des
+pixels de feuillage) :
+
+| Dégradé feuillage | 0 % | 50 % | 85 % (défaut) | 100 % | orthophoto, ombrage éteint |
+|---|---|---|---|---|---|
+| Luminance | 0,218 | 0,125 | **0,072** | 0,057 | **0,097** |
+
+Aucune des deux extrémités n'est juste. Sur le chemin classique le curseur est à
+peu près neutre (0,131 → 0,173). Le mode essence (`speciesHeightShade`, facteur
+0,42 → 1,10) n'a pas été mesuré. Correction à trancher : voir
+[TODO.md](TODO.md).
+
 ### 5.5 Une seule limite climatique pour la neige et pour l'herbe
 
 Restait un reproche : « l'herbe est un poil trop jaune ». Le creusement du bleu

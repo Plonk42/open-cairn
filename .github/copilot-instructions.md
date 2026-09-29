@@ -64,6 +64,12 @@ Whenever a task leaves something aside ("later", "out of scope", a fix identifie
 or a discovery surfaces a defect/idea worth revisiting, append a `- [ ] ...` entry to
 `docs/TODO.md` in the same pass — do not just mention it in the chat reply and move on.
 
+A TODO entry is an **action**: a verb, what closes it, and a pointer to the section holding the
+evidence — a few lines, not the investigation. Measurements and failed attempts go in the topic
+document (its *Limitations* when it is a defect); a known limit with no planned action goes only
+there; "left as is because…" or "intended" goes in `docs/DECISIONS.md` once the maintainer settles
+it. Remove an entry once done or dropped.
+
 ## Mobile is half the app
 
 The app has **two chromes**, not one desktop chrome with a narrower layout. Below 768 px the whole

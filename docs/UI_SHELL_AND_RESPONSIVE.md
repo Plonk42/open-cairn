@@ -631,6 +631,9 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   face à la pente et l'ortho, vue en incidence rasante, se réduit à un lissé : le mode rend
   une vraie image depuis un **sommet ou une arête**, beaucoup moins depuis un versant ou un
   fond de vallée.
+- Le recalage au point haut peut **franchir une barre** : au pied de Chamechaude il monte
+  de 117 m pour 50 m. Voulu pour un panorama, surprenant si l'on visait le pied de la
+  falaise.
 - Le sol **proche** est volontairement moins texturé qu'ailleurs dans l'application :
   le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
   plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un
@@ -1188,3 +1191,21 @@ suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son déga
   en sortir silencieusement.
 - **Pas de support clavier** complet pour la barre d'outils mobile (pas de
   `role="tablist"` ni gestion ARIA complète).
+- **La caméra traverse le relief en rotation hors *Point de vue*.** Ce n'est pas une
+  désactivation de notre part : `Camera._elevateCameraIfInsideTerrain` est bien la méthode
+  d'origine. Mais ce garde vise `camAlt == ground`, **marge nulle**, et n'y arrive même
+  pas : itéré quatre fois, c'est un **point fixe à −0,29 m** (même pitch 77,22°, même zoom
+  16,486, caméra déplacée de 0 m). Il ne teste qu'un échantillon bilinéaire sous la
+  caméra — jamais le terrain *entre* l'œil et le centre, jamais le maillage de triangles
+  réellement dessiné, qui le dépasse de plusieurs mètres sur un versant — et il réécrit
+  *pitch et zoom* au lieu de reculer la caméra. Mesuré sur un tour complet à z16,5 /
+  pitch 80 : **12 images sur 60 sous le sol** en 5.11, **3 sur 60** en 6.10 (au-dessus de
+  Saint-Martin-le-Vinoux, 5.7735 / 45.2525, pitch 71° ↔ 78,8°).
+
+  **Essayé** (branche `todo/terrain-camera-guard-wip`) : un garde à nous qui ne touche
+  qu'au zoom et recule l'œil le long de sa visée jusqu'à dépasser de la profondeur du plan
+  proche (7,6 m à z16,5) la plus haute de cinq sondes. Le pitch tient à 80° et plus aucune
+  image n'est sous le sol, mais au même endroit il faut reculer **×3,02 (z16,5 → z14,9)** :
+  le versant derrière l'œil monte plus vite que la ligne de visée (10°), et seule la crête
+  au-delà le dégage. Le zoom corrigé est ensuite figé à chaque `moveend`, comme l'était le
+  pitch. Suite : voir [TODO.md](TODO.md).

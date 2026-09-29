@@ -390,7 +390,9 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   l'ancre reste loin *parce que* la cote manque — est rompu par l'appariement lointain
   prouvé, qui donne les deux d'un coup. Le Néron passe de « sans altitude » à **1298 m ancrés
   à 0 m du sommet**, le mont Rachais à 1046 m (+1013 m) et le mont Outheran à 1686 m
-  (+1019 m). La contre-épreuve Wikipédia passe de **5 sommets sans cote à 2**.
+  (+1019 m). La contre-épreuve Wikipédia passe de **5 sommets sans cote à 2**. Le Mont
+  Saint-Eynard et les aiguilles de l'Argentière restent sans cote : leur homonyme est
+  au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
 - ⚠️ **La mémoïsation sur disque de cette marche et de l'appariement lointain** (`cached('anchors',
   …)` / `cached('farmatches', …)`) ne dépendait que d'une signature passée à la main
   (rayons, tolérances…), jamais du code du calcul lui-même : avoir changé la *forme* de ce

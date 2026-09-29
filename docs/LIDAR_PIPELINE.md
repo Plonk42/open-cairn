@@ -111,7 +111,12 @@ sont signalées avec leur correction (« Profondeur inutilement élevée… »,
 « Densité sol trop faible… »), chaque message portant son bouton *Corriger*.
 
 Les paliers restent calculés sur la densité **toutes classes** : sous forêt, le
-« détail » affiché est donc optimiste. Le worker, lui, ne dépasse pas la
+« détail » affiché est donc optimiste. Mesuré avec
+`tools/lidar-density/analyze.mjs` sur 200 × 200 m : 98,8 % de sol sur une prairie
+du Vercors, **9,3 %** sous la forêt de Chartreuse (5.77 / 45.29) — 48 pt/m² en
+tout, 4,5 au sol, espacement annoncé 0,14 m contre 0,47 m réel, soit ~1,7 niveau
+d'octree de trop. La sonde de pyramide aggrave le biais : une forêt y paraît
+*plus* dense. Le worker, lui, ne dépasse pas la
 profondeur que le sol reçu peut nourrir (voir le mode Poisson plus bas) ; le
 curseur « Profondeur octree » des réglages avancés est de même un plafond.
 
@@ -710,6 +715,32 @@ pour que les points restent calés sur le fond à n'importe quel pitch / bearing
 - **Float32 METER\_OFFSETS** : la précision se dégrade au-delà de quelques
   kilomètres ; le clamp `radius ≤ 1000 m` reste confortablement dans la zone
   exploitable.
+- **La densité sol du palier est inerte aux résolutions grossières.**
+  `adaptiveDecimateGround` travaille en cellules absolues de 1,5 m et traite comme
+  « relief » toute cellule de moins de 6 points. Simulé sur une pente parfaitement
+  lisse, un pas 8 garde 100 % des points à 0,6 pt/m² sol, 75 % à 1,5, 45 % à 2,3
+  (12 % au-delà de 4,5) : les paliers 3,4 m et 1,7 m, qui affichent sol 2 ou 8, ne
+  déciment donc rien.
+
+  **Exprimer la cellule en espacements ne suffit pas sur le terrain réel.** Essayé
+  (cellule = max(1,5 m, √22,5 × espacement), soit 22,5 points par cellule comme au
+  calage) sur le sol IGN de 6.04216 / 45.24039 (400 × 400 m, niveaux COPC tronqués
+  pour imiter la résolution) : un pas 8 garde 100 → 94 % à 0,44 pt/m², 90 → 86 % à
+  1,8, et même 65 → 75 % à 6,7 (cellule 1,8 m). C'est `residualTol`, en mètres
+  absolus (0,3 m), qui retient tout : la courbure d'un vrai versant sur une cellule
+  élargie le dépasse. Mettre aussi la tolérance à l'échelle de la cellule
+  (0,3 × cellule / 1,5) décime vraiment — 54 % à 0,44 pt/m², 61 % à 1,8 — mais
+  change ce que la décimation juge « relief ».
+- **L'estimation de sommets du palier est une loi en points**
+  (`points × 1,75 / groundStride`) : elle ne suit ni la décimation réelle — même à
+  pleine densité (34 pt/m² sol), un pas 8 garde encore **76 %** du sol — ni l'octree,
+  que le nombre de sommets suit sous la profondeur cohérente (balayage cité dans
+  `lidarQuality.ts`).
+- **La maille annoncée (`octreeCellM`) ignore le `--scale 1.1`** de PoissonRecon : la
+  cellule réelle est 10 % plus large que l'annonce. Laissé tel quel parce que la
+  cohérence profondeur/densité (et `groundDepthCap`) est calée dans cette convention
+  sur le balayage de 25 captures ; corriger l'un sans re-balayer décalerait les paliers
+  d'un cran à la limite d'arrondi. À reprendre au prochain re-balayage des paliers.
 
 ### Points d'entrée pour le debug
 
