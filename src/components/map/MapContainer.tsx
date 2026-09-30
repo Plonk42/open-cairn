@@ -182,7 +182,8 @@ function PhotorealAmbiance({ studio }: { studio: boolean }) {
                 sunDir: dir,
                 sunColor: color,
                 sunIntensity: intensity,
-                flat: sunEnabled ? 0 : 1,
+                // « Éclairage soleil » lights the Studio mesh; the map view's sky always follows the date.
+                flat: studio && !sunEnabled ? 1 : 0,
                 ambient,
                 sunStrength,
             };

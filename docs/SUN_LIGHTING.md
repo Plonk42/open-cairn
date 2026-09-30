@@ -173,7 +173,10 @@ Itinéraire d'après la position du soleil à l'heure choisie, au lieu du bleu n
 neutre du style. Elle n'est jamais grisée pour elle-même (le ciel ne demande pas de
 MNT), mais elle suit le menu qui l'héberge — donc le mode « Point de
 vue », seul endroit d'où l'on voit le ciel côté carte. Elle ne touche
-**que le ciel** : le fond de carte garde ses couleurs. Le rééclairage du fond reste
+**que le ciel** : le fond de carte garde ses couleurs. Elle suit toujours la date, que
+« Éclairage soleil » (un réglage d'éclairage du nuage, propre au Studio) soit actif ou non —
+elle en dépendait, et restait figée sur un ciel de jour neutre tant qu'il était éteint, ce qui
+est sa valeur par défaut. Le rééclairage du fond reste
 réservé au Studio, où le mode photoréaliste (`lidarPhotoreal`) allume les deux d'un
 coup — là un raster mal éclairé jurerait contre le nuage voisin, alors qu'en vue
 Itinéraire il n'y a rien à accorder et le rééclairage ne serait qu'un filtre posé sur
