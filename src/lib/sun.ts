@@ -59,6 +59,23 @@ export function formatSunDate(datePart: string, minutesOfDay: number): string {
     return `${base}T${h}:${m}`;
 }
 
+/**
+ * Move a "YYYY-MM-DD" date part by whole days, across month and year ends.
+ * Counted in UTC so a DST change can never skip or repeat a day.
+ */
+export function shiftSunDatePart(datePart: string, days: number): string {
+    const [y, m, d] = (datePart || todaySunDatePart()).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** Move a naive sun-date string by whole minutes, rolling the date over midnight. */
+export function shiftSunDate(value: string, minutes: number): string {
+    const { datePart, minutesOfDay } = parseSunDate(value);
+    const total = minutesOfDay + minutes;
+    const days = Math.floor(total / 1440);
+    return formatSunDate(shiftSunDatePart(datePart, days), total - days * 1440);
+}
+
 /** Days since J2000.0 (2000-01-01 12:00 UTC), the argument of every series here. */
 export function daysSinceJ2000(date: Date): number {
     return date.getTime() / 86400000 + 2440587.5 - 2451545;

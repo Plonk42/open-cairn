@@ -3,6 +3,8 @@ import {
     computeSunPosition,
     formatSunDate,
     parseSunDate,
+    shiftSunDate,
+    shiftSunDatePart,
     sunDirectionVector,
     sunLight,
     sunSettingsAt,
@@ -42,6 +44,32 @@ describe('formatSunDate', () => {
         const input = '2026-12-31T23:59';
         const { datePart, minutesOfDay } = parseSunDate(input);
         expect(formatSunDate(datePart, minutesOfDay)).toBe(input);
+    });
+});
+
+describe('shiftSunDatePart', () => {
+    it('crosses month and year ends in both directions', () => {
+        expect(shiftSunDatePart('2026-12-31', 1)).toBe('2027-01-01');
+        expect(shiftSunDatePart('2027-03-01', -1)).toBe('2027-02-28');
+        expect(shiftSunDatePart('2028-02-28', 1)).toBe('2028-02-29');
+    });
+
+    it('steps exactly one day over a DST change', () => {
+        expect(shiftSunDatePart('2026-03-28', 1)).toBe('2026-03-29');
+        expect(shiftSunDatePart('2026-03-29', 1)).toBe('2026-03-30');
+        expect(shiftSunDatePart('2026-10-25', -1)).toBe('2026-10-24');
+    });
+});
+
+describe('shiftSunDate', () => {
+    it('rolls the date over midnight in both directions', () => {
+        expect(shiftSunDate('2026-10-12T23:50', 15)).toBe('2026-10-13T00:05');
+        expect(shiftSunDate('2026-01-01T00:10', -20)).toBe('2025-12-31T23:50');
+    });
+
+    it('keeps the hour when moving by whole days', () => {
+        expect(shiftSunDate('2026-10-12T18:30', 3 * 1440)).toBe('2026-10-15T18:30');
+        expect(shiftSunDate('2026-10-12T18:30', -1440)).toBe('2026-10-11T18:30');
     });
 });
 

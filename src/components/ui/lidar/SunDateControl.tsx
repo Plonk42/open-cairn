@@ -1,6 +1,7 @@
-import { formatSunDate, parseSunDate } from '@/lib/sun';
+import { formatSunDate, parseSunDate, shiftSunDate } from '@/lib/sun';
 import { useMapStore } from '@/stores/mapStore';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SunDateTape, SunTimeTape } from './SunTape';
 
 // ───────────────────────────────────────────────────────────────────────
 // SunDateControl helpers — kept module-level so the component stays under the
@@ -65,7 +66,7 @@ export function SunDateControl({ disabled }: Readonly<{ disabled?: boolean }>) {
     const intensity = useMapStore((s) => s.lidarSunIntensity);
 
     // value is stored as "YYYY-MM-DDTHH:mm" (local time). Split into date and
-    // minutes-of-day for an independent date picker + hour slider.
+    // minutes-of-day for the two fields and the two tapes.
     const { datePart, minutesOfDay } = parseSunDate(value);
     const hh = String(Math.floor(minutesOfDay / 60)).padStart(2, '0');
     const mm = String(minutesOfDay % 60).padStart(2, '0');
@@ -83,6 +84,12 @@ export function SunDateControl({ disabled }: Readonly<{ disabled?: boolean }>) {
         if (!Number.isFinite(h) || !Number.isFinite(m)) return;
         setMinutes(h * 60 + m);
     };
+    // Read from the store, not the render: a held arrow steps from a timer.
+    const shiftMinutes = useCallback((minutes: number) => {
+        const s = useMapStore.getState();
+        s.applyLidarSunDate(shiftSunDate(s.lidarSunDate, minutes));
+    }, []);
+    const shiftDays = useCallback((days: number) => shiftMinutes(days * 1440), [shiftMinutes]);
 
     const [playing, setPlaying] = useState(false);
     const minutesRef = useRef(minutesOfDay);
@@ -96,14 +103,24 @@ export function SunDateControl({ disabled }: Readonly<{ disabled?: boolean }>) {
 
     return (
         <fieldset disabled={disabled} className={`m-0 min-w-0 border-0 p-0 ${disabled ? 'opacity-50' : ''}`}>
-            <input
-                aria-label="Date pour le calcul du soleil"
-                type="date"
-                value={datePart}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-            />
-            <div className="mt-2 flex items-center gap-2">
+            <div className="flex items-center gap-2">
+                <input
+                    aria-label="Date pour le calcul du soleil"
+                    type="date"
+                    value={datePart}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                />
+                <input
+                    aria-label="Heure saisie au clavier"
+                    title="Heure exacte, à la minute — liée au ruban des heures."
+                    type="time"
+                    step={60}
+                    value={`${hh}:${mm}`}
+                    onChange={(e) => setTime(e.target.value)}
+                    // Wide enough for a browser whose locale adds an AM/PM field.
+                    className="w-24 flex-shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-right font-mono text-xs text-slate-700 tabular-nums focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                />
                 <button
                     type="button"
                     onClick={() => setPlaying((p) => !p)}
@@ -125,29 +142,10 @@ export function SunDateControl({ disabled }: Readonly<{ disabled?: boolean }>) {
                         </svg>
                     )}
                 </button>
-                <input
-                    aria-label="Heure de la journée"
-                    type="range"
-                    min={0}
-                    max={1439}
-                    // To the minute, so the slider can show exactly what the
-                    // adjacent field holds — a coarser step would snap the
-                    // thumb away from a typed 18:03.
-                    step={1}
-                    value={minutesOfDay}
-                    onChange={(e) => setMinutes(Number(e.target.value))}
-                    className="min-w-0 flex-1 accent-green-600"
-                />
-                <input
-                    aria-label="Heure saisie au clavier"
-                    title="Heure exacte, à la minute — liée au curseur."
-                    type="time"
-                    step={60}
-                    value={`${hh}:${mm}`}
-                    onChange={(e) => setTime(e.target.value)}
-                    // Wide enough for a browser whose locale adds an AM/PM field.
-                    className="w-24 flex-shrink-0 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-xs text-slate-700 tabular-nums focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-                />
+            </div>
+            <div className="mt-2 space-y-1">
+                <SunDateTape datePart={datePart} disabled={!!disabled} onShiftDays={shiftDays} />
+                <SunTimeTape datePart={datePart} minutesOfDay={minutesOfDay} disabled={!!disabled} onShiftMinutes={shiftMinutes} />
             </div>
             <div className="mt-1 flex items-center justify-between gap-2">
                 <p className="font-mono text-[10px] text-slate-400">

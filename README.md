@@ -75,7 +75,9 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   (menu *Ciel* de la barre du mode *Point de vue*), sur le
   relief 3D.
   La **lune** est tracée sur le même principe, avec sa **phase** et sa corne brillante tournée vers
-  le soleil ; les deux astres ont leur propre case, l'heure se règle au curseur **ou au clavier**,
+  le soleil ; les deux astres ont leur propre case, la **date et l'heure défilent sur deux
+  rubans** (glisser, ou maintenir une flèche) — jour par jour à heure fixe, ou minute par minute
+  en passant minuit —, l'heure se tape aussi à la minute,
   et une case **« Ciel atmosphérique »** peint le ciel de la vue carte d'après la position du
   soleil.
 - **Analyse végétation / forêt** — hauteur de canopée par retour LiDAR (au-dessus du sol),

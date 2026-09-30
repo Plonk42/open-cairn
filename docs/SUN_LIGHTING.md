@@ -12,10 +12,33 @@ Ainsi, un coup d'œil rapide à 14 h en plein été montre une lumière haute, p
 zénithale ; un coup d'œil à 18 h en hiver montre une lumière rasante orangée qui
 révèle bien le micro-relief.
 
-L'heure se règle **au curseur ou au clavier** : le champ à droite du curseur accepte
-une heure tapée (`18:03`), et les deux sont liés dans les deux sens. Le curseur avance
-donc **à la minute**, pour qu'il puisse afficher exactement ce que contient le champ.
+La date et l'heure se règlent sur **deux rubans** à la PeakFinder, l'un sous l'autre, sous
+une ligne qui porte les deux champs (date, heure tapée à la minute, `18:03`) et le bouton ▶.
 Le bouton ▶ joue la journée par pas de 5 minutes en sautant la nuit (22 h → 4 h).
+
+- Le **ruban des dates** fait défiler la date **jour par jour, l'heure restant fixe** : c'est
+  ce qui montre la dérive saisonnière du soleil et de la lune vus d'un même point — où se
+  couchera le soleil à 18 h 30 dans trois semaines, quand la lune sortira-t-elle de telle
+  crête. 3 px par jour, soit un peu plus de deux mois visibles dans le menu *Ciel*. Il marque
+  le 1er de chaque mois par son nom (avec l'année en janvier) et le 16 par un point.
+- Le **ruban des heures** fait défiler l'heure, 0,75 px par minute, soit environ quatre
+  heures et demie visibles. Il marque chaque heure (`18h`) et un point à la demie. Il
+  **passe minuit** : au-delà de 23 h 59 la date avance d'un jour (et recule en deçà de 0 h),
+  et minuit est marqué par la date du jour qui commence (`1 janv.`).
+
+Les deux rubans se manient de la même façon :
+
+- **Glisser** (souris ou doigt) ; tirer vers la gauche avance dans le temps. Un second doigt
+  est ignoré ; le ruban laisse le défilement vertical au navigateur (`touch-action: pan-y`).
+- **‹ / ›** : un jour, ou 5 minutes ; **maintenus**, ils défilent (un pas toutes les 70 ms
+  après 0,4 s).
+- Au clavier, le ruban pris au focus : **← / →** un jour ou une minute, **Maj** une semaine
+  ou un quart d'heure.
+- Les champs au-dessus restent le moyen de sauter à une date lointaine ou à une minute
+  précise.
+
+Les jours sont comptés en UTC (`shiftSunDatePart`, `shiftSunDate`), pour qu'un changement
+d'heure ne saute ni ne double jamais un jour.
 
 ### Forcer l'éclairage
 
