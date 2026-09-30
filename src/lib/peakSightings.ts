@@ -14,13 +14,12 @@
 // about how crowded the screen is, so it is decided in the layout, which runs
 // every frame.
 //
-// What the split does NOT do is uncover names as the lens narrows, which this
-// comment claimed for a while. Measured across the whole lens range from a
-// 2070 m standpoint, the count only ever falls — 23 names at 60° down to 8 at 8°
-// — because the layout's gap rule only bites at wide angle: an 8° frame holds
-// 3.5 % of the circle, and all 8 of the ~8 summits standing in it are already
-// named. What starves a telephoto frame is how far the march was allowed to
-// reach, below.
+// What the split does NOT do by itself is uncover names as the lens narrows.
+// Measured across the whole lens range from a 2070 m standpoint, the count only
+// ever fell — 23 names at 60° down to 8 at 8° — because an 8° frame holds 3.5 %
+// of the circle, and every summit within reach standing in it was already
+// named. What starved a telephoto frame was how far the march was allowed to
+// reach, so the reach now stretches with the lens ({@link reachScaleForFov}).
 //
 // Nothing here measures text. The text runs at {@link LABEL_ANGLE_DEG} from the
 // horizontal, so two labels are parallel strips, and parallel strips never
@@ -64,11 +63,32 @@ const DEG = Math.PI / 180;
  * twelve azimuths, it takes the sightings from 128 to 228 — 66 of them past
  * 60 km — and the names actually printed from 48 to 85.
  *
- * Ranks 3 and 4 deliberately stay put, and that cut is editorial rather than
- * budgetary: a rank-4 top is a name borrowed from the hamlet below it, and it
- * says nothing at 100 km.
+ * Rank 4 stays put, and that cut is editorial rather than budgetary: a rank-4
+ * top is a name borrowed from the hamlet below it, and it says nothing at 100 km.
+ * Rank 3 is not that: it holds the Grand Veymont, highest of the Vercors, and
+ * the Mont Aiguille, 50 and 53 km from Chamechaude, which its first 40 km cut
+ * off. At 80 km, looking at them through 9°, the names printed go from 5 to 10.
+ *
+ * Rank 5 gets rank 4's reach: it holds classic hikes the IGN ranks below a
+ * neighbouring shoulder (Pointe de la Sitre, 17 km from Chamechaude), and
+ * {@link labelPriority} already puts it behind rank 4 at equal distance.
  */
-const REACH_BY_IMPORTANCE_M = [0, 150_000, 100_000, 40_000, 20_000];
+const REACH_BY_IMPORTANCE_M = [0, 150_000, 100_000, 80_000, 20_000, 20_000];
+
+/**
+ * Below this vertical field of view the reaches stretch as the lens narrows,
+ * since a summit covers as many pixels at `d` under `fov` as at `d · 30°/fov`
+ * under 30°. Measured looking at the Vercors from Chamechaude: 15 → 20 names at
+ * 15° (march 53 → 141 ms), 10 → 27 at 8° (33 → 162 ms); doubling ranks 3–5 at
+ * 31° would have bought 27 → 37 for a march 3.5× longer — hence no stretch above.
+ */
+const REACH_REF_FOV_DEG = 30;
+const MAX_REACH_SCALE = 4;
+
+/** How much every reach stretches under a lens of `fovDeg` (vertical). */
+export function reachScaleForFov(fovDeg: number): number {
+    return Math.min(MAX_REACH_SCALE, Math.max(1, REACH_REF_FOV_DEG / fovDeg));
+}
 
 /**
  * Ceiling on the number of rays marched in one pass.
@@ -138,8 +158,8 @@ const MIN_GROUND_M = 1;
  * of a real ridge.
  *
  * The price is paid only when the eye is within 250 m of a named top, i.e. when
- * standing on one: 295 of the 25 830 summits have a neighbour that close, and
- * 500 m would already cost 1 454.
+ * standing on one: 1 093 of the 39 846 summits have a neighbour that close, and
+ * 500 m would already cost 5 996.
  */
 const MIN_SIGHT_DISTANCE_M = 250;
 
@@ -154,6 +174,8 @@ export interface PeakSighting {
     groundM: number;
     /** How far the summit stands above the nearer relief, in degrees. */
     clearanceDeg: number;
+    /** Nothing drawn behind the summit rises above it: it is cut out against the sky. */
+    onSkyline: boolean;
 }
 
 interface Candidate {
@@ -181,9 +203,22 @@ export function reachFraction(peak: Peak, distanceM: number): number {
 
 /** What one rank of notoriety is worth, in shares of reach. */
 const RANK_STEP = 0.15;
+/**
+ * What a summit no source publishes a height for loses, in ranks. One rank left
+ * Mont Saint-Mury (rank 4, a shoulder PeakFinder gives no prominence) ahead of
+ * the Pointe de la Sitre (rank 5, 2195 m) it hides from Chamechaude, 560 m nearer.
+ */
+const HEIGHTLESS_RANKS = 2;
 /** What one degree of clearance above the nearer relief is worth, capped at 1.5°. */
 const CLEARANCE_WEIGHT = 0.2;
 const CLEARANCE_CAP_DEG = 1.5;
+/**
+ * What standing against the sky is worth, in shares of reach — two ranks. The
+ * Grand Veymont (2341 m, 51 km) is the one top of the Vercors skyline seen from
+ * Chamechaude, yet lost its column to the Crête de la Ferrière (1468 m, 38 km),
+ * a foreground knoll set against its flank, by 0.73 to 0.70.
+ */
+const SKYLINE_BONUS = 0.3;
 
 /**
  * Which of two names the band keeps when it has room for only one — lower
@@ -202,12 +237,20 @@ const CLEARANCE_CAP_DEG = 1.5;
  * Still holds the case rank-first was introduced for: the Mont Blanc (4806 m
  * at 104 km, 0.69 of a rank-1 reach) over the Dent du Corbeau (58 km, 0.58 of
  * a rank-2 one), which land 16 px apart.
+ *
+ * A summit without a published height counts {@link HEIGHTLESS_RANKS} ranks
+ * lower: 57 % of the file has none, most of them shoulders and knolls of ranks
+ * 4 and 5. One cut out against the sky gains {@link SKYLINE_BONUS}.
  */
-export function labelPriority(sighting: Pick<PeakSighting, 'peak' | 'distanceM' | 'clearanceDeg'>): number {
-    const { peak, distanceM, clearanceDeg } = sighting;
+export function labelPriority(
+    sighting: Pick<PeakSighting, 'peak' | 'distanceM' | 'clearanceDeg' | 'onSkyline'>,
+): number {
+    const { peak, distanceM, clearanceDeg, onSkyline } = sighting;
+    const rank = peak.importance + (peak.spotHeightM === null ? HEIGHTLESS_RANKS : 0);
     return reachFraction(peak, distanceM)
-        + RANK_STEP * (peak.importance - 1)
-        - CLEARANCE_WEIGHT * Math.min(CLEARANCE_CAP_DEG, Math.max(0, clearanceDeg));
+        + RANK_STEP * (rank - 1)
+        - CLEARANCE_WEIGHT * Math.min(CLEARANCE_CAP_DEG, Math.max(0, clearanceDeg))
+        - (onSkyline ? SKYLINE_BONUS : 0);
 }
 
 /**
@@ -219,15 +262,20 @@ export function labelPriority(sighting: Pick<PeakSighting, 'peak' | 'distanceM' 
  * those off the drawn tiles — everything behind the camera — were then thrown
  * away for one sample each, while framed summits past the cut never got a ray:
  * 150 of them from the Croix de Belledonne, whose circle holds 1 050.
+ *
+ * `reachScale` ({@link reachScaleForFov}) only moves the cut: the budget, and
+ * {@link labelPriority} after it, still weigh a summit against its rank's base
+ * reach, so zooming never changes which of two names wins a column.
  */
 export function selectCandidates(
     observer: SkylineObserver,
     peaks: readonly Peak[],
     sample: GroundSampler,
+    reachScale = 1,
 ): Candidate[] {
     const candidates: Candidate[] = [];
     for (const peak of peaks) {
-        const reach = REACH_BY_IMPORTANCE_M[peak.importance] ?? 0;
+        const reach = (REACH_BY_IMPORTANCE_M[peak.importance] ?? 0) * reachScale;
         if (reach === 0) continue;
         const { azimuthDeg, distanceM } = sightingFrom(observer, peak.lng, peak.lat);
         if (distanceM > reach || distanceM < MIN_SIGHT_DISTANCE_M) continue;
@@ -275,6 +323,29 @@ function summitClearanceDeg(observer: SkylineObserver, candidate: Candidate, sam
     return summitDeg - foregroundDeg;
 }
 
+/** Past the summit, what lies this close is its own far flank or its true top. */
+const BACKDROP_START_M = 300;
+/** How far behind a summit the march looks for relief rising above it. */
+const BACKDROP_END_M = 150_000;
+
+/**
+ * Whether nothing drawn behind the summit rises above it, i.e. whether it is
+ * seen against the sky rather than against a farther slope. The backdrop gets
+ * {@link SUMMIT_DIP_M} of slack, the DEM noise the summit zone already forgives.
+ * Measured over the 77 summits seen through 7° towards the Vercors: 14 ms.
+ */
+function standsOnSkyline(observer: SkylineObserver, candidate: Candidate, sample: GroundSampler): boolean {
+    const { distanceM, groundM } = candidate;
+    const eyeM = observer.altitudeM;
+    const { perMetreLng, perMetreLat } = rayStep(observer, candidate.azimuthDeg);
+    const summitDeg = apparentAngleDeg(eyeM, groundM, distanceM);
+    for (let d = distanceM + BACKDROP_START_M; d < BACKDROP_END_M; d += d * RAY_STEP_FRACTION) {
+        const h = sample(observer.lng + perMetreLng * d, observer.lat + perMetreLat * d);
+        if (Number.isFinite(h) && apparentAngleDeg(eyeM, h - SUMMIT_DIP_M, d) > summitDeg) return false;
+    }
+    return true;
+}
+
 /**
  * Keep the summits that stand clear of everything between them and the eye.
  *
@@ -301,45 +372,64 @@ export function sightPeaks(
     observer: SkylineObserver,
     peaks: readonly Peak[],
     sample: GroundSampler,
+    reachScale = 1,
 ): PeakSighting[] {
     const out: PeakSighting[] = [];
-    for (const candidate of selectCandidates(observer, peaks, sample)) {
+    for (const candidate of selectCandidates(observer, peaks, sample, reachScale)) {
         const clearanceDeg = summitClearanceDeg(observer, candidate, sample);
         if (clearanceDeg === null) continue;
         const { peak, distanceM, groundM } = candidate;
-        out.push({ peak, distanceM, groundM, clearanceDeg });
+        out.push({ peak, distanceM, groundM, clearanceDeg, onSkyline: standsOnSkyline(observer, candidate, sample) });
     }
     return out;
 }
 
 // ── Screen-space layout ──────────────────────────────────────────────────────
 
-/** Degrees the text is rotated by, counter-clockwise on screen. */
-export const LABEL_ANGLE_DEG = -32;
+/**
+ * Degrees the text is rotated by, counter-clockwise on screen. Steeper packs more
+ * names on one band (see {@link anchorGapPx}): looking at Belledonne from
+ * Chamechaude at 10°, the screen went from 18 names at −32° to 20 at −45°.
+ */
+export const LABEL_ANGLE_DEG = -45;
 
 /** Clear air between the highest summit on screen and the band the names hang from. */
 const BAND_CLEARANCE_PX = 26;
 
+/** Share of the sky left above that clearance the band climbs into, up to a cap. */
+const BAND_LIFT_SHARE = 0.5;
+const BAND_LIFT_MAX_PX = 50;
+
+/** Font size of a plain name, in CSS pixels. */
+export const LABEL_FONT_PX = 12;
+
+/** Glyph run of a long name at {@link LABEL_FONT_PX}, "Pointe de Gratte-Cul 1232 m". */
+const LONG_NAME_PX = 190;
+
 /**
- * How close the band may come to the top of the canvas.
+ * How close the band may come to the top of the canvas, for names up to
+ * `fontPx`.
  *
  * The text rises from its anchor, so a band placed too high is a band whose
  * names are all cut off — which is what happens as soon as the skyline climbs.
- * The value is the rise of a long name at {@link LABEL_ANGLE_DEG}: about 190 px
- * of glyphs for "Pointe de Gratte-Cul 1232 m", so a hundred of vertical room.
+ * The value is the rise of a long name at {@link LABEL_ANGLE_DEG}, plus a margin.
+ * It scales with the largest font on screen: a rank-1 name set in 14 px bold
+ * runs 220 px at the 95th percentile, not 190.
  *
  * A summit that ends up ABOVE the clamped band simply goes unnamed. Hanging its
  * name under it instead would reverse the reading of every leader on screen for
  * the sake of one label; raising the camera is the answer, and it costs the
  * reader nothing to discover.
  */
-const BAND_MIN_Y_PX = 110;
+function bandMinYPx(fontPx: number): number {
+    return Math.round(LONG_NAME_PX * (fontPx / LABEL_FONT_PX) * Math.sin(-LABEL_ANGLE_DEG * DEG)) + 10;
+}
 
 /**
- * Room one name needs across its own direction: the 12 px of ink a 600-weight
- * 12 px Helvetica spans from cap to descender (measured, 9 + 3), plus one halo
- * edge (1.75 px, half the 3.5 px stroke) so a neighbour's halo never bites a
- * glyph. Two halos may touch; they are the same dark.
+ * Room a name needs across its own direction, on top of its font size: a 12 px
+ * Helvetica spans 12 px of ink from cap to descender (measured, 9 + 3), plus one
+ * halo edge (1.75 px, half the 3.5 px stroke) so a neighbour's halo never bites
+ * a glyph. Two halos may touch; they are the same dark.
  *
  * It was 15.5 — the full halo on both sides — which is 3.5 px too careful and
  * cost a name every so often: looking into Chartreuse from Chamechaude,
@@ -347,10 +437,15 @@ const BAND_MIN_Y_PX = 110;
  * took the column instead.
  *
  * Every anchor sits on the same y, so the offset across two parallel strips
- * reduces to their horizontal gap times the sine of the angle: 26 px at -32°.
+ * reduces to their horizontal gap times the sine of the angle: 20 px between
+ * two plain names at −45°, 26 at −32°. Two strips of different sizes each need
+ * half their own box.
  */
-const LINE_BOX_PX = 14;
-const MIN_ANCHOR_GAP_PX = LINE_BOX_PX / Math.sin(-LABEL_ANGLE_DEG * DEG);
+const HALO_EDGE_PX = 2;
+
+function anchorGapPx(fontA: number, fontB: number): number {
+    return ((fontA + fontB) / 2 + HALO_EDGE_PX) / Math.sin(-LABEL_ANGLE_DEG * DEG);
+}
 
 export interface PeakLabelSlot {
     key: string;
@@ -359,6 +454,8 @@ export interface PeakLabelSlot {
     y: number;
     /** Lower is printed first when two names cannot both fit. */
     priority: number;
+    /** Font size the name is set in. */
+    fontPx: number;
 }
 
 export interface PlacedPeakLabel {
@@ -380,9 +477,9 @@ export interface PlacedPeakLabel {
  * crowded names aside with a bent leader was tried and rejected: it reads as a
  * tangle.
  *
- * Narrowing the lens does not uncover names by itself: measured, the count only
- * falls as the lens narrows — {@link BAND_MIN_Y_PX} is what binds at 8°, and
- * what it drops is the whole top of the skyline.
+ * Narrowing the lens uncovers names only through the reach it stretches
+ * ({@link reachScaleForFov}): at a fixed reach the count only fell as the lens
+ * narrowed.
  *
  * Which name survives a collision is `priority`, not screen order — an obscure
  * knoll used to be able to evict a notorious summit for standing slightly left
@@ -390,16 +487,23 @@ export interface PlacedPeakLabel {
  */
 export function layoutPeakLabels(slots: readonly PeakLabelSlot[]): PlacedPeakLabel[] {
     if (slots.length === 0) return [];
-    let bandY = Number.POSITIVE_INFINITY;
-    for (const slot of slots) bandY = Math.min(bandY, slot.y);
-    bandY = Math.max(BAND_MIN_Y_PX, bandY - BAND_CLEARANCE_PX);
+    let topY = Number.POSITIVE_INFINITY;
+    let maxFontPx = LABEL_FONT_PX;
+    for (const slot of slots) {
+        topY = Math.min(topY, slot.y);
+        maxFontPx = Math.max(maxFontPx, slot.fontPx);
+    }
+    const ceilingY = bandMinYPx(maxFontPx);
+    const lowestY = topY - BAND_CLEARANCE_PX;
+    const lift = Math.min(BAND_LIFT_MAX_PX, BAND_LIFT_SHARE * Math.max(0, lowestY - ceilingY));
+    const bandY = Math.max(ceilingY, lowestY - lift);
 
-    const taken: number[] = [];
+    const taken: PeakLabelSlot[] = [];
     const placed: PlacedPeakLabel[] = [];
     for (const slot of [...slots].sort((a, b) => a.priority - b.priority)) {
         if (slot.y < bandY) continue;
-        if (taken.some((x) => Math.abs(x - slot.x) < MIN_ANCHOR_GAP_PX)) continue;
-        taken.push(slot.x);
+        if (taken.some((t) => Math.abs(t.x - slot.x) < anchorGapPx(t.fontPx, slot.fontPx))) continue;
+        taken.push(slot);
         placed.push({ key: slot.key, tipX: slot.x, tipY: slot.y, anchorX: slot.x, anchorY: bandY });
     }
     placed.sort((a, b) => a.anchorX - b.anchorX);

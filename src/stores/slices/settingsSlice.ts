@@ -160,6 +160,9 @@ export interface SettingsSlice {
      */
     peakLabels: boolean;
     setPeakLabels: (v: boolean) => void;
+    /** Set the IGN rank-1 and rank-2 summit names apart from the others. */
+    peakLabelsEmphasis: boolean;
+    setPeakLabelsEmphasis: (v: boolean) => void;
 
     /** IGN API key for the private WMTS layers (SCAN 25, Plan IGN HD). */
     ignApiKey: string;
@@ -252,6 +255,9 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     peakLabels: persisted.peakLabels ?? true,
     setPeakLabels: (peakLabels) => set({ peakLabels }),
 
+    peakLabelsEmphasis: persisted.peakLabelsEmphasis ?? true,
+    setPeakLabelsEmphasis: (peakLabelsEmphasis) => set({ peakLabelsEmphasis }),
+
     ignApiKey: persisted.ignApiKey ?? '',
     setIgnApiKey: (ignApiKey) => set({ ignApiKey }),
 
@@ -275,6 +281,7 @@ export function selectSettingsPersisted(
     | 'skyMoonPath'
     | 'skyHiddenPath'
     | 'peakLabels'
+    | 'peakLabelsEmphasis'
     | 'atmosphericSky'
     | 'renderQuality'
     | 'tileCacheSize'
@@ -293,6 +300,7 @@ export function selectSettingsPersisted(
         skyMoonPath: s.skyMoonPath,
         skyHiddenPath: s.skyHiddenPath,
         peakLabels: s.peakLabels,
+        peakLabelsEmphasis: s.peakLabelsEmphasis,
         atmosphericSky: s.atmosphericSky,
         renderQuality: s.renderQuality,
         tileCacheSize: s.tileCacheSize,

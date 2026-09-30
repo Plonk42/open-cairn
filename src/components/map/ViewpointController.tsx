@@ -22,6 +22,7 @@
 
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { applyPanoramaDetail, applyViewpointNearPlane } from '@/lib/panoramaDetail';
+import { renderedGroundSampler } from '@/lib/skyProjection';
 import {
     cameraForViewpoint,
     centerDistanceForZoom,
@@ -296,12 +297,17 @@ export function ViewpointController(): null {
          * Re-reading on `idle` costs one extra frame: the altitude does not feed
          * back into the zoom, and the dead band stops a DEM that keeps wobbling
          * by centimetres from looping.
+         *
+         * Only the DRAWN surface counts. Looking over the horizon, no rendered tile
+         * covers the eye, and `queryTerrainElevation` fell back to whatever the DEM
+         * cache held: 2082.5 m on Chamechaude, or 1509 m from a coarse parent once
+         * the eye's own move had changed the tile set — a 573 m jump every `idle`.
          */
         const settleOnGround = () => {
-            if (entry) return;
+            if (entry || !map.terrain) return;
             const at = map.painter.transform.getCameraLngLat();
-            const ground = map.queryTerrainElevation([at.lng, at.lat]);
-            if (typeof ground !== 'number' || !Number.isFinite(ground)) return;
+            const ground = renderedGroundSampler(map.terrain)(at.lng, at.lat);
+            if (!Number.isFinite(ground)) return;
             const error = ground + eyeHeightM - map.painter.transform.getCameraAltitude();
             if (Math.abs(error) < 0.2) return;
             eye.altitude += error;

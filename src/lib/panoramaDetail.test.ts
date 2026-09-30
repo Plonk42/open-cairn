@@ -32,22 +32,27 @@ const CENTER_ZOOM_AT_60 = 11.89;
 const CENTER_ZOOM_AT_8 = 14.94;
 
 describe('panoramaTileZoom', () => {
-    it('never asks a tile for more detail than the centre gets', () => {
-        const zoom = panoramaTileZoom(3);
+    it('with the cap, never asks a tile for more detail than the centre gets', () => {
+        const zoom = panoramaTileZoom(3, true);
         // A tile right under the eye: the inverse-distance term alone would ask
         // for +10 levels, and each extra level quadruples the tile count.
         expect(zoom(14, 4, 0, CENTER_3D, 8)).toBe(14);
     });
 
+    it('without the cap, the eye height bounds the zoom under the eye', () => {
+        // The eye 350 m above a centre 4 km out, as at pitch 85°.
+        expect(panoramaTileZoom(1, false)(14, 0, 350, CENTER_3D, 37)).toBeCloseTo(18.6, 1);
+    });
+
     it('halving the distance to a tile buys one zoom level', () => {
-        const zoom = panoramaTileZoom(0);
+        const zoom = panoramaTileZoom(0, true);
         const far = zoom(14, 40000, 0, CENTER_3D, 30);
         const half = zoom(14, 20000, 0, CENTER_3D, 30);
         expect(half - far).toBeCloseTo(1, 10);
     });
 
     it('shifts the whole far field by the bias, level for level', () => {
-        const at = (bias: number) => panoramaTileZoom(bias)(14, 40000, 0, CENTER_3D, 8);
+        const at = (bias: number) => panoramaTileZoom(bias, true)(14, 40000, 0, CENTER_3D, 8);
         expect(at(2) - at(0)).toBeCloseTo(2, 10);
     });
 
@@ -60,27 +65,27 @@ describe('panoramaTileZoom', () => {
         const after = defaultTileZoom(CENTER_ZOOM_AT_8, 40000, CENTER_3D, 8, tilePitch);
         expect(after).toBeLessThan(before - 2);
 
-        const zoom = panoramaTileZoom(2);
+        const zoom = panoramaTileZoom(2, true);
         expect(zoom(CENTER_ZOOM_AT_8, 40000, 0, CENTER_3D, 8))
             .toBeGreaterThan(zoom(CENTER_ZOOM_AT_60, 40000, 0, CENTER_3D, 60) + 2);
     });
 
     it('measures the distance in 3D, not on the ground', () => {
-        const zoom = panoramaTileZoom(0);
+        const zoom = panoramaTileZoom(0, true);
         const flat = zoom(14, 3000, 0, CENTER_3D, 30);
         const below = zoom(14, 3000, 4000, CENTER_3D, 30);
         expect(below).toBeLessThan(flat);
     });
 
     it('does not divide by zero on the tile the eye sits in', () => {
-        expect(Number.isFinite(panoramaTileZoom(0)(14, 0, 0, CENTER_3D, 30))).toBe(true);
+        expect(Number.isFinite(panoramaTileZoom(0, false)(14, 0, 0, CENTER_3D, 30))).toBe(true);
     });
 });
 
 describe('missingMembers', () => {
     class Transform {
         _helper = { _nearZ: 1 };
-        _calcMatrices(): void {}
+        _calcMatrices(): void { }
     }
 
     it('finds members on the prototype and through nested objects', () => {

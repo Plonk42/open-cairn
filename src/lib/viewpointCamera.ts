@@ -157,8 +157,8 @@ export const VIEWPOINT_TARGET_DISTANCE_M = 4000;
 export const VIEWPOINT_MIN_PITCH = 20;
 export const VIEWPOINT_MAX_PITCH = 150;
 
-/** ~170 mm to ~21 mm equivalent on a 24×36 frame. */
-export const VIEWPOINT_MIN_FOV = 8;
+/** ~1 400 mm to ~21 mm equivalent on a 24×36 frame. */
+export const VIEWPOINT_MIN_FOV = 1;
 export const VIEWPOINT_MAX_FOV = 60;
 
 /** Pitch on entering the mode: just below the horizon, where the landscape is. */

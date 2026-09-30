@@ -6,10 +6,14 @@ import { useIsMobile } from '@/lib/useIsMobile';
 import { useView } from '@/lib/useView';
 import { eyeHeightAfterStep, VIEWPOINT_MAX_EYE_HEIGHT_M, VIEWPOINT_MIN_EYE_HEIGHT_M } from '@/lib/viewpointCamera';
 import { useMapStore } from '@/stores/mapStore';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /** How long the gesture reminder stays under the bar after planting the eye. */
 const HINT_MS = 6000;
+
+const PEAK_EMPHASIS_HINT = 'Met en avant les sommets de rang 1 (en ambre) et 2 (en gras) de l’IGN ; les autres s’allègent.';
+
+type BarMenuId = 'peaks' | 'sky';
 
 const CHIP_BASE = 'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md py-1.5 text-xs font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-40';
 const CHIP = `${CHIP_BASE} px-2.5`;
@@ -71,11 +75,13 @@ function EyeHeightControl({ compact }: Readonly<{ compact: boolean }>) {
     );
 }
 
-function SkyMenu({ open, setOpen, studio, compact }: Readonly<{
+/** A chip with a panel that opens upwards; any press outside closes it. */
+function BarMenu({ open, setOpen, compact, anchor, children }: Readonly<{
     open: boolean;
     setOpen: (v: boolean) => void;
-    studio: boolean;
     compact: boolean;
+    anchor: ReactNode;
+    children: ReactNode;
 }>) {
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -91,21 +97,11 @@ function SkyMenu({ open, setOpen, studio, compact }: Readonly<{
     // On a phone the menu hangs from the whole bar: under the button it would overflow the screen.
     return (
         <div ref={rootRef} className={compact ? '' : 'relative'}>
-            <button
-                type="button"
-                onClick={() => setOpen(!open)}
-                aria-expanded={open}
-                title="Trajectoires du soleil et de la lune, date et heure"
-                className={`${CHIP} ${open ? CHIP_ON : CHIP_IDLE}`}
-            >
-                <PanoramaIcon className="h-4 w-4" />
-                Ciel
-                <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
-            </button>
+            {anchor}
             {open && (
                 <div className="absolute bottom-full left-1/2 z-10 mb-2 w-72 max-w-[calc(100vw-1rem)] -translate-x-1/2 overflow-hidden rounded-xl border border-black/5 bg-white shadow-2xl ring-1 ring-black/5 dark:border-white/10 dark:bg-slate-950/95 dark:ring-white/10">
                     <div className="scrollbar-slim max-h-[60vh] overflow-y-auto p-3 text-slate-800 dark:text-slate-100">
-                        <SkyPathSection studio={studio} />
+                        {children}
                     </div>
                 </div>
             )}
@@ -113,16 +109,95 @@ function SkyMenu({ open, setOpen, studio, compact }: Readonly<{
     );
 }
 
-function StandingContent({ skyOpen, setSkyOpen, studio, compact }: Readonly<{
-    skyOpen: boolean;
-    setSkyOpen: (v: boolean) => void;
+function SkyMenu({ open, setOpen, studio, compact }: Readonly<{
+    open: boolean;
+    setOpen: (v: boolean) => void;
     studio: boolean;
+    compact: boolean;
+}>) {
+    const anchor = (
+        <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            title="Trajectoires du soleil et de la lune, date et heure"
+            className={`${CHIP} ${open ? CHIP_ON : CHIP_IDLE}`}
+        >
+            <PanoramaIcon className="h-4 w-4" />
+            Ciel
+            <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+    );
+    return (
+        <BarMenu open={open} setOpen={setOpen} compact={compact} anchor={anchor}>
+            <SkyPathSection studio={studio} />
+        </BarMenu>
+    );
+}
+
+/** The names toggle keeps its one click; its options sit behind the chevron next to it. */
+function PeaksMenu({ open, setOpen, compact }: Readonly<{
+    open: boolean;
+    setOpen: (v: boolean) => void;
     compact: boolean;
 }>) {
     const peakLabels = useMapStore((s) => s.peakLabels);
     const setPeakLabels = useMapStore((s) => s.setPeakLabels);
+    const emphasis = useMapStore((s) => s.peakLabelsEmphasis);
+    const setEmphasis = useMapStore((s) => s.setPeakLabelsEmphasis);
+
+    const anchor = (
+        <div className="inline-flex items-center gap-0.5">
+            <button
+                type="button"
+                onClick={() => setPeakLabels(!peakLabels)}
+                aria-pressed={peakLabels}
+                title={PEAK_LABELS_HINT}
+                className={`${CHIP} ${peakLabels ? CHIP_ON : CHIP_IDLE}`}
+            >
+                <PeakLabelsIcon className="h-4 w-4" />
+                Sommets
+            </button>
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                aria-expanded={open}
+                aria-label="Options des noms de sommets"
+                title="Options des noms de sommets"
+                className={`${CHIP_BASE} ${open ? CHIP_ON : CHIP_IDLE} px-1.5`}
+            >
+                <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+        </div>
+    );
+    return (
+        <BarMenu open={open} setOpen={setOpen} compact={compact} anchor={anchor}>
+            <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-slate-700 dark:text-slate-300" title={PEAK_EMPHASIS_HINT}>
+                    Mettre en avant les principaux
+                </span>
+                <input
+                    aria-label="Mettre en avant les principaux"
+                    type="checkbox"
+                    checked={emphasis}
+                    disabled={!peakLabels}
+                    onChange={(e) => setEmphasis(e.target.checked)}
+                    className="h-4 w-4 accent-green-600 disabled:opacity-40"
+                />
+            </label>
+        </BarMenu>
+    );
+}
+
+function StandingContent({ menu, setMenu, studio, compact }: Readonly<{
+    menu: BarMenuId | null;
+    setMenu: (v: BarMenuId | null) => void;
+    studio: boolean;
+    compact: boolean;
+}>) {
     const changePlace = useMapStore((s) => s.changeViewpointPlace);
     const setViewpoint = useMapStore((s) => s.setViewpoint);
+    const menuSetter = (id: BarMenuId) => (open: boolean) => setMenu(open ? id : null);
 
     const title = (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-1.5 text-xs font-semibold text-green-700 dark:text-emerald-300">
@@ -130,19 +205,8 @@ function StandingContent({ skyOpen, setSkyOpen, studio, compact }: Readonly<{
             Point de vue
         </span>
     );
-    const peaks = (
-        <button
-            type="button"
-            onClick={() => setPeakLabels(!peakLabels)}
-            aria-pressed={peakLabels}
-            title={PEAK_LABELS_HINT}
-            className={`${CHIP} ${peakLabels ? CHIP_ON : CHIP_IDLE}`}
-        >
-            <PeakLabelsIcon className="h-4 w-4" />
-            Sommets
-        </button>
-    );
-    const sky = <SkyMenu open={skyOpen} setOpen={setSkyOpen} studio={studio} compact={compact} />;
+    const peaks = <PeaksMenu open={menu === 'peaks'} setOpen={menuSetter('peaks')} compact={compact} />;
+    const sky = <SkyMenu open={menu === 'sky'} setOpen={menuSetter('sky')} studio={studio} compact={compact} />;
     const move = (
         <button
             type="button"
@@ -232,20 +296,20 @@ export function ViewpointModeBar() {
     const picking = useMapStore((s) => s.viewpointPicking);
     const { view } = useView();
     const touch = useIsMobile();
-    const [skyOpen, setSkyOpen] = useState(false);
+    const [menu, setMenu] = useState<BarMenuId | null>(null);
     const active = picking || viewpoint !== null;
 
     useEffect(() => {
-        if (!viewpoint) setSkyOpen(false);
+        if (!viewpoint) setMenu(null);
     }, [viewpoint]);
 
-    // Échap unwinds one level: the sky menu, then the pick, then the mode.
+    // Échap unwinds one level: the open menu, then the pick, then the mode.
     useEffect(() => {
         if (!active) return undefined;
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== 'Escape' || isTextEntry(e.target)) return;
-            if (skyOpen) {
-                setSkyOpen(false);
+            if (menu !== null) {
+                setMenu(null);
                 return;
             }
             const s = useMapStore.getState();
@@ -254,19 +318,19 @@ export function ViewpointModeBar() {
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-    }, [active, skyOpen]);
+    }, [active, menu]);
 
     if (!active) return null;
 
     return (
         <div className={`pointer-events-auto flex max-w-full flex-col items-center gap-1.5 ${touch ? 'w-full' : ''}`}>
-            {viewpoint && !picking && !skyOpen && (
+            {viewpoint && !picking && menu === null && (
                 <GestureHint key={`${viewpoint.lng},${viewpoint.lat}`} touch={touch} />
             )}
             <div className={`relative flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-black/5 bg-white/90 p-1.5 shadow-2xl ring-1 ring-black/5 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/85 dark:ring-white/10 ${touch ? 'w-full' : ''}`}>
                 {picking
                     ? <PickingContent touch={touch} />
-                    : <StandingContent skyOpen={skyOpen} setSkyOpen={setSkyOpen} studio={view === 'lidar'} compact={touch} />}
+                    : <StandingContent menu={menu} setMenu={setMenu} studio={view === 'lidar'} compact={touch} />}
             </div>
         </div>
     );

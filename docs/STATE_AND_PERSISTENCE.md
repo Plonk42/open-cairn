@@ -53,6 +53,7 @@ Champs principaux :
   skyHiddenPath                     // dessiner ou non leur moitié masquée par le relief
   atmosphericSky                    // vue Itinéraire : ciel piloté par le soleil
   peakLabels                        // nommer les sommets visibles — n'a d'effet qu'en Point de vue
+  peakLabelsEmphasis                // mettre en avant les rangs IGN 1 et 2 parmi ces noms
 
   // Chrome desktop, l'accordéon de droite de chaque vue
   sidePanelCollapsed                // panneau replié sur sa barre de titre, commun aux deux vues
@@ -207,7 +208,7 @@ Deux cas particuliers :
   d'affichage : le test `showcaseAmbiance.test.ts` vérifie que tout `LIDAR_RENDER_DEFAULTS` est
   dans l'ambiance, et toute exclusion doit être ajoutée à son ensemble `NOT_IN_AMBIANCE`, ce qui
   force à la justifier.
-  `peakLabels` suit la même règle, pour la même raison.
+  `peakLabels` et `peakLabelsEmphasis` suivent la même règle, pour la même raison.
 - **Bascule d'un attribut cuit à la capture** : `lidarCoverEnabled` est une ambiance (donc
   rejouable à chaud) alors que la donnée qu'elle pilote, `a_cover`, est produite par le worker.
   L'astuce est que l'uniforme `u_coverEnabled` à 0 fait lire `255` (= inconnu) au shader, ce qui

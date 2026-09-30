@@ -14,9 +14,14 @@ est retirée.
 - [ ] Donner au calcul des heures de lever/coucher (`SkyLabelsOverlay`) un MNT propre hors
       du cadre : il lit encore le cache de tuiles, lissé jusqu'à z5 (`SUN_LIGHTING.md`,
       *Limitations*).
-- [ ] Vérifier si `settleOnGround` (`ViewpointController`) fausse la hauteur d'œil : il lit
-      le sol par `queryTerrainElevation`, qui retombe sur le cache de tuiles quand l'œil
-      est sous le cadre.
+- [ ] Écarter les noms de massif que la BD TOPO® range en `Sommet` sans altitude : « Chaîne de
+      Belledonne » (rang 2) s'étiquette comme un sommet depuis Chamechaude. 25 noms du fichier
+      commencent par « Chaîne » ou « Massif » ; fait quand la règle de `build-peaks.mjs` les
+      traite comme les natures de zone (retenus seulement avec une altitude).
+- [ ] Caler l'œil sur un sol fin quand le sol sous lui n'est pas dessiné (regard au-dessus
+      de l'horizon) : `settleOnGround` ne corrige plus que sur la surface dessinée, et
+      l'œil garde alors l'altitude lue au zoom du clic. Piste : une lecture MNT à zoom
+      fixe, demandée explicitement. Cf. `UI_SHELL_AND_RESPONSIVE.md`, relecture du sol.
 - [ ] **Trancher le mobile de l'Itinéraire** : il garde ses *bottom sheets* alors que le
       desktop est passé à l'accordéon (`RouteSidePanel`). Pour le Studio c'est un choix
       écrit (`DECISIONS.md`), pour l'Itinéraire un état de fait. Soit l'écrire dans
@@ -26,6 +31,12 @@ est retirée.
       qu'au zoom a été essayé (`todo/terrain-camera-guard-wip`) et coûte parfois ×3 de
       recul ; reste à écrire le mélange — reculer jusqu'à un plafond, puis relever le
       pitch. Mesures : `UI_SHELL_AND_RESPONSIVE.md`, *Limitations techniques*.
+- [ ] **Remettre avancer/reculer dans le bon sens vers 90° de pitch** (Studio) : le glisser
+      et la molette de MapLibre s'y inversent, et la montée en 6.11.2 n'y change rien.
+      C'est fait quand le glisser vers soi et la molette avant avancent de 85° à 95°. Au
+      choix : signaler en amont avec les mesures, ou remplacer `dragPan`/`scrollZoom` au-delà
+      de ~88° par un déplacement le long du cap. Mesures : `UI_SHELL_AND_RESPONSIVE.md`,
+      *Limitations techniques*.
 - [ ] Recaler le point de station sur un MNT assez fin : il lit `queryTerrainElevation` au
       zoom du clic, et depuis une vue d'ensemble (z12–13) le « point haut » est souvent
       juste le bord amont du disque. Pistes : sonder au zoom du MNT le plus fin chargé, ou
@@ -37,6 +48,13 @@ est retirée.
 - [ ] Après le contrôle de sommet, 116 marches déplacées finissent encore à plus de 20 m
       plus loin de leur homonyme dans la référence de `verify-peaks.mjs` que leur toponyme
       (314 plus près). Les examiner au cas par cas avant d'inventer un autre garde.
+- [ ] Rapprocher les verdicts de visibilité en grand angle de ceux d'un maillage +2 sans
+      en payer le coût, en n'affinant que les tuiles qui portent des crêtes masquantes (à
+      60° : 181 désaccords avec PeakFinder à +1, 81 à +2). Mesures :
+      `UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil ».
+- [ ] Expliquer les 81 désaccords restants à +2 contre 51 avant la montée en MapLibre
+      6.11 : l'essentiel est au Brévent (20 rangs 2 vus à tort entre 40 et 60 km, côté
+      Italie où Mapterhorn est plus grossier ?).
 - [ ] Rocher de Lorzier (1838 m, nature `Rochers`, importance 2) est écarté faute d'altitude
       dans toutes les sources, alors que PeakFinder le nomme depuis Chamechaude. Vérifier
       combien de sommets notables sont perdus par cette règle.
@@ -58,19 +76,42 @@ est retirée.
       Wikidata n'est pas tout à fait indépendant (`P2044` est parfois recopié d'OSM ou de
       l'IGN) : c'est le sol à sa coordonnée qui tranche.
 - [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
-      22 à 123 d'un coup, avec un à-coup de ~210 ms pendant que les RTT sont refaites.
+      22 à ~90 d'un coup, avec un à-coup (~210 ms mesurés à 123 tuiles) pendant que les RTT
+      sont refaites.
       Piste : étaler le changement de `meshSize` sur quelques images, ou ne vider
       `_meshCache` que progressivement.
+- [ ] **Rendre la courbure terrestre en *Point de vue*** : le terrain MapLibre est plan, et
+      un sommet à 31 km est dessiné 67 m trop haut, soit 10 px à 8° (30 px à 100 km) — la
+      plus grosse erreur de relief restante, devant le maillage et le MNT. Piste : abaisser
+      les tuiles MNT chargées de `d²(1−k)/2R` autour de l'œil (réécrire le `DEMData`, recréer
+      sa texture, refaire au changement de lieu), puis faire lire la surface dessinée à la
+      marche d'occultation au lieu de lui appliquer la courbure une seconde fois. Mesures :
+      `UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil » et « Où la pointe se pose ».
+- [ ] Demander à MapLibre un réglage de LOD pour les tuiles de rendu du terrain, que la 6.11
+      a découplées du `calculateTileZoom` de la source (#8048). Fait quand la copie de
+      `TerrainTileManager.update` de `panoramaDetail.ts` peut être retirée. Détails :
+      `UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil ».
+- [ ] Expliquer le coin blanc au pied de l'œil en *Point de vue* (bas du cadre, côté pente,
+      depuis Chamechaude cap −20° à 37°) : présent avant et après le déplafonnement du
+      zoom. Vérifier s'il s'agit du brouillard par sommet des tuiles voisines de l'œil
+      (`eyeNearTile` ne couvre que celle qui le contient) ou d'un drapé vide.
 - [ ] Rendu « pur 3D à la PeakFinder » : masquer les couches de fond dans la RTT et ne
       garder que l'ombrage donnerait la lecture géométrique demandée pour presque rien.
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`
       — est nettement plus lourde.
 - [ ] Export video via "MediaBunny", voir https://terrain-viewer.iconem.com/
-- [ ] Noms des sommets : il reste 51 désaccords avec PeakFinder sur 2 952 sommets (29 que
+- [ ] Noms des sommets : il restait 51 désaccords avec PeakFinder sur 2 952 sommets (29 que
       nous voyons et pas lui, 22 l'inverse), mesurés sur quatre points de vue seulement,
-      tous en Isère et Haute-Savoie. Les regarder un par un pour les **expliquer** (MNT
+      tous en Isère et Haute-Savoie — 181 sur 2 992 aujourd'hui au biais terrain +1, plus
+      8 sur les 179 sommets de rang 5 (voir l'entrée sur le biais). Les regarder un par un pour les **expliquer** (MNT
       différent ? ancre mal placée ?) — pas pour les annuler : un écart compris ou assumé
       est acceptable. Élargir l'échantillon à un fond de vallée et à un autre massif.
+- [ ] Recompter les désaccords PeakFinder avec le rang 3 à 80 km et la portée allongée par
+      la focale (voir `UI_SHELL_AND_RESPONSIVE.md`, « À quels sommets on paie un rayon »).
+- [ ] Étaler la visée des sommets sur plusieurs images : avec la portée allongée par la
+      focale, une passe bloque le fil principal 140 à 160 ms à 8–15° (voir
+      `UI_SHELL_AND_RESPONSIVE.md`, « La portée suit la focale ») — un à-coup si l'on reprend
+      le geste pendant ce temps. Fermé quand aucune passe ne dépasse ~16 ms par image.
 - [ ] Ancres posées derrière leur vrai sommet : vus depuis la Croix de Belledonne, Chamechaude
       et le Brévent, la Grande Roche, Pointe Centrale Nord, Pic de la Grande Valloire, Tête
       Pelouse, Dôme de Polset et Pic de la Loze ont leur ancre 200 m à 1 km *au-delà* du point

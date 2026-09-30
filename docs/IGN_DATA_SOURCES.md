@@ -132,7 +132,7 @@ chacun des deux détient exactement une des deux informations nécessaires :
 
 | | BD TOPO® V3 | BD CARTO® V5 |
 |---|---|---|
-| Objets sur toute la France | **33 001** aux natures retenues, `importance <= '4'` | 6 734 cotés |
+| Objets sur toute la France | **87 971** aux natures retenues, `importance <= '5'` | 6 734 cotés |
 | `importance` (notoriété `'1'`…`'6'`) | **oui** | non |
 | `cote` (altitude relevée, entier) | **non** | **oui** |
 
@@ -155,7 +155,7 @@ GET https://data.geopf.fr/wfs/ows
   &propertyname=cleabs,toponyme,nature,importance,geometrie
   &count=4000&startIndex=…&sortby=cleabs
   &cql_filter=nature IN ('Sommet','Pic','Montagne','Rochers','Crête','Escarpement')
-              AND importance <= '4'
+              AND importance <= '5'
 ```
 
 ```
@@ -189,8 +189,14 @@ Ce qu'il faut savoir des couches :
   quelle qu'en soit la source**, est exactement ce qui distingue les deux, donc elles ne
   sont retenues que dans ce cas. 7 338 noms de zone sont écartés à ce titre.
 - `importance` est une **chaîne** `'1'` à `'6'` (notoriété décroissante) ; la comparaison
-  CQL doit donc être faite entre chaînes. Open-cairn s'arrête à `'4'` — au-delà, les points
-  nommés sont des bosses locales invérifiables à 30 km.
+  CQL doit donc être faite entre chaînes. Open-cairn s'arrête à `'5'`. Il s'arrêtait à
+  `'4'`, en tenant le reste pour des bosses locales, mais le classement n'est pas une
+  hiérarchie de sommets : la Pointe de la Sitre (2195 m selon OSM, la cime, une randonnée
+  classique de Belledonne) est en `'5'`, alors que le Mont Saint-Mury, épaule à 580 m de
+  là, sans altitude publiée nulle part (proéminence 0 chez PeakFinder), est en `'4'`. Le
+  rang `'5'` mêle bien des bosses (« la Butte », « le Replat ») à de vrais sommets (Dent
+  Gérard, Pic de l'Œillette, Pointe des Excellences) ; le rang `'6'` ne compte que 87
+  `Sommet`/`Pic` pour tout le pays.
 - **La BD TOPO® ne porte aucune altitude**, et l'interroger via un MNT ne marche pas : le
   point du toponyme est placé pour accrocher une étiquette, pas sur le sommet. Relevé
   contre RGE ALTI® 1 m : Chamechaude −9 m, Grand Som −12 m, Mont Saint-Eynard −9 m,
@@ -232,10 +238,13 @@ Ce qu'il faut savoir des couches :
 - Couverture **française** plus une mince bande transfrontalière (Mont Miravidi et Becca du
   Lac y sont, le Gran Paradiso non). Aucun sommet italien ou suisse profond n'est nommé.
 
-Volumétrie mesurée de l'extraction complète : 33 001 objets BD TOPO® (neuf pages, ~9 Mo,
-~15 s), 6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, 32 777 points
-RGE ALTI® (1100 requêtes de 30, six en vol, ~7 min). Sortie : **25 830 sommets, 391 ko
-gzippés**.
+Volumétrie mesurée de l'extraction complète : 87 971 objets BD TOPO® (dont 57 011 nommés),
+6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, 56 622 points RGE ALTI®
+sous les toponymes (1 900 requêtes de 30, six en vol ; le cache ne rééchantillonne que
+les toponymes nouveaux, 24 234 lors du passage au rang `'5'`, ~17 min). Sortie : **39 846
+sommets, 581 ko gzippés** (25 830 et 385 ko au rang `'4'`, dont les lignes n'ont pas
+bougé). Le rang `'5'` apporte 14 016 sommets, dont **27 % seulement avec une altitude**
+(3 732) ; la part sur tout le fichier tombe de 52 % à 43 %.
 
 ##### Les autres sources d'altitude
 

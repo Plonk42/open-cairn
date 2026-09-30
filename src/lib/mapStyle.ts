@@ -31,6 +31,14 @@ let contourDemSource: InstanceType<typeof mlcontour.DemSource> | null = null;
 
 const CONTOUR_DEM_MAXZOOM = 14;
 
+/**
+ * Mapterhorn carries LiDAR detail to z16 over France (0.85 m/px, z17 in places);
+ * only the viewpoint mode's foreground reads that deep. Past a region's native
+ * zoom it answers 404, as it already does at z13 in the Sahara, and MapLibre
+ * falls back to the parent tile.
+ */
+const MAPTERHORN_TERRAIN_MAXZOOM = 16;
+
 function getContourDemSource(): InstanceType<typeof mlcontour.DemSource> {
     if (!contourDemSource) {
         const dem = new mlcontour.DemSource({
@@ -71,7 +79,7 @@ function resolveTerrainSource(
             tiles: [MAPTERHORN_DEM_URL],
             tileSize: 512,
             minzoom: 0,
-            maxzoom: CONTOUR_DEM_MAXZOOM,
+            maxzoom: MAPTERHORN_TERRAIN_MAXZOOM,
             encoding: 'terrarium',
             attribution: MAPTERHORN_ATTRIBUTION,
         };

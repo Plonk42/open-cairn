@@ -22,9 +22,16 @@
 // against 352 MB before. Finer relief for LESS memory — the drape was simply
 // the wrong place to spend it, since a panorama is read through its ridge
 // lines, not through its ground texture.
+//
+// The terrain is sized in screen pixels, not capped at the centre's zoom: the
+// cap left the ground under the eye at 27 m a quad at 37°. +1 (2–4 px a quad)
+// is kept over +2: +2 counted 81 disagreements with PeakFinder's verdicts on
+// 2 992 summits at a 60° lens against 181, but on screen it changed 1.5–3.7 % of
+// the pixels, blurred the drape slightly and doubled the tiles. It was offered
+// as a setting and dropped: no visible gain.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { CalculateTileZoomFunction, Map as MapLibreMap } from 'maplibre-gl';
+import type { CalculateTileZoomFunction, CoveringTilesOptions, Map as MapLibreMap, OverscaledTileID } from 'maplibre-gl';
 
 /** MapLibre does not export `Terrain`, and `map.terrain` is null while it is off. */
 type TerrainLike = MapLibreMap['terrain'];
@@ -45,28 +52,31 @@ export const PANORAMA_QUALITY_FACTOR = 0.5;
 export const PANORAMA_MESH_SIZE = 252;
 
 /**
- * Zoom levels added to the inverse-distance rule, per source. The terrain is
- * pushed up because the mesh is what carries a distant summit; the basemap is
- * pulled down because at these distances its texture is haze anyway, and it is
- * what pays for the tiles.
+ * Zoom levels added to the inverse-distance rule for the terrain's render tiles:
+ * one 1024 px tile per 512 screen px, i.e. 2–4 px per quad of a 252 mesh.
  */
-const PANORAMA_SOURCE_BIAS: ReadonlyArray<readonly [string, number]> = [
-    ['terrain', 2],
-    ['base', -2],
-];
+const TERRAIN_BIAS = 1;
+
+/**
+ * The basemap is the drape, and the drape is what a far ridge is read through:
+ * −1 serves its 256 px tiles at 2 screen px a texel. −2 left 4–8 and blurred
+ * every summit past 20 km; 0 triples the tiles again (140 → 418 at 8°).
+ */
+const BASE_BIAS = -1;
 
 /**
  * Tile zoom from distance alone, without MapLibre's grazing-angle penalty.
  *
- * Dropping the penalty is safe here because the cap at `requestedCenterZoom`
- * takes over its job: no tile is ever asked for more detail than the centre
- * gets, so a near-horizontal view cannot explode the tile count. MapLibre's own
- * guard is what degenerates instead — at pitch 90° and a 8° lens its default
- * parameters ask for 86 831 mesh tiles.
+ * Dropping the penalty cannot explode the tile count: the distance is 3D and the
+ * eye sits hundreds of metres above the centre, so the zoom under the eye stays
+ * a few levels above the centre's, and `capAtCentre` or the source's `maxzoom`
+ * bounds it. MapLibre's own guard is what degenerates instead — at pitch 90° and
+ * a 8° lens its default parameters ask for 86 831 mesh tiles.
  *
  * @param bias - Zoom levels added before the cap; positive means finer.
+ * @param capAtCentre - Never ask a tile for more detail than the centre gets.
  */
-export function panoramaTileZoom(bias: number): CalculateTileZoomFunction {
+export function panoramaTileZoom(bias: number, capAtCentre: boolean): CalculateTileZoomFunction {
     return (requestedCenterZoom, distanceToTile2D, distanceToTileZ, distanceToCenter3D, cameraVerticalFOV) => {
         const distanceToTile3D = Math.max(Math.hypot(distanceToTile2D, distanceToTileZ), 1e-6);
         // Same widening factor MapLibre applies: the edges of the frame are
@@ -75,7 +85,7 @@ export function panoramaTileZoom(bias: number): CalculateTileZoomFunction {
         const desired = requestedCenterZoom
             + Math.log2(distanceToCenter3D / distanceToTile3D / fovSpread)
             + bias;
-        return Math.min(desired, requestedCenterZoom);
+        return capAtCentre ? Math.min(desired, requestedCenterZoom) : desired;
     };
 }
 
@@ -85,7 +95,15 @@ interface TerrainDetailBackup {
     qualityFactor: number;
     meshSize: number;
     rttSize: number;
+    renderMaxzoom: number;
 }
+
+type TerrainTileManager = TerrainLike['tileManager'];
+type RenderTile = TerrainTileManager['_tiles'][string];
+type RenderTileClass = new (tileID: OverscaledTileID, size: number) => RenderTile;
+
+/** `mat4.ortho(0, EXTENT, EXTENT, 0, 0, 1)` at MapLibre's 8192 extent: a render tile's own drape. */
+const RTT_POS_MATRIX = [2 / 8192, 0, 0, 0, 0, -2 / 8192, 0, 0, 0, 0, -2, 0, -1, 1, -1, 1];
 
 /**
  * `rttSize` is derived once in RenderToTexture's constructor and is absent from
@@ -139,6 +157,15 @@ const PANORAMA_DETAIL_MEMBERS: readonly MemberSpec[] = [
     ['terrain.tileManager.tileSize', 'number'],
     ['terrain.tileManager.getSourceTile', 'function'],
     ['terrain.tileManager.releaseAllRTT', 'function'],
+    ['terrain.tileManager.update', 'function'],
+    ['terrain.tileManager.getSource', 'function'],
+    ['terrain.tileManager._tiles', 'object'],
+    ['terrain.tileManager._renderableTilesKeys', 'object'],
+    ['terrain.tileManager.maxzoom', 'number'],
+    ['terrain.tileManager.deltaZoom', 'number'],
+    ['terrain.tileManager.tileManager.update', 'function'],
+    ['terrain.tileManager.tileManager.getIds', 'function'],
+    ['coveringTiles', 'function'],
 ];
 
 const NEAR_PLANE_MEMBERS: readonly MemberSpec[] = [
@@ -169,20 +196,73 @@ function rememberTileElevations(terrain: TerrainLike): void {
     };
 }
 
-function patchTerrain(map: MapLibreMap, terrain: TerrainLike): TerrainDetailBackup {
+function firstTileClass(manager: TerrainTileManager): RenderTileClass | undefined {
+    const [renderTile] = Object.values(manager._tiles);
+    const [demId] = manager.tileManager.getIds();
+    const tile = renderTile ?? (demId === undefined ? undefined : manager.tileManager.getTileByID(demId));
+    return tile?.constructor as RenderTileClass | undefined;
+}
+
+/**
+ * MapLibre 6.11 stopped handing the DEM source's `calculateTileZoom` to the
+ * terrain's render tiles (#8048). They fell back to the grazing-angle rule while
+ * the DEM followed ours, and a render tile whose DEM parent was never requested
+ * sampled a z5 one: the far field went flat. This is `TerrainTileManager.update`
+ * with the hook put back; `Tile` is not exported, hence the borrowed class.
+ */
+function patchRenderTileZoom(map: MapLibreMap, manager: TerrainTileManager, calculateTileZoom: CalculateTileZoomFunction): void {
+    const proto = Object.getPrototypeOf(manager) as TerrainTileManager;
+    manager.update = function (this: TerrainTileManager, transform, terrain) {
+        const TileClass = firstTileClass(this);
+        if (!TileClass) return proto.update.call(this, transform, terrain);
+        this.tileManager.update(transform, terrain);
+        this._renderableTilesKeys = [];
+        const kept = new Set<string>();
+        let changed = false;
+        // `map.coveringTiles` reads the same camera transform MapLibre passes in, and
+        // forwards the two internal options its public type omits.
+        const options: CoveringTilesOptions & { terrain: TerrainLike; calculateTileZoom: CalculateTileZoomFunction } = {
+            tileSize: this.tileSize, minzoom: this.minzoom, maxzoom: this.maxzoom,
+            terrain, calculateTileZoom,
+        };
+        for (const tileID of map.coveringTiles(options)) {
+            kept.add(tileID.key);
+            this._renderableTilesKeys.push(tileID.key);
+            if (this._tiles[tileID.key]) continue;
+            tileID.terrainRttPosMatrix32f = new Float32Array(RTT_POS_MATRIX);
+            this._tiles[tileID.key] = new TileClass(tileID, this.tileSize);
+            this._lastTilesetChange = performance.now();
+            changed = true;
+        }
+        for (const key of Object.keys(this._tiles)) {
+            if (kept.has(key)) continue;
+            this._tiles[key].releaseRTT(map.painter);
+            delete this._tiles[key];
+            changed = true;
+        }
+        return changed;
+    };
+}
+
+function patchTerrain(map: MapLibreMap, terrain: TerrainLike, renderTileZoom: CalculateTileZoomFunction): TerrainDetailBackup {
     const rtt = rttSizeHolder(map);
+    const manager = terrain.tileManager;
     const backup: TerrainDetailBackup = {
         terrain,
         qualityFactor: terrain.qualityFactor,
         meshSize: terrain.meshSize,
         rttSize: rtt.rttSize,
+        renderMaxzoom: manager.maxzoom,
     };
     terrain.qualityFactor = PANORAMA_QUALITY_FACTOR;
-    rtt.rttSize = terrain.tileManager.tileSize * PANORAMA_QUALITY_FACTOR;
+    rtt.rttSize = manager.tileSize * PANORAMA_QUALITY_FACTOR;
     terrain.meshSize = PANORAMA_MESH_SIZE;
+    // Past this zoom a render tile would only split its DEM's pixels further.
+    manager.maxzoom = manager.getSource().maxzoom + manager.deltaZoom;
+    patchRenderTileZoom(map, manager, renderTileZoom);
     // Both caches hold objects built for the old sizes, and neither is keyed by
     // them: the drape keeps its 2048² texture and the mesh its 128 quads.
-    terrain.tileManager.releaseAllRTT();
+    manager.releaseAllRTT();
     for (const key of Object.keys(terrain._meshCache)) delete terrain._meshCache[key];
     rememberTileElevations(terrain);
     return backup;
@@ -190,6 +270,8 @@ function patchTerrain(map: MapLibreMap, terrain: TerrainLike): TerrainDetailBack
 
 function unpatchTerrain(map: MapLibreMap, backup: TerrainDetailBackup): void {
     delete (backup.terrain as Partial<Pick<TerrainLike, 'getMinMaxElevation'>>).getMinMaxElevation;
+    delete (backup.terrain.tileManager as Partial<Pick<TerrainTileManager, 'update'>>).update;
+    backup.terrain.tileManager.maxzoom = backup.renderMaxzoom;
     backup.terrain.qualityFactor = backup.qualityFactor;
     backup.terrain.meshSize = backup.meshSize;
     rttSizeHolder(map).rttSize = backup.rttSize;
@@ -205,18 +287,25 @@ function unpatchTerrain(map: MapLibreMap, backup: TerrainDetailBackup): void {
  */
 export function applyPanoramaDetail(map: MapLibreMap): () => void {
     let patched: TerrainDetailBackup | null = null;
+    const renderTileZoom = panoramaTileZoom(TERRAIN_BIAS, false);
+    // The DEM sits one level under the render tiles, each of which samples its
+    // parent (MapLibre's `deltaZoom`); the render tiles' `maxzoom` bounds it.
+    const sourceZoom: ReadonlyArray<readonly [string, CalculateTileZoomFunction]> = [
+        ['terrain', panoramaTileZoom(TERRAIN_BIAS - 1, false)],
+        ['base', panoramaTileZoom(BASE_BIAS, true)],
+    ];
 
     const apply = () => {
-        for (const [sourceId, bias] of PANORAMA_SOURCE_BIAS) {
+        for (const [sourceId, calculateTileZoom] of sourceZoom) {
             const source = map.getSource(sourceId);
-            if (source) source.calculateTileZoom = panoramaTileZoom(bias);
+            if (source) source.calculateTileZoom = calculateTileZoom;
         }
         const terrain = map.terrain;
         // A rebuilt style brings a fresh Terrain at MapLibre's defaults; the
         // same instance means `styledata` fired for something else, and
         // re-capturing would back up our own values.
         if (terrain && terrain !== patched?.terrain && hasMembers('Panorama detail', map, PANORAMA_DETAIL_MEMBERS)) {
-            patched = patchTerrain(map, terrain);
+            patched = patchTerrain(map, terrain, renderTileZoom);
         }
         map.triggerRepaint();
     };
@@ -226,7 +315,7 @@ export function applyPanoramaDetail(map: MapLibreMap): () => void {
 
     return () => {
         map.off('styledata', apply);
-        for (const [sourceId] of PANORAMA_SOURCE_BIAS) {
+        for (const [sourceId] of sourceZoom) {
             const source = map.getSource(sourceId);
             if (source) source.calculateTileZoom = undefined;
         }

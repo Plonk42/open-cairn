@@ -36,6 +36,7 @@ export type PersistedSettings = {
     skyHiddenPath?: boolean;
     /** Name the visible summits along the ridge, in « Point de vue ». */
     peakLabels?: boolean;
+    peakLabelsEmphasis?: boolean;
     /** Map view: sun-driven sky instead of the style's neutral one. */
     atmosphericSky?: boolean;
     renderQuality?: RenderQuality;

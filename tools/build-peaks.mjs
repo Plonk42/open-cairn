@@ -46,8 +46,12 @@ const ALTI_URL = 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevatio
 /** Overpass rejects a request with no User-Agent (HTTP 406). */
 const USER_AGENT = 'open-cairn build-peaks (https://github.com/open-cairn)';
 
-/** Coarsest notoriety rank kept: 5 and 6 name knolls you are standing on. */
-const MAX_IMPORTANCE = 4;
+/**
+ * Coarsest notoriety rank kept. Rank 5 mixes knolls with classic hikes the IGN
+ * ranks below a neighbouring shoulder (Pointe de la Sitre, 2195 m, under Mont
+ * Saint-Mury); rank 6 is 87 summits for the whole country.
+ */
+const MAX_IMPORTANCE = 5;
 
 /** Natures that name a top whether or not anyone has surveyed its height. */
 const SUMMIT_NATURES = ['Sommet', 'Pic'];
@@ -288,7 +292,7 @@ function fetchTopo() {
                 importance: Number(importance) || MAX_IMPORTANCE,
             }];
         });
-    });
+    }, `importance<=${MAX_IMPORTANCE}`);
 }
 
 /** Surveyed spot heights, keyed by the `cleabs` both products share. */
@@ -375,16 +379,23 @@ async function sampleGround(points, label) {
     return out;
 }
 
-/** RGE ALTI® at each toponym, the yardstick every published height is held to. */
-function fetchGround(peaks) {
-    return cached('rgealti', async () => {
-        const heights = await sampleGround(peaks, 'ground');
-        const ground = {};
-        peaks.forEach((p, i) => {
+/**
+ * RGE ALTI® at each toponym, the yardstick every published height is held to.
+ * Only toponyms missing from the cache are sampled: the full list is 1 900 requests.
+ */
+async function fetchGround(peaks) {
+    const path = `${CACHE_DIR}rgealti.json`;
+    const ground = !refetch && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
+    const missing = peaks.filter((p) => !(p.id in ground));
+    if (missing.length > 0) {
+        const heights = await sampleGround(missing, 'ground');
+        missing.forEach((p, i) => {
             if (heights[i] !== undefined) ground[p.id] = heights[i];
         });
-        return ground;
-    });
+        writeFileSync(path, JSON.stringify(ground));
+    }
+    console.log(`  rgealti: ${Object.keys(ground).length} (${missing.length} newly sampled)`);
+    return ground;
 }
 
 // ── Re-anchoring ─────────────────────────────────────────────────────────────
@@ -567,7 +578,10 @@ function matchByName(index, peak, limitM = MAX_NAME_MATCH_M) {
  * ground under the point reads the height it publishes.
  */
 function admitFarMatches(peaks, indexes) {
-    const signature = `m+at/${MAX_NAME_MATCH_M}/${FAR_NAME_MATCH_M}/${NODE_GROUND_TOLERANCE_M}`;
+    const signature = createHash('sha256')
+        .update(`m+at/${MAX_NAME_MATCH_M}/${FAR_NAME_MATCH_M}/${NODE_GROUND_TOLERANCE_M}\n`)
+        .update(peaks.map((p) => `${p.id}:${p.name}:${p.lng}:${p.lat}`).join('\n'))
+        .digest('hex');
     return cached('farmatches', async () => {
         const candidates = [];
         for (const peak of peaks) {

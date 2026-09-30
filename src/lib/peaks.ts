@@ -44,7 +44,7 @@ export interface Peak {
     name: string;
     lng: number;
     lat: number;
-    /** IGN notoriety rank, 1 (highest) … 4. */
+    /** IGN notoriety rank, 1 (highest) … 5. */
     importance: number;
     /** Published spot height in metres, or null when no source carries one. */
     spotHeightM: number | null;

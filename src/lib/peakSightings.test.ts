@@ -4,6 +4,7 @@ import {
     LABEL_ANGLE_DEG,
     labelPriority,
     layoutPeakLabels,
+    reachScaleForFov,
     selectCandidates,
     sightPeaks,
     type PeakLabelSlot,
@@ -51,6 +52,15 @@ describe('selectCandidates', () => {
     it('keeps a minor summit once it is close enough to be checked', () => {
         const close = selectCandidates(OBSERVER, [peakNorth('minor', 5_000, 4)], flat);
         expect(close.map((c) => c.peak.id)).toEqual(['minor']);
+    });
+
+    it('reaches farther under a narrower lens, never shorter under a wider one', () => {
+        const minor = [peakNorth('minor', 50_000, 4)];
+        expect(selectCandidates(OBSERVER, minor, flat, reachScaleForFov(30))).toEqual([]);
+        expect(selectCandidates(OBSERVER, minor, flat, reachScaleForFov(15))).toEqual([]);
+        expect(selectCandidates(OBSERVER, minor, flat, reachScaleForFov(8))).toHaveLength(1);
+        expect(reachScaleForFov(60)).toBe(1);
+        expect(reachScaleForFov(1)).toBe(4);
     });
 
     it('reads the azimuth in the same frame the ray march walks', () => {
@@ -201,10 +211,20 @@ describe('sightPeaks', () => {
         expect(sightPeaks(OBSERVER, [peak], blind).map((s) => s.peak.id)).toEqual(['far']);
         expect(sightPeaks(OBSERVER, [peak], () => Number.NaN)).toEqual([]);
     });
+
+    it('tells a summit cut out against the sky from one set against a farther slope', () => {
+        const knoll = peakNorth('knoll', 5_000);
+        const northOf = (lat: number) => (lat - OBSERVER.lat) * METRES_PER_DEG_LAT;
+        const alone = summits(1_200, [knoll]);
+        const backed: GroundSampler = (lng, lat) => (northOf(lat) > 9_000 ? 2_500 : alone(lng, lat));
+        expect(sightPeaks(OBSERVER, [knoll], alone)[0].onSkyline).toBe(true);
+        expect(sightPeaks(OBSERVER, [knoll], backed)[0].onSkyline).toBe(false);
+    });
 });
 
 describe('labelPriority', () => {
-    const at = (peak: Peak, distanceM: number, clearanceDeg = 0.5) => ({ peak, distanceM, clearanceDeg });
+    const at = (peak: Peak, distanceM: number, clearanceDeg = 0.5, onSkyline = false) =>
+        ({ peak, distanceM, clearanceDeg, onSkyline });
 
     it('keeps the Mont Blanc over the knoll that used to evict it', () => {
         // From Chamechaude the two land 16 px apart, and the fraction alone put
@@ -232,11 +252,26 @@ describe('labelPriority', () => {
         const far = peakNorth('far', 1, 2);
         expect(labelPriority(at(near, 20_000))).toBeLessThan(labelPriority(at(far, 90_000)));
     });
+
+    it('prefers a summit with a published height over a nearer, better-ranked one without', () => {
+        // From Chamechaude, both standing well clear of the ridge in front.
+        const sitre = { ...peakNorth('Pointe de la Sitre', 1, 5), spotHeightM: 2_195 };
+        const saintMury = peakNorth('Mont Saint-Mury', 1, 4);
+        expect(labelPriority(at(sitre, 17_040, 2.1))).toBeLessThan(labelPriority(at(saintMury, 16_480, 2.0)));
+    });
+
+    it('prefers the summit cut out against the sky over a nearer knoll set against its flank', () => {
+        // From Chamechaude towards the Vercors, 17 px apart at 7°.
+        const veymont = { ...peakNorth('le Grand Veymont', 1, 3), spotHeightM: 2_341 };
+        const ferriere = { ...peakNorth('Crête de la Ferrière', 1, 3), spotHeightM: 1_468 };
+        expect(labelPriority(at(veymont, 50_800, 1.0, true)))
+            .toBeLessThan(labelPriority(at(ferriere, 37_600, 0.35, false)));
+    });
 });
 
 describe('layoutPeakLabels', () => {
-    const slot = (key: string, x: number, y = 300, priority = 0.5): PeakLabelSlot =>
-        ({ key, x, y, priority });
+    const slot = (key: string, x: number, y = 300, priority = 0.5, fontPx = 12): PeakLabelSlot =>
+        ({ key, x, y, priority, fontPx });
 
     const RAD = Math.PI / 180;
     /** Signed offset of a label's strip across its own direction, in pixels. */
@@ -249,6 +284,14 @@ describe('layoutPeakLabels', () => {
         const placed = layoutPeakLabels([slot('high', 100, 240), slot('low', 400, 520)]);
         expect(placed.map((p) => p.anchorY)).toEqual([placed[0].anchorY, placed[0].anchorY]);
         expect(placed[0].anchorY).toBeLessThan(240);
+    });
+
+    it('lifts the band into free sky, but only so far', () => {
+        const [roomy] = layoutPeakLabels([slot('a', 100, 520)]);
+        expect(roomy.anchorY).toBe(520 - 26 - 50);
+        // 40 px of sky past the ceiling: the band climbs half of it.
+        const [tight] = layoutPeakLabels([slot('a', 100, 144 + 26 + 40)]);
+        expect(tight.anchorY).toBe(144 + 20);
     });
 
     it('says nothing rather than hang a name under its summit', () => {
@@ -271,7 +314,7 @@ describe('layoutPeakLabels', () => {
     });
 
     it('finds room for a dropped name once zooming spreads the summits apart', () => {
-        const crowded = [slot('a', 100), slot('b', 112), slot('c', 124)];
+        const crowded = [slot('a', 100), slot('b', 108), slot('c', 116)];
         // The same three summits under a field of view four times narrower.
         const spread = crowded.map((s) => ({ ...s, x: 100 + (s.x - 100) * 4 }));
         expect(layoutPeakLabels(crowded)).toHaveLength(1);
@@ -286,6 +329,18 @@ describe('layoutPeakLabels', () => {
         for (let i = 1; i < placed.length; i++) {
             expect(lane(placed[i]) - lane(placed[i - 1])).toBeGreaterThanOrEqual(LINE_BOX_PX);
         }
+    });
+
+    it('gives a larger name more room than a plain one', () => {
+        // 21 px apart: enough for two 12 px names, not once one of them is set in 14 px.
+        expect(layoutPeakLabels([slot('a', 100), slot('b', 121)])).toHaveLength(2);
+        expect(layoutPeakLabels([slot('a', 100, 300, 0.1, 14), slot('b', 121)])).toHaveLength(1);
+    });
+
+    it('keeps a larger name clear of the top of the canvas', () => {
+        const plain = layoutPeakLabels([slot('a', 100, 150)]);
+        const large = layoutPeakLabels([slot('a', 100, 180, 0.5, 14)]);
+        expect(large[0].anchorY).toBeGreaterThan(plain[0].anchorY);
     });
 
     it('returns the names in screen order, whatever order the sightings arrive in', () => {

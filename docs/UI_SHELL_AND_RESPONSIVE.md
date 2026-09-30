@@ -274,11 +274,11 @@ carte visible est étroite (panneau ouvert à 1291 px : 49 px de décalage).
 - **armé** : « Cliquez sur la carte pour vous placer » (« Touchez … » sur mobile) et
   *Annuler* ;
 - **debout** : le titre *Point de vue*, la hauteur de l'œil avec ses boutons ▼/▲, la
-  bascule *Sommets*, le menu *Ciel* (trajectoires et date, voir
+  bascule *Sommets* et la flèche de ses options, le menu *Ciel* (trajectoires et date, voir
   [SUN_LIGHTING.md](SUN_LIGHTING.md)), *Changer de lieu* et *Quitter*. Un rappel des
   gestes s'affiche au-dessus pendant six secondes à chaque nouveau lieu.
 
-**Échap** défait un niveau : le menu *Ciel* s'il est ouvert, sinon le choix du lieu,
+**Échap** défait un niveau : le menu ouvert (*Ciel* ou options des sommets), sinon le choix du lieu,
 sinon le mode. *Changer de lieu* quitte le point de vue — la caméra revole jusqu'à la vue
 d'où le lieu avait été choisi — et réarme le choix : un clic dans le panorama tomberait
 souvent dans le ciel, que `queryTerrainElevation` projette à des kilomètres, à une
@@ -347,8 +347,8 @@ synchronisation du curseur d'itinéraire s'abstient.
 - **Glisser** (souris ou **un doigt**) = azimut (horizontal) et hauteur du regard
   (vertical), le pitch étant borné à 20°–150°.
 - **Molette**, ou **pincement à deux doigts** = **focale**, pas zoom. Avec un œil
-  fixe, zoomer n'a plus de sens géométrique ; on change le champ de vision (8° à
-  60° verticaux, soit ~24 mm à ~160 mm en équivalent 24×36). L'écartement des
+  fixe, zoomer n'a plus de sens géométrique ; on change le champ de vision (1° à
+  60° verticaux, soit ~24 mm à ~1 400 mm en équivalent 24×36 ; le plancher était à 8°). L'écartement des
   doigts pilote la focale **à l'identique** (doubler l'écartement divise le champ
   par deux) : l'image suit le geste, comme un pincement de photo.
 - **Flèches haut / bas**, ou boutons **▲/▼** de la barre = **hauteur de l'œil
@@ -385,6 +385,14 @@ La hauteur du sol est **relue après l'entrée dans le mode** : `queryTerrainEle
 dépend du zoom courant, et le zoom change en entrant. Sans cette correction (`idle`,
 zone morte de 0,20 m), l'œil se retrouve plusieurs mètres **sous** la surface sur un
 versant — écran noir, sans message, puisqu'il n'y a pas d'`ErrorBoundary`.
+
+La relecture ne vaut que sur le sol **dessiné** (`renderedGroundSampler`). Elle passait par
+`queryTerrainElevation`, qui, quand aucune tuile rendue ne couvre l'œil (regard au-dessus
+de l'horizon), retombe sur le cache MNT : depuis Chamechaude à 8°, il lisait 2082,5 m, ou
+1509 m d'une tuile parente une fois que le déplacement de l'œil avait changé le pavage —
+l'œil sautait de 573 m à chaque `idle`, sans fin. Désormais, sol non dessiné, pas de
+correction : l'œil garde l'altitude du choix du lieu, lue au zoom du clic (piste dans
+`TODO.md`).
 
 La correction se fait sur l'altitude **atteinte** (`transform.getCameraAltitude()`),
 pas sur celle demandée. L'œil est reconstruit 4 km en arrière du centre : `cameraForViewpoint`
@@ -465,10 +473,11 @@ vise. Mesuré depuis un œil à 2 070 m sur Belledonne, en passant de 60° à 8�
 | maille la plus fine au-delà de 40 km | 213 m | 420 m |
 | fond raster servi au-delà de 10 km | z11 | z9 (108 m/px pour ~6 m/px demandés) |
 
-Le mode remplace cette règle par une **pure loi en 1/distance**, plafonnée au zoom du
-centre — c'est ce plafond qui remplace la pénalité : aucune tuile n'obtient plus de
-détail que le centre, donc une vue quasi horizontale ne peut pas faire exploser le
-compte. La garde de MapLibre, elle, dégénère exactement là où ce mode vit : à 91° de
+Le mode remplace cette règle par une **pure loi en 1/distance**. Pour le fond, elle est
+plafonnée au zoom du centre. Pour le terrain, elle ne l'est plus (voir plus bas « Le zoom
+sous l'œil ») : la distance est mesurée en 3D et l'œil est à des centaines de mètres
+au-dessus du centre, donc le zoom sous l'œil reste borné, et le `maxzoom` du MNT fait le
+reste. La garde de MapLibre, elle, dégénère exactement là où ce mode vit : à 91° de
 pitch et 8° de champ, ses paramètres par défaut réclament **86 831 tuiles de maillage**.
 
 Mais chaque tuile de terrain porte une **texture drapée** (*render-to-texture*) coûtant
@@ -488,8 +497,111 @@ terrain, −2 sur le fond). Mesuré au même point à 8° de champ :
 
 Soit un relief lointain 30 à 60 fois plus fin **pour moins de mémoire qu'avant** : le
 drapé était simplement le mauvais endroit où dépenser, un panorama se lisant par ses
-lignes de crête et non par sa texture de sol. La contrepartie assumée est que le sol
-**proche** est moins net, mais à incidence rasante il ne vaut que quelques pixels.
+lignes de crête et non par sa texture de sol.
+
+#### Le zoom sous l'œil
+
+Ce premier réglage plafonnait chaque tuile au zoom du centre, et le laissait **au sol
+proche** : à 37° de champ, tout ce qui est à moins de 38 km de l'œil avait une maille de
+27 m (27 m par quad là où un pixel vaut 2 m à 3 km). Le plafond est retiré pour le
+terrain, et le biais passé de +2 à **+1**.
+
+Le biais se lit en pixels : une tuile de rendu de 1024 px au zoom du centre couvre
+1024 px d'écran, soit 4 px par quad d'un maillage 252 ; chaque niveau de biais divise par
+deux. **+2 donnait 1 à 2 px par quad, +1 en donne 2 à 4.** Or le coût d'une image suit
+le nombre de sommets (à 130 tuiles et 8° : 80 ms en maillage 252, 28 ms en 128, 17 ms
+en 64 sur l'iGPU) : +2 doublait les tuiles sans rien montrer de plus. Mesuré depuis
+Chamechaude, dans la même session :
+
+| | plafond, +2 | sans plafond, +1, MNT z16 | sans plafond, +2, MNT z16 |
+|---|---|---|---|
+| 37° : maille à moins de 1 km | 27 m | **0,9 m** | 0,9 m |
+| 37° : maille à 3–6 km | 27 m | **6,8 m** | 3,4 m |
+| 37° : maille à 20–40 km | 27 m | 55 m | 27 m |
+| 37° : tuiles / image | 51 / 33 ms | **56 / 41 ms** | 105 / 70 ms |
+| 8° : tuiles / image | 162 / 100 ms | **92 / 58 ms** | — |
+
+L'image « sans plafond, +2 » est indiscernable de « +1 » pour presque deux fois le
+prix ; à 8°, le lointain de « +1 » est indiscernable de l'ancien pour 40 % de temps en
+moins. Le premier plan, lui, gagne nettement — crêtes et texture drapée (une tuile de
+rendu plus petite porte le même drapé 512² sur moins de terrain). Les millisecondes
+sont celles de l'iGPU sous une page déjà chargée ; après un rechargement complet, 56 et
+92 tuiles tiennent toutes deux les 16 ms de la synchro écran.
+
+**« Indiscernable » ne valait que pour l'œil, pas pour la visée.** Les crêtes
+intermédiaires (20–60 km) sont deux fois plus grossières à +1, donc un peu plus basses, et
+des sommets lointains réellement cachés dépassent : l'image les montre, et la visée (qui
+lit la surface dessinée) les nomme. Recompté contre les verdicts de PeakFinder sur les
+quatre points de vue de `data/pfcmp/` (champ 60°, six caps, rangs 1 à 4, œil à 1,70 m),
+performances sur une page rechargée depuis Chamechaude cap 131,5° :
+
+| biais terrain | désaccords (sur 2 992) | 37° : tuiles / image | 8° : tuiles / image |
+|---|---|---|---|
+| **+1** (retenu) | 181 | 63 / 47 ms | 80 / 54 ms |
+| +1,5 | 106 | 82 / 58 ms | 135 / 85 ms |
+| +2 | 81 | 120 / 81 ms | 209 / 132 ms |
+
+À +1, Belledonne et le Brévent concentrent l'écart : 53 et 58 rangs 2 vus à tort,
+surtout au-delà de 80 km (la Vanoise depuis la Croix de Belledonne). Le 51 mesuré avant
+(MapLibre 6.10, tuiles plafonnées au centre, MNT z14) n'est pas retrouvé même à +2 ; le
+reste de l'écart n'est pas expliqué.
+
+**+1 est fixe.** Le biais a été un réglage utilisateur à trois crans (+1 / +1,5 / +2),
+retiré faute de gain visible. Sur la même vue depuis Chamechaude (cap 129°) : +2 change
+1,5 % des pixels à 8° et 3,7 % à 37°, et l'image est même **un peu moins nette**
+(gradient moyen 8,73 contre 9,03 à 8°, 11,11 contre 11,38 à 37°), pour 2,7 et 2 fois
+plus de tuiles. En téléobjectif la question ne se pose plus : la focale affine déjà les
+crêtes en mètres, et +2 sans plafond dessinait **523 tuiles** à 2° pour ~1 s par image,
+contre 185 à +1. Les désaccords avec PeakFinder, eux, ont été comptés à 60°, où +1
+est 7,5 fois plus grossier en mètres qu'à 8° : c'est là seulement que +2 changerait
+quels sommets lointains passent au-dessus d'une crête (voir `TODO.md`).
+
+Le **MNT Mapterhorn monte à z16** (0,85 m/px, voir `BASEMAPS_AND_HILLSHADE.md`), et le
+`maxzoom` des tuiles de rendu est calé à celui du MNT **plus un** : chaque tuile de rendu
+lit le MNT de son parent (`deltaZoom` de MapLibre), et au-delà elle ne ferait que
+subdiviser ses pixels. Pour la même raison, le MNT est demandé avec un biais de 0 et non
++1 : il tombe pile sur le niveau que lisent les tuiles de rendu, au lieu de charger des
+tuiles filles que personne ne lit. La clé IGN garde `maxzoom` 14.
+
+Au-delà, le maillage n'a plus rien à rendre à l'œil. Sur Belledonne et les Grandes Rousses vues de
+Chamechaude à 8°, +2 au lieu de +1 donne des silhouettes identiques (netteté 7,7 contre
+7,8) pour 202 tuiles et 44 ms au lieu de 79 et 19 ms — mais voir ci-dessus pour la visée. Le MNT grossier ne rabote pas non
+plus les cimes : Mapterhorn garde les maxima en sous-échantillonnant, et à z12 (le niveau
+lu à 30 km) les sommets perdent 0 à 5 m par rapport à z16 (Pic de la Pyramide 3371 contre
+3376, Étendard 3460,5 contre 3463,7), moins d'un pixel à 30 km. L'erreur qui reste est
+la courbure terrestre, que ce rendu plan ignore (voir « Où la pointe se pose ») : 67 m
+à 31 km, soit **10 px** dans ce champ, et 6 px sur la crête de Belledonne à 20 km.
+
+**Le fond drapé est passé de −2 à −1.** Au lointain, c'est lui qui limitait, pas le
+maillage : Belledonne et les Grandes Rousses vus de Chamechaude à 8° (25–35 km), la maille
+était déjà à 2–3 px par quad (13,7 m, au niveau du MNT z12), mais le fond arrivait en
+z11–12, 27 à 54 m par texel, soit 4 à 8 px d'écran — les sommets étaient des taches
+floues, l'ombrage LiDAR qui dessine les couloirs étant dans ce drapé. À −1, une tuile de
+fond de 256 px couvre une tuile de rendu, 2 px par texel. Mesuré sur la bande des
+sommets lointains :
+
+| fond | tuiles de fond | netteté (gradient moyen) | image |
+|---|---|---|---|
+| −2 | 54 | 7,6 | 57 ms |
+| **−1** | **140** | **10,9** | 57 ms |
+| 0 | 418 | 13,7 | 57 ms |
+
+Le temps d'image ne bouge pas (il suit le maillage) : le prix est **réseau**, deux
+requêtes IGN par tuile composite (fond + ombrage). 0 atteindrait la résolution du drapé
+512², mais triple encore les tuiles et dépasse le cache composite de 512 entrées dès
+qu'on tourne.
+
+**MapLibre 6.11 a découplé les tuiles de rendu de ce réglage** (#8048, « Keep
+source-specific tile LOD settings from changing internal terrain render-to-texture tile
+selection »). Depuis, le `calculateTileZoom` posé sur la source ne pilote plus que le
+chargement du MNT ; les tuiles de rendu reprenaient la règle par défaut, plus grossière, et
+le niveau parent qu'elles lisent n'était jamais chargé : elles remontaient jusqu'au MNT
+**z5** (1,7 km/px). Le lointain était plat, fond de carte étiré dessus. Aucune erreur, aucun
+membre manquant : `missingMembers` ne pouvait pas le voir. `TerrainTileManager.update` est
+donc remplacé sur l'instance le temps du mode, par sa propre copie avec la règle remise,
+via `map.coveringTiles` (public, mais dont le type omet les options `terrain` et
+`calculateTileZoom` qu'il transmet pourtant) ; la classe `Tile`, non exportée, est
+empruntée à une tuile existante.
 
 Tout est posé en entrant dans le mode et **rendu en sortant** par
 [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts), y compris le vidage des deux
@@ -523,7 +635,7 @@ différent) dans un `Uint16` fixe, sans repli en 32 bits. `(meshSize+1) × (mesh
 sommets — 67 591 à 256, au-delà des 65 536 adressables — fait déborder les index des
 bourrelets, qui bouclent modulo 65 536 et pointent vers de mauvais sommets : la couture
 que le bourrelet est censé cacher devient une bande blanche visible, pile à la limite
-zoom-terrain/zoom-fond que corrige le biais `PANORAMA_SOURCE_BIAS`. 252 sommets
+zoom-terrain/zoom-fond que corrige le biais du pavage (`sourceZoom`). 252 sommets
 (65 527) reste sous la limite.
 
 #### Noms des sommets
@@ -539,17 +651,51 @@ Allumé, il nomme les sommets IGN **réellement visibles depuis l'œil** : le no
 altitude quand l'IGN en publie une. Une arête plus proche qui masque un sommet le fait
 disparaître de la liste.
 
+**Hiérarchie des noms.** La flèche collée à *Sommets* ouvre une case « Mettre en avant les
+principaux », active par défaut et persistée. Elle règle les noms sur le rang de notoriété
+IGN, en trois niveaux :
+
+| Rang | Taille | Graisse | Teinte | Point |
+|---|---|---|---|---|
+| 1 | 14 px | 800 | ambre (`#fde68a`) | 2,6 px |
+| 2 | 13 px | 700 | blanc | 2,1 px |
+| 3 à 5 | 12 px | 500 | blanc atténué (`#e2e8f0`) | 1,7 px |
+
+Éteinte, tout revient au style uniforme (12 px, 600, `#f8fafc`). Maquetté sur la vue de
+Belledonne depuis Chamechaude à 15° (1 nom de rang 1, 9 de rang 2, 17 de rangs 3–5) : un
+pixel et un cran de graisse de plus ne distinguaient pas le rang 2 ; c'est l'allègement des
+autres qui creuse l'écart. Ils gardent leurs 12 px — réduits à 11 px, ils devenaient
+maigres, limite sur la neige. L'ambre est réservé au rang 1 (un ou deux noms par vue) : plus
+répandu, il ne signalerait plus rien. Le rang IGN reste un jugement éditorial (Mont
+Saint-Mury rang 4, Pointe de la Sitre rang 5).
+
+Seule la taille coûte de la place, et seulement autour des grands noms : l'écart entre deux
+noms est la moyenne de leurs deux corps plus 2 px de halo, divisée par sin 45° — 20 px entre
+deux noms de 12 px, 21 px dès qu'un nom de 13 px est de la paire. Le plafond de la bande
+(`bandMinYPx`) suit le plus grand corps à l'écran : un nom de rang 1 en 14 px gras fait
+220 px au 95ᵉ centile, contre 190 pour un nom long en 12 px. Même nombre de noms (29) avec ou
+sans hiérarchie sur la vue de Belledonne.
+
 Les noms ne suivent pas la ligne de crête : ils sont tous **accrochés à une même bande
 horizontale**, au-dessus du plus haut sommet à l'écran, et reliés à leur cime par un
 **trait strictement vertical** de longueur variable — la lecture de PeakFinder. C'est ce
 qui rend une crête chargée lisible : les noms ne s'entassent plus là où les sommets
 s'entassent, et ils ne recouvrent plus le relief.
 
-Conséquence directe : **la sélection des noms suit le zoom, en direct**. Ce qui s'imprime
-ne dépend que de l'écartement des sommets à l'écran, recalculé à chaque image ; resserrer
-le champ les écarte, la bande trouve de la place, et les noms mineurs apparaissent d'eux-
-mêmes. La visée, elle, ne porte que sur les sommets posés sur le relief dessiné — le cadre
-et ses abords — et se refait quand ce relief change.
+La bande se pose 26 px au-dessus du plus haut sommet, puis **monte de la moitié du ciel
+qui reste** jusqu'au plafond (`bandMinYPx`), sans dépasser 50 px de plus : 76 px de trait
+au plus haut sommet quand le ciel est dégagé, les 26 px d'origine quand la ligne d'horizon
+touche déjà le plafond. Le calcul est continu, la bande ne saute pas quand un sommet entre
+dans le cadre. Vers le Vercors à 7,3°, la bande est passée de 26 à 76 px au-dessus du
+Mont Aiguille et de ses voisins.
+
+Conséquence directe : **la sélection des noms suit le zoom**. Ce qui s'imprime dépend de
+l'écartement des sommets à l'écran, recalculé à chaque image ; resserrer le champ les
+écarte, la bande trouve de la place. Et sous 30° de champ vertical, la **portée de chaque
+rang s'allonge** (voir « La portée suit la focale » plus bas) : la visée qui suit l'arrêt
+du zoom va chercher des sommets plus lointains. La visée, elle, ne porte que sur les
+sommets posés sur le relief dessiné — le cadre et ses abords — et se refait quand ce
+relief ou la portée change.
 
 Ce qu'il faut savoir :
 
@@ -558,11 +704,12 @@ Ce qu'il faut savoir :
   nommé ; le Gran Paradiso, non.
 - La liste n'est **plus interrogée en ligne**. Elle est bâtie une fois par
   [tools/build-peaks.mjs](../tools/build-peaks.mjs) et livrée avec l'app sous forme d'un
-  fichier de 25 798 sommets (391 ko gzippés), téléchargé une seule fois par session à la
+  fichier de 39 846 sommets (581 ko gzippés), téléchargé une seule fois par session à la
   première ouverture du mode. Plus de requête WFS sur le chemin d'une étiquette.
 - L'**altitude est celle que publie la meilleure source disponible** — OSM, puis la cote
   BD CARTO®, puis GeoNames, dans cet ordre (voir `docs/IGN_DATA_SOURCES.md` pour la mesure
-  qui a fixé cet ordre). **52 %** des sommets en portent une ; les autres sont
+  qui a fixé cet ordre). **43 %** des sommets en portent une (27 % seulement au rang 5) ;
+  les autres sont
   affichés **sans altitude**. C'est délibéré : en randonnée, une altitude fausse est pire
   que pas d'altitude, et aucun MNT ne donne la bonne.
 - Le **point visé par le trait de rappel n'est pas le toponyme brut** : la BD TOPO® pose le
@@ -583,11 +730,10 @@ Ce qu'il faut savoir :
   écarté** plutôt que placé au niveau de la mer. Le test de visibilité travaille
   entièrement sur le MNT, altitude publiée ou pas : comparer un sommet relevé à une arête
   issue du MNT biaiserait chaque verdict de l'écart entre les deux modèles.
-- Sur une crête dense, les noms sont **poussés vers la droite** pour ne pas se recouvrir ;
-  celui qu'il faudrait trop éloigner de son sommet est **abandonné** — un trait de rappel
-  qui traverse trois autres sommets est pire que pas d'étiquette. L'écart imposé se mesure
-  **perpendiculairement aux bandeaux de texte**, pas sur l'horizontale : deux noms écartés
-  de 19 px mais décalés de 30 px en hauteur sont, à 58°, imprimés l'un sur l'autre.
+- Sur une crête dense, un nom qui n'a pas la place est **abandonné** plutôt que décalé : un
+  trait de rappel qui traverse trois autres sommets est pire que pas d'étiquette. C'est la
+  priorité (`labelPriority`), pas l'ordre à l'écran, qui décide lequel reste. L'écart
+  imposé se mesure **perpendiculairement aux bandeaux de texte**, pas sur l'horizontale.
 - Le réglage **n'est pas partagé** dans les liens : il relève du confort de lecture, pas
   de la vue.
 
@@ -662,7 +808,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
 | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
-| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance, drapé au quart, maillage doublé ; plan de coupe proche à 0,5 m et brouillard neutre autour de l'œil ; restauration |
+| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance (sources et tuiles de rendu du terrain), drapé au quart, maillage doublé ; plan de coupe proche à 0,5 m et brouillard neutre autour de l'œil ; restauration |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* : titre du panneau desktop, pilule de la barre du haut sur mobile |
 | [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives de l'accordéon à droite, partagées par les deux vues : géométrie (`SIDE_PANEL_STRIP_PX`), `DockedSidePanel` (panneau ou sa seule barre de titre, padding de la carte), `SidePanel` (titre = sélecteur de vue), `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton` |
 | [src/components/shell/RouteSidePanel.tsx](../src/components/shell/RouteSidePanel.tsx) | Panneau desktop de l'Itinéraire : sections de carte |
@@ -869,7 +1015,7 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le relief **dessiné** | ~0,10 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) ; 2 à 100 ms par passe mesurés | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil **ou** le jeu de tuiles dessinées a changé |
+| Visée : un rayon par sommet à travers le relief **dessiné** | ~0,10 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) ; 2 à 160 ms par passe mesurés (le haut en téléobjectif, portée allongée) | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil, le jeu de tuiles dessinées **ou** l'allongement de portée a changé |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste. La deuxième suit **ce que MapLibre dessine** : tourner
@@ -891,8 +1037,8 @@ dresser devant un sommet dans le cadre.
 
 C'est aussi pourquoi **quels** sommets portent un nom se décide dans la troisième et non
 dans la deuxième : la visée répond à « qu'est-ce qui est visible », qui ne dépend du
-champ de vision qu'à travers les tuiles dessinées ; le placement répond à « qu'est-ce
-qui tient », qui n'en dépend que.
+champ de vision qu'à travers les tuiles dessinées et la portée ; le placement répond à
+« qu'est-ce qui tient », qui n'en dépend que.
 
 #### Le trajet d'un sommet, du fichier à l'étiquette
 
@@ -902,7 +1048,7 @@ cap 60°, focale verticale 30°.
 
 ```mermaid
 flowchart TD
-    A["peaksData.json<br/>25 798 sommets"] --> B["Découpe autour de l'œil<br/>(refaite tous les km)"]
+    A["peaksData.json<br/>39 846 sommets"] --> B["Découpe autour de l'œil<br/>(refaite tous les km)"]
     B --> C{"Portée du rang ?<br/>250 m ≤ distance ≤ portée"}
     C -- non --> X1[écarté]
     C -- "oui : 1 050" --> S{"Sur une tuile dessinée ?<br/>(un échantillon)"}
@@ -911,7 +1057,7 @@ flowchart TD
     D --> G["Les 900 premiers<br/>(ici tous)"]
     G --> H{"Visée : un rayon<br/>le sommet dépasse-t-il<br/>le relief devant lui ?"}
     H -- non --> X2[caché]
-    H -- "oui : 98" --> J{"Placement, à chaque image :<br/>sous la bande et à 26 px<br/>d'un nom mieux classé ?"}
+    H -- "oui : 98" --> J{"Placement, à chaque image :<br/>sous la bande et à 20 px<br/>d'un nom mieux classé ?"}
     J -- non --> X3[vu mais pas nommé]
     J -- "oui : 24" --> K["Étiquette"]
 
@@ -935,11 +1081,11 @@ les plus lointains *pour leur rang*, pas forcément les plus lointains tout cour
 
                   ┌───────────────── 150 km ─ rang 1 ─────────────────┐
                   │        ┌──────── 100 km ─ rang 2 ────────┐        │
-                  │        │      ┌─ 40 km ─ rang 3 ─┐       │        │
-                  │        │      │  ┌ 20 km rang 4 ┐│       │        │
-                  │        │      │  │      ◉       ││       │        │
-                  │        │      │  └──────────────┘│       │        │
-                  │        │      └──────────────────┘       │        │
+                  │        │  ┌─ 80 km ─ rang 3 ──────────┐  │        │
+                  │        │  │  ┌ 20 km rangs 4-5┐       │  │        │
+                  │        │  │  │       ◉        │       │  │        │
+                  │        │  │  └────────────────┘       │  │        │
+                  │        │  └───────────────────────────┘  │        │
                   │        └─────────────────────────────────┘        │
                   └───────────────────────────────────────────────────┘
         part de portée = 0 au centre, 1 sur le cercle de son propre rang
@@ -972,8 +1118,10 @@ dans les 70° vers l'ouest depuis Chamechaude, elle laissait **3 noms** à l'éc
 
 - **La portée par rang** (`REACH_BY_IMPORTANCE_M`) dit jusqu'où le nom d'un rang de
   notoriété IGN mérite d'être écrit : **150 km** au rang 1, **100 km** au rang 2,
-  **40 km** au rang 3, **20 km** au rang 4. Les 25 km et 8 km d'origine coupaient
-  l'essentiel du panorama : 39 des 40 sommets visibles sont de rang 3 ou 4.
+  **80 km** au rang 3, **20 km** aux rangs 4 et 5. Les 25 km et 8 km d'origine coupaient
+  l'essentiel du panorama : 39 des 40 sommets visibles sont de rang 3 ou 4. Le rang 5
+  (Pointe de la Sitre, Dent Gérard, mais aussi « la Butte ») prend la portée du rang 4 ;
+  à distance égale, `labelPriority` le place derrière.
 - **L'ordre dans lequel le budget est dépensé** est la **part de sa portée** que le
   sommet consomme, `distance / portée(rang)`, et non le rang puis la distance. Trier
   par rang vide le budget dans l'horizon lointain : 198 rangs 2 marchés — les Rouies à
@@ -999,22 +1147,52 @@ budget — la portée était la contrainte, jamais le coût. Mesuré depuis un p
 | sommets visés | 128 | **228** dont 66 au-delà de 60 km |
 | noms réellement écrits | 48 | **85** |
 
-Les rangs 3 et 4 ne bougent pas avec eux, et cette coupe-là est **éditoriale** et non
+Le rang 4 ne bouge pas avec eux, et cette coupe-là est **éditoriale** et non
 budgétaire : un rang 4 est un nom emprunté au hameau du dessous, il ne dit rien à 100 km.
+
+Le rang 3, lui, est passé de 40 à **80 km** : il porte le **Grand Veymont**, point
+culminant du Vercors, et le **Mont Aiguille**, à 50 et 53 km de Chamechaude, que la coupe
+à 40 km taisait. Vers le Vercors depuis Chamechaude (cap −159°, 9°), l'écran passe de
+**5 à 10 noms** (Mont Aiguille, Rocher du Baconnet, Rocher de Goutaroux, l'Aiguillette ou
+Petit Veymont, Montagne du Puy), pour 38 rayons au lieu de 26 et une visée de 16 → 23 ms.
+
+**La portée suit la focale.** Un sommet couvre autant de pixels à la distance `d` sous un
+champ `f` qu'à `d · 30°/f` sous 30°. Sous 30° de champ vertical, toutes les portées sont
+donc multipliées par `30° / champ`, plafonné à ×4 (`reachScaleForFov`) : ×2 à 15°, ×3,75 à
+8°. La découpe autour de l'œil (150 km) reste le plafond absolu. Seule la **coupe** bouge :
+le tri du budget et `labelPriority` mesurent toujours un sommet contre la portée de base
+de son rang, sinon zoomer changerait lequel de deux noms garde une colonne. Mesuré vers le
+Vercors depuis Chamechaude (cap −158°, œil à 60 m) :
+
+| Champ | Allongement | Candidats | Vus | Noms | Visée |
+|---|---|---|---|---|---|
+| 31° | ×1 | — | — | 27 | — |
+| 15° | ×1 → **×2** | 82 → 221 | 52 → 81 | 15 → **20** | 53 → 141 ms |
+| 8° | ×1 → **×3,75** | 37 → 279 | 20 → 82 | 10 → **27** | 33 → 162 ms |
+
+Au-dessus de 30°, rien ne s'allonge : doubler les rangs 3 à 5 à 31° aurait donné 37 noms au
+lieu de 27 pour une visée 3,5 fois plus longue (145 → 505 ms), l'écran étant déjà rempli. Ce
+que l'allongement amène en téléobjectif, ce sont surtout des rangs 4 et 5 entre 20 et
+75 km — Tête de Praorzel, Sommet de Chamoux, Rocher de Séguret, mais aussi Saint-Loup ou
+Montagne de Grand Rochefort (409 m), qui sont bien visibles à cette focale.
 
 Le cercle entier ne tient pas toujours dans les 900 rayons. Compté sur `peaksData.json`
 avec la table actuelle :
 
-| Point de station | candidats sur 360° | budget |
-|---|---|---|
-| Croix de Belledonne | **1 050** | déborde de 150 |
-| Brévent | **975** | déborde de 75 |
-| Chamechaude | 830 | tient |
-| Grenoble (centre) | 752 | tient |
-| Mont Aiguille | 661 | tient |
-| Pic du Midi de Bigorre | 556 | tient |
-| Mont Ventoux | 348 | tient |
-| Puy de Dôme | 240 | tient |
+| Point de station | candidats sur 360° | dont rang 5 | dont rang 3 au-delà de 40 km | budget |
+|---|---|---|---|---|
+| Croix de Belledonne | **1 539** | 98 | 390 | déborde de 639 |
+| Brévent | **1 389** | 135 | 278 | déborde de 489 |
+| Chamechaude | **1 253** | 62 | 361 | déborde de 353 |
+| Grenoble (centre) | **1 117** | 56 | 309 | déborde de 217 |
+| Mont Aiguille | 975 | 65 | 250 | déborde de 75 |
+| Pic du Midi de Bigorre | 812 | 117 | 139 | tient |
+| Mont Ventoux | 638 | 88 | 202 | tient |
+| Puy de Dôme | 374 | 31 | 103 | tient |
+
+Seuls les candidats **dessinés** prennent une place (paragraphe suivant), et les tuiles
+dessinées suivent le cadre : à 40 % du cercle dessiné (mesuré ci-dessous à 46° de champ),
+la Croix de Belledonne tombe vers 620 candidats, sous le budget.
 
 Quand il déborde et que le budget est rempli **avant** de savoir quels sommets sont
 dessinés — ce que faisait `selectCandidates` — la coupe tombe sur tout le tour, y compris
@@ -1030,7 +1208,8 @@ du schéma ci-dessus :
 | tri + visée | — | 59 ms |
 
 Les sommets regagnés sont ceux qui étaient au bout de leur portée : des rangs 3 vers
-40 km, des rangs 2 vers 100 km. Là où le cercle tient (six des huit points ci-dessus),
+40 km, des rangs 2 vers 100 km (mesure faite avec le rang 3 encore à 40 km). Là où le
+cercle tient (trois des huit points ci-dessus),
 rien ne change.
 
 Le rayon est tiré **à l'azimut exact de chaque sommet**, sans regroupement angulaire :
@@ -1091,7 +1270,7 @@ Une amorce pointant le ciel — et, comme la bande s'accroche au sommet le plus 
 l'écran, **toute la bande tirée 340 px au-dessus de la crête** qu'elle est censée
 dégager. À 250 m les mêmes 10 m de bruit du MNT ne font plus que 2,3°. Le prix n'est
 payé que si l'œil est à moins de 250 m d'un sommet nommé, c'est-à-dire debout dessus :
-295 sommets sur 25 830 ont un voisin aussi proche, là où 500 m en coûterait déjà 1 454.
+1 093 sommets sur 39 846 ont un voisin aussi proche, là où 500 m en coûterait déjà 5 996.
 
 #### Où la pointe se pose : la géométrie de l'image, pas celle du monde
 
@@ -1131,7 +1310,8 @@ direction — une hauteur de ligne — quelle que soit la longueur des noms.
 
 Toutes les ancres étant sur la même bande horizontale, cet écart en travers se réduit à
 leur **écart horizontal** multiplié par le sinus de l'angle : plus le texte est couché,
-plus il lui faut de place en largeur. À −32° c'est 26 px par nom : une hauteur de ligne de
+plus il lui faut de place en largeur. À −45° c'est 20 px par nom (26 px à −32°, l'angle
+d'avant) : une hauteur de ligne de
 14 px, soit les 12 px d'encre d'une Helvetica 600 à 12 px, de la capitale au jambage
 (mesurés, 9 + 3), plus un bord de halo, pour que le halo d'un voisin ne morde jamais un
 glyphe. C'était 15,5 px (le halo entier des deux côtés), 3,5 px de trop : vers la
@@ -1141,8 +1321,15 @@ Rocher de Lorzier, et Mont Salomon la prenait.
 Chaque nom reste **épinglé à la verticale de son sommet**, trait droit. Faire glisser les
 noms serrés sur le côté avec un trait coudé a été essayé et rejeté : ça se lit comme un
 fouillis. La bande en une rangée a donc un plafond dur : depuis Chamechaude vers l'ouest
-(œil à 124 m, 38 sommets vus), **16 noms** est le maximum qu'elle peut porter à −32°, quel
-que soit le choix. Tout se joue donc sur **quels** noms occupent ces places — et sur la
+(œil à 124 m, 38 sommets vus), **16 noms** était le maximum qu'elle pouvait porter à −32°,
+quel que soit le choix.
+
+**Le texte est passé de −32° à −45°** pour en porter plus sans rien changer d'autre :
+l'écart minimal tombe de 26 à 20 px. Vers Belledonne depuis Chamechaude (10°, cap 129°),
+l'écran passe de 18 à 20 noms ; la règle rejouée sur les 27 sommets du cadre donne 16 → 19,
+et 22 à −60° (jugé moins
+lisible). Le prix est la bande plus basse quand l'horizon monte (`bandMinYPx` 144 px
+au lieu de 110). Tout se joue ensuite sur **quels** noms occupent ces places — et sur la
 visée : tourné vers la Chartreuse depuis le même point, l'image est plus vide parce que
 la plupart des sommets mineurs sont **réellement cachés** derrière la crête
 Chalves–Lorzier (1 720–1 850 m à 7–9 km) : Aiguille de Chalais, Roche Brune, le Châtelet,
@@ -1150,8 +1337,27 @@ Rocher de la Garde, le Pavillon de 2,5 à 4° sous elle, le Grand Sabot de 0,09�
 
 Quand deux noms ne tiennent pas tous les deux, celui qui reste est le plus bas selon
 `labelPriority` = `distance / portée(rang)` + **0,15 par rang** − **0,2 par degré de
-dégagement** au-dessus du relief plus proche (plafonné à 1,5°), et non celui qui se
-trouve le plus à gauche.
+dégagement** au-dessus du relief plus proche (plafonné à 1,5°) − **0,3 si le sommet se
+découpe sur le ciel**, et non celui qui se
+trouve le plus à gauche. Un sommet **sans altitude publiée compte deux rangs de plus** :
+57 % du fichier n'en a pas (73 % au rang 5), surtout des épaules et des bosses. Depuis
+Chamechaude cap 131,5°, le Mont Saint-Mury (rang 4, sans altitude, épaule à 16,5 km)
+prenait ainsi la place de la **Pointe de la Sitre** (rang 5, 2195 m, 17 km) ; un seul rang
+de pénalité ne suffisait pas (0,97 + 0,15 = 1,12 contre 1,15), deux la lui rendent.
+
+**Se découper sur le ciel.** Après la visée, chaque sommet vu prolonge son rayon *au-delà*
+de lui-même, de 300 m (son propre versant) jusqu'à 150 km, sur le relief dessiné : si rien
+ne s'y élève au-dessus de sa ligne de visée (à 15 m de bruit MNT près), il se détache du
+ciel (`onSkyline`) et gagne deux rangs. Depuis Chamechaude vers le Vercors, le **Grand
+Veymont** (2 341 m, 51 km), seule cime de la ligne de crête, perdait sa colonne contre la
+**Crête de la Ferrière** (1 468 m, 38 km), une bosse du premier plan posée sur son flanc,
+17 px à côté : 0,73 contre 0,70. Le dégagement ne les séparait pas (1,0° contre 0,35° ; un
+poids de 0,3 par degré ne l'aurait fait gagner que de 0,015). Le fond, lui, les sépare
+nettement : le Veymont dépasse tout ce qui est derrière lui de 0,09°, la Ferrière est
+0,98° sous le Vercors qui la domine. Avec le bonus, le Grand Veymont et le Mont Aiguille
+sont nommés à 60, 30, 15 et 7,3°. Coût : 14 ms pour les 77 sommets vus à 7,3° — les tuiles
+dessinées s'arrêtent vers 60–66 km, au-delà le rayon ne lit plus que du `NaN`, compté comme
+ciel.
 
 Le rang passait auparavant **d'abord**, entier : tout rang 2 avant n'importe quel rang 3.
 Dans la vue ci-dessus, cela écrivait Crêt de Montivert (92 km, qui dépasse de 0,27° de
@@ -1171,8 +1377,9 @@ suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son déga
 
 > ⚠️ La bande ne monte pas indéfiniment. Le texte s'élève depuis son ancre, donc une
 > bande trop haute est une bande dont **tous** les noms sont coupés par le bord — ce qui
-> arrive dès que la ligne d'horizon monte. Elle s'arrête donc à 110 px du haut
-> (`BAND_MIN_Y_PX`, la montée d'un nom long à −32°). Un sommet qui se retrouve **au-dessus**
+> arrive dès que la ligne d'horizon monte. Elle s'arrête donc à 144 px du haut
+> (`bandMinYPx`, la montée d'un nom long de 190 px à −45°, plus 10 px ; 110 px à −32° ;
+> 167 px quand un nom de rang 1 en 14 px est à l'écran). Un sommet qui se retrouve **au-dessus**
 > de cette bande n'est alors **pas nommé du tout** : accrocher son nom en dessous de lui
 > inverserait la lecture de tous les traits de l'écran pour une seule étiquette. C'est à
 > l'utilisateur de relever la caméra.
@@ -1209,3 +1416,22 @@ suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son déga
   le versant derrière l'œil monte plus vite que la ligne de visée (10°), et seule la crête
   au-delà le dégage. Le zoom corrigé est ensuite figé à chaque `moveend`, comme l'était le
   pitch. Suite : voir [TODO.md](TODO.md).
+- **Avancer/reculer s'inverse vers 90° de pitch (Studio).** Ce sont les gestes de
+  MapLibre (`dragPan`, `scrollZoom`), pas les nôtres. Mesuré sur le déplacement de la
+  caméra (`getCameraLngLat`), z14, cap 0, près de Grenoble, glisser de 40 px vers le bas
+  ou 3 crans de molette : de 80° à 88° les deux avancent ; **à 90°** le glisser recule de
+  3 à 6 km et la molette, pointée sur le sol, recule de 8 à 13 km ; à 92° le glisser ne
+  bouge presque plus. Même page, deux essais par point, résultats **identiques en 6.10.0
+  et 6.11.2**. Reproduit sur une carte MapLibre **nue** (aucun code à nous), avec et sans
+  relief, œil à 0, 300 ou 1 000 m au-dessus du sol : c'est le passage du **centre de
+  l'écran** à l'horizon (pitch ≥ 90°) qui inverse, le pointeur étant sur le sol. Le
+  correctif 6.11.2 (#8544) vise un autre cas : **pointeur dans le ciel** à pitch < 90°,
+  où il ancre désormais le geste sur le centre (avec relief, la molette le faisait déjà).
+  Mécanisme : à 90° exactement, `map.unproject()` renvoie **le même point pour toutes
+  les lignes de l'écran** (3,2 km derrière le centre à z14, sous la caméra), y compris
+  avec le centre relevé (`elevation: 1000`) ; les gestes s'ancrent donc sur ce point.
+  Les gestes sont rejoués par Playwright (`page.mouse`, événements de confiance ; 16
+  `pointermove` reçus par le canevas), le recul est progressif pendant le glisser, et le
+  rythme des mouvements (instantané ou 60 Hz) ne change rien. À 80°, un glisser qui part
+  juste sous l'horizon envoie en outre la caméra 800 à 2 500 km plus loin, une fois sur
+  deux, dans les deux versions et sur la carte nue. Suite : voir [TODO.md](TODO.md).

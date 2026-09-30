@@ -10,7 +10,7 @@ techniques vivent dans le document de chaque sujet.
   → `BASEMAPS_AND_HILLSHADE.md`
 - **Le LiDAR se dessine toujours au-dessus du terrain**, sans test de profondeur contre lui : le MNT
   IGN est souvent trop haut et ne doit jamais masquer une mesure LiDAR. → `LIDAR_RENDERING.md`
-- **Bande des noms de sommets bornée par `BAND_MIN_Y_PX`** : pas un défaut, on relève la caméra.
+- **Bande des noms de sommets bornée par `bandMinYPx`** : pas un défaut, on relève la caméra.
 - **Traits de rappel des sommets verticaux, noms épinglés au-dessus de leur sommet** : le
   glissement latéral avec trait coudé a été essayé et rejeté (illisible).
 - **« Point de vue » reste un mode de caméra, pas une troisième vue** : il sert dans les deux vues
@@ -30,6 +30,14 @@ techniques vivent dans le document de chaque sujet.
   acceptable dès qu'on sait l'expliquer ou qu'elle est assumée (le classement des noms par
   distance rapportée au rang, par exemple). On ne cherche pas à annuler l'écart pour lui-même.
   → `UI_SHELL_AND_RESPONSIVE.md`
+- **Pas de réglage de précision du relief en « Point de vue »** : le maillage reste à +1
+  (2–4 px par quad). Un réglage à trois crans a été essayé puis retiré — aucun gain
+  visible, textures même un peu moins nettes au cran le plus fin, deux fois plus de tuiles.
+  → `UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil »
+- **Importance des sommets visible, en trois niveaux** (rang 1 ambre, rang 2 gras, les autres
+  allégés), avec un interrupteur on/off derrière la flèche de *Sommets*, actif par défaut. Pas
+  de niveaux d'intensité.
+  → `UI_SHELL_AND_RESPONSIVE.md`, « Noms des sommets »
 
 ## Studio LiDAR
 

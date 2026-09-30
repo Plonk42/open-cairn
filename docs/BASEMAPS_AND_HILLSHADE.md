@@ -360,6 +360,15 @@ ruptures de pente** — là où l'un a du LiDAR et l'autre du radar.
 > zones radar il est lui-même à Emq 1–7 m. Comparer Mapterhorn au service d'altimétrie
 > ponctuelle ne fait que mesurer l'écart au RGE ALTI, pas au relief réel.
 
+Mapterhorn sert au-delà de z14 : le terrain le lit jusqu'à **z16** (0,85 m/px), les
+courbes de niveau restent à z14. Mesuré au sommet de Chamechaude, la courbure moyenne par
+pixel (laplacien) vaut 0,78 m à z14, 0,61 à z15, 0,51 à z16, 0,26 à z17 ; une tuile
+simplement suréchantillonnée perdrait un facteur 4 par niveau, c'est donc de la vraie
+donnée jusqu'à z16. Seul le premier plan du mode *Point de vue* lit si profond (voir
+`UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil ») ; en vue normale il faut un zoom
+de carte ≥ 17. Hors de France la couverture est plus courte (Aoste : 404 dès z16, Sahara
+dès z13) et MapLibre retombe sur la tuile parente, comme il le faisait déjà à z14.
+
 L'IGN expose bien `IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.*` sur `wms-r`,
 mais **sans style `terrainrgb`** (`InvalidParameterValue: Style terrainrgb is not
 available for the layer`) : seuls `normal` et `hypso` existent, donc inutilisable
