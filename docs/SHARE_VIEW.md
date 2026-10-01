@@ -30,6 +30,21 @@ Coller cette URL dans une autre fenêtre / l'envoyer à quelqu'un :
   pas une vue. Le destinataire garde son propre choix, et le lien lui ouvre bien la même
   image.
 
+### L'adresse du navigateur en *Point de vue*
+
+Pendant le mode *Point de vue*, la barre d'adresse suit le point de station et la visée :
+
+```
+https://<host>/<path>#vp=5.7879/45.2874/2092.2/131.5/95/30/10
+```
+
+Il suffit de copier cette adresse pour montrer le point de vue : elle rouvre le mode au
+même endroit, dans la même direction, avec la même focale et la même hauteur d'œil. Elle
+ne porte **que** cela — fond, ombrage, ciel, date et itinéraire restent ceux de qui
+l'ouvre ; c'est le bouton **Partager** qui transporte les réglages. Recharger la page
+en *Point de vue* y reste, pour la même raison. En quittant le mode, l'adresse redevient
+celle de la carte.
+
 ### Limitations
 
 - **Longueur d'URL** : avec un itinéraire à beaucoup de waypoints, l'URL peut
@@ -65,9 +80,30 @@ Le préfixe `#share=` distingue ce fragment de celui que MapLibre écrit lui-mê
 (`hash: true`).
 
 Ce fragment MapLibre (`#zoom/lat/lng/bearing/pitch`) peut garder un pitch > 90 quand on
-regarde vers le haut en *Point de vue*. Le constructeur `Map` le rejoue avant que le garde
+regarde vers le haut en *Point de vue* (un rechargement pendant le vol de sortie). Le constructeur `Map` le rejoue avant que le garde
 de collision avec le terrain soit coupé, et plante. `main.tsx` le borne donc à 90
-(`clampHashPitch`, `src/lib/mapHash.ts`) avant le premier rendu.
+(`clampHashPitch`, `src/lib/mapHash.ts`) avant le premier rendu ; il ne touche pas à
+`#vp=`, dont le cinquième champ est aussi un pitch.
+
+### Le fragment `#vp=` du mode *Point de vue*
+
+`#vp=` + le tuple `vp` du schéma ci-dessous, joint par `/` (`viewpointHash` /
+`parseViewpointHash`, mêmes arrondis et mêmes bornes que le partage).
+
+- **Écriture** : pendant le mode, `ViewpointController` remplace la méthode
+  `getHashString` de l'instance `map._hash` (le `Hash` de MapLibre) et la rend au
+  prototype en sortant. Un écrivain à côté de MapLibre perdrait la course : son écriture
+  différée (throttle de 300 ms, pour Safari mobile) repasserait après la nôtre avec la
+  caméra parquée à 4 km. `Hash.remove()` puis `addTo()` n'est pas une option : `remove`
+  laisse le minuteur du throttle non nul, et le hash ne se met plus jamais à jour.
+  Chaque `jumpTo` du mode émet un `moveend`, donc la visée, la focale, la hauteur et le
+  recalage au sol (`settleOnGround`) arrivent dans l'adresse.
+- **Lecture** : dans `main.tsx`, seulement sans `#share=` ; mêmes trois écritures du store
+  que le bloc `vp` d'un lien de partage (`enterViewpoint`). Le hash n'est pas effacé : le
+  `Hash` de MapLibre ne sait pas le lire (`_onHashChange` rend `false`), la carte part de la
+  vue du store, et le mode le réécrit dès sa première image.
+- `parseViewpointHash` refuse un champ vide (`Number('')` vaut 0) et une latitude hors
+  ±90° (`LngLat` lèverait) : la barre d'adresse se modifie à la main.
 
 ### Schéma `SharePayload` v2
 
@@ -129,8 +165,8 @@ Trois conséquences dans le code :
 - `useShare` lit `bearing` / `pitch` / `fov` **sur la carte**, pas dans le store :
   `ViewpointController` les garde dans une closure, parce qu'un écrit dans le store à
   chaque image faisait saccader la rotation.
-- le store gagne un `viewpointFraming` (session, non persisté) que seul un lien partagé
-  remplit ; `setViewpoint` le remet à `null`, donc choisir un nouveau point de vue à la
+- le store gagne un `viewpointFraming` (session, non persisté) que seul un lien (partage
+  ou `#vp=`) remplit ; `setViewpoint` le remet à `null`, donc choisir un nouveau point de vue à la
   souris repart toujours des valeurs par défaut. `viewpointHeightM` suit la même règle,
   mais lui est écrit **aussi pendant le mode** (à chaque appui sur une flèche), parce que
   `settleOnGround` doit le relire à chaque `idle` ; une frappe de touche n'est pas une
@@ -201,8 +237,8 @@ MapLibre ou un rendu :
 - `tds` est vérifié contre une table exhaustive (`Record<TerrainDemSource, true>`, donc
   un nouveau variant ne compile pas tant qu'il n'y est pas) et retombe sur `'auto'` ;
 - `sd` doit matcher `YYYY-MM-DDTHH:mm`, sinon aujourd'hui midi ;
-- `vp` doit être un tuple de 6 nombres finis, sinon le mode n'est pas activé ; le pitch
-  et le fov sont clampés aux bornes que le mode accepte ;
+- `vp` doit être un tuple de 7 nombres finis, latitude dans ±90°, sinon le mode n'est pas
+  activé ; le pitch, le fov et la hauteur sont clampés aux bornes que le mode accepte ;
 - le fond de carte passe par `gateKeyedBaseLayer`, qui dégrade les couches IGN à clé.
 
 Le reste des champs (`hss`, `hsb`, `rm`) est encore pris au mot.

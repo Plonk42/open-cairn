@@ -4,7 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Root } from './Root';
 import { clampHashPitch } from './lib/mapHash';
-import { parseShareFromUrl } from './lib/shareView';
+import { parseShareFromUrl, parseViewpointHash, type SharedViewpoint } from './lib/shareView';
 import { useMapStore } from './stores/mapStore';
 import { gateKeyedBaseLayer } from './stores/mapStyleView';
 import { loadPersistedRoute, useRouteStore } from './stores/routeStore';
@@ -19,6 +19,16 @@ setWorkerUrl(maplibreWorkerUrl);
 const clampedHash = clampHashPitch(globalThis.location.hash, 90);
 if (clampedHash !== globalThis.location.hash) {
     history.replaceState(null, '', globalThis.location.pathname + globalThis.location.search + clampedHash);
+}
+
+// The first-person mode is session-only by design; a link is the one thing allowed
+// to start in it, because there the standpoint IS the view.
+function enterViewpoint(viewpoint: SharedViewpoint): void {
+    const map = useMapStore.getState();
+    map.setViewpoint(viewpoint.eye);
+    // After `setViewpoint`, which clears the framing and the height.
+    map.setViewpointFraming(viewpoint.framing);
+    map.setViewpointHeightM(viewpoint.heightM);
 }
 
 // Restore shared state BEFORE React renders so that stores are populated
@@ -48,14 +58,7 @@ if (shared) {
     map.setSkySunPath(shared.skySunPath);
     map.setSkyMoonPath(shared.skyMoonPath);
     map.setSkyHiddenPath(shared.skyHiddenPath);
-    if (shared.viewpoint) {
-        // The first-person mode is session-only by design; a share link is the one
-        // thing allowed to start in it, because there the standpoint IS the view.
-        map.setViewpoint(shared.viewpoint.eye);
-        // After `setViewpoint`, which clears the framing and the height.
-        map.setViewpointFraming(shared.viewpoint.framing);
-        map.setViewpointHeightM(shared.viewpoint.heightM);
-    }
+    if (shared.viewpoint) enterViewpoint(shared.viewpoint);
     const route = useRouteStore.getState();
     route.setActive(false); // Always start in read mode when opening a shared link
     route.setMode(shared.routeMode);
@@ -84,6 +87,9 @@ if (shared) {
             useRouteStore.setState({ selectionRange: savedRoute.selectionRange });
         }
     }
+    // The address bar of the mode itself: the reader keeps his own settings.
+    const viewpoint = parseViewpointHash(globalThis.location.hash);
+    if (viewpoint) enterViewpoint(viewpoint);
 }
 
 const root = document.getElementById('root');

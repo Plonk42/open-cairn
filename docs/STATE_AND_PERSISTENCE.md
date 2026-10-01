@@ -139,11 +139,12 @@ supprimés — ne pas les réintroduire. Pour le reste, on s'appuie sur Zustand.
 | Paramètre | Type | Usage |
 |-----------|------|-------|
 | `#share=<base64url>` | hash | Restauration via [shareView.ts](../src/lib/shareView.ts) |
+| `#vp=lng/lat/alt/cap/pitch/fov/hauteur` | hash | Mode *Point de vue* en cours, écrit pendant le mode à la place du hash MapLibre ; ignoré si `#share=` est là |
 | `?view=lidar` | query | Vue ouverte au boot ; conservée quand le hash de partage est effacé |
 
 Le hash a la priorité au boot et **écrase** l'état persisté localement. Il peut aussi
-poser des champs volontairement **non persistés** — `viewpoint` et son
-`viewpointFraming` — parce qu'un lien partagé doit rouvrir exactement l'image de son
+poser des champs volontairement **non persistés** — `viewpoint`, son `viewpointFraming`
+et `viewpointHeightM` — parce qu'un lien doit rouvrir exactement l'image de son
 auteur, mode « Point de vue » compris (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
 
 ### Persistance — bonnes pratiques

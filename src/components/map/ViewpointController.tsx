@@ -22,6 +22,7 @@
 
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { applyPanoramaDetail, applyViewpointNearPlane } from '@/lib/panoramaDetail';
+import { viewpointHash } from '@/lib/shareView';
 import { renderedGroundSampler } from '@/lib/skyProjection';
 import {
     cameraForViewpoint,
@@ -259,6 +260,14 @@ export function ViewpointController(): null {
         // `settleOnGround` reads it on every `idle` to know what it settles to.
         let eyeHeightM = useMapStore.getState().viewpointHeightM;
 
+        // The address bar shows the standpoint, so copying it shows someone this
+        // view. MapLibre's hash would publish the parked camera instead; taking
+        // over its string keeps one writer, its throttle and its `moveend` timing.
+        const mapHash = map._hash;
+        if (mapHash) {
+            mapHash.getHashString = () => viewpointHash({ eye, framing: { ...look, fovDeg }, heightM: eyeHeightM });
+        }
+
         const standingPose = (): ViewpointPose => ({
             eye: { ...eye },
             look: { ...look },
@@ -423,6 +432,8 @@ export function ViewpointController(): null {
 
         return () => {
             entry?.cancel();
+            // Back to the prototype's method: the flight out is the map's own camera again.
+            if (mapHash) Reflect.deleteProperty(mapHash, 'getHashString');
             canvas.removeEventListener('pointerdown', onPointerDown);
             canvas.removeEventListener('pointermove', onPointerMove);
             canvas.removeEventListener('pointerup', onPointerUp);

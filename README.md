@@ -56,7 +56,8 @@ calculer des itinéraires de randonnée, et — sa particularité — décompres
   la caméra tourne **sur place** comme depuis un sommet (molette ou pincement = focale ; flèches
   haut/bas ou boutons ▲/▼ = hauteur de l'œil, pour se dégager d'un relief proche). Une **barre de
   mode** en bas de la carte porte les réglages du point de vue, *Changer de lieu* et *Quitter*
-  (ou Échap). Demande le relief 3D.
+  (ou Échap). L'**adresse du navigateur** suit le point de station et la visée (`#vp=`) : la
+  copier suffit à montrer ce point de vue, sans les réglages. Demande le relief 3D.
 - **Noms des sommets** — en *Point de vue*, les sommets IGN **réellement visibles depuis l'œil**
   sont nommés sur une étiquette penchée reliée par un trait de rappel au point exact du sommet,
   à la manière de PeakFinder. Une arête plus proche qui masque un sommet le fait disparaître de

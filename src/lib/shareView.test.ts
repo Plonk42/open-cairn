@@ -1,4 +1,4 @@
-import { decodeShareState, encodeShareState, type SharedState } from '@/lib/shareView';
+import { decodeShareState, encodeShareState, parseViewpointHash, viewpointHash, type SharedState } from '@/lib/shareView';
 import {
     VIEWPOINT_MAX_EYE_HEIGHT_M,
     VIEWPOINT_MAX_PITCH,
@@ -134,5 +134,34 @@ describe('shareView viewpoint', () => {
 
     it('decodes to null when the sharer was not in the mode', () => {
         expect(decodeShareState(encodeShareState(baseState()))!.viewpoint).toBeNull();
+    });
+});
+
+describe('viewpoint address bar', () => {
+    const standpoint = {
+        eye: { lng: 6.912345, lat: 45.901234, altitude: 2843.6 },
+        framing: { bearing: 214.7, pitch: 96.4, fovDeg: 23.5 },
+        heightM: 48.5,
+    };
+
+    it('round-trips the standpoint through the hash', () => {
+        const hash = viewpointHash(standpoint);
+        expect(hash).toBe('#vp=6.912345/45.901234/2843.6/214.7/96.4/23.5/48.5');
+        expect(parseViewpointHash(hash)).toEqual(standpoint);
+    });
+
+    it('clamps a hand-edited framing like a share link', () => {
+        expect(parseViewpointHash('#vp=6.9/45.9/2843.6/0/400/23.5/10')!.framing.pitch).toBe(VIEWPOINT_MAX_PITCH);
+    });
+
+    it.each([
+        ['the map camera', '#13.05/45.17732/5.76467/128.6/85'],
+        ['a share link', '#share=abc123'],
+        ['a missing field', '#vp=6.9/45.9/2843.6/0/85/23.5'],
+        ['an emptied field', '#vp=6.9//2843.6/0/85/23.5/10'],
+        ['a non-number', '#vp=6.9/north/2843.6/0/85/23.5/10'],
+        ['a latitude past the pole', '#vp=6.9/145.9/2843.6/0/85/23.5/10'],
+    ])('ignores %s', (_label, hash) => {
+        expect(parseViewpointHash(hash)).toBeNull();
     });
 });

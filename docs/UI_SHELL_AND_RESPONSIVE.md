@@ -798,11 +798,12 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   la carte.
 - **Breakpoint figé** à 768 px : pas configurable.
 - Le **tutoriel du Studio** ne se lance pas sur mobile (il désigne du chrome desktop).
-- Le mode *Point de vue* n'est **pas persisté** : il s'éteint au rechargement. Il
-  survit en revanche à un changement de vue, puisque les deux vues l'offrent, et un
-  **lien de partage** émis depuis le mode rouvre directement dessus — même point de
-  station, même direction, même focale, même hauteur d'œil (cf.
-  [SHARE_VIEW.md](SHARE_VIEW.md)).
+- Le mode *Point de vue* n'est **pas persisté** dans le `localStorage`. C'est l'**adresse du
+  navigateur** qui le porte (`#vp=`, cf. [SHARE_VIEW.md](SHARE_VIEW.md)) : un rechargement ou un
+  lien copié depuis la barre d'adresse rouvre le même point de station, la même direction, la
+  même focale et la même hauteur d'œil, mais avec les réglages de qui l'ouvre. Il survit à un
+  changement de vue, puisque les deux vues l'offrent, et un **lien de partage** émis depuis le
+  mode rouvre dessus avec, lui, tous les réglages de son auteur.
 - Sur un long versant, même recalé au point haut à 50 m, le terrain proche remplit le cadre
   face à la pente et l'ortho, vue en incidence rasante, se réduit à un lissé : le mode rend
   une vraie image depuis un **sommet ou une arête**, beaucoup moins depuis un versant ou un

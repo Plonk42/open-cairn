@@ -24,6 +24,10 @@ techniques vivent dans le document de chaque sujet.
 - **Le point de station est le point le plus haut à moins de 50 m du clic**, comme PeakFinder :
   l'œil ne se pose plus sur l'endroit exact cliqué. Un lien de partage, lui, n'est pas recalé.
   → `UI_SHELL_AND_RESPONSIVE.md`
+- **En « Point de vue », l'adresse du navigateur porte le point de station et la visée** (`#vp=`),
+  sans aucun réglage : copier l'adresse suffit à montrer le point de vue, et un rechargement
+  reste dans le mode. Les réglages ne voyagent que par le bouton *Partager*.
+  → `SHARE_VIEW.md`
 - **L'œil arrive à 10 m au-dessus du sol en « Point de vue »**, pas à 1,70 m : c'est ce qui
   supprime les collisions du maillage MapLibre avec le premier plan. Abaisser le relief dessiné
   sous l'œil a été jugé trop lourd. Les flèches redescendent jusqu'au sol (0 m), pour qui

@@ -142,6 +142,8 @@ function deserializeViewpoint(vp: SerializedViewpoint | undefined): SharedViewpo
         return null;
     }
     const [lng, lat, altitude, bearing, pitch, fovDeg, heightM] = vp;
+    // MapLibre's `LngLat` throws past the poles, and a hand-edited address bar can say anything.
+    if (Math.abs(lat) > 90) return null;
     return {
         eye: { lng, lat, altitude },
         framing: {
@@ -256,4 +258,20 @@ export function parseShareFromUrl(): SharedState | null {
     const hash = globalThis.location.hash;
     if (!hash.startsWith('#share=')) return null;
     return decodeShareState(hash.slice('#share='.length));
+}
+
+const VIEWPOINT_HASH_PREFIX = '#vp=';
+
+/** The address bar while in the "Point de vue" mode: the standpoint alone, no settings. */
+export function viewpointHash(vp: SharedViewpoint): string {
+    return VIEWPOINT_HASH_PREFIX + serializeViewpoint(vp).join('/');
+}
+
+/** @returns The standpoint of a {@link viewpointHash}, `null` for any other hash or a malformed one. */
+export function parseViewpointHash(hash: string): SharedViewpoint | null {
+    if (!hash.startsWith(VIEWPOINT_HASH_PREFIX)) return null;
+    const parts = hash.slice(VIEWPOINT_HASH_PREFIX.length).split('/');
+    // `Number('')` is 0: an emptied field must not read as the equator.
+    if (parts.some((part) => part.trim() === '')) return null;
+    return deserializeViewpoint(parts.map(Number) as SerializedViewpoint);
 }

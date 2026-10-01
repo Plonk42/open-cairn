@@ -10,7 +10,8 @@
 export function clampHashPitch(hash: string, maxPitch: number): string {
     const raw = hash.replace(/^#/, '');
     const parts = raw.split('/');
-    if (parts.length < 5) return hash;
+    // A zoom first, or it is not MapLibre's: `#vp=` also has a pitch in fifth place.
+    if (parts.length < 5 || !Number.isFinite(Number(parts[0]))) return hash;
     const pitch = Number(parts[4]);
     if (!Number.isFinite(pitch) || pitch <= maxPitch) return hash;
     parts[4] = String(maxPitch);

@@ -104,16 +104,17 @@ export interface SettingsSlice {
      * only rotates, as if standing there and looking around. Offered in BOTH
      * views — the question it answers (what does that ridge hide from where I
      * will be standing?) is asked while planning an itinerary too. `null` means
-     * the mode is off. Session-only like `freeCamera` — it is a way of looking,
-     * not a setting, and it would be disorienting to reload straight into it.
+     * the mode is off. Not persisted like `freeCamera` — it is a way of looking,
+     * not a setting. The address bar carries it instead (`#vp=`), so a reload
+     * or a copied link reopens the same standpoint.
      */
     viewpoint: Viewpoint | null;
     setViewpoint: (v: Viewpoint | null) => void;
 
     /**
      * Look direction and lens the mode STARTS with, `null` for its defaults
-     * (facing the current bearing, just below the horizon). Only a share link
-     * fills it: during the mode the framing changes on every pointer move and
+     * (facing the current bearing, just below the horizon). Only a link (share
+     * or `#vp=`) fills it: during the mode the framing changes on every pointer move and
      * lives in `ViewpointController`'s closure, never here.
      *
      * Cleared by {@link setViewpoint}, so picking another standpoint on the map
