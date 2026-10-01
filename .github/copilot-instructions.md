@@ -149,7 +149,9 @@ Mistakes that recurred on this codebase:
 - "nothing moves and no error": look for what can never finish (orphan promise, request without
   timeout) before looking for slowness;
 - a `200 OK` can still be wrong for a given request shape — check a known value alone *and* in a
-  batch before trusting a sampling;
+  batch before trusting a sampling. The IGN elevation service (`elevation.json`) silently
+  rasterises the request's bounding box past 31 points and returns smoothed summits: even an
+  ad-hoc probe script sends **at most 30 points per request** (`docs/IGN_DATA_SOURCES.md`);
 - a measurement made to confirm a hypothesis proves nothing; when a diagnosis falls, remove what it
   motivated instead of keeping it "just in case".
 
