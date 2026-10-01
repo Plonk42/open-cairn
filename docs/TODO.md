@@ -72,8 +72,8 @@ est retirée.
       dessus — ni d'une donnée hors dépôt. Le principe : requêtes SPARQL `wikibase:box`
       (`wdt:P31/wdt:P279* wd:Q8502`, `wdt:P2044`) sur un découpage de la France (le service
       coupe à 60 s par requête), appariement par nom normalisé à moins de 2,5 km, sol
-      RGE ALTI® par lots de **30** points (au-delà de 31 le service rastérise la boîte,
-      cf. `ALTI_BATCH`), et un rapport par tranches d'écart comme `verify-peaks.mjs`.
+      LiDAR HD (RGE ALTI® en secours) par lots de **30** points (au-delà de 31 le service
+      rastérise la boîte, cf. `ALTI_BATCH`), et un rapport par tranches d'écart comme `verify-peaks.mjs`.
       Wikidata n'est pas tout à fait indépendant (`P2044` est parfois recopié d'OSM ou de
       l'IGN) : c'est le sol à sa coordonnée qui tranche.
 - [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
@@ -137,7 +137,7 @@ est retirée.
       contre PeakFinder, qui fait la même chose — et mesuré avec l'œil à 1,70 m. L'œil étant
       désormais à 10 m, remesurer son effet ; s'il n'apporte plus rien, le retirer. Le
       vérifier aussi contre une référence indépendante : des rayons tirés hors ligne sur le
-      RGE ALTI® à pleine résolution, pour quelques centaines de sommets.
+      MNT LiDAR HD à pleine résolution, pour quelques centaines de sommets.
 - [ ] La durée annoncée par le curseur Qualité (`FETCH_POINTS_PER_S` dans `lidarQuality.ts`)
       a été calée quand dalles et nœuds étaient retenus sur le carré du cercle circonscrit :
       depuis qu'ils le sont sur le rectangle, une capture télécharge 35 à 56 % d'octets en

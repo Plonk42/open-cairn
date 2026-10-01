@@ -749,8 +749,9 @@ Ce qu'il faut savoir :
 - Un toponyme de nature `Montagne`, `Rochers`, `Crête` ou `Escarpement` n'est retenu que
   **s'il porte une altitude** : c'est la seule preuve qu'il désigne un point culminant
   (la Grande Sure, la Meije) et non une zone (« Massif de la Chartreuse »).
-- Une altitude **que le terrain contredit est écartée à la génération**, contre le
-  RGE ALTI® 1 m — dix fois plus fin que le relief affiché. Elle ne l'est plus à
+- Une altitude **que le terrain contredit est écartée à la génération**, contre le MNT
+  LiDAR HD à 50 cm — le relevé dont Mapterhorn tire le relief affiché, lu à pleine
+  résolution (RGE ALTI® là où il manque). Elle ne l'est plus à
   l'affichage : la question ne dépend pas du point de vue, et la trancher une fois sur une
   meilleure donnée vaut mieux que la reprendre à chaque visée. Surtout, une valeur écartée
   n'efface plus l'altitude — **la source suivante prend son tour**, ce que l'ancien

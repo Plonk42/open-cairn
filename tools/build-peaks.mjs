@@ -14,9 +14,9 @@
  *      only ~20% of the summits we keep (6339 for the whole country); OSM and
  *      GeoNames cover a different fifth. Merging them is only affordable
  *      offline;
- *   2. every height is checked against RGE ALTI® at 1 m — ten times finer than
- *      the terrainrgb the app samples at runtime. The check that used to run on
- *      every sighting now runs once, on better data;
+ *   2. every height is checked against the IGN's LiDAR HD ground model, the
+ *      survey the app's own relief (Mapterhorn) is built from. The check that
+ *      used to run on every sighting now runs once, on better data;
  *   3. a height the DEM contradicts is no longer simply dropped: the next
  *      source in the priority order gets its turn.
  *
@@ -83,6 +83,16 @@ const ALTI_BATCH = 30;
 const ALTI_CONCURRENCY = 6;
 
 /**
+ * Ground models the elevation service is asked, in order; a point a model does
+ * not cover (`-99999`, Martinique for LiDAR HD) falls through to the next.
+ * RGE ALTI® alone was used first, for its "1 m": that is its grid, not its data,
+ * which in the mountains comes from 5 m radar. It read Mont Aiguille's plateau
+ * 130 m low where LiDAR HD and Mapterhorn agree to the centimetre, and the Mont
+ * Blanc at 4765 m against 4806.7 m.
+ */
+const GROUND_RESOURCES = ['ign_lidar_hd_mnt_mono_wld', 'ign_rge_alti_wld'];
+
+/**
  * How far the ground may stand above a published height before that height is
  * taken to describe some other point.
  *
@@ -125,7 +135,7 @@ const MAX_SURVEY_OVERSHOOT_M = 400;
 const MAX_NAME_MATCH_M = 600;
 
 /**
- * How far a same-named point may sit and still be admitted once RGE ALTI® under
+ * How far a same-named point may sit and still be admitted once the ground under
  * the point itself has confirmed it, and by how much the two may disagree.
  *
  * Distance alone cannot separate a misplaced toponym from a homonym on another
@@ -348,8 +358,20 @@ function fetchGeoNames() {
     });
 }
 
-/** RGE ALTI® at an arbitrary list of points, in batches the service answers well. */
+/** Ground at an arbitrary list of points, each read from the first source that covers it. */
 async function sampleGround(points, label) {
+    const out = new Array(points.length);
+    let pending = points.map((_, i) => i);
+    for (const resource of GROUND_RESOURCES) {
+        if (pending.length === 0) break;
+        const heights = await sampleResource(pending.map((i) => points[i]), resource, `${label}, ${resource}`);
+        pending.forEach((i, k) => { out[i] = heights[k]; });
+        pending = pending.filter((i) => out[i] === undefined);
+    }
+    return out;
+}
+
+async function sampleResource(points, resource, label) {
     const out = new Array(points.length);
     const starts = [];
     for (let i = 0; i < points.length; i += ALTI_BATCH) starts.push(i);
@@ -363,7 +385,7 @@ async function sampleGround(points, label) {
             const params = new URLSearchParams({
                 lon: batch.map((p) => p.lng).join('|'),
                 lat: batch.map((p) => p.lat).join('|'),
-                resource: 'ign_rge_alti_wld', delimiter: '|', zonly: 'true',
+                resource, delimiter: '|', zonly: 'true',
             });
             const data = await getJson(`${ALTI_URL}?${params}`);
             batch.forEach((p, k) => {
@@ -380,11 +402,11 @@ async function sampleGround(points, label) {
 }
 
 /**
- * RGE ALTI® at each toponym, the yardstick every published height is held to.
+ * The ground at each toponym, the yardstick every published height is held to.
  * Only toponyms missing from the cache are sampled: the full list is 1 900 requests.
  */
 async function fetchGround(peaks) {
-    const path = `${CACHE_DIR}rgealti.json`;
+    const path = `${CACHE_DIR}ground-${GROUND_RESOURCES.join('+')}.json`;
     const ground = !refetch && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
     const missing = peaks.filter((p) => !(p.id in ground));
     if (missing.length > 0) {
@@ -394,7 +416,7 @@ async function fetchGround(peaks) {
         });
         writeFileSync(path, JSON.stringify(ground));
     }
-    console.log(`  rgealti: ${Object.keys(ground).length} (${missing.length} newly sampled)`);
+    console.log(`  ground: ${Object.keys(ground).length} (${missing.length} newly sampled)`);
     return ground;
 }
 
@@ -417,13 +439,16 @@ const CLIMB_MIN_RADIUS_M = 40;
 const CLIMB_TARGET_SLACK_M = 5;
 
 /** Compass directions probed at each step. */
-const CLIMB_DIRECTIONS = 8;
+const CLIMB_DIRECTIONS = 16;
 
 /** Enough for eight full steps of climb plus the three that shrink the radius. */
 const MAX_CLIMB_ROUNDS = 16;
 
 /** Rings sampled around an arrival to tell a top from the flank of a higher one. */
 const TOP_CHECK_RADII_M = [30, 60];
+
+/** Ground on those rings this far over the published height belongs to a higher neighbour. */
+const TOP_CHECK_SLACK_M = 5;
 
 /**
  * A probe near a point. Rounded to 6 decimals — 0.1 m, far finer than a 1 m
@@ -477,21 +502,14 @@ function climbStep(walkers, probes, heights) {
     return live;
 }
 
-/**
- * The walkers standing on, or next to, ground higher than their own height:
- * they reached the target contour on the flank of a higher neighbour.
- */
-async function overshotWalkers(walkers) {
+/** The highest ground on the {@link TOP_CHECK_RADII_M} rings around each walker. */
+async function highestAround(walkers) {
     const perWalker = TOP_CHECK_RADII_M.length * CLIMB_DIRECTIONS;
     const probes = walkers.flatMap((w) => TOP_CHECK_RADII_M.flatMap((radiusM) =>
         climbProbes([{ lng: w.lng, lat: w.lat, radiusM }])));
     const heights = await sampleGround(probes, `top check (${walkers.length})`);
-    const overshot = new Set();
-    walkers.forEach((w, i) => {
-        const around = heights.slice(i * perWalker, (i + 1) * perWalker).filter((z) => z !== undefined);
-        if (Math.max(w.groundM, ...around) > w.targetM + CLIMB_TARGET_SLACK_M) overshot.add(w.id);
-    });
-    return overshot;
+    return walkers.map((_, i) => Math.max(-Infinity,
+        ...heights.slice(i * perWalker, (i + 1) * perWalker).filter((z) => z !== undefined)));
 }
 
 /**
@@ -512,12 +530,15 @@ async function overshotWalkers(walkers) {
  * {@link MAX_ANCHOR_MOVE_M} — better the old anchor than a name moved onto the
  * wrong mountain.
  */
-function reanchorAll(entries) {
+async function reanchorAll(entries) {
     const signature = createHash('sha256')
-        .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}/${TOP_CHECK_RADII_M}\n`)
+        .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}/${TOP_CHECK_RADII_M}`
+            + `/${CLIMB_MIN_RADIUS_M}/${CLIMB_TARGET_SLACK_M}/${CLIMB_DIRECTIONS}/${MAX_CLIMB_ROUNDS}/${GROUND_RESOURCES}\n`)
         .update(entries.map((e) => `${e.peak.id}:${e.m}:${e.groundM}:${e.at ?? ''}`).join('\n'))
         .digest('hex');
-    return cached('anchors', async () => {
+    // Where each walk ended and what stands around it; which of them to keep is decided
+    // below, outside the cache, so that rule can be tuned without walking again.
+    const walks = await cached('walks', async () => {
         let walkers = entries
             .filter((e) => e.m !== null && e.groundM !== undefined && e.at === undefined
                 && e.m - e.groundM > ANCHOR_DRIFT_M)
@@ -535,19 +556,24 @@ function reanchorAll(entries) {
             walkers = climbStep(walkers, probes,
                 await sampleGround(probes, `climb ${round} (${walkers.length} left)`));
         }
-        // A walk that never got near its target found a shoulder, not the top.
-        const stalled = all.filter((w) => w.targetM - w.groundM > ANCHOR_DRIFT_M);
-        const arrived = all.filter((w) => w.targetM - w.groundM <= ANCHOR_DRIFT_M
-            && w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M);
-        const overshot = await overshotWalkers(arrived);
-        const moved = {};
-        for (const w of arrived) if (!overshot.has(w.id)) moved[w.id] = [w.lng, w.lat];
-        console.log(`  ${stalled.length} walks stalled short of their height and kept`
-            + ' their old anchor');
-        console.log(`  ${overshot.size} walks ended beside ground above their height and`
-            + ' kept their old anchor');
-        return moved;
+        const travelled = all.filter((w) => w.driftM > 1 && w.driftM <= MAX_ANCHOR_MOVE_M);
+        const around = await highestAround(travelled);
+        return travelled.map((w, i) => ({
+            id: w.id, lng: w.lng, lat: w.lat, targetM: w.targetM, groundM: w.groundM,
+            driftM: Math.round(w.driftM), aroundM: around[i],
+        }));
     }, signature);
+    // A walk that never got near its target found a shoulder, not the top.
+    const arrived = walks.filter((w) => w.targetM - w.groundM <= ANCHOR_DRIFT_M);
+    const overshot = arrived.filter((w) => Math.max(w.groundM, w.aroundM) > w.targetM + TOP_CHECK_SLACK_M);
+    const rejected = new Set(overshot.map((w) => w.id));
+    const moved = {};
+    for (const w of arrived) if (!rejected.has(w.id)) moved[w.id] = [w.lng, w.lat];
+    console.log(`  ${walks.length - arrived.length} walks stalled short of their height and kept`
+        + ' their old anchor');
+    console.log(`  ${overshot.length} walks ended beside ground over ${TOP_CHECK_SLACK_M} m above their`
+        + ' height and kept their old anchor');
+    return moved;
 }
 
 // ── Merge ────────────────────────────────────────────────────────────────────
@@ -579,7 +605,7 @@ function matchByName(index, peak, limitM = MAX_NAME_MATCH_M) {
  */
 function admitFarMatches(peaks, indexes) {
     const signature = createHash('sha256')
-        .update(`m+at/${MAX_NAME_MATCH_M}/${FAR_NAME_MATCH_M}/${NODE_GROUND_TOLERANCE_M}\n`)
+        .update(`m+at/${MAX_NAME_MATCH_M}/${FAR_NAME_MATCH_M}/${NODE_GROUND_TOLERANCE_M}/${GROUND_RESOURCES}\n`)
         .update(peaks.map((p) => `${p.id}:${p.name}:${p.lng}:${p.lat}`).join('\n'))
         .digest('hex');
     return cached('farmatches', async () => {
@@ -709,13 +735,13 @@ async function main() {
     const osm = nameIndex(await fetchOsm());
     console.log('GeoNames — peaks with an elevation');
     const geonames = nameIndex(await fetchGeoNames());
-    console.log('RGE ALTI® — ground under every toponym');
+    console.log('Ground — under every toponym');
     const ground = await fetchGround(topo);
-    console.log('RGE ALTI® — same-named points past the match radius');
+    console.log('Ground — same-named points past the match radius');
     const far = await admitFarMatches(topo, { osm, geonames });
 
     const { kept, stats } = mergePeaks({ topo, carto, osm, geonames, ground, far });
-    console.log('RGE ALTI® — walking misplaced anchors uphill');
+    console.log('Ground — walking misplaced anchors uphill');
     const anchors = await reanchorAll(kept);
     const out = toRows(kept, anchors);
     writeFileSync(OUT, JSON.stringify(out) + '\n');

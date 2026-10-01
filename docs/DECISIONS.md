@@ -11,6 +11,9 @@ techniques vivent dans le document de chaque sujet.
 - **Le LiDAR se dessine toujours au-dessus du terrain**, sans test de profondeur contre lui : le MNT
   IGN est souvent trop haut et ne doit jamais masquer une mesure LiDAR. → `LIDAR_RENDERING.md`
 - **Bande des noms de sommets bornée par `bandMinYPx`** : pas un défaut, on relève la caméra.
+- **Le générateur de sommets lit le MNT LiDAR HD**, RGE ALTI® seulement là où le LiDAR manque,
+  et monte les ancres avec 16 sondes. Pas de table de corrections manuelles par sommet.
+  → `IGN_DATA_SOURCES.md`, « Remonter les ancres sur leur sommet »
 - **Traits de rappel des sommets verticaux, noms épinglés au-dessus de leur sommet** : le
   glissement latéral avec trait coudé a été essayé et rejeté (illisible).
 - **« Point de vue » reste un mode de caméra, pas une troisième vue** : il sert dans les deux vues

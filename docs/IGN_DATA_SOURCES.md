@@ -139,7 +139,7 @@ chacun des deux détient exactement une des deux informations nécessaires :
 Pourquoi hors ligne : la jointure est chère, sa réponse ne change jamais, et surtout elle
 n'est qu'une partie du travail — la BD CARTO® ne couvre qu'un cinquième des sommets, et
 aller chercher le reste dans OSM et GeoNames puis contrôler chaque valeur contre le
-RGE ALTI® n'est pas payable à chaque déplacement de l'œil.
+MNT LiDAR HD n'est pas payable à chaque déplacement de l'œil.
 
 Deux extractions complètes, **sans `BBOX` du tout** — les deux produits ne contiennent que
 la France, le filtre attributaire suffit :
@@ -203,6 +203,13 @@ Ce qu'il faut savoir des couches :
   le Néron −183 m ; prendre le maximum local sur 400 m alentour n'en rattrape aucun.
   L'altitude doit donc venir d'une source qui la **publie** — cote BD CARTO®, OSM ou
   GeoNames — et le MNT ne sert qu'à arbitrer entre elles.
+- La position vient de la base de toponymes : `methode_d_acquisition_planimetrique` vaut
+  `BDNyme` et `precision_planimetrique` **30** (m) pour le Mont Aiguille, dont le point est
+  pourtant sur le rebord du plateau, à ~100 m et ~300 m de ses deux points hauts LiDAR HD
+  (2064,9 et 2065,0 m, à égalité). La BD CARTO® reprend **le même point** (même `cleabs`,
+  mêmes coordonnées) avec sa cote 2086 : aucun produit IGN interrogeable ne publie « ce
+  sommet, ce point haut, cette altitude ». Les points cotés imprimés sur le SCAN 25
+  n'existent pas comme couche WFS.
 - **Environ un cinquième seulement** des sommets BD TOPO® retenus trouvent une cote
   BD CARTO® (6 734 cotes pour 33 001 objets). C'est ce qui a fait chercher ailleurs — voir
   la section suivante. Les sommets qu'aucune source ne cote sont étiquetés **sans
@@ -218,8 +225,8 @@ Ce qu'il faut savoir des couches :
   BD CARTO® tombe à moins de 3 m de la référence sur **86,4 %** des 3 105 sommets où les
   deux existent — contre 99,9 % pour OSM et 88 % pour GeoNames. **Une cote sur sept est
   donc contestée**, ce qui a inversé l'ordre de confiance des sources : OSM d'abord.
-- Le garde-fou vit désormais **dans le générateur**, contre RGE ALTI® 1 m et non contre le
-  terrain affiché à ~10 m, et il est **bilatéral** :
+- Le garde-fou vit désormais **dans le générateur**, contre le MNT LiDAR HD (RGE ALTI® là
+  où il manque, voir « Service d'altimétrie » plus bas), et il est **bilatéral** :
   - une altitude qui passe **plus de 15 m sous le sol de son propre point** ne peut pas
     décrire ce sommet (`MAX_SURVEY_UNDERSHOOT_M`). La marge est large parce qu'un MNT peut
     réellement lire trop haut — névé, pylône que le filtrage terre-nue a laissé sur une
@@ -233,18 +240,22 @@ Ce qu'il faut savoir des couches :
     « Tête Compasses », dont le sol est à 1248 m et qu'OSM donne à 1263 m.
 
   Une valeur rejetée n'efface plus l'altitude : **la source suivante prend son tour**.
-  Comptage France entière : 94 valeurs OSM, 80 BD CARTO® et 20 GeoNames écartées ainsi.
+  Comptage France entière, sur le LiDAR HD : 203 valeurs OSM, 99 BD CARTO® et 37 GeoNames
+  écartées ainsi (191, 97 et 30 sur RGE ALTI®).
 - La géométrie est un point en EPSG:4326, ordre **lng,lat**.
 - Couverture **française** plus une mince bande transfrontalière (Mont Miravidi et Becca du
   Lac y sont, le Gran Paradiso non). Aucun sommet italien ou suisse profond n'est nommé.
 
 Volumétrie mesurée de l'extraction complète : 87 971 objets BD TOPO® (dont 57 011 nommés),
-6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, 56 622 points RGE ALTI®
-sous les toponymes (1 900 requêtes de 30, six en vol ; le cache ne rééchantillonne que
-les toponymes nouveaux, 24 234 lors du passage au rang `'5'`, ~17 min). Sortie : **39 846
-sommets, 581 ko gzippés** (25 830 et 385 ko au rang `'4'`, dont les lignes n'ont pas
+6 734 cotes BD CARTO®, 68 519 nœuds OSM, 4 018 entrées GeoNames, **56 731 sols** sous les
+toponymes, dont 2 616 relus sur RGE ALTI® faute de LiDAR HD et 280 sans aucune donnée
+(1 900 requêtes de 30, six en vol, ~30 min sur le LiDAR HD ; le cache ne rééchantillonne
+que les toponymes nouveaux). Sous les 56 622 toponymes que les deux lisent, le LiDAR HD est
+en médiane à +0,1 m du RGE ALTI® (p5 −2,2 m, p95 +8,2 m), mais **1 128** diffèrent de plus
+de 20 m. Sortie : **39 847
+sommets, 589 ko gzippés** (25 830 et 385 ko au rang `'4'`, dont les lignes n'ont pas
 bougé). Le rang `'5'` apporte 14 016 sommets, dont **27 % seulement avec une altitude**
-(3 732) ; la part sur tout le fichier tombe de 52 % à 43 %.
+(3 732) ; la part sur tout le fichier tombe de 52 % à 43 % (17 064 sommets cotés).
 
 ##### Les autres sources d'altitude
 
@@ -297,7 +308,7 @@ celui qu'utilise le générateur.
   distance, et un rayon serré ne les vise pas — il ne jette que des appariements corrects,
   parce que la BD TOPO® ancre *couramment* le nom d'une crête loin de son point haut.
 - Au-delà de 600 m, un appariement n'est plus accepté sur sa seule distance mais sur
-  **preuve** : `FAR_NAME_MATCH_M` = **1500 m**, à condition que le RGE ALTI® *sous le nœud
+  **preuve** : `FAR_NAME_MATCH_M` = **1500 m**, à condition que le sol *sous le nœud
   lui-même* lise la cote qu'il publie à `NODE_GROUND_TOLERANCE_M` = **20 m** près. Cette
   bande est **bimodale**, et c'est ce qui rend le test possible : écart médian 6,7 m mais
   p90 à 339 m — la moitié des candidats se tient à quelques mètres de sa propre cote (le
@@ -319,12 +330,13 @@ celui qu'utilise le générateur.
 | RGE ALTI® 1 m au toponyme | 1863,46 m, et c'est bien le maximum local à 800 m | le MNT lit sous la valeur publiée ; sert de **contrôle**, pas de source |
 | `GEODESIE:data_geod` (repères géodésiques) | borne en granit, `cp1_coord3` = **1867,1 m**, précision < 50 cm, à 11 m du toponyme | juste ici, mais inexploitable en général |
 
-Le RGE ALTI® mérite une précision : il **est** utilisé par le générateur, mais jamais
+Le MNT mérite une précision : il **est** utilisé par le générateur, mais jamais
 comme source d'altitude — comme **juge** de celles qu'on lui propose, et comme **arpenteur**
 pour replacer le point. Le toponyme est posé pour accrocher une étiquette sur une carte, pas
 sur le sommet : relevé contre RGE ALTI® 1 m, Chamechaude est à −9 m, le Grand Som à −12 m,
 le Mont Saint-Eynard à −9 m, le Néron à −183 m. Il ne peut donc pas *fournir* une altitude,
-seulement en *réfuter* une.
+seulement en *réfuter* une. Ce MNT est le **LiDAR HD** depuis le 1er octobre 2026 ; les
+mesures de cette section qui citent RGE ALTI® datent d'avant.
 
 #### Remonter les ancres sur leur sommet
 
@@ -340,20 +352,21 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
 
 - **Qui est recalé** : tout sommet dont la cote dépasse de plus de `ANCHOR_DRIFT_M` = **40 m**
   le sol lu sous son toponyme, et dont l'ancre n'est pas déjà connue par un appariement
-  lointain prouvé. Ce critère en désigne **1 301** ; aucun nom n'est écrit en dur.
-- **Comment** : 8 sondes à 250 m, on saute sur la plus haute, on réduit le pas quand aucune ne
-  monte, on s'arrête à 5 m de la cote. Les sondes sont **arrondies à 6 décimales** — en pleine
-  précision, un lot fait une URL que le service refuse en HTTP 414.
+  lointain prouvé. Ce critère en désigne **1 276** sur le LiDAR HD (1 301 puis 1 580 sur
+  RGE ALTI®, qui lit les cimes plus bas) ; aucun nom n'est écrit en dur.
+- **Comment** : 16 sondes à 250 m (`CLIMB_DIRECTIONS`), on saute sur la plus haute, on réduit
+  le pas quand aucune ne monte, on s'arrête à 5 m de la cote. Les sondes sont **arrondies à
+  6 décimales** — en pleine précision, un lot fait une URL que le service refuse en HTTP 414.
 - **Trois garde-fous**. Passé `MAX_ANCHOR_MOVE_M` = **2 km**, le déplacement est abandonné.
   Une marche qui **cale à plus de 40 m sous sa cible** a trouvé un ressaut, pas une cime :
   elle garde aussi l'ancienne ancre. Le Néron a montré pourquoi — sur une crête étroite, la
   montée guidée converge vers le maximum local le plus proche, et elle avait fini à 1178,8 m
   pour une cible de 1298, en s'éloignant du sommet (743 m contre 618 au départ). Enfin le
-  **contrôle de sommet** : 8 sondes à 30 m et 8 à 60 m autour de l'arrivée
+  **contrôle de sommet** : 16 sondes à 30 m et 16 à 60 m autour de l'arrivée
   (`TOP_CHECK_RADII_M`) ; si l'arrivée ou l'une d'elles dépasse la cote de plus de 5 m
-  (`CLIMB_TARGET_SLACK_M`), la marche a atteint la courbe de niveau sur le flanc d'un voisin
-  plus haut et garde l'ancienne ancre. **225** marches calent, **413** débordent, **663**
-  aboutissent.
+  (`TOP_CHECK_SLACK_M`), la marche a atteint la courbe de niveau sur le flanc d'un voisin
+  plus haut et garde l'ancienne ancre. Sur le LiDAR HD : **34** marches calent, **521**
+  débordent, **702** aboutissent.
 - **Résultat** : Rocher de Chalves atterrit à 625 m de son toponyme, sur un sol à 1842,9 m pour
   une cote de 1845 — à 6 m du nœud OSM « Rochers de Chalves », que la marche n'a jamais
   consulté. Les altitudes ne se dégradent pas (98,0 % à moins de 3 m) et l'appariement à la
@@ -362,8 +375,9 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   là où Wikipédia dit 1818 : la marche a poursuivi cette cible et s'est éloignée de 355 m du
   bon point. C'est borné par les 2 km, mais réel.
 - **Pourquoi le contrôle de sommet.** Sans lui, la marche éloignait plus d'ancres qu'elle n'en
-  rapprochait. Mesuré contre les positions de la référence de `verify-peaks.mjs` (même nom, à
-  moins de 2 km du toponyme ; 1 015 des 1 301 marcheurs en ont un) :
+  rapprochait. Mesuré sur RGE ALTI® avec 8 sondes, contre les positions de la référence de
+  `verify-peaks.mjs` (même nom, à moins de 2 km du toponyme ; 1 015 des 1 301 marcheurs en
+  ont un) :
 
   | Variante | Déplacées | Plus près / plus loin | Médiane / p75 | ≤ 100 m |
   |---|---|---|---|---|
@@ -381,8 +395,41 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   sondes. La référence n'est pas une vérité au mètre — son point est en médiane 23 m sous la
   cote au RGE ALTI® —, donc seules les distances au-delà de ~50 m ont un sens. Les
   altitudes ne bougent pas (`verify-peaks.mjs` : 10 210 exactes, 98,0 % à moins de 3 m).
-- **Essayé et écarté : faire monter plus loin les marches qui calent.** Rejoué sur les 1 301
-  marcheurs, sans contrôle de sommet, contre la même référence :
+- **Le contrôle de sommet tient sur le LiDAR HD.** Le LiDAR lit parfois la cime quelques
+  mètres *au-dessus* de sa cote (Fourche de Clarabide : 2 852,9 m pour 2 849), ce qui fait
+  rejeter une marche juste ; d'où la question d'élargir la marge. Le cache de la marche
+  garde le sol des anneaux, donc toutes les marges se rejouent sans sonder. Marches arrivées,
+  par dépassement des anneaux sur la cote, jugées contre la référence au-delà de 50 m :
+
+  | dépassement | marches | arrivée plus près / plus loin | ≤ 100 m de la réf. : ancre → arrivée |
+  |---|---|---|---|
+  | ≤ 5 m (acceptées) | 702 | 287 / 88 | 241 → 393 |
+  | 5–10 m | 26 | 3 / 12 | 4 → 3 |
+  | 10–15 m | 30 | 4 / 18 | 14 → 2 |
+  | 15–20 m | 34 | 5 / 22 | 14 → 2 |
+  | 20–30 m | 55 | 3 / 40 | 26 → 2 |
+
+  Dès 5 m de dépassement, la marche s'éloigne plus souvent qu'elle ne se rapproche : la
+  marge reste à **5 m**, et les quelques cimes que le LiDAR lit au-dessus de leur cote gardent
+  leur toponyme.
+- **Passage au LiDAR HD et à 16 sondes (1er octobre 2026).** Le Mont Aiguille, étiqueté sur le
+  rebord de son plateau, ne se recalait pas : RGE ALTI® lit ce plateau 130 m trop bas, et la
+  marche à 8 sondes tombait des falaises, entre deux directions. Mesuré, sur les sommets
+  dont l'ancre bouge :
+
+  | | déplacées | écart cote − sol LiDAR sous l'ancre (médiane) | ≤ 10 m | réf. : médiane, ≤ 100 m, ≤ 200 m |
+  |---|---|---|---|---|
+  | RGE ALTI®, 8 sondes → LiDAR HD, 8 sondes | 434 | 20,5 → 16,9 m | 115 → 131 | 44 → 49 m, 252 → 269, 300 → 325 |
+  | LiDAR HD, 8 → 16 sondes | 648 | 11,4 → **6,8 m** | 292 → **398** | 44 → **37 m**, 365 → 378, 427 → 436 |
+
+  Le LiDAR place les ancres sur le relief affiché (c'est le relevé de Mapterhorn) ; la
+  référence, elle, recule sous 50 m (204 → 183) parce qu'elle reprend souvent le toponyme
+  — le Pic de Pétragème y est posé 255 m sous sa cote. Les 16 sondes doublent les sondes de
+  la marche (~100 k, ~20 min). Les altitudes ne bougent pas (`verify-peaks.mjs` : 98,5 % à
+  moins de 3 m, contre 98,4 %). Le Mont Aiguille arrive à ~45 m de son point haut est
+  (2 064,9 m, à égalité avec l'ouest-sud-ouest) et le trait de rappel touche la silhouette.
+- **Essayé et écarté : faire monter plus loin les marches qui calent.** Rejoué sur RGE ALTI®,
+  8 sondes, sur les 1 301 marcheurs, sans contrôle de sommet, contre la même référence :
 
   | Variante | Abandonnées | Sondes | Médiane / p75 | ≤ 100 m |
   |---|---|---|---|---|
@@ -402,7 +449,7 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   (+1019 m). La contre-épreuve Wikipédia passe de **5 sommets sans cote à 2**. Le Mont
   Saint-Eynard et les aiguilles de l'Argentière restent sans cote : leur homonyme est
   au-delà de `FAR_NAME_MATCH_M`, ou son sol ne confirme pas sa cote à 20 m près.
-- ⚠️ **La mémoïsation sur disque de cette marche et de l'appariement lointain** (`cached('anchors',
+- ⚠️ **La mémoïsation sur disque de cette marche et de l'appariement lointain** (`cached('walks',
   …)` / `cached('farmatches', …)`) ne dépendait que d'une signature passée à la main
   (rayons, tolérances…), jamais du code du calcul lui-même : avoir changé la *forme* de ce
   que produit l'appariement lointain sans toucher cette signature a fait relire un cache
@@ -410,17 +457,43 @@ marche n'a pas lieu — une position mesurée vaut mieux qu'une position cherch�
   `tools/build-peaks.mjs`) combine désormais la signature reçue avec un hachage du code de
   `produce` (`Function.prototype.toString`, exact puisque `tools/*.mjs` s'exécute sans
   bundler) — un changement du calcul invalide le cache tout seul, sans qu'un appelant ait à
-  faire grossir sa signature à la main. Les caches sans signature (les cinq extractions
-  brutes : BD TOPO®, BD CARTO®, OSM, GeoNames, RGE ALTI®) restent inchangés — toujours
-  rafraîchis à volonté, seulement via `--refetch`.
+  faire grossir sa signature à la main. ⚠️ Le hachage ne couvre que le corps de `produce`,
+  pas les fonctions qu'il appelle : une constante lue par `climbProbes` (comme
+  `CLIMB_DIRECTIONS`) doit figurer dans la signature, sans quoi la changer relit l'ancienne
+  marche. Le cache de la marche (`walks.json`) garde **où chaque marche finit et ce qui
+  l'entoure**, pas le verdict : la règle d'acceptation (`TOP_CHECK_SLACK_M`) s'applique
+  après, et se règle sans relancer les ~100 000 sondes. Le cache du sol est nommé d'après
+  ses sources (`ground-<ressources>.json`). Les
+  caches sans signature (les cinq extractions brutes : BD TOPO®, BD CARTO®, OSM, GeoNames,
+  sol) restent inchangés — toujours rafraîchis à volonté, seulement via `--refetch`.
 
 Service d'altimétrie, tel qu'appelé par le générateur :
 
 ```
 GET https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json
   ?lon=5.76417|5.78806|…&lat=45.32501|45.28781|…
-  &resource=ign_rge_alti_wld&delimiter=|&zonly=true
+  &resource=ign_lidar_hd_mnt_mono_wld&delimiter=|&zonly=true
 ```
+
+**Quel MNT : lister les ressources avant d'échantillonner.** `GET
+https://data.geopf.fr/altimetrie/resources` en donne neuf, dont le MNT LiDAR HD
+(`ign_lidar_hd_mnt_mono_wld`, « avec interpolation » ; la variante `_multi_` répond une
+pile d'erreurs serveur au 1er octobre 2026) et RGE ALTI® (`ign_rge_alti_wld`). Le
+générateur a longtemps lu le second pour son « 1 m » : c'est le pas de sa grille, pas sa
+donnée, qui en montagne vient du radar à 5 m (voir `BASEMAPS_AND_HILLSHADE.md`, « La vraie
+limite »). Mesuré en lots de 30 :
+
+| point | RGE ALTI® | LiDAR HD | Mapterhorn affiché |
+|---|---|---|---|
+| Mont Blanc (4 806–4 808 m publiés) | 4 765,3 | **4 806,7** | |
+| Mont Aiguille, point haut du relief affiché | **1 934,5** | 2 064,6 | 2 064,6 |
+| Piton des Neiges (La Réunion) | 2 784,7 | 2 786,8 | |
+| Martinique (−61,0 / 14,7) | 128,7 | `-99999` | |
+
+Le LiDAR HD est le relevé dont Mapterhorn tire le relief affiché en France ; le juger à
+sa place, c'est arbitrer les cotes contre ce que l'on voit. Il ne couvre pas tout (`-99999`
+en Martinique) : `sampleGround` relit alors **ce point seul** sur RGE ALTI®
+(`GROUND_RESOURCES`, dans l'ordre).
 
 ⚠️ **GET uniquement** : le service répond **500** à un POST form-encodé, et **414** au-delà
 d'environ 250 points dans l'URL. En POST JSON il accepte 5000 points, mais ça ne sert à rien
