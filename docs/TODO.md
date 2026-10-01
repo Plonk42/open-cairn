@@ -5,6 +5,7 @@ les mesures. Constats et essais vivent dans le document du sujet (souvent ses
 *Limitations*), les choix tranchés dans `DECISIONS.md`. Une entrée faite ou abandonnée
 est retirée.
 
+- [ ] plier/déplier le menu de droite change le cadrage de la carte et donc la redessine : rendre le menu flottant ?
 - [ ] **Trancher la couleur du feuillage en photoréaliste** : le curseur « Dégradé
       feuillage » y règle la luminosité (0,218 → 0,072 au défaut ; l'orthophoto lit
       0,097) parce que `baseCol` reste une couleur de carte. Au choix : éclaircir
@@ -95,6 +96,14 @@ est retirée.
       depuis Chamechaude cap −20° à 37°) : présent avant et après le déplafonnement du
       zoom. Vérifier s'il s'agit du brouillard par sommet des tuiles voisines de l'œil
       (`eyeNearTile` ne couvre que celle qui le contient) ou d'un drapé vide.
+- [ ] Proposer à MapLibre le filtre de `_getTerrainCoordsForRegularTile` (une copie de tuile et
+      une matrice par paire fond × terrain avant le test de recouvrement) ; fait quand la copie
+      de `panoramaDetail.ts` peut être retirée. Mesures : `UI_SHELL_AND_RESPONSIVE.md`, « Les
+      drapés ne cherchent plus que leurs vraies tuiles ».
+- [ ] Ne plus dessiner en *Point de vue* les tuiles de terrain entièrement cachées (requêtes
+      d'occultation sur leur boîte englobante) : à 1° depuis Chamechaude, 201 tuiles sur 276
+      sont derrière un relief plus proche et le GPU intégré plafonne à ~7 images/s (35,6 M de
+      triangles). À trancher avant d'écrire (~120 lignes).
 - [ ] Ramener le plan de coupe proche du *Point de vue* à 0,5 m quand un nuage LiDAR entoure
       l'œil : déduit du recalage, il ignore la végétation et peut monter à 25 m. Fait quand la
       boîte englobante d'un nuage affiché près de l'œil le plafonne. Cf.

@@ -643,7 +643,20 @@ seconde, carte immobile, et jamais d'`idle`. `getMinMaxElevation` est donc rempl
 du mode par une version qui garde, par tuile, l'intervalle lu sur son propre MNT. Mesuré à
 8° de champ : **0** requête au repos au lieu de ~1 100 en 5 s, et **51** tuiles MNT dans le
 cadre au lieu de 83–133. Agrandir le cache aurait aussi rompu la boucle, mais au prix
-d'environ 1 Mo par tuile, là où retenir deux nombres suffit.
+d'environ 1 Mo par tuile, là où retenir deux nombres suffit. Un intervalle connu est aussi
+servi **d'abord** : chaque nœud des trois parcours de pavage (fond, MNT, tuiles de rendu)
+le demande à chaque image, et les deux recherches de MNT derrière coûtaient un quart du
+JS pendant un zoom.
+
+**Les drapés ne cherchent plus que leurs vraies tuiles.** À chaque image, MapLibre associe
+chaque tuile du fond à chaque tuile de rendu du terrain et fabrique une copie de tuile et
+une matrice par paire *avant* de tester si elles se recouvrent
+(`_getTerrainCoordsForRegularTile`). Au téléobjectif, cela fait 410 × 276 paires. La
+version du mode filtre d'abord les tuiles parentes, enfants ou identiques, puis laisse
+MapLibre construire les seules paires utiles, avec un résultat identique au pixel près.
+Mesuré à 1° depuis Chamechaude (GPU intégré) : 76,7 → 14,4 ms de JS par image à l'arrêt,
+32 → 12 ms pendant un zoom à la molette (pire image 138 → 35–49 ms). Le GPU intégré reste
+alors la limite (~7–10 images/s) ; sur une carte dédiée, c'est le JS qui l'était.
 
 `meshSize` est plafonné à **252**, pas 256 : MapLibre range les indices du maillage de
 terrain (grille + les quatre bourrelets qui masquent la couture entre tuiles de zoom

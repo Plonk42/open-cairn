@@ -162,6 +162,7 @@ const PANORAMA_DETAIL_MEMBERS: readonly MemberSpec[] = [
     ['terrain.tileManager.getSource', 'function'],
     ['terrain.tileManager._tiles', 'object'],
     ['terrain.tileManager._renderableTilesKeys', 'object'],
+    ['terrain.tileManager._getTerrainCoordsForRegularTile', 'function'],
     ['terrain.tileManager.maxzoom', 'number'],
     ['terrain.tileManager.deltaZoom', 'number'],
     ['terrain.tileManager.tileManager.update', 'function'],
@@ -187,17 +188,18 @@ const NEAR_PLANE_MEMBERS: readonly MemberSpec[] = [
  * tile whose DEM left its 60-tile cache by `[0, centre elevation]`, and this mode's
  * centre floats 4 km up the gaze: the tile turned visible, reloaded, was culled on its
  * real heights and evicted again — ~250 DEM requests a second, and never an `idle`.
+ * A range once known is also served first: every quadtree node of the three covering
+ * passes asks, and the two DEM lookups behind it were a quarter of the JS while zooming.
  */
 function rememberTileElevations(terrain: TerrainLike): void {
     const proto = Object.getPrototypeOf(terrain) as TerrainLike;
     const known = new Map<string, ElevationRange>();
     terrain.getMinMaxElevation = function (this: TerrainLike, tileID) {
+        const seen = known.get(tileID.key);
+        if (seen) return seen;
         const range = proto.getMinMaxElevation.call(this, tileID);
-        if (this.tileManager.getSourceTile(tileID, false)?.dem) {
-            known.set(tileID.key, range);
-            return range;
-        }
-        return known.get(tileID.key) ?? range;
+        if (this.tileManager.getSourceTile(tileID, false)?.dem) known.set(tileID.key, range);
+        return range;
     };
 }
 
@@ -249,6 +251,28 @@ function patchRenderTileZoom(map: MapLibreMap, manager: TerrainTileManager, calc
     };
 }
 
+/**
+ * MapLibre pairs every basemap tile with every render tile on each frame, and builds a
+ * tile clone and a matrix per pair before testing whether they overlap: 410 × 276 pairs
+ * took ~60 ms of a 77 ms frame through a 1° lens. Same answer, built for overlaps only.
+ */
+function patchTerrainCoords(manager: TerrainTileManager): void {
+    const proto = Object.getPrototypeOf(manager) as TerrainTileManager;
+    manager._getTerrainCoordsForRegularTile = function (this: TerrainTileManager, tileID) {
+        const all = this._renderableTilesKeys;
+        const tile = tileID.canonical;
+        this._renderableTilesKeys = all.filter((key) => {
+            const other = this._tiles[key].tileID.canonical;
+            return other.equals(tile) || other.isChildOf(tile) || tile.isChildOf(other);
+        });
+        try {
+            return proto._getTerrainCoordsForRegularTile.call(this, tileID);
+        } finally {
+            this._renderableTilesKeys = all;
+        }
+    };
+}
+
 function patchTerrain(map: MapLibreMap, terrain: TerrainLike, renderTileZoom: CalculateTileZoomFunction): TerrainDetailBackup {
     const rtt = rttSizeHolder(map);
     const manager = terrain.tileManager;
@@ -265,6 +289,7 @@ function patchTerrain(map: MapLibreMap, terrain: TerrainLike, renderTileZoom: Ca
     // Past this zoom a render tile would only split its DEM's pixels further.
     manager.maxzoom = manager.getSource().maxzoom + manager.deltaZoom;
     patchRenderTileZoom(map, manager, renderTileZoom);
+    patchTerrainCoords(manager);
     // Both caches hold objects built for the old sizes, and neither is keyed by
     // them: the drape keeps its 2048² texture and the mesh its 128 quads.
     manager.releaseAllRTT();
@@ -276,6 +301,7 @@ function patchTerrain(map: MapLibreMap, terrain: TerrainLike, renderTileZoom: Ca
 function unpatchTerrain(map: MapLibreMap, backup: TerrainDetailBackup): void {
     delete (backup.terrain as Partial<Pick<TerrainLike, 'getMinMaxElevation'>>).getMinMaxElevation;
     delete (backup.terrain.tileManager as Partial<Pick<TerrainTileManager, 'update'>>).update;
+    delete (backup.terrain.tileManager as Partial<Pick<TerrainTileManager, '_getTerrainCoordsForRegularTile'>>)._getTerrainCoordsForRegularTile;
     backup.terrain.tileManager.maxzoom = backup.renderMaxzoom;
     backup.terrain.qualityFactor = backup.qualityFactor;
     backup.terrain.meshSize = backup.meshSize;
