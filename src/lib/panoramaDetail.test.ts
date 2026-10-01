@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { missingMembers, panoramaTileZoom } from './panoramaDetail';
+import { missingMembers, panoramaTileZoom, VIEWPOINT_NEAR_PLANE_M, viewpointNearPlaneM } from './panoramaDetail';
 
 /**
  * MapLibre's own rule, transcribed from `covering_tiles.ts`, to compare against.
@@ -79,6 +79,28 @@ describe('panoramaTileZoom', () => {
 
     it('does not divide by zero on the tile the eye sits in', () => {
         expect(Number.isFinite(panoramaTileZoom(0, false)(14, 0, 0, CENTER_3D, 30))).toBe(true);
+    });
+});
+
+describe('viewpointNearPlaneM', () => {
+    it('stays in front of flat ground at the feet through a wide lens', () => {
+        // The bottom of a 60° frame meets ground 9.5 m down 9.5 / tan 30° = 16 m out.
+        const near = viewpointNearPlaneM(10, 90, 60, 1.5);
+        expect(near).toBeLessThan(16);
+        expect(near).toBeGreaterThan(VIEWPOINT_NEAR_PLANE_M);
+    });
+
+    it('moves out to half the snap radius through a telephoto', () => {
+        expect(viewpointNearPlaneM(10, 88, 2, 1.5)).toBeCloseTo(25, 0);
+    });
+
+    it('stays at the floor while the snap does not hold or the eye is on the ground', () => {
+        expect(viewpointNearPlaneM(null, 88, 2, 1.5)).toBe(VIEWPOINT_NEAR_PLANE_M);
+        expect(viewpointNearPlaneM(0.4, 88, 2, 1.5)).toBe(VIEWPOINT_NEAR_PLANE_M);
+    });
+
+    it('looking straight down, keeps the plane above the ground under the eye', () => {
+        expect(viewpointNearPlaneM(10, 20, 60, 1.5)).toBeLessThan(9.5);
     });
 });
 

@@ -111,7 +111,7 @@ const SNAP_STEP_M = 10;
  * ground does not send the eye 50 m away for centimetres, and nothing in the disc
  * stands higher than `eye height − tolerance` above the eye's feet.
  */
-const SNAP_TOLERANCE_M = 0.5;
+export const VIEWPOINT_SNAP_TOLERANCE_M = 0.5;
 
 /** A spot on the ground and its DEM height. */
 export interface GroundPoint {
@@ -143,7 +143,7 @@ export function highestGroundNearby(
     }
     if (samples.length === 0) return null;
     const top = Math.max(...samples.map((s) => s.ground));
-    return samples.find((s) => s.ground >= top - SNAP_TOLERANCE_M) ?? null;
+    return samples.find((s) => s.ground >= top - VIEWPOINT_SNAP_TOLERANCE_M) ?? null;
 }
 
 /**

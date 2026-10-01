@@ -442,11 +442,27 @@ fond. L'œil, lui, était bien à 1,70 m au-dessus du MNT. C'est aussi ce qu'exp
 constat « +2 m ne change rien, +20 m fait disparaître la bande » : monter repoussait
 simplement le sol au-delà des 53 m.
 
-`applyViewpointNearPlane` ([panoramaDetail.ts](../src/lib/panoramaDetail.ts)) ramène ce
-plan à **0,5 m** pendant tout le mode, vols compris, et le rend à l'atterrissage de la
-sortie. Le tampon de profondeur (24 bits) le supporte : depuis Chamechaude, crêtes à 100 km
-comprises, l'image est identique au pixel près (0,009 % de pixels différents) ; à 0,05 m
-les jupes scintillent dès 30 km.
+`applyViewpointNearPlane` ([panoramaDetail.ts](../src/lib/panoramaDetail.ts)) remplace ce
+plan pendant tout le mode et le rend à l'atterrissage de la sortie. Il le déduit de ce que
+le recalage garantit (`viewpointNearPlaneM`). Dans le disque de 50 m, aucun sol ne dépasse
+les pieds de plus de 0,5 m : il est donc au moins à *hauteur d'œil − 0,5 m* sous l'œil, et
+le bas du cadre ne le rencontre qu'à cette hauteur divisée par le sinus de son inclinaison.
+Au-delà du disque, tout sol est à plus de 50 m. Le plan est posé à la moitié de la plus
+petite de ces deux profondeurs, et jamais sous **0,5 m**. Pendant les vols d'entrée et de
+sortie, et avec l'œil à moins de 0,5 m du sol, la garantie ne tient pas : le plan reste à
+0,5 m.
+
+Un plan fixe à 0,5 m était juste en grand angle, faux au téléobjectif. La résolution du
+tampon de profondeur (24 bits) varie en `distance² / near` : à 0,5 m, ~30 m de flou à 15 km.
+Les **jupes** pendent juste derrière le versant qui les cache et gagnaient le test de
+profondeur contre lui : des rideaux rayés verticalement qui suivaient le pavage et
+clignotaient au moindre mouvement (l'ancienne mesure « identique au pixel » avait été
+faite à 37°, où ces bandes ne dépassent pas le pixel). Mesuré depuis Chamechaude, œil à
+10 m, 2° de champ vers le sud-sud-ouest, en pixels différents d'un plan à 300 m : 17 689 à
+0,5 m, 1 353 à 3 m (le plan de MapLibre à ce champ), 54 avec le plan déduit (25 m).
+Annuler les jupes effaçait aussi les rideaux, les allonger à 1 000 m les aggravait : elles
+étaient la victime, la précision la cause. Regard aux pieds (pitch 20°, 41° de champ), le
+plan déduit vaut 3,9 m et l'image est identique au pixel près à celle d'un plan à 0,5 m.
 
 Abaisser ce plan a révélé un défaut du nuanceur de terrain de MapLibre : il divise sa
 profondeur de brouillard **par sommet** (`z / w`), ce qui donne une valeur absurde pour un
@@ -784,6 +800,9 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
   plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un
   premier plan y perd.
+- Le plan de coupe proche ne connaît que le **sol** : au téléobjectif il peut monter à 25 m,
+  et un nuage LiDAR affiché dans le mode y perdrait les arbres plus proches qui dépassent
+  l'œil (voir [TODO.md](TODO.md)).
 
 ---
 
@@ -808,7 +827,7 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 | [src/lib/peakSightings.ts](../src/lib/peakSightings.ts) | Quels sommets sont vus (géométrie pure) + placement des étiquettes (écran pur) |
 | [src/lib/skyProjection.ts](../src/lib/skyProjection.ts) | Maths caméra partagées par les surcouches ciel et sommets (observateur, MNT, projection) |
 | [src/lib/viewpointCamera.ts](../src/lib/viewpointCamera.ts) | Inversion œil → `centre / elevation / zoom` à distance constante, gestes, focale |
-| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance (sources et tuiles de rendu du terrain), drapé au quart, maillage doublé ; plan de coupe proche à 0,5 m et brouillard neutre autour de l'œil ; restauration |
+| [src/lib/panoramaDetail.ts](../src/lib/panoramaDetail.ts) | Pavage du mode : LOD en 1/distance (sources et tuiles de rendu du terrain), drapé au quart, maillage doublé ; plan de coupe proche déduit du recalage (≥ 0,5 m) et brouillard neutre autour de l'œil ; restauration |
 | [src/components/shell/ViewSwitch.tsx](../src/components/shell/ViewSwitch.tsx) | Sélecteur *Itinéraire* / *Studio* : titre du panneau desktop, pilule de la barre du haut sur mobile |
 | [src/components/shell/SidePanel.tsx](../src/components/shell/SidePanel.tsx) | Primitives de l'accordéon à droite, partagées par les deux vues : géométrie (`SIDE_PANEL_STRIP_PX`), `DockedSidePanel` (panneau ou sa seule barre de titre, padding de la carte), `SidePanel` (titre = sélecteur de vue), `SidePanelSection`, `SidePanelGroupLabel`, `SidePanelIconButton` |
 | [src/components/shell/RouteSidePanel.tsx](../src/components/shell/RouteSidePanel.tsx) | Panneau desktop de l'Itinéraire : sections de carte |

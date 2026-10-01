@@ -243,7 +243,6 @@ export function ViewpointController(): null {
         // Only this mode looks at the far field through a long lens, and only
         // here is the ground texture worth trading for mesh resolution.
         const restoreDetail = applyPanoramaDetail(map);
-        const restoreNearPlane = applyViewpointNearPlane(map);
 
         // A share link opens straight onto its author's framing; otherwise we
         // face whichever way the map already did, just below the horizon.
@@ -270,6 +269,9 @@ export function ViewpointController(): null {
         let shown = home?.pose ?? standingPose();
         /** The flight in, while it runs; any gesture lands it at once. */
         let entry: Flight | null = null;
+        let leaving = false;
+        // A flying eye is not over its snapped standpoint.
+        const restoreNearPlane = applyViewpointNearPlane(map, () => (entry || leaving ? null : eyeHeightM));
 
         const apply = () => {
             shown = standingPose();
@@ -431,6 +433,7 @@ export function ViewpointController(): null {
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;
+            leaving = true;
 
             const ground = { ...eye, altitude: eye.altitude - eyeHeightM };
             const back = home ?? overviewHome(ground, look.bearing, initialFov, canvas.clientHeight);

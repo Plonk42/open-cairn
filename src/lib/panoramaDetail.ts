@@ -32,6 +32,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { CalculateTileZoomFunction, CoveringTilesOptions, Map as MapLibreMap, OverscaledTileID } from 'maplibre-gl';
+import { VIEWPOINT_SNAP_RADIUS_M, VIEWPOINT_SNAP_TOLERANCE_M } from './viewpointCamera';
 
 /** MapLibre does not export `Terrain`, and `map.terrain` is null while it is off. */
 type TerrainLike = MapLibreMap['terrain'];
@@ -173,6 +174,10 @@ const NEAR_PLANE_MEMBERS: readonly MemberSpec[] = [
     ['_calcMatrices', 'function'],
     ['calculateFogMatrix', 'function'],
     ['getCameraLngLat', 'function'],
+    ['pitch', 'number'],
+    ['fov', 'number'],
+    ['width', 'number'],
+    ['height', 'number'],
     ['_helper._nearZ', 'number'],
     ['_helper._pixelPerMeter', 'number'],
 ];
@@ -327,12 +332,35 @@ export function applyPanoramaDetail(map: MapLibreMap): () => void {
 }
 
 /**
- * Near clipping plane of the viewpoint mode, in metres. MapLibre's `height / 50` px is
- * `160 · tan(fov/2)` m with the eye 4 km from the centre — 53 m at 37° — which clipped
- * the ground at the observer's feet. 0.5 m leaves ridges 100 km off pixel-identical;
- * 0.05 m makes the tile skirts z-fight from 30 km.
+ * Closest the near clipping plane of the viewpoint mode gets, in metres. MapLibre's
+ * `height / 50` px is `160 · tan(fov/2)` m with the eye 4 km from the centre — 53 m at
+ * 37° — which clipped the ground at the observer's feet.
  */
 export const VIEWPOINT_NEAR_PLANE_M = 0.5;
+
+const DEG = Math.PI / 180;
+
+/**
+ * Near plane for an eye standing `eyeHeightM` above a snapped standpoint, in metres:
+ * half the shallowest depth framed ground can have. Within the snap radius the ground
+ * is at least `eyeHeightM − tolerance` below the eye; past it, at least the radius away.
+ * Depth resolution goes as `distance² / near`, and a plane held at 0.5 m through a 2°
+ * lens let the tile skirts win the depth test against the slope hiding them.
+ *
+ * @param eyeHeightM - Height above the standpoint, null while the snap does not hold.
+ * @param pitchDeg - MapLibre's: 0° straight down, 90° at the horizon.
+ */
+export function viewpointNearPlaneM(eyeHeightM: number | null, pitchDeg: number, fovDeg: number, aspect: number): number {
+    const clearance = eyeHeightM === null ? 0 : eyeHeightM - VIEWPOINT_SNAP_TOLERANCE_M;
+    if (clearance <= 0) return VIEWPOINT_NEAR_PLANE_M;
+    const tanV = Math.tan((fovDeg * DEG) / 2);
+    const cosHalfDiagonal = 1 / Math.hypot(1, tanV, tanV * aspect);
+    // Steepest dip in the frame, at the bottom edge.
+    const dip = Math.min((90 - pitchDeg) * DEG + Math.atan(tanV), Math.PI / 2);
+    const inDisc = dip > 0 ? clearance / Math.sin(dip) : Infinity;
+    const nearest = Math.min(inDisc, VIEWPOINT_SNAP_RADIUS_M) * cosHalfDiagonal;
+    return Math.max(VIEWPOINT_NEAR_PLANE_M, nearest / 2);
+}
 
 /** A terrain tile as MapLibre hands it to `calculateFogMatrix`. */
 interface UnwrappedTile {
@@ -346,6 +374,10 @@ interface NearPlaneTransform {
     _calcMatrices(): void;
     calculateFogMatrix(tile: UnwrappedTile): Float32Array;
     getCameraLngLat(): { lng: number; lat: number };
+    readonly pitch: number;
+    readonly fov: number;
+    readonly width: number;
+    readonly height: number;
     _helper: { _nearZ: number; _pixelPerMeter: number };
 }
 
@@ -370,11 +402,12 @@ function eyeNearTile(eye: { lng: number; lat: number }, tile: UnwrappedTile): bo
  * starts past twice the eye-to-sea-level distance, so the tiles around the eye lose
  * next to nothing by going without.
  */
-function patchTransform(transform: NearPlaneTransform): void {
+function patchTransform(transform: NearPlaneTransform, eyeHeightM: () => number | null): void {
     const proto = Object.getPrototypeOf(transform) as NearPlaneTransform;
     transform._calculateNearFarZ = function (this: NearPlaneTransform, ...args: unknown[]) {
         proto._calculateNearFarZ.apply(this, args);
-        this._helper._nearZ = Math.min(this._helper._nearZ, VIEWPOINT_NEAR_PLANE_M * this._helper._pixelPerMeter);
+        const nearM = viewpointNearPlaneM(eyeHeightM(), this.pitch, this.fov, this.width / Math.max(this.height, 1));
+        this._helper._nearZ = nearM * this._helper._pixelPerMeter;
     };
     transform.calculateFogMatrix = function (this: NearPlaneTransform, tile: UnwrappedTile) {
         return eyeNearTile(this.getCameraLngLat(), tile) ? NO_FOG_MATRIX : proto.calculateFogMatrix.call(this, tile);
@@ -390,18 +423,18 @@ function unpatchTransform(transform: NearPlaneTransform): void {
 }
 
 /**
- * Pulls the near clipping plane in to {@link VIEWPOINT_NEAR_PLANE_M} until the
- * returned function is called. Re-applied on `styledata`: loading a style migrates
- * the projection, which hands the painter a fresh transform.
+ * Sets the near clipping plane from {@link viewpointNearPlaneM} until the returned
+ * function is called. Re-applied on `styledata`: loading a style migrates the
+ * projection, which hands the painter a fresh transform.
  */
-export function applyViewpointNearPlane(map: MapLibreMap): () => void {
+export function applyViewpointNearPlane(map: MapLibreMap, eyeHeightM: () => number | null): () => void {
     let patched: NearPlaneTransform | null = null;
 
     const apply = () => {
         const transform = map.painter.transform as unknown as NearPlaneTransform;
         if (transform === patched) return;
         if (!hasMembers('Viewpoint near plane', transform, NEAR_PLANE_MEMBERS)) return;
-        patchTransform(transform);
+        patchTransform(transform, eyeHeightM);
         patched = transform;
         map.triggerRepaint();
     };
