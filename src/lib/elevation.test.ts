@@ -50,6 +50,38 @@ describe('computeElevationProfile', () => {
         expect(profile.samples).toEqual([]);
     });
 
+    it('asks LiDAR HD first and re-reads its no-data samples on RGE ALTI', async () => {
+        const byResource: Record<string, number[]> = {
+            ign_lidar_hd_mnt_mono_wld: [1000, -99999, 1200],
+            ign_rge_alti_wld: [990, 1090, 1190],
+        };
+        const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+            const { resource } = JSON.parse(init.body as string) as { resource: string };
+            const z = byResource[resource];
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({ elevations: z.map((value, i) => ({ lon: 6.86 + i * 0.005, lat: 45.83, z: value })) }),
+            } as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const profile = await computeElevationProfile([[6.86, 45.83], [6.87, 45.83]]);
+        expect(profile.samples.map((s) => s.elevation)).toEqual([1000, 1090, 1200]);
+        expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).resource))
+            .toEqual(['ign_lidar_hd_mnt_mono_wld', 'ign_rge_alti_wld']);
+    });
+
+    it('asks only LiDAR HD when it covers the whole line', async () => {
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ elevations: [{ lon: 6.86, lat: 45.83, z: 1000 }, { lon: 6.87, lat: 45.83, z: 1100 }] }),
+        } as Response));
+        vi.stubGlobal('fetch', fetchMock);
+        await computeElevationProfile([[6.86, 45.83], [6.87, 45.83]]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('throws when the elevation request fails', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 } as Response)));
         await expect(computeElevationProfile([[6.86, 45.83], [6.87, 45.84]])).rejects.toThrow(/500/);

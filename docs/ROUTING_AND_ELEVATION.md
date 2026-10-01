@@ -68,8 +68,8 @@ Statistiques affichées :
   segments sont conservés tels quels. Pendant le drag, ces deux segments adjacents
   sont d'abord affichés en ligne droite (`computed: false`), puis remplacés par le
   tracé final dès que l'API IGN répond.
-- Les **trous d'altitude** (z ≤ -100 m) sont remplacés par 0 ; vérifier les bords du
-  graphique.
+- Les **trous d'altitude** (z ≤ -100 m) que ni le LiDAR HD ni RGE ALTI® ne comblent sont
+  remplacés par 0 ; vérifier les bords du graphique.
 - L'altimétrie se fait par requêtes de 1500 points max ; les très longues routes sont
   paginées et la résolution peut varier en fonction.
 
@@ -183,15 +183,25 @@ POST https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevationLine.json
   "lon": "x|y|z",     // pipe-separated
   "lat": "x|y|z",
   "sampling": 200,
-  "resource": "ign_rge_alti_wld"
+  "resource": "ign_lidar_hd_mnt_mono_wld"   // puis "ign_rge_alti_wld" en secours
 }
 ```
 
-Limite stricte : **1500 coordonnées par requête**. La fonction `fetchElevationProfile()`
+Le profil est lu sur le **MNT LiDAR HD**, le relevé dont vient aussi le relief 3D affiché
+(Mapterhorn). RGE ALTI® vient du radar à 5 m en montagne : sur un tracé qui passe par
+Chamechaude, il culmine à 2 073,5 m contre 2 076,8 m au LiDAR (voir
+`IGN_DATA_SOURCES.md`, « Quel MNT »). Le LiDAR HD répond `-99999` là où il n'a pas de relevé
+(la Martinique entière) : `elevation.ts` redemande alors le même tronçon à RGE ALTI® et
+remplace ces seuls échantillons — même ligne, même `sampling`, donc mêmes points. Une seule
+requête quand le LiDAR couvre tout. Ce service-ci ne lisse pas comme le piège des lots de
+`elevation.json` : sur ce tracé, ses 200 échantillons égalent la lecture point par point.
+
+Limite stricte : **1500 coordonnées par requête**. La fonction `computeElevationProfile()`
 chunke automatiquement, garde la continuité de distance entre chunks et concatène les
 échantillons.
 
-Filtrage : tout `z ≤ -100 m` est traité comme « no data » et remplacé par 0 m.
+Filtrage : un `z ≤ -100 m` qui reste après le secours est traité comme « no data » et
+remplacé par 0 m.
 
 ### Calcul de pente
 

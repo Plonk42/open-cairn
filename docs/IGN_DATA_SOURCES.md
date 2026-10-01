@@ -84,8 +84,11 @@ Réponse : GeoJSON `LineString` + `distance` (m) + `duration` (s).
 Body :
 
 ```json
-{ "lon": "x|y|z", "lat": "x|y|z", "sampling": 200, "resource": "ign_rge_alti_wld" }
+{ "lon": "x|y|z", "lat": "x|y|z", "sampling": 200, "resource": "ign_lidar_hd_mnt_mono_wld" }
 ```
+
+RGE ALTI® (`ign_rge_alti_wld`) en secours, pour les seuls échantillons à `-99999` — voir
+« Quel MNT » plus bas et `ROUTING_AND_ELEVATION.md`.
 
 **Limite** : 1500 coordonnées par requête. Open-cairn découpe automatiquement les longues
 routes et fusionne les profils (cf. [elevation.ts](../src/lib/elevation.ts)).
