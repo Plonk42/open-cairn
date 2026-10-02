@@ -117,10 +117,6 @@ est retirée.
       est acceptable. Élargir l'échantillon à un fond de vallée et à un autre massif.
 - [ ] Recompter les désaccords PeakFinder avec le rang 3 à 80 km et la portée allongée par
       la focale (voir `UI_SHELL_AND_RESPONSIVE.md`, « À quels sommets on paie un rayon »).
-- [ ] Étaler la visée des sommets sur plusieurs images : avec la portée allongée par la
-      focale, une passe bloque le fil principal 140 à 160 ms à 8–15° (voir
-      `UI_SHELL_AND_RESPONSIVE.md`, « La portée suit la focale ») — un à-coup si l'on reprend
-      le geste pendant ce temps. Fermé quand aucune passe ne dépasse ~16 ms par image.
 - [ ] Ancres posées derrière leur vrai sommet : vus depuis la Croix de Belledonne, Chamechaude
       et le Brévent, la Grande Roche, Pointe Centrale Nord, Pic de la Grande Valloire, Tête
       Pelouse, Dôme de Polset et Pic de la Loze ont leur ancre 200 m à 1 km *au-delà* du point

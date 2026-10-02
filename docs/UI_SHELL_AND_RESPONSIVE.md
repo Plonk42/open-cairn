@@ -1062,13 +1062,22 @@ sur quel événement chacune est branchée :
 | Travail | Coût | Cadence |
 |---|---|---|
 | Chargement du fichier des sommets, puis découpe autour de l'œil | un téléchargement | une fois par **session**, puis une découpe par **kilomètre** de déplacement |
-| Visée : un rayon par sommet à travers le relief **dessiné** | ~0,10 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) ; 2 à 160 ms par passe mesurés (le haut en téléobjectif, portée allongée) | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil, le jeu de tuiles dessinées **ou** l'allongement de portée a changé |
+| Visée : un rayon par sommet à travers le relief **dessiné** | ~0,10 ms par rayon, payé seulement pour les sommets posés sur une tuile dessinée (les autres coûtent un échantillon) ; 2 à 160 ms par passe mesurés (le haut en téléobjectif, portée allongée), **découpés en tranches de 8 ms**, une par image | quand la caméra est immobile depuis 250 ms et que le MNT est chargé, dès que l'œil, le jeu de tuiles dessinées **ou** l'allongement de portée a changé |
 | Placement : projection + désencombrement | arithmétique pure | à **chaque image**, sur `move` |
 
 Seule la troisième suit le geste. La deuxième suit **ce que MapLibre dessine** : tourner
 la tête charge d'autres tuiles, et la visée qui suit re-vise les sommets posés dessus. Un
 sommet dont on s'est détourné garde son dernier verdict (il est hors champ) ; y revenir
 le re-vise sur les tuiles chargées pour lui.
+
+La visée ne bloque plus le fil principal d'un seul tenant : `sightPeaksInSlices` rend la main
+toutes les **8 ms** et reprend à l'image suivante (`requestAnimationFrame`), avec le même
+échantillonneur, donc les mêmes verdicts. Une passe devenue inutile (œil, tuiles ou focale
+changés entre-temps, mode quitté) s'arrête à la tranche suivante. Les noms à l'écran restent
+en place pendant la passe et ne sont remplacés qu'à la fin, y compris quand l'œil a bougé.
+Mesuré à 8° vers le Vercors depuis Chamechaude (passe de 142–150 ms, 283 candidats), en
+relevant l'œil de 2 m : plus long intervalle entre deux images **117 ms** avant, **17 ms**
+après.
 
 Pourquoi pas une fois par position de l'œil, comme avant : le cache de tuiles n'est pas
 une vérité. Hors de ce qui est dessiné, `getElevationForLngLatZoom` répond depuis
