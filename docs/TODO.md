@@ -87,10 +87,6 @@ est retirée.
       a découplées du `calculateTileZoom` de la source (#8048). Fait quand la copie de
       `TerrainTileManager.update` de `panoramaDetail.ts` peut être retirée. Détails :
       `UI_SHELL_AND_RESPONSIVE.md`, « Le zoom sous l'œil ».
-- [ ] Expliquer le coin blanc au pied de l'œil en *Point de vue* (bas du cadre, côté pente,
-      depuis Chamechaude cap −20° à 37°) : présent avant et après le déplafonnement du
-      zoom. Vérifier s'il s'agit du brouillard par sommet des tuiles voisines de l'œil
-      (`eyeNearTile` ne couvre que celle qui le contient) ou d'un drapé vide.
 - [ ] Proposer à MapLibre le filtre de `_getTerrainCoordsForRegularTile` (une copie de tuile et
       une matrice par paire fond × terrain avant le test de recouvrement) ; fait quand la copie
       de `panoramaDetail.ts` peut être retirée. Mesures : `UI_SHELL_AND_RESPONSIVE.md`, « Les

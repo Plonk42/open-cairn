@@ -531,6 +531,16 @@ Soit un relief lointain 30 à 60 fois plus fin **pour moins de mémoire qu'avant
 drapé était simplement le mauvais endroit où dépenser, un panorama se lisant par ses
 lignes de crête et non par sa texture de sol.
 
+C'est aussi ce qui explique le **coin blanc** au pied de l'œil depuis Chamechaude (cap
+−20°, 37°, bas droit du cadre) : c'est le fond lui-même. Le Plan IGN y peint le rocher du
+sommet en blanc, avec l'estompage gris de sa propre symbologie, et seule sa tuile z15 est
+chargée sous une tuile de relief z16 : un pixel de 3,4 m couvre des dizaines de pixels
+d'écran à 60–90 m de l'œil, et l'ombrage LiDAR l'éclaircit encore sur ce versant au
+soleil. Mesuré aux mêmes pixels : 197–207 sans ombrage, les 197–208 de la tuile Plan IGN
+z15 (16910, 11750), 224–236 avec. Ce n'est pas le brouillard : neutralisé sur toutes les
+tuiles, les pixels ne changent pas. Ni un drapé vide : la couche `base` masquée, le coin
+prend la couleur de la couche `background`, comme le reste du sol.
+
 #### Le zoom sous l'œil
 
 Ce premier réglage plafonnait chaque tuile au zoom du centre, et le laissait **au sol
