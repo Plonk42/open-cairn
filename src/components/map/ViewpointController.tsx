@@ -21,7 +21,7 @@
  */
 
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
-import { applyPanoramaDetail, applyViewpointNearPlane } from '@/lib/panoramaDetail';
+import { applyPanoramaDetail, applyViewpointNearPlane, cloudBox, type CloudBox } from '@/lib/panoramaDetail';
 import { viewpointHash } from '@/lib/shareView';
 import { renderedGroundSampler } from '@/lib/skyProjection';
 import {
@@ -166,6 +166,14 @@ function suspendMapGestures(map: MapLibreMap): () => void {
     };
 }
 
+/** Every cloud and mesh the LiDAR layers draw. */
+function drawnCloudBoxes(): CloudBox[] {
+    return useMapStore.getState().lidarClouds
+        .filter((cloud) => cloud.visible)
+        .flatMap((cloud) => [cloud.shaded, cloud.mesh])
+        .flatMap((data) => (data ? [cloudBox(data)] : []));
+}
+
 export function ViewpointController(): null {
     const map = useMapStore((s) => s.mapInstance);
     const viewpoint = useMapStore((s) => s.viewpoint);
@@ -279,8 +287,17 @@ export function ViewpointController(): null {
         /** The flight in, while it runs; any gesture lands it at once. */
         let entry: Flight | null = null;
         let leaving = false;
+        let cloudBoxes = drawnCloudBoxes();
         // A flying eye is not over its snapped standpoint.
-        const restoreNearPlane = applyViewpointNearPlane(map, () => (entry || leaving ? null : eyeHeightM));
+        const nearPlane = applyViewpointNearPlane(map, {
+            eyeHeightM: () => (entry || leaving ? null : eyeHeightM),
+            clouds: () => cloudBoxes,
+        });
+        const unsubscribeClouds = useMapStore.subscribe((s, previous) => {
+            if (s.lidarClouds === previous.lidarClouds) return;
+            cloudBoxes = drawnCloudBoxes();
+            nearPlane.refresh();
+        });
 
         const apply = () => {
             shown = standingPose();
@@ -441,6 +458,7 @@ export function ViewpointController(): null {
             canvas.removeEventListener('wheel', onWheel);
             document.removeEventListener('keydown', onKeyDown, true);
             unsubscribeHeight();
+            unsubscribeClouds();
             map.off('idle', settleOnGround);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;
@@ -452,7 +470,7 @@ export function ViewpointController(): null {
             const land = () => {
                 exitFlightRef.current = null;
                 restoreDetail();
-                restoreNearPlane();
+                nearPlane.restore();
                 restoreGestures();
                 map.setVerticalFieldOfView(initialFov);
                 map.setCenterClampedToGround(wasClampedToGround);

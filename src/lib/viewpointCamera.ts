@@ -167,7 +167,7 @@ export const VIEWPOINT_INITIAL_PITCH = 85;
 const EQUATOR_METERS = 40075016.686;
 /** MapLibre's zoom is defined on 512 px tiles: `worldSize = 512 · 2^zoom`. */
 const TILE_SIZE = 512;
-const METERS_PER_DEGREE_LAT = EQUATOR_METERS / 360;
+export const METERS_PER_DEGREE_LAT = EQUATOR_METERS / 360;
 
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 const toDeg = (rad: number): number => (rad * 180) / Math.PI;

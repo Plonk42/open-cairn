@@ -32,7 +32,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { CalculateTileZoomFunction, CoveringTilesOptions, Map as MapLibreMap, OverscaledTileID } from 'maplibre-gl';
-import { VIEWPOINT_SNAP_RADIUS_M, VIEWPOINT_SNAP_TOLERANCE_M } from './viewpointCamera';
+import { METERS_PER_DEGREE_LAT, VIEWPOINT_SNAP_RADIUS_M, VIEWPOINT_SNAP_TOLERANCE_M } from './viewpointCamera';
 
 /** MapLibre does not export `Terrain`, and `map.terrain` is null while it is off. */
 type TerrainLike = MapLibreMap['terrain'];
@@ -175,6 +175,7 @@ const NEAR_PLANE_MEMBERS: readonly MemberSpec[] = [
     ['_calcMatrices', 'function'],
     ['calculateFogMatrix', 'function'],
     ['getCameraLngLat', 'function'],
+    ['getCameraAltitude', 'function'],
     ['pitch', 'number'],
     ['fov', 'number'],
     ['width', 'number'],
@@ -373,19 +374,67 @@ const DEG = Math.PI / 180;
  * Depth resolution goes as `distance² / near`, and a plane held at 0.5 m through a 2°
  * lens let the tile skirts win the depth test against the slope hiding them.
  *
+ * The snap only knows the DEM: a LiDAR cloud carries trees and walls standing over it,
+ * so the plane also stays at half the distance to the nearest drawn cloud's box.
+ *
  * @param eyeHeightM - Height above the standpoint, null while the snap does not hold.
  * @param pitchDeg - MapLibre's: 0° straight down, 90° at the horizon.
+ * @param cloudM - Distance from the eye to the nearest drawn LiDAR box, Infinity with none.
  */
-export function viewpointNearPlaneM(eyeHeightM: number | null, pitchDeg: number, fovDeg: number, aspect: number): number {
-    const clearance = eyeHeightM === null ? 0 : eyeHeightM - VIEWPOINT_SNAP_TOLERANCE_M;
-    if (clearance <= 0) return VIEWPOINT_NEAR_PLANE_M;
+export function viewpointNearPlaneM(eyeHeightM: number | null, pitchDeg: number, fovDeg: number, aspect: number, cloudM: number): number {
     const tanV = Math.tan((fovDeg * DEG) / 2);
     const cosHalfDiagonal = 1 / Math.hypot(1, tanV, tanV * aspect);
+    const underCloud = Math.max(VIEWPOINT_NEAR_PLANE_M, (cloudM * cosHalfDiagonal) / 2);
+    const clearance = eyeHeightM === null ? 0 : eyeHeightM - VIEWPOINT_SNAP_TOLERANCE_M;
+    if (clearance <= 0) return VIEWPOINT_NEAR_PLANE_M;
     // Steepest dip in the frame, at the bottom edge.
     const dip = Math.min((90 - pitchDeg) * DEG + Math.atan(tanV), Math.PI / 2);
     const inDisc = dip > 0 ? clearance / Math.sin(dip) : Infinity;
     const nearest = Math.min(inDisc, VIEWPOINT_SNAP_RADIUS_M) * cosHalfDiagonal;
-    return Math.max(VIEWPOINT_NEAR_PLANE_M, nearest / 2);
+    return Math.min(underCloud, Math.max(VIEWPOINT_NEAR_PLANE_M, nearest / 2));
+}
+
+/** A drawn LiDAR cloud's extent, in metres east, north and up of its origin. */
+export interface CloudBox {
+    originLng: number;
+    originLat: number;
+    min: readonly [number, number, number];
+    max: readonly [number, number, number];
+}
+
+const boxes = new WeakMap<Float32Array, CloudBox>();
+
+/** The box of interleaved east/north/up `positions`, computed once per array. */
+export function cloudBox(cloud: { centerLng: number; centerLat: number; positions: Float32Array }): CloudBox {
+    const known = boxes.get(cloud.positions);
+    if (known) return known;
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    const p = cloud.positions;
+    for (let i = 0; i + 2 < p.length; i += 3) {
+        for (let k = 0; k < 3; k++) {
+            if (p[i + k] < min[k]) min[k] = p[i + k];
+            if (p[i + k] > max[k]) max[k] = p[i + k];
+        }
+    }
+    const box = { originLng: cloud.centerLng, originLat: cloud.centerLat, min, max };
+    boxes.set(cloud.positions, box);
+    return box;
+}
+
+/** Straight-line distance from `eye` to the nearest box, 0 inside one, Infinity with none. */
+export function distanceToCloudsM(eye: { lng: number; lat: number; altitude: number }, clouds: readonly CloudBox[]): number {
+    let nearest = Infinity;
+    for (const box of clouds) {
+        const local = [
+            (eye.lng - box.originLng) * METERS_PER_DEGREE_LAT * Math.cos(box.originLat * DEG),
+            (eye.lat - box.originLat) * METERS_PER_DEGREE_LAT,
+            eye.altitude,
+        ];
+        const outside = local.map((v, k) => Math.max(box.min[k] - v, 0, v - box.max[k]));
+        nearest = Math.min(nearest, Math.hypot(...outside));
+    }
+    return nearest;
 }
 
 /** A terrain tile as MapLibre hands it to `calculateFogMatrix`. */
@@ -400,6 +449,7 @@ interface NearPlaneTransform {
     _calcMatrices(): void;
     calculateFogMatrix(tile: UnwrappedTile): Float32Array;
     getCameraLngLat(): { lng: number; lat: number };
+    getCameraAltitude(): number;
     readonly pitch: number;
     readonly fov: number;
     readonly width: number;
@@ -428,11 +478,21 @@ function eyeNearTile(eye: { lng: number; lat: number }, tile: UnwrappedTile): bo
  * starts past twice the eye-to-sea-level distance, so the tiles around the eye lose
  * next to nothing by going without.
  */
-function patchTransform(transform: NearPlaneTransform, eyeHeightM: () => number | null): void {
+/** What the near plane is derived from, read on every camera change. */
+export interface NearPlaneInputs {
+    /** Height above the snapped standpoint, null while the snap does not hold. */
+    eyeHeightM: () => number | null;
+    /** Boxes of the LiDAR clouds being drawn. */
+    clouds: () => readonly CloudBox[];
+}
+
+function patchTransform(transform: NearPlaneTransform, inputs: NearPlaneInputs): void {
     const proto = Object.getPrototypeOf(transform) as NearPlaneTransform;
     transform._calculateNearFarZ = function (this: NearPlaneTransform, ...args: unknown[]) {
         proto._calculateNearFarZ.apply(this, args);
-        const nearM = viewpointNearPlaneM(eyeHeightM(), this.pitch, this.fov, this.width / Math.max(this.height, 1));
+        const eye = { ...this.getCameraLngLat(), altitude: this.getCameraAltitude() };
+        const cloudM = distanceToCloudsM(eye, inputs.clouds());
+        const nearM = viewpointNearPlaneM(inputs.eyeHeightM(), this.pitch, this.fov, this.width / Math.max(this.height, 1), cloudM);
         this._helper._nearZ = nearM * this._helper._pixelPerMeter;
     };
     transform.calculateFogMatrix = function (this: NearPlaneTransform, tile: UnwrappedTile) {
@@ -449,18 +509,19 @@ function unpatchTransform(transform: NearPlaneTransform): void {
 }
 
 /**
- * Sets the near clipping plane from {@link viewpointNearPlaneM} until the returned
- * function is called. Re-applied on `styledata`: loading a style migrates the
- * projection, which hands the painter a fresh transform.
+ * Sets the near clipping plane from {@link viewpointNearPlaneM} until `restore` is
+ * called; `refresh` re-derives it when an input changed without the camera moving.
+ * Re-applied on `styledata`: loading a style migrates the projection, which hands
+ * the painter a fresh transform.
  */
-export function applyViewpointNearPlane(map: MapLibreMap, eyeHeightM: () => number | null): () => void {
+export function applyViewpointNearPlane(map: MapLibreMap, inputs: NearPlaneInputs): { refresh: () => void; restore: () => void } {
     let patched: NearPlaneTransform | null = null;
 
     const apply = () => {
         const transform = map.painter.transform as unknown as NearPlaneTransform;
         if (transform === patched) return;
         if (!hasMembers('Viewpoint near plane', transform, NEAR_PLANE_MEMBERS)) return;
-        patchTransform(transform, eyeHeightM);
+        patchTransform(transform, inputs);
         patched = transform;
         map.triggerRepaint();
     };
@@ -468,10 +529,17 @@ export function applyViewpointNearPlane(map: MapLibreMap, eyeHeightM: () => numb
     apply();
     map.on('styledata', apply);
 
-    return () => {
-        map.off('styledata', apply);
-        if (patched) unpatchTransform(patched);
-        patched = null;
-        map.triggerRepaint();
+    return {
+        refresh: () => {
+            if (!patched) return;
+            patched._calcMatrices();
+            map.triggerRepaint();
+        },
+        restore: () => {
+            map.off('styledata', apply);
+            if (patched) unpatchTransform(patched);
+            patched = null;
+            map.triggerRepaint();
+        },
     };
 }

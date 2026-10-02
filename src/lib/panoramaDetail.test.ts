@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { missingMembers, panoramaTileZoom, VIEWPOINT_NEAR_PLANE_M, viewpointNearPlaneM } from './panoramaDetail';
+import { cloudBox, distanceToCloudsM, missingMembers, panoramaTileZoom, VIEWPOINT_NEAR_PLANE_M, viewpointNearPlaneM } from './panoramaDetail';
 
 /**
  * MapLibre's own rule, transcribed from `covering_tiles.ts`, to compare against.
@@ -85,22 +85,50 @@ describe('panoramaTileZoom', () => {
 describe('viewpointNearPlaneM', () => {
     it('stays in front of flat ground at the feet through a wide lens', () => {
         // The bottom of a 60° frame meets ground 9.5 m down 9.5 / tan 30° = 16 m out.
-        const near = viewpointNearPlaneM(10, 90, 60, 1.5);
+        const near = viewpointNearPlaneM(10, 90, 60, 1.5, Infinity);
         expect(near).toBeLessThan(16);
         expect(near).toBeGreaterThan(VIEWPOINT_NEAR_PLANE_M);
     });
 
     it('moves out to half the snap radius through a telephoto', () => {
-        expect(viewpointNearPlaneM(10, 88, 2, 1.5)).toBeCloseTo(25, 0);
+        expect(viewpointNearPlaneM(10, 88, 2, 1.5, Infinity)).toBeCloseTo(25, 0);
     });
 
     it('stays at the floor while the snap does not hold or the eye is on the ground', () => {
-        expect(viewpointNearPlaneM(null, 88, 2, 1.5)).toBe(VIEWPOINT_NEAR_PLANE_M);
-        expect(viewpointNearPlaneM(0.4, 88, 2, 1.5)).toBe(VIEWPOINT_NEAR_PLANE_M);
+        expect(viewpointNearPlaneM(null, 88, 2, 1.5, Infinity)).toBe(VIEWPOINT_NEAR_PLANE_M);
+        expect(viewpointNearPlaneM(0.4, 88, 2, 1.5, Infinity)).toBe(VIEWPOINT_NEAR_PLANE_M);
     });
 
     it('looking straight down, keeps the plane above the ground under the eye', () => {
-        expect(viewpointNearPlaneM(10, 20, 60, 1.5)).toBeLessThan(9.5);
+        expect(viewpointNearPlaneM(10, 20, 60, 1.5, Infinity)).toBeLessThan(9.5);
+    });
+
+    it('drops to the floor inside a LiDAR cloud, and to half its distance near one', () => {
+        expect(viewpointNearPlaneM(10, 88, 2, 1.5, 0)).toBe(VIEWPOINT_NEAR_PLANE_M);
+        expect(viewpointNearPlaneM(10, 88, 2, 1.5, 12)).toBeCloseTo(6, 1);
+        expect(viewpointNearPlaneM(10, 88, 2, 1.5, 500)).toBeCloseTo(25, 0);
+    });
+});
+
+describe('distanceToCloudsM', () => {
+    const box = cloudBox({
+        centerLng: 6,
+        centerLat: 45,
+        positions: new Float32Array([-100, -50, 1000, 100, 50, 1040]),
+    });
+
+    it('is zero inside the box, under the canopy as on the ground', () => {
+        expect(distanceToCloudsM({ lng: 6, lat: 45, altitude: 1010 }, [box])).toBe(0);
+    });
+
+    it('measures straight to the nearest face', () => {
+        // 100 m north of the centre is 50 m past the north face; 30 m over the canopy.
+        const lat = 45 + 100 / 111_319.49;
+        expect(distanceToCloudsM({ lng: 6, lat, altitude: 1070 }, [box])).toBeCloseTo(Math.hypot(50, 30), 0);
+    });
+
+    it('is infinite with nothing drawn', () => {
+        expect(distanceToCloudsM({ lng: 6, lat: 45, altitude: 1010 }, [])).toBe(Infinity);
     });
 });
 
