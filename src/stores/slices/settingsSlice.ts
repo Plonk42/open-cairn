@@ -111,6 +111,10 @@ export interface SettingsSlice {
     viewpoint: Viewpoint | null;
     setViewpoint: (v: Viewpoint | null) => void;
 
+    /** Current settled eye, including DEM corrections; separate from the mode's entry identity. */
+    viewpointEye: Viewpoint | null;
+    setViewpointEye: (v: Viewpoint) => void;
+
     /**
      * Look direction and lens the mode STARTS with, `null` for its defaults
      * (facing the current bearing, just below the horizon). Only a link (share
@@ -223,6 +227,7 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
     setViewpoint: (viewpoint) =>
         set((s) => ({
             viewpoint,
+            viewpointEye: viewpoint,
             // Raised here, in the same update, so the map never sees a frame
             // without the mode's camera release; `ViewpointController` lowers it
             // when the flight lands.
@@ -232,6 +237,15 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
             viewpointFraming: null,
             viewpointHeightM: VIEWPOINT_EYE_HEIGHT_M,
         })),
+
+    viewpointEye: null,
+    setViewpointEye: (viewpointEye) => set((s) => {
+        if (!s.viewpoint) return s;
+        const previous = s.viewpointEye;
+        if (previous?.lng === viewpointEye.lng && previous.lat === viewpointEye.lat
+            && previous.altitude === viewpointEye.altitude) return s;
+        return { viewpointEye };
+    }),
 
     viewpointFraming: null,
     setViewpointFraming: (viewpointFraming) => set({ viewpointFraming }),
@@ -244,7 +258,7 @@ export const createSettingsSlice: StateCreator<MapState, [], [], SettingsSlice> 
 
     viewpointLeftBehind: null,
     changeViewpointPlace: () => {
-        const left = get().viewpoint;
+        const left = get().viewpointEye;
         // Leaving first: `ViewpointController` then steps back to an overview to pick from.
         get().setViewpoint(null);
         set({ viewpointPicking: true, viewpointLeftBehind: left });

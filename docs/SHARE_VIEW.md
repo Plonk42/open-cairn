@@ -160,7 +160,13 @@ retomberait silencieusement à la hauteur d'arrivée (10 m) chez le destinataire
 hauteur se reposer**, et il est borné à la lecture à `[0 ; 3000]` m comme le pitch et
 la focale.
 
-Trois conséquences dans le code :
+Conséquences dans le code :
+
+- `useShare` lit l'œil dans `viewpointEye`, que le contrôleur synchronise après le
+  recalage sur un MNT plus fin, les corrections de sol et les changements de hauteur.
+  `viewpoint` reste le point d'entrée du mode : remplacer son identité relancerait le
+  contrôleur. Le marqueur « Lieu précédent » lit aussi `viewpointEye`, et `#vp=` décrit
+  le même œil corrigé.
 
 - `useShare` lit `bearing` / `pitch` / `fov` **sur la carte**, pas dans le store :
   `ViewpointController` les garde dans une closure, parce qu'un écrit dans le store à

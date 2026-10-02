@@ -54,6 +54,8 @@ Champs principaux :
   atmosphericSky                    // vue Itinéraire : ciel piloté par le soleil
   peakLabels                        // nommer les sommets visibles — n'a d'effet qu'en Point de vue
   peakLabelsEmphasis                // mettre en avant les rangs IGN 1 et 2 parmi ces noms
+  viewpoint                        // point d'entrée du mode, identité stable jusqu'à sa sortie
+  viewpointEye                     // œil corrigé par le MNT, lu par Partager et Lieu précédent
 
   // Chrome desktop, l'accordéon de droite de chaque vue
   sidePanelCollapsed                // panneau replié sur sa barre de titre, commun aux deux vues
@@ -146,6 +148,12 @@ Le hash a la priorité au boot et **écrase** l'état persisté localement. Il p
 poser des champs volontairement **non persistés** — `viewpoint`, son `viewpointFraming`
 et `viewpointHeightM` — parce qu'un lien doit rouvrir exactement l'image de son
 auteur, mode « Point de vue » compris (cf. [SHARE_VIEW.md](SHARE_VIEW.md)).
+
+`viewpointEye` est lui aussi **non persisté** : `setViewpoint` l'initialise ou l'efface,
+puis le contrôleur le publie après chaque correction du point de station ou de hauteur.
+Son setter ignore une pose identique pour ne pas notifier le store à chaque rotation.
+Il ne remplace pas `viewpoint`, dont l'identité pilote l'effet du mode, et ne réinitialise
+ni `viewpointFraming` ni `viewpointHeightM`.
 
 ### Persistance — bonnes pratiques
 

@@ -12,9 +12,9 @@ import { useCallback, useState } from 'react';
  * they are readable from the outside.
  */
 function currentViewpoint(map: MapState): SharedViewpoint | null {
-    if (!map.viewpoint || !map.mapInstance) return null;
+    if (!map.viewpointEye || !map.mapInstance) return null;
     return {
-        eye: map.viewpoint,
+        eye: map.viewpointEye,
         framing: {
             bearing: map.mapInstance.getBearing(),
             pitch: map.mapInstance.getPitch(),

@@ -325,6 +325,8 @@ export function ViewpointController(): null {
 
         const apply = () => {
             shown = standingPose();
+            // Publish corrections without replacing the identity that owns this effect.
+            useMapStore.getState().setViewpointEye(shown.eye);
             showPose(map, shown);
         };
 

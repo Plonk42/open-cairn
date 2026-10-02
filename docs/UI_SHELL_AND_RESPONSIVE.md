@@ -447,6 +447,11 @@ n'est pas dessinée (34 sondes sur 98 dans l'exemple). Au même clic, l'œil se 
 19 m et monte de 11 m au premier `idle` après l'atterrissage, et le sol le plus haut du
 disque n'est plus qu'à 0,9 m au-dessus de ses pieds.
 
+Le point corrigé est publié dans `viewpointEye`, sans remplacer `viewpoint`, qui porte
+l'identité d'entrée du mode : ni nouveau vol ni remise à zéro de la hauteur ou de la
+visée. Le bouton **Partager** et le marqueur **Lieu précédent** lisent cet œil corrigé,
+comme l'adresse `#vp=` ; les corrections d'altitude et les flèches le mettent aussi à jour.
+
 Mesuré : au pied de la barre de Chamechaude, l'œil monte de 117 m pour 50 m de
 déplacement et ouvre sur le panorama ; sur une pente à 60 % au-dessus de Chamrousse, il
 gagne 34 m mais le versant continue au-delà du disque et remplit encore le cadre face à la
