@@ -304,6 +304,14 @@ export function ViewpointController(): null {
             showPose(map, shown);
         };
 
+        // Anything else that moves the camera loses the eye: a resize keeps the zoom
+        // whose eye distance depends on the canvas height (the Studio mounts its map
+        // slot after the mode applied), and `setPadding` (the side panel) or a new
+        // terrain re-derive the centre elevation from the DEM.
+        const reapply = (e: object) => {
+            if (!entry && !(e as ViewpointEventData).viewpoint) apply();
+        };
+
         /**
          * Put the eye back on the surface that is actually being drawn.
          *
@@ -438,6 +446,8 @@ export function ViewpointController(): null {
         canvas.addEventListener('wheel', onWheel, { passive: false });
         document.addEventListener('keydown', onKeyDown, true);
         map.on('idle', settleOnGround);
+        map.on('move', reapply);
+        map.on('terrain', reapply);
         if (home && !prefersReducedMotion()) {
             entry = fly(map, home.pose, standingPose, () => {
                 entry = null;
@@ -460,6 +470,8 @@ export function ViewpointController(): null {
             unsubscribeHeight();
             unsubscribeClouds();
             map.off('idle', settleOnGround);
+            map.off('move', reapply);
+            map.off('terrain', reapply);
             canvas.style.cursor = '';
             canvas.style.touchAction = previousTouchAction;
             leaving = true;
