@@ -54,10 +54,22 @@ const USER_AGENT = 'open-cairn build-peaks (https://github.com/open-cairn)';
 const MAX_IMPORTANCE = 5;
 
 /** Natures that name a top whether or not anyone has surveyed its height. */
-const SUMMIT_NATURES = ['Sommet', 'Pic'];
+const SUMMIT_NATURES = new Set(['Sommet', 'Pic']);
 
 /** Natures kept only when a height proves they name a point, not an area. */
 const CULMINATION_NATURES = ['Montagne', 'Rochers', 'Crête', 'Escarpement'];
+
+/**
+ * Names that say an area whatever nature they are filed under: 22 `Sommet` start
+ * with one of these, and « Chaîne de Belledonne » was labelled as a summit from
+ * Chamechaude. Held to the rule of {@link CULMINATION_NATURES}.
+ */
+const AREA_NAME = /^(chaînes?|massifs?)\b/i;
+
+/** Whether a toponym names a top one can aim at even without a published height. */
+function namesATop(peak) {
+    return SUMMIT_NATURES.has(peak.nature) && !AREA_NAME.test(peak.name);
+}
 
 /** WFS page size. 33k features come down in nine pages of about a megabyte. */
 const WFS_PAGE = 4000;
@@ -531,17 +543,18 @@ async function highestAround(walkers) {
  * wrong mountain.
  */
 async function reanchorAll(entries) {
+    // Signed on the walkers alone: keeping or dropping a heightless name walks nothing.
+    const walking = entries.filter((e) => e.m !== null && e.groundM !== undefined && e.at === undefined
+        && e.m - e.groundM > ANCHOR_DRIFT_M);
     const signature = createHash('sha256')
         .update(`${ANCHOR_DRIFT_M}/${MAX_ANCHOR_MOVE_M}/${CLIMB_START_RADIUS_M}/${TOP_CHECK_RADII_M}`
             + `/${CLIMB_MIN_RADIUS_M}/${CLIMB_TARGET_SLACK_M}/${CLIMB_DIRECTIONS}/${MAX_CLIMB_ROUNDS}/${GROUND_RESOURCES}\n`)
-        .update(entries.map((e) => `${e.peak.id}:${e.m}:${e.groundM}:${e.at ?? ''}`).join('\n'))
+        .update(walking.map((e) => `${e.peak.id}:${e.m}:${e.groundM}`).join('\n'))
         .digest('hex');
     // Where each walk ended and what stands around it; which of them to keep is decided
     // below, outside the cache, so that rule can be tuned without walking again.
     const walks = await cached('walks', async () => {
-        let walkers = entries
-            .filter((e) => e.m !== null && e.groundM !== undefined && e.at === undefined
-                && e.m - e.groundM > ANCHOR_DRIFT_M)
+        let walkers = walking
             .map((e) => ({
                 id: e.peak.id, targetM: e.m, groundM: e.groundM,
                 fromLng: e.peak.lng, fromLat: e.peak.lat,
@@ -691,7 +704,6 @@ function bump(counter, key) {
 }
 
 function mergePeaks(sources) {
-    const summitNatures = new Set(SUMMIT_NATURES);
     const stats = { chosen: {}, rejected: {}, heightless: 0, dropped: 0 };
     const kept = [];
     for (const peak of sources.topo) {
@@ -710,7 +722,7 @@ function mergePeaks(sources) {
 
         // Without a height, a `Montagne` or a `Crête` is an area name whose point
         // sits in the middle of nothing one can aim at.
-        if (!chosen && !summitNatures.has(peak.nature)) stats.dropped += 1;
+        if (!chosen && !namesATop(peak)) stats.dropped += 1;
         else kept.push({ peak, m: chosen?.m ?? null, groundM, at: chosen && provenAt[chosen.source] });
     }
     return { kept, stats };
