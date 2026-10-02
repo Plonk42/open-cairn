@@ -76,14 +76,10 @@ est retirée.
       rastérise la boîte, cf. `ALTI_BATCH`), et un rapport par tranches d'écart comme `verify-peaks.mjs`.
       Wikidata n'est pas tout à fait indépendant (`P2044` est parfois recopié d'OSM ou de
       l'IGN) : c'est le sol à sa coordonnée qui tranche.
-- [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
-      22 à ~90 d'un coup, avec un à-coup (~210 ms mesurés à 123 tuiles) pendant que les RTT
-      sont refaites. Remesuré depuis Chamechaude à 8° (iGPU) : deux images de ~950 ms,
-      pour seulement ~300 ms de JS en 5 s — la visée des sommets, désormais découpée, et
-      114 ms de `texSubImage2D` ; le reste, fil principal inactif, est côté GPU. La piste
-      `meshSize` / `_meshCache` ne mène nulle part : MapLibre partage **un** maillage entre
-      toutes les tuiles (clé `m__`). Fait quand l'entrée ne laisse plus d'image au-delà de
-      ~100 ms ; mesurer d'abord ce que coûtent les RTT refaites d'un coup.
+- [ ] Supprimer le gel à l'entrée en *Point de vue* à focale serrée (deux images de ~950 ms
+      à 8° depuis Chamechaude, côté GPU) : mesurer d'abord ce que coûtent les RTT refaites
+      d'un coup. Fait quand l'entrée ne laisse plus d'image au-delà de ~100 ms. Mesures :
+      `UI_SHELL_AND_RESPONSIVE.md`, *Limitations techniques*.
 - [ ] **Rendre la courbure terrestre en *Point de vue*** : le terrain MapLibre est plan, et
       un sommet à 31 km est dessiné 67 m trop haut, soit 10 px à 8° (30 px à 100 km) — la
       plus grosse erreur de relief restante, devant le maillage et le MNT. Piste : abaisser

@@ -1449,6 +1449,13 @@ suffit à rendre la place au Mont Blanc (0,69 contre 0,73, avant même son déga
 
 ### Limitations techniques
 
+- **Entrer en *Point de vue* à focale serrée fige l'image** : le parc de tuiles de maillage
+  passe de 22 à ~90 d'un coup et toutes les RTT sont refaites (~210 ms mesurés à 123
+  tuiles). Remesuré depuis Chamechaude à 8° sur le GPU intégré : deux images de ~950 ms,
+  pour ~300 ms de JS seulement sur les 5 s qui suivent — la visée des sommets (découpée
+  depuis) et 114 ms de `texSubImage2D` ; le reste du temps, le fil principal attend, côté
+  GPU. Étaler le changement de `meshSize` ne servirait à rien : MapLibre partage **un**
+  maillage entre toutes les tuiles (`_meshCache`, clé `m__`), reconstruit une seule fois.
 - **Pas d'animation de bascule** desktop ⇔ mobile : le re-render est brut.
 - **Pas de focus trap** dans les popovers ni les feuilles : la navigation clavier peut
   en sortir silencieusement.
