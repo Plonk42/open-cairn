@@ -35,7 +35,7 @@ import {
     labelPriority,
     layoutPeakLabels,
     reachScaleForFov,
-    sightPeaks,
+    sightPeaksInSlices,
     type PeakLabelSlot,
     type PeakSighting,
 } from '@/lib/peakSightings';
@@ -48,6 +48,13 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Quiet time after the last camera move before a march. */
 const RECOMPUTE_DEBOUNCE_MS = 250;
+
+/** Main-thread time a march takes per frame, leaving the rest of 16 ms to the map. */
+const SIGHTING_SLICE_MS = 8;
+
+function nextFrame(): Promise<void> {
+    return new Promise((resolve) => { requestAnimationFrame(() => resolve()); });
+}
 
 /** The summit list is reused while the eye stays inside this radius. */
 const REFETCH_DISTANCE_KEY_DIGITS = 2;
@@ -145,6 +152,8 @@ export function PeakLabelsOverlay() {
 
     const hostRef = useRef<SVGSVGElement | null>(null);
     const nodesRef = useRef(new Map<string, PeakNode>());
+    /** The eye the labels on screen were sighted from. */
+    const nodesEyeRef = useRef('');
     /** The eye, drawn-tile set and reach stretch the labels on screen were solved for, to skip idle no-ops. */
     const solvedRef = useRef<{ eye: string; coverage: unknown; reachScale: number }>({ eye: '', coverage: null, reachScale: 1 });
     /** Summits already sliced out, and the rounded eye they were sliced around. */
@@ -154,6 +163,7 @@ export function PeakLabelsOverlay() {
     const clearNodes = useCallback(() => {
         for (const node of nodesRef.current.values()) node.group.remove();
         nodesRef.current.clear();
+        nodesEyeRef.current = '';
     }, []);
 
     const place = useCallback(() => {
@@ -247,7 +257,6 @@ export function PeakLabelsOverlay() {
         const reachScale = reachScaleForFov(map.painter.transform.fov);
         const solved = solvedRef.current;
         if (eye === solved.eye && coverage === solved.coverage && reachScale === solved.reachScale) return;
-        const eyeMoved = eye !== solved.eye;
         const claim = { eye, coverage, reachScale };
         solvedRef.current = claim;
 
@@ -258,11 +267,21 @@ export function PeakLabelsOverlay() {
             return;
         }
         // The download may have outlived the mode, or a newer pass taken over.
-        if (hostRef.current !== host || solvedRef.current !== claim) return;
+        const stale = () => hostRef.current !== host || solvedRef.current !== claim;
+        if (stale()) return;
 
-        if (eyeMoved) clearNodes();
         const sample = renderedGroundSampler(terrain);
-        merge(host, sightPeaks(observer, peaks, sample, reachScale), sample);
+        const seen = await sightPeaksInSlices(observer, peaks, sample, reachScale, {
+            sliceMs: SIGHTING_SLICE_MS,
+            nextSlice: nextFrame,
+            stale,
+            now: () => performance.now(),
+        });
+        if (seen === null) return;
+        // Cleared only now: the old names stay up for the frames the march takes.
+        if (nodesEyeRef.current !== eye) clearNodes();
+        nodesEyeRef.current = eye;
+        merge(host, seen, sample);
         place();
     }, [mapInstance, loadPeaks, clearNodes, merge, place]);
 

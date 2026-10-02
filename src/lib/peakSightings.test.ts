@@ -7,6 +7,7 @@ import {
     reachScaleForFov,
     selectCandidates,
     sightPeaks,
+    sightPeaksInSlices,
     type PeakLabelSlot,
     type PlacedPeakLabel,
 } from './peakSightings';
@@ -219,6 +220,35 @@ describe('sightPeaks', () => {
         const backed: GroundSampler = (lng, lat) => (northOf(lat) > 9_000 ? 2_500 : alone(lng, lat));
         expect(sightPeaks(OBSERVER, [knoll], alone)[0].onSkyline).toBe(true);
         expect(sightPeaks(OBSERVER, [knoll], backed)[0].onSkyline).toBe(false);
+    });
+});
+
+describe('sightPeaksInSlices', () => {
+    const peaks = [peakNorth('behind', 12_000), peakNorth('front', 4_000), peakNorth('middle', 7_000)];
+    const sample = summits(2_000, peaks);
+
+    /** A clock that moves 1 ms per reading, and counts the slices handed back. */
+    function schedule(stale = () => false) {
+        let t = 0;
+        const state = { slices: 1 };
+        return {
+            state,
+            sliceMs: 2,
+            now: () => t++,
+            nextSlice: async () => { state.slices += 1; },
+            stale,
+        };
+    }
+
+    it('reaches the same verdicts as the single pass, over several slices', async () => {
+        const s = schedule();
+        const sliced = await sightPeaksInSlices(OBSERVER, peaks, sample, 1, s);
+        expect(sliced).toEqual(sightPeaks(OBSERVER, peaks, sample));
+        expect(s.state.slices).toBeGreaterThan(1);
+    });
+
+    it('gives up once the result is no longer wanted', async () => {
+        expect(await sightPeaksInSlices(OBSERVER, peaks, sample, 1, schedule(() => true))).toBeNull();
     });
 });
 

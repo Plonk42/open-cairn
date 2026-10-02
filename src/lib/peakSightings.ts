@@ -376,10 +376,52 @@ export function sightPeaks(
 ): PeakSighting[] {
     const out: PeakSighting[] = [];
     for (const candidate of selectCandidates(observer, peaks, sample, reachScale)) {
-        const clearanceDeg = summitClearanceDeg(observer, candidate, sample);
-        if (clearanceDeg === null) continue;
-        const { peak, distanceM, groundM } = candidate;
-        out.push({ peak, distanceM, groundM, clearanceDeg, onSkyline: standsOnSkyline(observer, candidate, sample) });
+        const seen = sightCandidate(observer, candidate, sample);
+        if (seen) out.push(seen);
+    }
+    return out;
+}
+
+function sightCandidate(observer: SkylineObserver, candidate: Candidate, sample: GroundSampler): PeakSighting | null {
+    const clearanceDeg = summitClearanceDeg(observer, candidate, sample);
+    if (clearanceDeg === null) return null;
+    const { peak, distanceM, groundM } = candidate;
+    return { peak, distanceM, groundM, clearanceDeg, onSkyline: standsOnSkyline(observer, candidate, sample) };
+}
+
+/** How {@link sightPeaksInSlices} shares the main thread. */
+export interface SliceSchedule {
+    /** Time one slice may take before handing the thread back, in ms. */
+    sliceMs: number;
+    /** Resolves when the next slice may run — the next frame, in the app. */
+    nextSlice: () => Promise<void>;
+    /** True once the result is no longer wanted: the pass stops and resolves to null. */
+    stale: () => boolean;
+    now: () => number;
+}
+
+/**
+ * {@link sightPeaks}, cut into slices of about `sliceMs` so a telephoto pass —
+ * 140 to 160 ms measured at 8° — does not freeze a gesture resumed meanwhile.
+ * Same verdicts, in the same order; `sample` must stay valid across slices.
+ */
+export async function sightPeaksInSlices(
+    observer: SkylineObserver,
+    peaks: readonly Peak[],
+    sample: GroundSampler,
+    reachScale: number,
+    schedule: SliceSchedule,
+): Promise<PeakSighting[] | null> {
+    const out: PeakSighting[] = [];
+    let sliceStart = schedule.now();
+    for (const candidate of selectCandidates(observer, peaks, sample, reachScale)) {
+        if (schedule.now() - sliceStart >= schedule.sliceMs) {
+            await schedule.nextSlice();
+            if (schedule.stale()) return null;
+            sliceStart = schedule.now();
+        }
+        const seen = sightCandidate(observer, candidate, sample);
+        if (seen) out.push(seen);
     }
     return out;
 }
