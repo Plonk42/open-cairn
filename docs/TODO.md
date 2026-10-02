@@ -104,10 +104,6 @@ est retirée.
       d'occultation sur leur boîte englobante) : à 1° depuis Chamechaude, 201 tuiles sur 276
       sont derrière un relief plus proche et le GPU intégré plafonne à ~7 images/s (35,6 M de
       triangles). À trancher avant d'écrire (~120 lignes).
-- [ ] Ramener le plan de coupe proche du *Point de vue* à 0,5 m quand un nuage LiDAR entoure
-      l'œil : déduit du recalage, il ignore la végétation et peut monter à 25 m. Fait quand la
-      boîte englobante d'un nuage affiché près de l'œil le plafonne. Cf.
-      `UI_SHELL_AND_RESPONSIVE.md`, « Le plan de coupe proche ».
 - [ ] Rendu « pur 3D à la PeakFinder » : masquer les couches de fond dans la RTT et ne
       garder que l'ombrage donnerait la lecture géométrique demandée pour presque rien.
       L'alternative — normales par tuile et nuanceur éclairé dédié, comme `LidarWebGLLayer`

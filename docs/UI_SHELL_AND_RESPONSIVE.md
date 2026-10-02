@@ -452,6 +452,14 @@ petite de ces deux profondeurs, et jamais sous **0,5 m**. Pendant les vols d'ent
 sortie, et avec l'œil à moins de 0,5 m du sol, la garantie ne tient pas : le plan reste à
 0,5 m.
 
+Le recalage ne connaît que le MNT : un nuage LiDAR porte des arbres et des murs au-dessus de
+lui. Le plan ne dépasse donc jamais non plus la moitié de la distance de l'œil à la boîte
+englobante du nuage affiché le plus proche (`distanceToCloudsM`, boîte calculée une fois par
+nuage et recalculée quand la liste des nuages change) : dans le nuage, il retombe à 0,5 m.
+Mesuré depuis Chamechaude, œil à 10 m, 2° de champ : un mur de points posé à 15 m devant
+l'œil était entièrement coupé par le plan déduit (25 m) ; il est dessiné avec le plan
+plafonné (6,6 m).
+
 Un plan fixe à 0,5 m était juste en grand angle, faux au téléobjectif. La résolution du
 tampon de profondeur (24 bits) varie en `distance² / near` : à 0,5 m, ~30 m de flou à 15 km.
 Les **jupes** pendent juste derrière le versant qui les cache et gagnaient le test de
