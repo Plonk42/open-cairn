@@ -749,7 +749,7 @@ Ce qu'il faut savoir :
   nommé ; le Gran Paradiso, non.
 - La liste n'est **plus interrogée en ligne**. Elle est bâtie une fois par
   [tools/build-peaks.mjs](../tools/build-peaks.mjs) et livrée avec l'app sous forme d'un
-  fichier de 39 846 sommets (581 ko gzippés), téléchargé une seule fois par session à la
+  fichier de 39 831 sommets (580 ko gzippés), téléchargé une seule fois par session à la
   première ouverture du mode. Plus de requête WFS sur le chemin d'une étiquette.
 - L'**altitude est celle que publie la meilleure source disponible** — OSM, puis la cote
   BD CARTO®, puis GeoNames, dans cet ordre (voir `docs/IGN_DATA_SOURCES.md` pour la mesure

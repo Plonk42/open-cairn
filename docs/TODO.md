@@ -15,10 +15,6 @@ est retirée.
 - [ ] Donner au calcul des heures de lever/coucher (`SkyLabelsOverlay`) un MNT propre hors
       du cadre : il lit encore le cache de tuiles, lissé jusqu'à z5 (`SUN_LIGHTING.md`,
       *Limitations*).
-- [ ] Écarter les noms de massif que la BD TOPO® range en `Sommet` sans altitude : « Chaîne de
-      Belledonne » (rang 2) s'étiquette comme un sommet depuis Chamechaude. 25 noms du fichier
-      commencent par « Chaîne » ou « Massif » ; fait quand la règle de `build-peaks.mjs` les
-      traite comme les natures de zone (retenus seulement avec une altitude).
 - [ ] Caler l'œil sur un sol fin quand le sol sous lui n'est pas dessiné (regard au-dessus
       de l'horizon) : `settleOnGround` ne corrige plus que sur la surface dessinée, et
       l'œil garde alors l'altitude lue au zoom du clic. Piste : une lecture MNT à zoom

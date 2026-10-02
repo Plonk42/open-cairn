@@ -190,7 +190,7 @@ Ce qu'il faut savoir des couches :
   sont des `Montagne`, les Lances de Malissard des `Rochers`), tantôt une zone entière
   (« Massif de la Chartreuse », « les Grandes Rousses ») : **la présence d'une altitude,
   quelle qu'en soit la source**, est exactement ce qui distingue les deux, donc elles ne
-  sont retenues que dans ce cas. 7 338 noms de zone sont écartés à ce titre.
+  sont retenues que dans ce cas. 17 180 noms de zone sont écartés à ce titre.
   Les `Sommet` n'en sont pas tout à fait exempts : 22 portent un nom de massif
   (« Chaîne de Belledonne », rang 2, s'étiquetait comme un sommet depuis Chamechaude ;
   « Massif d'Allevard », « Chaîne des Alpilles »…). Un nom qui commence par « Chaîne » ou
@@ -261,8 +261,8 @@ toponymes, dont 2 616 relus sur RGE ALTI® faute de LiDAR HD et 280 sans aucune 
 (1 900 requêtes de 30, six en vol, ~30 min sur le LiDAR HD ; le cache ne rééchantillonne
 que les toponymes nouveaux). Sous les 56 622 toponymes que les deux lisent, le LiDAR HD est
 en médiane à +0,1 m du RGE ALTI® (p5 −2,2 m, p95 +8,2 m), mais **1 128** diffèrent de plus
-de 20 m. Sortie : **39 847
-sommets, 589 ko gzippés** (25 830 et 385 ko au rang `'4'`, dont les lignes n'ont pas
+de 20 m. Sortie : **39 831
+sommets, 580 ko gzippés** (25 830 et 385 ko au rang `'4'`, dont les lignes n'ont pas
 bougé). Le rang `'5'` apporte 14 016 sommets, dont **27 % seulement avec une altitude**
 (3 732) ; la part sur tout le fichier tombe de 52 % à 43 % (17 064 sommets cotés).
 
