@@ -823,9 +823,6 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
   le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
   plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un
   premier plan y perd.
-- Le plan de coupe proche ne connaît que le **sol** : au téléobjectif il peut monter à 25 m,
-  et un nuage LiDAR affiché dans le mode y perdrait les arbres plus proches qui dépassent
-  l'œil (voir [TODO.md](TODO.md)).
 
 ---
 
