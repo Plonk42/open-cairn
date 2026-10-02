@@ -311,6 +311,14 @@ est maintenu au-dessus du sol dessiné (jamais sous `queryTerrainElevation`). Du
   même cap) ;
 - `prefers-reduced-motion` supprime les deux vols.
 
+**Hors des vols, l'œil ne suit que le mode.** Tout mouvement de caméra que le contrôleur
+n'a pas fait lui-même (`move` sans la marque `viewpoint`, ou nouveau relief) repose la
+pose : un `resize` garde le zoom, alors que la distance œil–centre qu'il code dépend de la
+hauteur du canevas ; `setPadding` (le panneau de droite, à chaque bascule de vue ou
+pliage) et `setTerrain` relisent l'altitude du centre dans le MNT. Avant cela, un lien
+`#vp=` ouvert dans le Studio posait l'œil à 89 km (le canevas n'avait pas encore sa
+hauteur), et une bascule de vue en plein mode l'enterrait de 610 m sous Chamechaude.
+
 La barre remplace l'ancien bouton qui se relabellisait *Choisissez…* puis *Panorama*
 et cachait la sortie dans son popover : le mode change ce que font tous les gestes et
 suspend l'édition, il doit donc se voir là où l'on regarde, avec une sortie à un
