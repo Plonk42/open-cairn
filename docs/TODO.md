@@ -78,9 +78,12 @@ est retirée.
       l'IGN) : c'est le sol à sa coordonnée qui tranche.
 - [ ] Entrer en *Point de vue* à focale serrée fait passer le parc de tuiles de maillage de
       22 à ~90 d'un coup, avec un à-coup (~210 ms mesurés à 123 tuiles) pendant que les RTT
-      sont refaites.
-      Piste : étaler le changement de `meshSize` sur quelques images, ou ne vider
-      `_meshCache` que progressivement.
+      sont refaites. Remesuré depuis Chamechaude à 8° (iGPU) : deux images de ~950 ms,
+      pour seulement ~300 ms de JS en 5 s — la visée des sommets, désormais découpée, et
+      114 ms de `texSubImage2D` ; le reste, fil principal inactif, est côté GPU. La piste
+      `meshSize` / `_meshCache` ne mène nulle part : MapLibre partage **un** maillage entre
+      toutes les tuiles (clé `m__`). Fait quand l'entrée ne laisse plus d'image au-delà de
+      ~100 ms ; mesurer d'abord ce que coûtent les RTT refaites d'un coup.
 - [ ] **Rendre la courbure terrestre en *Point de vue*** : le terrain MapLibre est plan, et
       un sommet à 31 km est dessiné 67 m trop haut, soit 10 px à 8° (30 px à 100 km) — la
       plus grosse erreur de relief restante, devant le maillage et le MNT. Piste : abaisser
