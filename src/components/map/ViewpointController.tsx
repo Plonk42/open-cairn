@@ -23,7 +23,7 @@
 import { isTextEntry, setTerrainCameraCollision } from '@/lib/freeCamera';
 import { applyPanoramaDetail, applyViewpointNearPlane, cloudBox, type CloudBox } from '@/lib/panoramaDetail';
 import { viewpointHash } from '@/lib/shareView';
-import { renderedGroundSampler } from '@/lib/skyProjection';
+import { loadedDemSampler, renderedGroundSampler } from '@/lib/skyProjection';
 import {
     cameraForViewpoint,
     centerDistanceForZoom,
@@ -41,6 +41,7 @@ import {
     VIEWPOINT_MAX_PITCH,
     VIEWPOINT_MIN_EYE_HEIGHT_M,
     VIEWPOINT_TARGET_DISTANCE_M,
+    type GroundPoint,
     type LookDirection,
     type Viewpoint,
     type ViewpointPose,
@@ -153,6 +154,17 @@ function pinchSpacing(pointers: Map<number, { x: number; y: number }>): number {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** {@link highestGroundNearby} on `sample`, null unless every probe of the disc reads. */
+function snapOnEveryProbe(click: Readonly<{ lng: number; lat: number }>, sample: (lng: number, lat: number) => number): GroundPoint | null {
+    let blind = false;
+    const top = highestGroundNearby(click, (lng, lat) => {
+        const ground = sample(lng, lat);
+        if (!Number.isFinite(ground)) blind = true;
+        return ground;
+    });
+    return blind ? null : top;
+}
+
 /** Disables every MapLibre gesture that would move the eye, and restores them. */
 function suspendMapGestures(map: MapLibreMap): () => void {
     const handlers = [
@@ -181,6 +193,8 @@ export function ViewpointController(): null {
     const leftBehind = useMapStore((s) => s.viewpointLeftBehind);
     /** The flight back out, still running when the mode may be re-entered. */
     const exitFlightRef = useRef<Flight | null>(null);
+    /** Where the click that chose the standpoint fell, for the snap to be redone on finer ground. */
+    const pickRef = useRef<{ click: { lng: number; lat: number }; standpoint: GroundPoint } | null>(null);
 
     // ── The standpoint just left, to pick the next one relative to it. ───────
     useEffect(() => {
@@ -209,6 +223,7 @@ export function ViewpointController(): null {
                 useMapStore.getState().setViewpointPicking(false);
                 return;
             }
+            pickRef.current = { click: { lng: e.lngLat.lng, lat: e.lngLat.lat }, standpoint };
             useMapStore.getState().setViewpoint({
                 lng: standpoint.lng,
                 lat: standpoint.lat,
@@ -264,6 +279,15 @@ export function ViewpointController(): null {
         // (see `settleOnGround`). Refining it in the store would restart this
         // effect on every correction.
         const eye = { ...viewpoint };
+        // A standpoint picked from an overview was snapped on whatever the overview
+        // drew (z10–11 tiles from z12); redone as finer DEM arrives (`snapOnFinerGround`).
+        const pick = pickRef.current;
+        pickRef.current = null;
+        let snapAround = pick?.standpoint.lng === viewpoint.lng && pick.standpoint.lat === viewpoint.lat
+            ? pick.click
+            : null;
+        /** Terrain zoom of the DEM the standpoint was last snapped on, −1 before the first. */
+        let snapZoom = -1;
         // Height the eye holds above the ground; the arrows move it, and
         // `settleOnGround` reads it on every `idle` to know what it settles to.
         let eyeHeightM = useMapStore.getState().viewpointHeightM;
@@ -340,6 +364,8 @@ export function ViewpointController(): null {
          * the eye's own move had changed the tile set — a 573 m jump every `idle`.
          */
         const settleOnGround = () => {
+            // First: it may move the eye, whose ground the rest then reads.
+            snapOnFinerGround();
             if (entry || !map.terrain) return;
             const at = map.painter.transform.getCameraLngLat();
             const ground = renderedGroundSampler(map.terrain)(at.lng, at.lat);
@@ -348,6 +374,30 @@ export function ViewpointController(): null {
             if (Math.abs(error) < 0.2) return;
             eye.altitude += error;
             apply();
+        };
+
+        /**
+         * Redo the pick-time snap on the finest DEM loaded over the whole disc around
+         * the click, each time a finer one is. From z12.3 above Chartreuse the drawn
+         * DEM was z10–11, and the top it found stood 11 m under the one z17 shows
+         * 27 m away — ground over the eye's feet, which the near plane assumes away.
+         * Not the drawn surface: the part of the disc behind the eye is not drawn.
+         */
+        const snapOnFinerGround = () => {
+            if (!snapAround || entry || !map.terrain) return;
+            const { maxzoom } = map.terrain.tileManager;
+            for (let zoom = maxzoom; zoom > snapZoom; zoom--) {
+                const top = snapOnEveryProbe(snapAround, loadedDemSampler(map.terrain, zoom));
+                if (!top) continue;
+                snapZoom = zoom;
+                if (zoom === maxzoom) snapAround = null;
+                if (top.lng === eye.lng && top.lat === eye.lat) return;
+                eye.lng = top.lng;
+                eye.lat = top.lat;
+                eye.altitude = top.ground + eyeHeightM;
+                apply();
+                return;
+            }
         };
 
         // Up/down arrows lift the standpoint, the one thing the mode otherwise

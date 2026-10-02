@@ -55,6 +55,20 @@ export function demSampler(terrain: MapTerrain): GroundSampler {
 }
 
 /**
+ * Ground read from the DEM tile of exactly `zoom` (a terrain render zoom), NaN
+ * where that tile is not loaded — unlike {@link demSampler}, never from an
+ * ancestor standing in for it.
+ */
+export function loadedDemSampler(terrain: MapTerrain, zoom: number): GroundSampler {
+    return (lng, lat) => {
+        const at = new LngLat(lng, lat);
+        const { tileID } = terrain._getOverscaledTileIDFromLngLatZoom(at, zoom);
+        if (!terrain.tileManager.getSourceTile(tileID, false)?.dem) return Number.NaN;
+        return terrain.getElevationForLngLatZoom(at, zoom);
+    };
+}
+
+/**
  * Where a direction at infinity lands on screen, in CSS pixels, or null when it
  * points behind the camera.
  *
