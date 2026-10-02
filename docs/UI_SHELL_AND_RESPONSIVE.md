@@ -434,6 +434,19 @@ ne dépasse les pieds de l'observateur de plus de 0,5 m — il reste 1,20 m de d
 
 Un lien de partage n'est **pas** recalé : son `vp` est déjà un point de station.
 
+Au clic, le MNT est celui que la vue d'ensemble dessine : depuis z12,3 au-dessus de la
+Chartreuse, des tuiles **z10–11**. Le point haut qu'il donne n'est pas celui du sol que l'œil
+survole ensuite : mesuré sur douze clics, jusqu'à 29 m d'écart, et au clic 5,778° E,
+45,275° N, un sol z17 qui monte à **9,2 m au-dessus des pieds** de l'œil à 27 m de lui — la
+pente lui entaillait le cadre et contredisait la garantie dont le plan de coupe proche est
+déduit. Une fois posé, le recalage est donc **refait** à chaque `idle`, autour du point
+cliqué, sur le MNT le plus fin chargé sur **tout** le disque (`loadedDemSampler`, qui ne
+lit que les tuiles du zoom demandé et jamais un ancêtre), tant qu'un niveau plus fin que le
+précédent s'y complète. Pas sur la surface dessinée : la part du disque derrière l'œil
+n'est pas dessinée (34 sondes sur 98 dans l'exemple). Au même clic, l'œil se déplace de
+19 m et monte de 11 m au premier `idle` après l'atterrissage, et le sol le plus haut du
+disque n'est plus qu'à 0,9 m au-dessus de ses pieds.
+
 Mesuré : au pied de la barre de Chamechaude, l'œil monte de 117 m pour 50 m de
 déplacement et ouvre sur le panorama ; sur une pente à 60 % au-dessus de Chamrousse, il
 gagne 34 m mais le versant continue au-delà du disque et remplit encore le cadre face à la
@@ -837,6 +850,11 @@ un appui sur la carte, qu'un panneau déroulé recouvrirait pour un tiers.
 - Le recalage au point haut peut **franchir une barre** : au pied de Chamechaude il monte
   de 117 m pour 50 m. Voulu pour un panorama, surprenant si l'on visait le pied de la
   falaise.
+- Choisi depuis une vue d'ensemble, le point de station **saute** une fois posé (19 m et
+  11 m dans l'exemple de « Le point de station »), quand le recalage est refait sur un MNT
+  plus fin. Ce MNT plus fin ne couvre pas toujours le disque : les tuiles fines derrière
+  l'œil ne sont pas chargées, et le recalage s'arrête alors au zoom le plus fin complet
+  (z13 dans l'exemple, où le sol z17 dépasse encore les pieds de 0,9 m).
 - Le sol **proche** est volontairement moins texturé qu'ailleurs dans l'application :
   le mode réalloue le budget des tuiles vers le maillage (voir « Le pavage du mode »
   plus haut). À incidence rasante c'est un bon change, mais un panorama cadré sur un

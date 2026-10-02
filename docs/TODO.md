@@ -34,10 +34,6 @@ est retirée.
       choix : signaler en amont avec les mesures, ou remplacer `dragPan`/`scrollZoom` au-delà
       de ~88° par un déplacement le long du cap. Mesures : `UI_SHELL_AND_RESPONSIVE.md`,
       *Limitations techniques*.
-- [ ] Recaler le point de station sur un MNT assez fin : il lit `queryTerrainElevation` au
-      zoom du clic, et depuis une vue d'ensemble (z12–13) le « point haut » est souvent
-      juste le bord amont du disque. Pistes : sonder au zoom du MNT le plus fin chargé, ou
-      élargir le rayon quand le maximum tombe sur le bord.
 - [ ] Rejeter le recalage d'ancre de `build-peaks.mjs` quand la marche a traversé un col :
       une cote fausse l'emmène sur le mauvais sommet (Le Grand Manti, 355 m), et le
       contrôle de sommet ne l'attrape pas — une cote trop haute n'a aucun sol au-dessus
