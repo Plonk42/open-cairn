@@ -191,6 +191,12 @@ Ce qu'il faut savoir des couches :
   (« Massif de la Chartreuse », « les Grandes Rousses ») : **la présence d'une altitude,
   quelle qu'en soit la source**, est exactement ce qui distingue les deux, donc elles ne
   sont retenues que dans ce cas. 7 338 noms de zone sont écartés à ce titre.
+  Les `Sommet` n'en sont pas tout à fait exempts : 22 portent un nom de massif
+  (« Chaîne de Belledonne », rang 2, s'étiquetait comme un sommet depuis Chamechaude ;
+  « Massif d'Allevard », « Chaîne des Alpilles »…). Un nom qui commence par « Chaîne » ou
+  « Massif » (`AREA_NAME`) suit donc la règle des natures de zone, quelle que soit sa
+  nature : retenu seulement avec une altitude. 16 sont écartés ; « Chaîne de l'Avocat »
+  (1015 m), « Massif de Fontfroide » (224 m) et sept autres, qui en ont une, restent.
 - `importance` est une **chaîne** `'1'` à `'6'` (notoriété décroissante) ; la comparaison
   CQL doit donc être faite entre chaînes. Open-cairn s'arrête à `'5'`. Il s'arrêtait à
   `'4'`, en tenant le reste pour des bosses locales, mais le classement n'est pas une
